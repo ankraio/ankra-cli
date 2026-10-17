@@ -27,7 +27,8 @@ the grantee, its role and scope, and the commands that fix it.
 Checks that could not be evaluated are listed after the findings, so a short
 list is never read as a clean one. A grant absent from both lists passed
 every check. Grantee emails appear only when you hold kube_access.manage;
-otherwise the grantee is shown by its Ankra user id.
+otherwise the grantee is shown by its Ankra user id. A service account,
+which has no email, is shown as "service account <name>".
 
 If the platform leaves the summary (or one of its always-sent counts), the
 findings or the unknowns out of its answer, that part reads "not reported", whatever was reported is still
@@ -49,7 +50,8 @@ The same summary line is the Access column of 'ankra security clusters'.`,
 		if rendered, err := renderStructured(cmd, posture); rendered || err != nil {
 			return err
 		}
-		return renderSecurityAccessPosture(cmd.OutOrStdout(), strings.TrimSpace(clusterFlag), posture)
+		return renderSecurityAccessPosture(cmd.OutOrStdout(), strings.TrimSpace(clusterFlag), posture,
+			granteeLabelsForFindings(posture.Findings))
 	},
 }
 
@@ -122,9 +124,20 @@ func accessSeverityOrder(severity string) int {
 	return len(accessSeverityRank)
 }
 
-func accessGrantee(finding client.SecurityClusterAccessFinding) string {
-	if finding.UserEmail != nil && strings.TrimSpace(*finding.UserEmail) != "" {
-		return *finding.UserEmail
+// granteeLabelsForFindings names the service principals among the findings'
+// grantees; the roster is read only when a finding has no grantee email.
+func granteeLabelsForFindings(findings []client.SecurityClusterAccessFinding) map[string]string {
+	for _, finding := range findings {
+		if finding.UserEmail == nil || strings.TrimSpace(*finding.UserEmail) == "" {
+			return servicePrincipalLabels(effectiveOrganisationID())
+		}
+	}
+	return nil
+}
+
+func accessGrantee(finding client.SecurityClusterAccessFinding, labels map[string]string) string {
+	if label, named := granteeLabel(finding.UserEmail, finding.AnkraUserID, labels); named {
+		return label
 	}
 	return "user " + finding.AnkraUserID
 }
@@ -144,7 +157,7 @@ func accessScopeText(scope string, namespace *string) string {
 // when the platform left part of the document unreported (a null summary,
 // findings or unknowns list): whatever was reported is still printed, but
 // the read cannot be taken as passed, so the command exits non-zero.
-func renderSecurityAccessPosture(out io.Writer, clusterLabel string, posture *client.SecurityClusterAccessPosture) error {
+func renderSecurityAccessPosture(out io.Writer, clusterLabel string, posture *client.SecurityClusterAccessPosture, labels map[string]string) error {
 	if clusterLabel == "" {
 		clusterLabel = posture.ClusterID
 	}
@@ -191,7 +204,7 @@ func renderSecurityAccessPosture(out io.Writer, clusterLabel string, posture *cl
 				title = finding.Check
 			}
 			_, _ = fmt.Fprintf(out, "\n%s  %s (%s)\n", severityCell(finding.Severity), title, finding.Check)
-			_, _ = fmt.Fprintf(out, "  grant %s · %s · %s, %s\n", finding.GrantID, accessGrantee(finding), finding.Role, accessScopeText(finding.Scope, finding.Namespace))
+			_, _ = fmt.Fprintf(out, "  grant %s · %s · %s, %s\n", finding.GrantID, accessGrantee(finding, labels), finding.Role, accessScopeText(finding.Scope, finding.Namespace))
 			if finding.Detail != "" {
 				_, _ = fmt.Fprintf(out, "  %s\n", finding.Detail)
 			}

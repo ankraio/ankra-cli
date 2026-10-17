@@ -9,6 +9,8 @@ import (
 )
 
 func TestSuggestAccessOnKubeTokenDenied(t *testing.T) {
+	// A client that cannot tell who the caller is: the hint names both ways.
+	setMockClient(t, baseMock{})
 	original := client.NewUnexpectedResponseError(403, `kube token request failed: status 403, body: {"detail":"You do not have access to this cluster"}`)
 	err := suggestAccessOnKubeTokenDenied(original, "arm64-build")
 

@@ -74,6 +74,15 @@ func exitCodeFor(err error) int {
 	if errors.As(err, &accessRefusal) && accessRefusal.PolicyRefusal() {
 		return exitUsage
 	}
+	// A revoke the platform refused because the grant comes from the
+	// member's organisation role (409) is the same class: retrying, logging
+	// in again or a stronger role cannot change it, and the way out is a
+	// different request (change the member's role), so it is a usage error
+	// rather than the generic failure a script may retry.
+	var roleGrant *client.ClusterAccessRoleGrantError
+	if errors.As(err, &roleGrant) {
+		return exitUsage
+	}
 	// RBAC denials (403 permission_denied, with or without a named
 	// permission, and the cluster access routes' admin-only sentences) are a
 	// role problem, not a credential problem: re-authenticating won't help,

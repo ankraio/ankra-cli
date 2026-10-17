@@ -63,7 +63,8 @@ func (warning *tokenExpiryWarning) observe(response *http.Response) {
 // token expires and what to do. It never carries the token.
 func tokenExpiryWarningLine(expiresAt time.Time, remaining time.Duration) string {
 	return fmt.Sprintf("Warning: the Ankra API token in use %s (%s). "+
-		"Run `ankra tokens rotate <id>` to renew it (find the id with `ankra tokens list`; add --service for a service token), "+
+		"Run `ankra tokens rotate <id>` to renew it (find the id with `ankra tokens list`; for a service token, "+
+		"`ankra tokens list --service` and `ankra tokens rotate <id> --service`), "+
 		"or run `ankra login`.",
 		DescribeTokenExpiry(remaining), expiresAt.UTC().Format("2006-01-02 15:04 UTC"))
 }

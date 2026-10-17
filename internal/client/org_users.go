@@ -15,6 +15,12 @@ type OrganisationUser struct {
 	Status      *string `json:"status"`
 	Role        *string `json:"role"`
 	UserCurrent *bool   `json:"user_current"`
+	// ServicePrincipalKind and ServicePrincipalName say a member is a
+	// machine identity (kind "service_account", or the board agent) and
+	// what it is called; both are nil for a person and from a platform
+	// that predates them.
+	ServicePrincipalKind *string `json:"service_principal_kind"`
+	ServicePrincipalName *string `json:"service_principal_name"`
 }
 
 // ListOrganisationUsers returns the organisation's members with their

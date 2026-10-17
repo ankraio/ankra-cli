@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"ankra/internal/client"
@@ -48,6 +49,11 @@ kubeconfig add' writes it automatically). An entry written without --org still
 works: a cluster ID the selected organisation does not have is looked up
 across the organisations you belong to, and the token is minted against the
 one that owns it. Your selected organisation is not changed.
+
+It authenticates like every ankra command: a --token flag, else the saved
+'ankra login' in ~/.ankra.yaml (or --config), else ANKRA_API_TOKEN from the
+environment kubectl runs it in. See 'ankra cluster kubeconfig add --help' for
+what that means for automation.
 
 kubectl runs this on every command, so the token is cached on disk (readable
 only by you) and reused while it has more than two minutes left and was minted
@@ -122,8 +128,10 @@ func explainKubeTokenNotFound(err error, clusterRef, clusterID string) error {
 // suggestAccessOnKubeTokenDenied decorates a kube-token mint failure. A 403
 // from the token endpoint means the caller has no access grant on the cluster
 // (the gateway's per-user access check), not bad credentials — re-login won't
-// help, but an organisation admin running 'ankra cluster access grant' will,
-// so the error points at that command. Every other error passes through
+// help. A person needs an organisation admin to run 'ankra cluster access
+// grant'; a service account has no email to grant to, so it elevates itself
+// with its own token. The hint names the command for whichever the caller
+// is, or both when that cannot be told. Every other error passes through
 // untouched, and the original error stays in the chain so exit-code
 // classification is unchanged.
 func suggestAccessOnKubeTokenDenied(err error, clusterRef string) error {
@@ -131,7 +139,61 @@ func suggestAccessOnKubeTokenDenied(err error, clusterRef string) error {
 	if !errors.As(err, &unexpected) || unexpected.StatusCode != http.StatusForbidden {
 		return err
 	}
-	return fmt.Errorf("%w\nYou have no access grant on this cluster. Ask an organisation admin to add one, then retry:\n  ankra cluster access grant <your-email> --cluster %s --role view", err, clusterRef)
+	grant := fmt.Sprintf("  ankra cluster access grant <your-email> --cluster %s --role view", clusterRef)
+	elevate := fmt.Sprintf("  ankra cluster access elevate --cluster %s --role view --expires 1h --reason \"<why>\"", clusterRef)
+	switch callerPrincipalKind() {
+	case callerIsPerson:
+		return fmt.Errorf("%w\nYou have no access grant on this cluster. Ask an organisation admin to add one, then retry:\n%s", err, grant)
+	case callerIsServicePrincipal:
+		return fmt.Errorf("%w\nThis service account has no access grant on this cluster. It has no email to grant to: "+
+			"give it time-boxed access with its own token (needs kube_access.elevate), then retry:\n%s", err, elevate)
+	default:
+		return fmt.Errorf("%w\nYou have no access grant on this cluster. A person asks an organisation admin to add one, then retries:\n%s\n"+
+			"A service account token gives itself time-boxed access (needs kube_access.elevate), then retries:\n%s", err, grant, elevate)
+	}
+}
+
+// callerKind is who the CLI's credential belongs to, as far as the
+// organisation's member list tells.
+type callerKind int
+
+const (
+	callerUnknown callerKind = iota
+	callerIsPerson
+	callerIsServicePrincipal
+)
+
+// callerPrincipalKind reads the caller's own row of the organisation's
+// member list. It runs only on an already failing mint, so the one extra
+// read costs nothing on the kubectl hot path; any failure to tell is
+// callerUnknown, never a guess. A row without a principal kind is a person
+// only when it carries an email, because a platform that predates the kind
+// field shows a service account as a member with neither.
+func callerPrincipalKind() callerKind {
+	if apiClient == nil {
+		return callerUnknown
+	}
+	organisationID := effectiveOrganisationID()
+	if organisationID == "" {
+		return callerUnknown
+	}
+	members, err := apiClient.ListOrganisationUsers(organisationID)
+	if err != nil {
+		return callerUnknown
+	}
+	for _, member := range members {
+		if member.UserCurrent == nil || !*member.UserCurrent {
+			continue
+		}
+		switch {
+		case member.ServicePrincipalKind != nil && strings.TrimSpace(*member.ServicePrincipalKind) != "":
+			return callerIsServicePrincipal
+		case member.Email != nil && strings.TrimSpace(*member.Email) != "":
+			return callerIsPerson
+		}
+		return callerUnknown
+	}
+	return callerUnknown
 }
 
 // kubeTokenClusterReference picks the most readable cluster reference for the

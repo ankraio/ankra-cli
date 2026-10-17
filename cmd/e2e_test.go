@@ -1434,6 +1434,14 @@ func (m baseMock) RotateServiceToken(tokenID string, overlapHours *int) (*client
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListServiceTokens() ([]client.ServiceToken, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateServiceToken(client.CreateServiceTokenRequest) (*client.CreateServiceTokenResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) StreamChat(clusterID *string, chatReq client.ChatRequest) (<-chan client.ChatStreamEvent, error) {
 	return nil, errors.New("not implemented")
 }
