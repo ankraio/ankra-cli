@@ -200,6 +200,36 @@ func ClusterAccessResponseError(operation string, statusCode int, body []byte) e
 	return accessResponseError(operation, statusCode, body)
 }
 
+// ClusterAccessRoleGrantError is a revoke the platform refused (409) because
+// the grant comes from the member's organisation role: the role sync would
+// re-create it, so the platform keeps it and names the role as the way to
+// remove it. Error() is the platform's sentence; the chain carries the
+// *UnexpectedResponseError (status 409). Nothing about the caller's
+// credentials, role or timing changes the answer, so retrying never helps.
+type ClusterAccessRoleGrantError struct {
+	response error
+}
+
+func (e *ClusterAccessRoleGrantError) Error() string { return e.response.Error() }
+
+func (e *ClusterAccessRoleGrantError) Unwrap() error { return e.response }
+
+// revokeResponseError is accessResponseError for the revoke route, where a
+// 409 has exactly one cause: the grant comes from an organisation role.
+func revokeResponseError(statusCode int, body []byte) error {
+	refused := accessResponseError("revoke access grant failed", statusCode, body)
+	if statusCode == http.StatusConflict {
+		return &ClusterAccessRoleGrantError{response: refused}
+	}
+	return refused
+}
+
+// ClusterAccessRevokeResponseError is revokeResponseError for callers outside
+// this package (the command tests build the platform's refusals with it).
+func ClusterAccessRevokeResponseError(statusCode int, body []byte) error {
+	return revokeResponseError(statusCode, body)
+}
+
 type CreateClusterAccessGrantResponse struct {
 	Grant ClusterAccessGrant `json:"grant"`
 }
@@ -291,7 +321,7 @@ func (c *Client) DeleteClusterAccessGrant(ctx context.Context, clusterID string,
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, accessResponseError("revoke access grant failed", resp.StatusCode, body)
+		return nil, revokeResponseError(resp.StatusCode, body)
 	}
 
 	var deleted DeleteClusterAccessGrantResponse

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -18,7 +19,12 @@ var tokensCmd = &cobra.Command{
 	Use:     "tokens",
 	Aliases: []string{"token"},
 	Short:   "Manage API tokens",
-	Long:    "Commands to list, create, rotate, revoke, and delete API tokens.",
+	Long: `Commands to list, create, rotate, revoke, and delete API tokens.
+
+By default they act on your personal tokens. --service on list, create and
+rotate acts on the organisation's service tokens instead: tokens that belong
+to a service account rather than a person, for pipelines and other
+automation. Listing and creating them needs the members.manage permission.`,
 }
 
 var tokenSortFields = []sortField[client.APIToken]{
@@ -30,6 +36,20 @@ var tokenSortFields = []sortField[client.APIToken]{
 	{"last-used", func(a, b client.APIToken) int { return compareTimeStringPtrs(a.LastUsedAt, b.LastUsedAt) }},
 }
 
+var serviceTokenSortFields = []sortField[client.ServiceToken]{
+	{"id", func(a, b client.ServiceToken) int { return compareFold(a.ID, b.ID) }},
+	{"name", func(a, b client.ServiceToken) int {
+		if byAccount := compareFold(a.AccountName, b.AccountName); byAccount != 0 {
+			return byAccount
+		}
+		return compareFold(a.Label, b.Label)
+	}},
+	{"status", func(a, b client.ServiceToken) int { return compareBools(a.Revoked, b.Revoked) }},
+	{"created", func(a, b client.ServiceToken) int { return compareTimeStrings(a.CreatedAt, b.CreatedAt) }},
+	{"expires", func(a, b client.ServiceToken) int { return compareTimeStrings(a.ExpiresAt, b.ExpiresAt) }},
+	{"last-used", func(a, b client.ServiceToken) int { return compareTimeStringPtrs(a.LastUsedAt, b.LastUsedAt) }},
+}
+
 var tokensListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all API tokens",
@@ -38,8 +58,19 @@ var tokensListCmd = &cobra.Command{
 A live token that expires within 7 days reads "Expiring" in the Status
 column and an expired one "Expired"; the Expires column shows the date and
 how many days are left. Renew an expiring token before it stops working with
-"ankra tokens rotate <id>".`,
+"ankra tokens rotate <id>".
+
+--service lists the organisation's service tokens instead, with the service
+account each belongs to and the role it holds; renew one with
+"ankra tokens rotate <id> --service". It needs members.manage (exit 7
+without it).`,
+	Example: `  ankra tokens list
+  ankra tokens list --service
+  ankra tokens list --service -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if isService, _ := cmd.Flags().GetBool("service"); isService {
+			return listServiceTokens(cmd)
+		}
 		sortTokens, err := resolveSort(cmd, tokenSortFields)
 		if err != nil {
 			return err
@@ -114,14 +145,98 @@ how many days are left. Renew an expiring token before it stops working with
 	},
 }
 
+// listServiceTokens is 'ankra tokens list --service'.
+func listServiceTokens(cmd *cobra.Command) error {
+	sortTokens, err := resolveSort(cmd, serviceTokenSortFields)
+	if err != nil {
+		return err
+	}
+	tokens, err := apiClient.ListServiceTokens()
+	if err != nil {
+		return fmt.Errorf("listing service tokens: %w", err)
+	}
+	if tokens == nil {
+		tokens = []client.ServiceToken{}
+	}
+	sortTokens(tokens)
+	if rendered, err := renderStructured(cmd, tokens); rendered || err != nil {
+		return err
+	}
+	if len(tokens) == 0 {
+		fmt.Println("No service tokens found. Create one with: ankra tokens create <service-account> --service --role <role>")
+		return nil
+	}
+
+	now := time.Now()
+	expiringSoon := 0
+	t := table.NewWriter()
+	t.SetOutputMirror(os.Stdout)
+	t.SetStyle(table.StyleRounded)
+	t.AppendHeader(table.Row{"ID", "Service account", "Label", "Role", "Status", "Expires", "Last Used"})
+	for _, tok := range tokens {
+		expiry := describeTokenExpiry(client.APIToken{ExpiresAt: tok.ExpiresAt, DaysLeft: tok.DaysLeft, Revoked: tok.Revoked}, now)
+		status := text.FgGreen.Sprint("Active")
+		switch {
+		case tok.Revoked:
+			status = text.FgRed.Sprint("Revoked")
+		case expiry.isExpired:
+			status = text.FgRed.Sprint("Expired")
+			expiringSoon++
+		case expiry.isExpiringSoon:
+			status = text.FgYellow.Sprint("Expiring")
+			expiringSoon++
+		}
+		// No live role assignment means the account was stood down: it
+		// still authenticates, at the viewer floor.
+		role := tok.RoleSlug
+		if role == "" {
+			role = "none"
+		}
+		lastUsed := "Never"
+		if tok.LastUsedAt != nil {
+			lastUsed = formatTimeAgo(*tok.LastUsedAt)
+		}
+		t.AppendRow(table.Row{tok.ID, tok.AccountName, tok.Label, role, status, expiry.text, lastUsed})
+	}
+	t.Render()
+	if expiringSoon > 0 {
+		fmt.Fprintf(os.Stderr, "%d service token(s) expired or expire within 7 days. Renew one with "+
+			"`ankra tokens rotate <id> --service`; the old token keeps working for a day while you update where it is used.\n", expiringSoon)
+	}
+	return nil
+}
+
 var tokensCreateCmd = &cobra.Command{
 	Use:   "create <name>",
 	Short: "Create a new API token",
-	Args:  cobra.ExactArgs(1),
+	Long: `Create a personal API token named <name>.
+
+With --service, <name> is a service account of the organisation instead, and
+the token belongs to that account rather than to you: it keeps working when
+you leave the organisation, and acts with the account's role, not yours.
+The account is created with --role when the organisation has none of that
+name; for an existing account --role must be the role it already holds.
+--label names the token itself (default: a timestamp). The role may not
+carry permissions you lack, and creating one needs members.manage.
+
+The token value is shown once.`,
+	Example: `  ankra tokens create laptop --expires 2026-12-31T00:00:00Z
+  ankra tokens create ci-deployer --service --role member --label github-actions
+  ankra tokens create ci-deployer --service --role member --expires 2027-01-31T00:00:00Z -o json`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		expiresAt, _ := cmd.Flags().GetString("expires")
 		scopes, _ := cmd.Flags().GetStringSlice("scopes")
+		isService, _ := cmd.Flags().GetBool("service")
+		if isService {
+			return createServiceToken(cmd, name, expiresAt, scopes)
+		}
+		for _, serviceOnly := range []string{"role", "label"} {
+			if cmd.Flags().Changed(serviceOnly) {
+				return withExitCode(exitUsage, fmt.Errorf("--%s applies only to a service token: add --service", serviceOnly))
+			}
+		}
 
 		var expiresAtPtr *string
 		if expiresAt != "" {
@@ -155,6 +270,55 @@ var tokensCreateCmd = &cobra.Command{
 		fmt.Printf("  export ANKRA_API_TOKEN='%s'\n", result.Token)
 		return nil
 	},
+}
+
+// createServiceToken is 'ankra tokens create <account> --service'.
+func createServiceToken(cmd *cobra.Command, accountName string, expiresAt string, scopes []string) error {
+	role, _ := cmd.Flags().GetString("role")
+	label, _ := cmd.Flags().GetString("label")
+	if strings.TrimSpace(role) == "" {
+		return withExitCode(exitUsage, errors.New("--role is required with --service: the role the service account acts with (owner, admin, operator, member, viewer, or a custom role's slug)"))
+	}
+	request := client.CreateServiceTokenRequest{
+		Name:     accountName,
+		Label:    strings.TrimSpace(label),
+		RoleSlug: strings.TrimSpace(role),
+		Scopes:   scopes,
+	}
+	if trimmed := strings.TrimSpace(expiresAt); trimmed != "" {
+		if _, parseError := time.Parse(time.RFC3339, trimmed); parseError != nil {
+			return withExitCode(exitUsage, fmt.Errorf("invalid --expires %q: a service token takes an RFC 3339 time, such as 2027-01-31T00:00:00Z", expiresAt))
+		}
+		request.ExpiresAt = &trimmed
+	}
+
+	created, err := apiClient.CreateServiceToken(request)
+	if err != nil {
+		return fmt.Errorf("creating service token: %w", err)
+	}
+	if rendered, err := renderStructured(cmd, created); rendered || err != nil {
+		return err
+	}
+
+	fmt.Printf("Service token created for service account %q (role %s).\n", created.AccountName, created.RoleSlug)
+	fmt.Println()
+	fmt.Printf("  ID:      %s\n", created.ID)
+	fmt.Printf("  Label:   %s\n", created.Label)
+	fmt.Printf("  Expires: %s\n", formatTokenDate(created.ExpiresAt))
+	fmt.Println()
+	fmt.Println("Token (save this, it won't be shown again):")
+	fmt.Printf("  %s\n", created.Token)
+	fmt.Println()
+	if len(scopes) > 0 {
+		fmt.Println("Use this token only with the Ankra MCP server:")
+		fmt.Println("  URL: https://platform.ankra.app/api/v1/mcp")
+		fmt.Printf("  Authorization: Bearer %s\n", created.Token)
+		return nil
+	}
+	fmt.Println("To use it, set it as ANKRA_API_TOKEN where the automation runs:")
+	fmt.Printf("  export ANKRA_API_TOKEN='%s'\n", created.Token)
+	fmt.Println("List and renew it with: ankra tokens list --service / ankra tokens rotate <id> --service")
+	return nil
 }
 
 var tokensRevokeCmd = &cobra.Command{
@@ -402,9 +566,14 @@ func parseTokenTimestamp(raw string) (time.Time, bool) {
 }
 
 func init() {
-	tokensCreateCmd.Flags().String("expires", "", "Token expiration date (ISO 8601 format)")
+	tokensCreateCmd.Flags().String("expires", "", "Token expiration date (ISO 8601 format; RFC 3339 with --service)")
 	tokensCreateCmd.Flags().StringSlice("scopes", nil,
 		"MCP access scopes: mcp:read or mcp:read,mcp:write; omitted creates a REST-only token")
+	tokensCreateCmd.Flags().Bool("service", false, "Create an organisation service token for the service account <name> instead of a personal token")
+	tokensCreateCmd.Flags().String("role", "", "Role the service account acts with (required with --service)")
+	tokensCreateCmd.Flags().String("label", "", "Name of the service token itself (with --service; default: a timestamp)")
+
+	tokensListCmd.Flags().Bool("service", false, "List the organisation's service tokens instead of your personal tokens")
 
 	tokensRotateCmd.Flags().Bool("service", false, "Rotate an organisation service token instead of a personal token")
 	tokensRotateCmd.Flags().Int("overlap-hours", rotateDefaultOverlapHours,

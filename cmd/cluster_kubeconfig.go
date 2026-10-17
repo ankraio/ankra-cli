@@ -60,7 +60,36 @@ Examples:
 var clusterKubeconfigAddCmd = &cobra.Command{
 	Use:   "add [cluster]",
 	Short: "Add or update an Ankra context in your kubeconfig",
-	Args:  cobra.MaximumNArgs(1),
+	Long: `Add or update an Ankra context in your kubeconfig.
+
+The context's user is an exec credential plugin: on every kubectl command,
+kubectl runs 'ankra cluster kube-token --cluster <id> --org <organisation>'
+(the executable is --exec-command) and uses the short-lived gateway token it
+prints. Pass --embed-token to write that token into the file instead; it
+stops working when it expires.
+
+Whose access kubectl gets is decided when kubectl runs the plugin, not when
+the context is added: kube-token authenticates like every ankra command,
+with the saved 'ankra login' in ~/.ankra.yaml first, and ANKRA_API_TOKEN from
+kubectl's environment only when there is no saved login. On a machine where
+a person ran 'ankra login', kubectl therefore acts as that person even when
+ANKRA_API_TOKEN holds a service account's token (kube-token prints a note
+on stderr when it ignores ANKRA_API_TOKEN this way).
+
+Automation that should act as a service account must run kubectl where
+nothing is logged in (no ~/.ankra.yaml for that user, or HOME pointing at a
+clean directory) and export the service token as ANKRA_API_TOKEN in the
+environment kubectl runs in. Without a grant, a service account gives
+itself time-boxed access with 'ankra cluster access elevate'.`,
+	Example: `  ankra cluster kubeconfig add my-cluster --use
+  ankra cluster kubeconfig add --all
+  ankra cluster kubeconfig add my-cluster --print > my-cluster.yaml
+
+  # CI, acting as a service account:
+  export ANKRA_API_TOKEN="$SERVICE_TOKEN"
+  ankra cluster kubeconfig add my-cluster --use
+  kubectl get pods`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := applyKubeconfigPositionalCluster(args); err != nil {
 			return err
