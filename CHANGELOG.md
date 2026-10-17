@@ -1,5 +1,19 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra ai memories list` and `ankra ai memories clear` show and delete
+  what the assistant remembers about you.** Ankra's chat stores short facts
+  from your conversations and recalls them into later ones; until now they
+  were only visible in the portal. `list` prints your memories newest first
+  (`--limit` up to 200, and it says when there may be more), and `clear`
+  deletes all of yours in the current organisation after a confirmation
+  (`--yes` to skip it). Both act on your own memories only and take `-o
+  json|yaml`. A platform without the token routes (ankraio/cluster#4859) is
+  named as such instead of reading as "no memories".
+
 ## v0.39.0 — 2026-10-17
 
 ### Added

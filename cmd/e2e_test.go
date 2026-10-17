@@ -5115,6 +5115,14 @@ func (m baseMock) GetAIRemediationPolicy() (*client.AIRemediationPolicy, error) 
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListAIMemories(limit int) ([]client.AIMemory, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ClearAIMemories() (int, error) {
+	return 0, errors.New("not implemented")
+}
+
 func (baseMock) ListAzureCredentials() ([]client.AzureCredentialListItem, error) {
 	return nil, nil
 }
