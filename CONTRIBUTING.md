@@ -39,7 +39,10 @@ make lint         # golangci-lint run
 git does not read `.githooks/` unless `core.hooksPath` points at it, so until
 you run it your commits go through with no gate and no warning. Run it once
 per clone (it is idempotent, and `git config core.hooksPath` tells you whether
-a clone already has it).
+a clone already has it). Keep the value relative, as `make hooks` writes it:
+git resolves a relative `core.hooksPath` per worktree, so each worktree runs
+its own branch's hook, while an absolute path makes every worktree run one
+checkout's copy.
 
 The hook then runs `go test` for the packages the commit changes (every
 package when `go.mod` or `go.sum` changes) and lints those same packages,
