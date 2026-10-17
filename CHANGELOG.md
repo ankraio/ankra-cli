@@ -1,5 +1,31 @@
 # Ankra CLI Changelog
 
+## v0.39.0 — 2026-10-17
+
+### Added
+
+- **`ankra pipeline cancel --force` and `ankra application pipeline cancel
+  --force` skip a cancelled run's finally stages.** The platform now runs a
+  started run's `finally:` stages after a cancel, before the run concludes
+  cancelled (ankraio/cluster#4856). `--force` (`?force=true`) skips them, so
+  the run concludes at once; on a run that is already cancelling it stops the
+  finally stages still running. Cancelling a cancelling run again without
+  `--force` is refused by the platform. The cancel help says all of this.
+
+### Changed
+
+- **A cancelled run running its finally stages reads "cancelling".** Its
+  status is still `running`, which hid that it had been stopped; `pipeline
+  list`, `pipeline get` and the cancel message now say "cancelling", and the
+  cancel prints `Run #N cancelled; running its finally stages before it
+  concludes (use --force to skip them)`. In `-o json` / `-o yaml` every
+  pipeline run gains a `cancelling` boolean; no other key changes, and a
+  platform too old to send it reads as `false`.
+- **The ankra-ship and ankra-cicd skills say `finally` runs after a cancel**,
+  within a 15-minute budget, and that `ankra pipeline cancel --force` skips
+  it. They used to say a cancelled run runs neither `on_failure` nor
+  `finally`. Run `ankra skills install` to pick up the new text.
+
 ## v0.38.0 — 2026-10-17
 
 ### Added
