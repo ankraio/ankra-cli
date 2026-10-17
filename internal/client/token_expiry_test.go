@@ -91,3 +91,15 @@ func TestDescribeTokenExpiryRoundsDown(t *testing.T) {
 		}
 	}
 }
+
+// TestTokenExpiryWarningNamesCommandsThatExist pins the service-token half of
+// the warning to commands the CLI has: v0.37.0 said "add --service" next to
+// `ankra tokens list`, which had no such flag.
+func TestTokenExpiryWarningNamesCommandsThatExist(t *testing.T) {
+	line := tokenExpiryWarningLine(time.Date(2026, 10, 18, 13, 0, 0, 0, time.UTC), 3*24*time.Hour)
+	for _, want := range []string{"`ankra tokens list --service`", "`ankra tokens rotate <id> --service`"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("warning lacks %s: %q", want, line)
+		}
+	}
+}

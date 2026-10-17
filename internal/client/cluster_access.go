@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -200,6 +201,43 @@ func ClusterAccessResponseError(operation string, statusCode int, body []byte) e
 	return accessResponseError(operation, statusCode, body)
 }
 
+// ClusterAccessRoleGrantError is a revoke the platform refused (409) because
+// the grant comes from the member's organisation role: the role sync would
+// re-create it, so the platform keeps it and names the role as the way to
+// remove it. Error() is the platform's sentence; the chain carries the
+// *UnexpectedResponseError (status 409). Nothing about the caller's
+// credentials, role or timing changes the answer, so retrying never helps.
+type ClusterAccessRoleGrantError struct {
+	response error
+}
+
+func (e *ClusterAccessRoleGrantError) Error() string { return e.response.Error() }
+
+func (e *ClusterAccessRoleGrantError) Unwrap() error { return e.response }
+
+// roleGrantRefusalMarker is the part of the platform's 409 sentence
+// (clusteraccess.RoleGrantNotRevocableDetail) that names the cause.
+const roleGrantRefusalMarker = "comes from the member's organisation role"
+
+// revokeResponseError is accessResponseError for the revoke route. Today a
+// 409 there has one cause, the grant coming from an organisation role, but
+// the status alone is not trusted to mean it: a 409 whose sentence does not
+// name the role stays a plain failure (exit 1) with the platform's words,
+// rather than telling the caller to change a member's role.
+func revokeResponseError(statusCode int, body []byte) error {
+	refused := accessResponseError("revoke access grant failed", statusCode, body)
+	if statusCode == http.StatusConflict && strings.Contains(refused.Error(), roleGrantRefusalMarker) {
+		return &ClusterAccessRoleGrantError{response: refused}
+	}
+	return refused
+}
+
+// ClusterAccessRevokeResponseError is revokeResponseError for callers outside
+// this package (the command tests build the platform's refusals with it).
+func ClusterAccessRevokeResponseError(statusCode int, body []byte) error {
+	return revokeResponseError(statusCode, body)
+}
+
 type CreateClusterAccessGrantResponse struct {
 	Grant ClusterAccessGrant `json:"grant"`
 }
@@ -291,7 +329,7 @@ func (c *Client) DeleteClusterAccessGrant(ctx context.Context, clusterID string,
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, accessResponseError("revoke access grant failed", resp.StatusCode, body)
+		return nil, revokeResponseError(resp.StatusCode, body)
 	}
 
 	var deleted DeleteClusterAccessGrantResponse

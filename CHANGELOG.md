@@ -1,5 +1,46 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra tokens list --service` and `ankra tokens create <account> --service
+  --role <role>` manage the organisation's service tokens.** Until now only
+  `tokens rotate --service` existed, so finding a service token's id meant the
+  portal, and the token expiry warning pointed at a `tokens list --service`
+  that was an unknown flag. The listing shows each token's service account,
+  label, role (none when the account was stood down), status and expiry;
+  `create` mints a token for the named service account, creating the account
+  with `--role` when there is none of that name, and shows the value once.
+  Both need `members.manage` and exit 7 without it.
+
+### Fixed
+
+- **Revoking a grant that comes from an organisation role says it was not
+  revoked, and exits 2.** Since the platform refuses that revoke (HTTP 409:
+  change the member's role, or the role's Kubernetes access), v0.37.0's
+  `cluster access --help`, `revoke --help` and the `list` footer still said
+  the revoke worked and the role sync undid it, and the command exited 1 like
+  a transient failure. The help and footer now say a role grant cannot be
+  revoked here; `revoke <email>` revokes the member's other grants, then
+  names the kept role grants and exits 2, so a script never reads the
+  member's access as gone while a role grant remains.
+- **`cluster access list` and `security access` name a service account.** A
+  grant held by a service account has no email, so it showed as a bare user
+  id; it now reads "service account <name>", from the organisation's member
+  list. A grantee the member list cannot name keeps its id.
+- **kubectl's "no access grant" hint fits a service account.** With no grant,
+  the kubeconfig credential plugin told everyone to `grant <your-email>`,
+  which a service account cannot use. It now points a service account at
+  `ankra cluster access elevate`, a person at `grant`, and names both when it
+  cannot tell which the token belongs to.
+- **`cluster kubeconfig add --help` says whose access kubectl gets.** The
+  credential plugin runs `ankra cluster kube-token`, which uses the saved
+  `ankra login` in `~/.ankra.yaml` first and `ANKRA_API_TOKEN` from kubectl's
+  environment only when nothing is logged in. Automation that should act as a
+  service account must run where no one is logged in and export the service
+  token as `ANKRA_API_TOKEN`; the help now says so, with an example.
+
 ## v0.37.0 — 2026-10-17
 
 ### Fixed

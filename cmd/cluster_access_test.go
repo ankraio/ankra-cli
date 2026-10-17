@@ -516,22 +516,6 @@ func TestClusterAccessListJSONKeepsNullOverPolicyAndSource(t *testing.T) {
 	}
 }
 
-func TestClusterAccessRevokeOfARoleGrantSaysTheRoleSyncRestoresIt(t *testing.T) {
-	resetAccessFlags(t)
-	role := "role"
-	fromRole := grantFixture("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "member@example.com", "view")
-	fromRole.Source = &role
-	mock := &clusterAccessMock{grants: []client.ClusterAccessGrant{fromRole}}
-	setMockClient(t, mock)
-
-	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "access", "revoke", "member@example.com", "--cluster", "my-cluster")
-	})
-	if !strings.Contains(stdoutOutput, "role sync re-creates it") {
-		t.Errorf("expected the role-sync hint, got: %s", stdoutOutput)
-	}
-}
-
 func TestClusterAccessElevateSaysWhenTheBindingLands(t *testing.T) {
 	resetAccessFlags(t)
 	mock := &clusterAccessMock{}

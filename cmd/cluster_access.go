@@ -47,6 +47,9 @@ cluster and one organisation member, identified by email. A grant can be
 time-boxed with --expires and carry a --reason; the organisation access
 policy ('ankra org access-policy') may require both.
 
+A service account has no email: 'list' names it "service account <name>",
+and it gets access with 'elevate', run with its own token.
+
 Break-glass: 'elevate' gives the caller itself time-boxed access, within the
 policy. It needs only the kube_access.elevate permission, so automation
 running as a service account can use it without being able to grant anyone
@@ -54,13 +57,16 @@ else.
 
 'list' shows where each grant came from (Source: manual, creator, role,
 elevated) and whether the current policy would refuse it today (Over policy).
-A grant whose source is "role" comes from the member's organisation role:
-revoking it is undone by the role sync, so change the member's role instead.
+A grant whose source is "role" comes from the member's organisation role and
+cannot be revoked here: the platform refuses it, because the role sync would
+re-create it. Change the member's role, or the role's Kubernetes access, to
+remove it.
 
 Exit codes:
   2  a flag is missing or invalid, or the organisation access policy refused
      the request (a role above the ceiling, a missing or too long --expires,
-     a missing --reason): change the flags and run it again
+     a missing --reason): change the flags and run it again. Also revoke of a
+     grant that comes from an organisation role: change the member's role
   3  the grant or member was not found on the cluster (revoke)
   6  the credentials are missing, expired or rejected: run 'ankra login'
   7  your role does not allow this (for example elevate without
@@ -101,7 +107,7 @@ var clusterAccessListCmd = &cobra.Command{
 			fmt.Println("No access grants found. Add one with: ankra cluster access grant <email> --role view")
 			return nil
 		}
-		renderGrantsTable(grants.Result)
+		renderGrantsTable(grants.Result, granteeLabelsForGrants(grants.Result))
 		return nil
 	},
 }
@@ -272,11 +278,14 @@ Pass a grant ID (from 'ankra cluster access list') to revoke a single grant,
 or an email address to revoke every grant that member has on the cluster.
 
 A grant whose Source is "role" in 'ankra cluster access list' comes from the
-member's organisation role: the role sync re-creates it after a revoke. To
-remove that access, change the member's role instead.
+member's organisation role and cannot be revoked here: the platform refuses
+it, because the role sync would re-create it. Change the member's role, or
+the role's Kubernetes access, to remove it. Revoking by email still revokes
+the member's other grants, then names the ones it kept and exits 2, so a
+script never reads the member's access as gone while a role grant remains.
 
-Exits 3 when no grant matches, and 7 when your role does not allow managing
-kubectl access.`,
+Exits 2 when a grant comes from an organisation role, 3 when no grant
+matches, and 7 when your role does not allow managing kubectl access.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		target := args[0]
@@ -290,23 +299,45 @@ kubectl access.`,
 			return err
 		}
 
+		var kept []string
+		var keptRefusal error
 		for _, grant := range grants {
-			if _, err := apiClient.DeleteClusterAccessGrant(context.Background(), clusterID, grant.ID); err != nil {
+			_, err := apiClient.DeleteClusterAccessGrant(context.Background(), clusterID, grant.ID)
+			var roleGrant *client.ClusterAccessRoleGrantError
+			if errors.As(err, &roleGrant) {
+				kept = append(kept, grant.ID)
+				if keptRefusal == nil {
+					keptRefusal = err
+				}
+				continue
+			}
+			if err != nil {
 				return err
 			}
 			fmt.Printf("Revoked grant %s\n", grant.ID)
-			if isRoleSourcedGrant(grant) {
-				fmt.Printf("  Grant %s came from the member's organisation role: the role sync re-creates it. Change the member's role to remove that access.\n", grant.ID)
-			}
 		}
-		return nil
+		return roleGrantsKeptError(kept, keptRefusal)
 	},
 }
 
+// roleGrantsKeptError reports the grants a revoke left because they come from
+// the member's organisation role. The platform's refusal stays in the chain,
+// so the command exits 2 (see exitCodeFor); nil when every grant was revoked.
+func roleGrantsKeptError(kept []string, refusal error) error {
+	switch len(kept) {
+	case 0:
+		return nil
+	case 1:
+		return fmt.Errorf("grant %s was not revoked: %w", kept[0], refusal)
+	default:
+		return fmt.Errorf("grants %s were not revoked: %w", strings.Join(kept, ", "), refusal)
+	}
+}
+
 // resolveGrantTargets turns revoke's argument into the grants to revoke. A
-// grant ID is taken as it is (only its ID is known, so no role hint is
-// printed for it); an email lists the cluster's grants and keeps that
-// member's, sources included.
+// grant ID is taken as it is; an email lists the cluster's grants and keeps
+// that member's, sources included. Whether a grant can be revoked is the
+// platform's answer (409 for a role grant), not decided from the listing.
 func resolveGrantTargets(clusterID string, target string) ([]client.ClusterAccessGrant, error) {
 	if isLikelyClusterID(target) {
 		return []client.ClusterAccessGrant{{ID: target}}, nil
@@ -387,17 +418,86 @@ func displayClusterReference() string {
 	return "<cluster>"
 }
 
-func renderGrantsTable(grants []client.ClusterAccessGrant) {
+// granteeLabelsForGrants names the service principals among the grantees.
+// The roster is read only when a grantee has no email, which is what a
+// service account looks like on a grant. One roster serves the whole list
+// because a listing is one cluster's grants, and the platform scopes it to
+// that cluster's organisation, so every row carries the same organisation
+// id. A grantee the roster does not name keeps its id.
+func granteeLabelsForGrants(grants []client.ClusterAccessGrant) map[string]string {
+	organisationID := ""
+	needed := false
+	for _, grant := range grants {
+		if grant.UserEmail == nil || strings.TrimSpace(*grant.UserEmail) == "" {
+			needed = true
+		}
+		if organisationID == "" {
+			organisationID = grant.OrganisationID
+		}
+	}
+	if !needed {
+		return nil
+	}
+	if organisationID == "" {
+		organisationID = effectiveOrganisationID()
+	}
+	return servicePrincipalLabels(organisationID)
+}
+
+// servicePrincipalLabels maps the Ankra user id of each service principal in
+// the organisation (lower-cased) to how a person reads it: "service account
+// ci-deployer". The grant and access posture payloads carry no name for a
+// grantee without an email, so the organisation's member list supplies it.
+// Best effort: a roster that cannot be read leaves every grantee shown by
+// its id, as before.
+func servicePrincipalLabels(organisationID string) map[string]string {
+	if organisationID == "" {
+		return nil
+	}
+	members, err := apiClient.ListOrganisationUsers(organisationID)
+	if err != nil {
+		return nil
+	}
+	labels := map[string]string{}
+	for _, member := range members {
+		if member.ID == nil || member.ServicePrincipalName == nil || strings.TrimSpace(*member.ServicePrincipalName) == "" {
+			continue
+		}
+		labels[strings.ToLower(*member.ID)] = servicePrincipalLabel(member.ServicePrincipalKind, *member.ServicePrincipalName)
+	}
+	return labels
+}
+
+// servicePrincipalLabel is "service account <name>", or "<kind> <name>" for
+// another kind of service principal.
+func servicePrincipalLabel(kind *string, name string) string {
+	kindText := "service account"
+	if kind != nil && strings.TrimSpace(*kind) != "" {
+		kindText = strings.ReplaceAll(strings.TrimSpace(*kind), "_", " ")
+	}
+	return kindText + " " + strings.TrimSpace(name)
+}
+
+// granteeLabel names a grantee: its email, else its service principal
+// name, else its Ankra user id.
+func granteeLabel(email *string, ankraUserID string, labels map[string]string) (string, bool) {
+	if email != nil && strings.TrimSpace(*email) != "" {
+		return *email, true
+	}
+	if label, found := labels[strings.ToLower(ankraUserID)]; found {
+		return label, true
+	}
+	return ankraUserID, false
+}
+
+func renderGrantsTable(grants []client.ClusterAccessGrant, labels map[string]string) {
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
 	t.SetStyle(table.StyleRounded)
 	t.AppendHeader(table.Row{"ID", "User", "Scope", "Namespace", "Role", "Source", "Expires", "Reason", "Over policy", "Status", "Created"})
 	roleSourced := false
 	for _, grant := range grants {
-		user := grant.AnkraUserID
-		if grant.UserEmail != nil {
-			user = *grant.UserEmail
-		}
+		user, _ := granteeLabel(grant.UserEmail, grant.AnkraUserID, labels)
 		namespace := "-"
 		if grant.Namespace != nil {
 			namespace = *grant.Namespace
@@ -427,7 +527,7 @@ func renderGrantsTable(grants []client.ClusterAccessGrant) {
 	}
 	t.Render()
 	if roleSourced {
-		fmt.Println(`Grants with source "role" come from the member's organisation role: a revoke is undone by the role sync, so change the member's role to remove that access.`)
+		fmt.Println(`Grants with source "role" come from the member's organisation role and cannot be revoked here: change the member's role, or the role's Kubernetes access, to remove that access.`)
 	}
 }
 
