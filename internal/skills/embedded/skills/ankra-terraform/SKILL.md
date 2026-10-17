@@ -24,6 +24,10 @@ terraform {
 provider "ankra" {
   project_id = var.ankra_project_id # required in organisations with more than one project
 }
+
+variable "ankra_project_id" {
+  type = string
+}
 ```
 
 - **`token`** or `ANKRA_TOKEN`: an Ankra API token (`ankra tokens create`). Prefer the environment variable, or a `sensitive` variable fed from the secret store; never a literal in committed HCL. If no token reaches a resource, it fails with `Missing API token` and sends no request.
@@ -87,6 +91,11 @@ resource "ankra_cluster_variable" "domain" {
   name       = "ingress_domain"
   value      = "apps.example.com"
 }
+
+variable "hcloud_token" {
+  type      = string
+  sensitive = true
+}
 ```
 
 ## Clusters
@@ -101,6 +110,11 @@ resource "ankra_cluster_variable" "domain" {
 ## `ankra_cluster` (an existing cluster and its Stacks)
 
 ```hcl
+resource "ankra_helm_registry" "traefik" {
+  name = "traefik"
+  url  = "https://traefik.github.io/charts"
+}
+
 resource "ankra_cluster" "prod" {
   cluster_name           = "my-cluster"
   github_credential_name = "my-github-credential"
