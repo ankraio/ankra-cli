@@ -14,6 +14,18 @@
   json|yaml`. A platform without the token routes (ankraio/cluster#4859) is
   named as such instead of reading as "no memories".
 
+- **`ankra pipeline get` shows how much CI time a run saved, and `ankra
+  pipeline time-saved` totals it.** Under the run's steps, a `Time saved`
+  line gives the platform's estimate of the CI time path filters and a
+  promoted publish kept the run from spending, with one line per skipped
+  stage saying why and what the estimate is based on. A stage with no
+  history is shown as unknown and never counted. `-o json|yaml` adds the
+  record as a new `time_saved` field and leaves every existing field as it
+  was. `ankra pipeline time-saved` totals the organisation, or one pipeline
+  with `--application` or `--repository`, over the last 30 days (`--window
+  7d` for 7). A platform without the routes (ankraio/cluster#4863)
+  prints nothing extra, and `time_saved` is null.
+
 ## v0.39.0 — 2026-10-17
 
 ### Added

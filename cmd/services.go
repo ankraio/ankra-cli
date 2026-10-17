@@ -959,6 +959,8 @@ type APIClient interface {
 	ListPipelineBranches(ctx context.Context, selector client.PipelineSelector, options client.ListPipelineBranchesOptions) (*client.PipelineBranchList, error)
 	CreatePipelineRun(ctx context.Context, selector client.PipelineSelector, request client.CreatePipelineRunRequest) (*client.CreatePipelineRunResult, error)
 	GetPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRunDetail, error)
+	GetPipelineRunTimeSaved(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRunTimeSaved, error)
+	GetPipelineTimeSavedSummary(ctx context.Context, selector client.PipelineSelector, window string) (*client.PipelineTimeSavedSummary, error)
 	RerunPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, failedOnly bool) (*client.CreatePipelineRunResult, error)
 	CancelPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, force bool) (*client.PipelineRun, error)
 	StreamPipelineStepLogs(ctx context.Context, selector client.PipelineSelector, runID string, stepID string, options client.StepLogStreamOptions) (<-chan client.PipelineLogEvent, error)
