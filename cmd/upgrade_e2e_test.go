@@ -41,6 +41,10 @@ func resetUpgradeCommandFlags(t *testing.T) {
 	reset(clusterEncryptAddonCmd)
 	reset(clusterDecryptManifestCmd)
 	reset(clusterDecryptAddonCmd)
+	reset(orgVariablesListCmd)
+	reset(orgVariablesGetCmd)
+	reset(orgVariablesSetCmd)
+	reset(orgVariablesRevealCmd)
 }
 
 const sampleIaCYAMLForCmd = `apiVersion: v1

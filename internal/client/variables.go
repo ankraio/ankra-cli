@@ -14,12 +14,15 @@ import (
 // OrganisationVariable mirrors the backend response shape for org-scoped
 // variables. The id/timestamps are included for round-trip listing; the CLI
 // surfaces only name/value/description by default but keeps them for -o json.
+// The backend never returns the value of a secret variable here (it is null,
+// so Value is empty); RevealOrganisationVariable reads it back.
 type OrganisationVariable struct {
 	ID             string    `json:"id"`
 	OrganisationID string    `json:"organisation_id"`
 	Name           string    `json:"name"`
 	Value          string    `json:"value"`
 	Description    string    `json:"description,omitempty"`
+	IsSecret       bool      `json:"is_secret"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
@@ -68,6 +71,33 @@ type updateVariableRequest struct {
 	Description string `json:"description,omitempty"`
 }
 
+// createOrganisationVariableRequest is the wire shape for organisation
+// variable create POSTs. is_secret is sent only when true; the backend
+// treats an omitted flag as false.
+type createOrganisationVariableRequest struct {
+	Name        string `json:"name"`
+	Value       string `json:"value"`
+	Description string `json:"description,omitempty"`
+	IsSecret    bool   `json:"is_secret,omitempty"`
+}
+
+// updateOrganisationVariableRequest is the wire shape for organisation
+// variable update PUTs. A nil IsSecret is omitted, so the backend keeps the
+// stored flag.
+type updateOrganisationVariableRequest struct {
+	Value       string `json:"value"`
+	Description string `json:"description,omitempty"`
+	IsSecret    *bool  `json:"is_secret,omitempty"`
+}
+
+// OrganisationVariableValue is the body of GET
+// /api/v1/org/variables/{name}/value: one variable's stored value, secret or
+// not.
+type OrganisationVariableValue struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
 // ErrVariableNotFound is returned when the backend reports 404 on a single
 // variable lookup or update. Callers use errors.Is to distinguish it from
 // network/auth errors.
@@ -92,9 +122,11 @@ func (c *Client) ListOrganisationVariables(ctx context.Context) (*OrganisationVa
 	return &out, nil
 }
 
-func (c *Client) CreateOrganisationVariable(ctx context.Context, name, value, description string) (*OrganisationVariableResult, error) {
+// CreateOrganisationVariable creates an organisation variable; isSecret marks
+// it secret, so listings never return its value.
+func (c *Client) CreateOrganisationVariable(ctx context.Context, name, value, description string, isSecret bool) (*OrganisationVariableResult, error) {
 	url := c.BaseURL + "/api/v1/org/variables"
-	payload, err := json.Marshal(createVariableRequest{Name: name, Value: value, Description: description})
+	payload, err := json.Marshal(createOrganisationVariableRequest{Name: name, Value: value, Description: description, IsSecret: isSecret})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
@@ -109,9 +141,11 @@ func (c *Client) CreateOrganisationVariable(ctx context.Context, name, value, de
 	return &out, nil
 }
 
-func (c *Client) UpdateOrganisationVariable(ctx context.Context, name, value, description string) (*OrganisationVariableResult, error) {
+// UpdateOrganisationVariable updates an organisation variable's value and
+// description. A non-nil isSecret sets the secret flag; nil keeps it.
+func (c *Client) UpdateOrganisationVariable(ctx context.Context, name, value, description string, isSecret *bool) (*OrganisationVariableResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/variables/%s", c.BaseURL, neturl.PathEscape(name))
-	payload, err := json.Marshal(updateVariableRequest{Value: value, Description: description})
+	payload, err := json.Marshal(updateOrganisationVariableRequest{Value: value, Description: description, IsSecret: isSecret})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
@@ -124,6 +158,22 @@ func (c *Client) UpdateOrganisationVariable(ctx context.Context, name, value, de
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 	return &out, nil
+}
+
+// RevealOrganisationVariable reads back one organisation variable's stored
+// value, secret or not. The backend requires write access to variables and
+// records every read in the audit log.
+func (c *Client) RevealOrganisationVariable(ctx context.Context, name string) (*OrganisationVariableValue, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/org/variables/%s/value", c.BaseURL, neturl.PathEscape(name))
+	body, requestError := c.doVariableRequest(ctx, http.MethodGet, endpoint, nil)
+	if requestError != nil {
+		return nil, requestError
+	}
+	var revealed OrganisationVariableValue
+	if parseError := json.Unmarshal(body, &revealed); parseError != nil {
+		return nil, fmt.Errorf("parse response: %w", parseError)
+	}
+	return &revealed, nil
 }
 
 func (c *Client) DeleteOrganisationVariable(ctx context.Context, name string) error {

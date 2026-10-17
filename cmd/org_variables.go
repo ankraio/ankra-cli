@@ -26,7 +26,12 @@ values.
   ankra org variables list
   ankra org variables get DB_HOST
   ankra org variables set DB_HOST db.prod.example.com --description "Primary database"
+  ankra org variables set API_TOKEN - --secret < token.txt
+  ankra org variables reveal API_TOKEN
   ankra org variables delete DB_HOST
+
+A secret variable's value is never shown by list or get; reveal reads it back
+for members who can change variables, and every reveal is audited.
 
 Variable resolution order at deploy time is stack > cluster > organisation; a
 more specific scope overrides a less specific one.`,
@@ -87,9 +92,14 @@ var orgVariablesSetCmd = &cobra.Command{
 does not exist it is created; otherwise its value (and description, when
 supplied) is updated.
 
+--secret creates the variable as a secret, or marks an existing one secret:
+list and get then never show its value, and only "ankra org variables reveal"
+reads it back. --secret=false makes an existing secret variable plain again.
+Without the flag an update keeps the variable's current setting.
+
 The value can also be read from stdin by passing "-":
 
-  echo "secret-token" | ankra org variables set API_TOKEN -`,
+  echo "secret-token" | ankra org variables set API_TOKEN - --secret`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -97,6 +107,11 @@ The value can also be read from stdin by passing "-":
 		descriptionFlag := cmd.Flags().Lookup("description")
 		description := descriptionFlag.Value.String()
 		descriptionExplicit := descriptionFlag.Changed
+		isSecret, _ := cmd.Flags().GetBool("secret")
+		var secretUpdate *bool
+		if cmd.Flags().Changed("secret") {
+			secretUpdate = &isSecret
+		}
 
 		value, err := readVariableValue(cmd.InOrStdin(), rawValue)
 		if err != nil {
@@ -106,8 +121,12 @@ The value can also be read from stdin by passing "-":
 		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
 		defer cancel()
 
-		_, err = apiClient.CreateOrganisationVariable(ctx, name, value, description)
+		_, err = apiClient.CreateOrganisationVariable(ctx, name, value, description, isSecret)
 		if err == nil {
+			if isSecret {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Secret organisation variable %q created.\n", name)
+				return nil
+			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Organisation variable %q created.\n", name)
 			return nil
 		}
@@ -129,7 +148,7 @@ The value can also be read from stdin by passing "-":
 				}
 			}
 		}
-		if _, err := apiClient.UpdateOrganisationVariable(ctx, name, value, description); err != nil {
+		if _, err := apiClient.UpdateOrganisationVariable(ctx, name, value, description, secretUpdate); err != nil {
 			return fmt.Errorf("update organisation variable: %w", err)
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Organisation variable %q updated.\n", name)
@@ -167,6 +186,51 @@ var orgVariablesDeleteCmd = &cobra.Command{
 	},
 }
 
+var orgVariablesRevealCmd = &cobra.Command{
+	Use:   "reveal <name>",
+	Short: "Print an organisation variable's stored value, secret or not",
+	Long: `Print one organisation variable's stored value. This is the only way to
+read back a secret variable: list and get never show it.
+
+Revealing needs permission to change variables, and every reveal is recorded
+in the organisation's audit log. The value is printed on its own line, so it
+can be captured in a script:
+
+  TOKEN="$(ankra org variables reveal API_TOKEN)"`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := args[0]
+		format, formatError := structuredFormatFromFlags(cmd)
+		if formatError != nil {
+			return formatError
+		}
+
+		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+		defer cancel()
+
+		revealed, revealError := apiClient.RevealOrganisationVariable(ctx, name)
+		if revealError != nil {
+			if errors.Is(revealError, client.ErrVariableNotFound) {
+				return withExitCode(exitNotFound, fmt.Errorf("organisation variable %q not found", name))
+			}
+			return fmt.Errorf("reveal organisation variable: %w", revealError)
+		}
+		switch format {
+		case outputJSON:
+			encoder := json.NewEncoder(cmd.OutOrStdout())
+			encoder.SetIndent("", "  ")
+			return encoder.Encode(revealed)
+		case outputYAML:
+			encoder := yaml.NewEncoder(cmd.OutOrStdout())
+			encoder.SetIndent(2)
+			defer func() { _ = encoder.Close() }()
+			return encoder.Encode(revealed)
+		}
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), revealed.Value)
+		return nil
+	},
+}
+
 // readVariableValue resolves the variable value, reading from stdin if the
 // caller passed "-". Used by both org and cluster set commands.
 func readVariableValue(in io.Reader, raw string) (string, error) {
@@ -199,9 +263,9 @@ func renderOrgVariables(out io.Writer, vars []client.OrganisationVariable, forma
 	t := table.NewWriter()
 	t.SetOutputMirror(out)
 	t.SetStyle(table.StyleRounded)
-	t.AppendHeader(table.Row{"NAME", "VALUE", "DESCRIPTION", "UPDATED"})
+	t.AppendHeader(table.Row{"NAME", "VALUE", "SECRET", "DESCRIPTION", "UPDATED"})
 	for _, v := range vars {
-		t.AppendRow(table.Row{v.Name, truncateForDisplay(v.Value, 40), v.Description, v.UpdatedAt.Format(time.RFC3339)})
+		t.AppendRow(table.Row{v.Name, organisationVariableDisplayValue(v), yesNo(v.IsSecret), v.Description, v.UpdatedAt.Format(time.RFC3339)})
 	}
 	t.Render()
 	return nil
@@ -219,9 +283,26 @@ func renderSingleOrgVariable(out io.Writer, v client.OrganisationVariable, forma
 		defer func() { _ = enc.Close() }()
 		return enc.Encode(client.OrganisationVariableResult{Variable: v})
 	}
-	_, _ = fmt.Fprintf(out, "Name:        %s\nValue:       %s\nDescription: %s\nUpdated:     %s\n",
-		v.Name, v.Value, v.Description, v.UpdatedAt.Format(time.RFC3339))
+	value := v.Value
+	if v.IsSecret {
+		value = fmt.Sprintf("%s (run \"ankra org variables reveal %s\")", hiddenSecretValue, v.Name)
+	}
+	_, _ = fmt.Fprintf(out, "Name:        %s\nValue:       %s\nSecret:      %s\nDescription: %s\nUpdated:     %s\n",
+		v.Name, value, yesNo(v.IsSecret), v.Description, v.UpdatedAt.Format(time.RFC3339))
 	return nil
+}
+
+// hiddenSecretValue stands in for a secret variable's value, which the
+// backend returns only from the reveal endpoint.
+const hiddenSecretValue = "(hidden)"
+
+// organisationVariableDisplayValue is the table cell for a variable's value:
+// the truncated value, or the hidden marker for a secret variable.
+func organisationVariableDisplayValue(variable client.OrganisationVariable) string {
+	if variable.IsSecret {
+		return hiddenSecretValue
+	}
+	return truncateForDisplay(variable.Value, 40)
 }
 
 // truncateForDisplay limits long values when rendering tables so secrets that
@@ -235,13 +316,15 @@ func truncateForDisplay(s string, n int) string {
 }
 
 func init() {
-	registerStructuredOutputFlags(orgVariablesListCmd, orgVariablesGetCmd)
+	registerStructuredOutputFlags(orgVariablesListCmd, orgVariablesGetCmd, orgVariablesRevealCmd)
 	orgVariablesSetCmd.Flags().String("description", "", "Optional human-readable description")
+	orgVariablesSetCmd.Flags().Bool("secret", false, "Store the value as a secret that list and get never show (--secret=false makes an existing secret plain)")
 	orgVariablesDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	orgVariablesCmd.AddCommand(orgVariablesListCmd)
 	orgVariablesCmd.AddCommand(orgVariablesGetCmd)
 	orgVariablesCmd.AddCommand(orgVariablesSetCmd)
+	orgVariablesCmd.AddCommand(orgVariablesRevealCmd)
 	orgVariablesCmd.AddCommand(orgVariablesDeleteCmd)
 	orgCmd.AddCommand(orgVariablesCmd)
 }

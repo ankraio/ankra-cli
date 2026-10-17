@@ -813,11 +813,15 @@ func (m baseMock) ListOrganisationVariables(ctx context.Context) (*client.Organi
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) CreateOrganisationVariable(ctx context.Context, name, value, description string) (*client.OrganisationVariableResult, error) {
+func (m baseMock) CreateOrganisationVariable(ctx context.Context, name, value, description string, isSecret bool) (*client.OrganisationVariableResult, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) UpdateOrganisationVariable(ctx context.Context, name, value, description string) (*client.OrganisationVariableResult, error) {
+func (m baseMock) UpdateOrganisationVariable(ctx context.Context, name, value, description string, isSecret *bool) (*client.OrganisationVariableResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RevealOrganisationVariable(ctx context.Context, name string) (*client.OrganisationVariableValue, error) {
 	return nil, errors.New("not implemented")
 }
 
