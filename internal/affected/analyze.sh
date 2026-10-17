@@ -45,10 +45,12 @@ if grep -q "$(printf '\tgo\t')" "$data/targets" && [ -s "$data/modules" ]; then
 		affected_git grep -I -o -E \
 			-e "\"($expression)(/[^\"]*)?\"" \
 			-e "\`($expression)(/[^\`]*)?\`" \
-			-- '*.go' > "$data/edges"
+			-- '*.go' ':(exclude,glob)**/vendor/**' ':(exclude,glob)**/testdata/**' > "$data/edges"
 		status=$?
 		# git grep answers 1 for no match at all, which is a repository
-		# whose packages import nothing of each other.
+		# whose packages import nothing of each other. vendor and testdata
+		# trees are never packages (graph.awk drops their edges anyway), so
+		# they are not read at all.
 		[ "$status" -le 1 ] || exit 2
 	fi
 fi
