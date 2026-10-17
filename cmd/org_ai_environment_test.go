@@ -40,6 +40,11 @@ func resetOrgAIEnvironmentFlags(t *testing.T) {
 		orgAIEnvironmentGetCmd, orgAIEnvironmentSetCmd,
 	} {
 		flagged.Flags().VisitAll(func(flag *pflag.Flag) {
+			if sliceValue, isSlice := flag.Value.(pflag.SliceValue); isSlice {
+				_ = sliceValue.Replace(nil)
+				flag.Changed = false
+				return
+			}
 			_ = flag.Value.Set(flag.DefValue)
 			flag.Changed = false
 		})
