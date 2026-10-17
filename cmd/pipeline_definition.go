@@ -204,6 +204,7 @@ func printPipelineValidation(command *cobra.Command, validation *client.Pipeline
 			_, _ = fmt.Fprintf(out, "  - %s\n", violation)
 		}
 	}
+	printPipelinePathSets(out, validation.PathSets)
 	for _, event := range validation.Events {
 		_, _ = fmt.Fprintf(out, "\n%s:\n", event.Event)
 		if !event.Run {
@@ -226,6 +227,27 @@ func printPipelineValidation(command *cobra.Command, validation *client.Pipeline
 		}
 	}
 	printPipelineEventTable(out, validation.Events)
+}
+
+// printPipelinePathSets shows each named path set the definition declares:
+// the plan below reads only the expanded lists, so this is where the names the
+// author wrote meet the patterns they stand for and the lists that use them.
+func printPipelinePathSets(out io.Writer, pathSets []client.PipelinePathSet) {
+	if len(pathSets) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(out, "Path sets:")
+	for _, pathSet := range pathSets {
+		_, _ = fmt.Fprintf(out, "  %s: %s\n", pathSet.Name, strings.Join(pathSet.Patterns, ", "))
+		if len(pathSet.Includes) > 0 {
+			_, _ = fmt.Fprintf(out, "    includes: %s\n", strings.Join(pathSet.Includes, ", "))
+		}
+		if len(pathSet.UsedBy) > 0 {
+			_, _ = fmt.Fprintf(out, "    used by: %s\n", strings.Join(pathSet.UsedBy, ", "))
+		} else {
+			_, _ = fmt.Fprintln(out, "    used by: nothing")
+		}
+	}
 }
 
 // skipCell renders a skipped stage's table cell, naming the reason when the

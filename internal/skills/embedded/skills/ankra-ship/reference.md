@@ -86,6 +86,14 @@ Path filters, three shapes:
   a `when` path filter.
 - `when.paths` (or the event block's `paths`) leaves the stage out and **skips what needs it**
   (`dependency_skipped`), unless the dependent lists it in `skippable_needs`.
+- `path_sets:` (top level) names lists of patterns once; any of the lists above, and
+  `on.push|pull_request.paths`, takes `{set: <name>}` in place of a pattern (or as the whole list),
+  and a set may include sets. Expanded in place when the file is read, so the plan, the stored
+  definition and its hash are the written-out lists; paths are not protected, so a set change needs
+  no admin approval. `pipeline_path_sets:` refuses an undeclared set (with a did-you-mean), a cycle,
+  `{set: }` in a non-path list (`needs`, `branches`, cache/artifact paths) and malformed entries;
+  warns about a set nothing references. `ankra pipeline validate` prints each set, its expansion and
+  the lists that use it (`path_sets` in `-o json`).
 - A change list the planner could not read in full never leaves a stage out: a Bitbucket Cloud push
   (it carries none), a list over 300 paths, a push that created its branch, or one that rewrote
   history (`paths_unverified`: `unsupported_provider`, `truncated`, `branch_created`, `forced_push`,
