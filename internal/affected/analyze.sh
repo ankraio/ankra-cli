@@ -45,7 +45,7 @@ if grep -q "$(printf '\tgo\t')" "$data/targets" && [ -s "$data/modules" ]; then
 		affected_git grep -I -o -E \
 			-e "\"($expression)(/[^\"]*)?\"" \
 			-e "\`($expression)(/[^\`]*)?\`" \
-			-- '*.go' ':(exclude,glob)**/vendor/**' ':(exclude,glob)**/testdata/**' > "$data/edges"
+			-- ':(glob)**/*.go' ':(exclude,glob)**/vendor/**' ':(exclude,glob)**/testdata/**' > "$data/edges"
 		status=$?
 		# git grep answers 1 for no match at all, which is a repository
 		# whose packages import nothing of each other. vendor and testdata
