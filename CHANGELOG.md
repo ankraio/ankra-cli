@@ -4,6 +4,17 @@
 
 ### Added
 
+- **The `ankra-terraform` skill covers Terraform provider 0.3.0.** The
+  provider now manages what the CLI can create, change or delete (97
+  resources and 42 data sources: every cluster lane, managed Kubernetes,
+  node groups, credentials, Helm registries, variables, cluster settings,
+  alerts and DNS, applications and pipelines, stack profiles, backups, the
+  image registry, members, tokens, and AI, cost and security settings), and
+  `ankra skills install` now teaches assistants those resources, the
+  `project_id` the provider needs in organisations with projects, and which
+  changes replace, re-mint or refuse. On provider 0.2.x only the cluster
+  resources exist, and the skill says so.
+
 - **`ankra pipeline validate --changed-file` reads the dependency graph for
   `affected:` stages.** A stage that declares `affected:` (Go packages or pnpm
   workspace packages) is decided at run time by the run's checkout, from the
