@@ -78,21 +78,29 @@ func printPipelineRunTimeSaved(out io.Writer, saved *client.PipelineRunTimeSaved
 // pipelineRunTimeSavedSummaryLine is "about 14 min of CI time (3 stages
 // skipped, 1 unknown)".
 func pipelineRunTimeSavedSummaryLine(saved client.PipelineRunTimeSaved) string {
-	total := "unknown"
-	if saved.EstimatedCount > 0 {
-		total = describeSavedSeconds(saved.SavedSeconds) + " of CI time"
-		if cpu := describeSavedCPUMinutes(saved.SavedCPUMinutes); cpu != "" {
-			total += " and " + cpu
-		}
-	}
-	skipped := 0
-	isWholeRun := false
+	// The counts come from the savings themselves rather than from
+	// estimated_count and unknown_count, so the header can never disagree
+	// with the lines printed under it.
+	skipped, unknown := 0, 0
+	isEstimated, isWholeRun := false, false
 	for _, saving := range saved.Savings {
+		if saving.SavedSeconds == nil {
+			unknown++
+		} else {
+			isEstimated = true
+		}
 		if saving.Reason == "run_paths_excluded" {
 			isWholeRun = true
 			continue
 		}
 		skipped++
+	}
+	total := "unknown"
+	if isEstimated {
+		total = describeSavedSeconds(saved.SavedSeconds) + " of CI time"
+		if cpu := describeSavedCPUMinutes(saved.SavedCPUMinutes); cpu != "" {
+			total += " and " + cpu
+		}
 	}
 	var parts []string
 	if isWholeRun {
@@ -105,8 +113,11 @@ func pipelineRunTimeSavedSummaryLine(saved client.PipelineRunTimeSaved) string {
 		}
 		parts = append(parts, fmt.Sprintf("%d %s skipped", skipped, noun))
 	}
-	if saved.UnknownCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d unknown", saved.UnknownCount))
+	if unknown > 0 {
+		parts = append(parts, fmt.Sprintf("%d unknown", unknown))
+	}
+	if len(parts) == 0 {
+		return total
 	}
 	return total + " (" + strings.Join(parts, ", ") + ")"
 }

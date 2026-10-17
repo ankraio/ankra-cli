@@ -198,6 +198,29 @@ func TestPipelineGetYAMLAddsTimeSavedAndKeepsEveryExistingField(t *testing.T) {
 	}
 }
 
+// The header is worked out from the savings it sits above: a body whose
+// estimated_count and unknown_count disagree with its savings, or omit them,
+// still reads the same as the lines under it.
+func TestPipelineRunTimeSavedSummaryLineFollowsTheSavings(t *testing.T) {
+	seconds := int64(300)
+	line := pipelineRunTimeSavedSummaryLine(client.PipelineRunTimeSaved{
+		SavedSeconds: 300,
+		Savings: []client.PipelineTimeSavedEntry{
+			{StepKey: "build", Stage: "build", Reason: "path_filter", Basis: "stage_history", SavedSeconds: &seconds},
+			{StepKey: "e2e", Stage: "e2e", Reason: "dependency_skipped", Basis: "no_history"},
+		},
+	})
+	if want := "about 5 min of CI time (2 stages skipped, 1 unknown)"; line != want {
+		t.Errorf("line = %q, want %q", line, want)
+	}
+	line = pipelineRunTimeSavedSummaryLine(client.PipelineRunTimeSaved{
+		Savings: []client.PipelineTimeSavedEntry{{Reason: "run_paths_excluded", Basis: "no_history"}},
+	})
+	if want := "unknown (the whole run was skipped, 1 unknown)"; line != want {
+		t.Errorf("line = %q, want %q", line, want)
+	}
+}
+
 func TestDescribeSavedSeconds(t *testing.T) {
 	for seconds, want := range map[int64]string{
 		0: "about 0 s", 45: "about 45 s", 60: "about 1 min", 840: "about 14 min",
