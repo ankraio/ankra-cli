@@ -610,19 +610,22 @@ func runPipelineGet(command *cobra.Command, selector client.PipelineSelector, ru
 		if waitError != nil {
 			return waitError
 		}
-		return renderConcludedPipelineRun(command, format, detail, selector)
+		timeSaved := readPipelineRunTimeSaved(command, selector, runID)
+		if renderError := renderPipelineGet(command, format, detail, timeSaved, selector); renderError != nil {
+			return renderError
+		}
+		return pipelineRunConclusionError(detail.PipelineRun)
 	}
 
 	detail, getError := apiClient.GetPipelineRun(command.Context(), selector, runID)
 	if getError != nil {
 		return getError
 	}
-	if format != outputDefault {
-		if encodeError := encodeStructured(command.OutOrStdout(), format, detail); encodeError != nil {
-			return encodeError
-		}
-	} else {
-		printPipelineRunDetail(command.OutOrStdout(), *detail, selector)
+	timeSaved := readPipelineRunTimeSaved(command, selector, runID)
+	if renderError := renderPipelineGet(command, format, detail, timeSaved, selector); renderError != nil {
+		return renderError
+	}
+	if format == outputDefault {
 		if stepKey, _ := command.Flags().GetString("step"); strings.TrimSpace(stepKey) != "" {
 			if stepError := printPipelineStepCaches(command.OutOrStdout(), *detail, strings.TrimSpace(stepKey)); stepError != nil {
 				return stepError
