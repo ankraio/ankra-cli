@@ -36,7 +36,7 @@ variable "ankra_project_id" {
 
 - **`token`** or `ANKRA_TOKEN`: an Ankra API token (`ankra tokens create`). Prefer the environment variable, or a `sensitive` variable fed from the secret store; never a literal in committed HCL. If no token reaches a resource, it fails with `Missing API token` and sends no request.
 - **`base_url`** or `ANKRA_BASE_URL`: defaults to `https://platform.ankra.app`.
-- **`organisation_id`** or `ANKRA_ORGANISATION_ID`: act in another organisation the token's user belongs to (the CLI's `--org`). An ID, not a slug.
+- **`organisation_id`** or `ANKRA_ORG` (the CLI's variable for `--org`): act in another organisation the token's user belongs to. An ID, not a slug. The provider ignores `ANKRA_ORGANISATION_ID`, which Ankra Pipelines sets in every step to the run's organisation.
 - **`project_id`** or `ANKRA_PROJECT_ID`: the project to act in. **Set it in any organisation that uses projects.** Without it the platform scopes every request to the project the token's user last picked in the portal, so the resources added in 0.3.0 refuse to run in an organisation with more than one project until it is set. An ID, not a slug.
 - Terraform 1.0 or newer. `ankra_application_env_secret.value_wo` (write-only) needs Terraform 1.11.
 
