@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"errors"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"ankra/internal/client"
 )
@@ -467,6 +469,57 @@ func TestAIEndpointsCreateAPIKeyFlagStillWorksAndWarns(t *testing.T) {
 	}
 	if !strings.Contains(commandOutput, "--api-key is deprecated") {
 		t.Errorf("expected a deprecation warning, got %q", commandOutput)
+	}
+}
+
+func TestAIEndpointsCreateFailsFastOnASilentStdin(t *testing.T) {
+	mock := &aiEndpointCreateMock{}
+	setMockClient(t, mock)
+	resetAIEndpointsCreateFlags(t)
+	originalWait := secretStdinWait
+	secretStdinWait = 50 * time.Millisecond
+	t.Cleanup(func() { secretStdinWait = originalWait })
+	silentReader, silentWriter := io.Pipe()
+	t.Cleanup(func() { _ = silentWriter.Close() })
+	rootCmd.SetIn(silentReader)
+
+	started := time.Now()
+	var executeError error
+	_ = captureStdout(t, func() {
+		_, executeError = executeCommand("ai", "endpoints", "create", "--name", "vllm", "--base-url", "https://vllm.example.com/v1")
+	})
+	if executeError == nil || exitCodeFor(executeError) != exitUsage {
+		t.Fatalf("expected a usage error, got %v", executeError)
+	}
+	if !strings.Contains(executeError.Error(), "stdin is not a terminal and sent nothing") {
+		t.Errorf("error = %v, want it to name the silent stdin", executeError)
+	}
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Errorf("took %s, want a fast failure", elapsed)
+	}
+	if mock.createCalls != 0 {
+		t.Errorf("expected no create call, got %d", mock.createCalls)
+	}
+}
+
+func TestAIEndpointsCreateEmptyAPIKeyFlagDoesNotReadStdin(t *testing.T) {
+	mock := &aiEndpointCreateMock{}
+	setMockClient(t, mock)
+	resetAIEndpointsCreateFlags(t)
+	rootCmd.SetIn(strings.NewReader("sk-from-stdin\n"))
+
+	var executeError error
+	_ = captureStdout(t, func() {
+		_, executeError = executeCommand("ai", "endpoints", "create", "--name", "vllm", "--base-url", "https://vllm.example.com/v1", "--api-key", "")
+	})
+	if executeError == nil || exitCodeFor(executeError) != exitUsage {
+		t.Fatalf("expected a usage error, got %v", executeError)
+	}
+	if !strings.Contains(executeError.Error(), "--api-key is empty") {
+		t.Errorf("error = %v, want it to name the empty flag", executeError)
+	}
+	if mock.createCalls != 0 {
+		t.Errorf("expected no create call, got %d", mock.createCalls)
 	}
 }
 

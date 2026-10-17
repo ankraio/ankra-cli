@@ -272,11 +272,13 @@ func newControlPlaneCmd(opsFn func() controlPlaneOps, provider, catalogCommand s
 is 1 or 3 (1, 3 or 5 on Proxmox VE): etcd needs an odd number of voting
 members for quorum.
 
-Growing the control plane (1 to 3) happens live on a running cluster: the new
-controllers join it one at a time, keeping the Kubernetes API up. Reducing it
-is applied offline: stop the cluster (its state is preserved), change the
-count, then start it. On a stopped cluster either change applies at the next
-start.
+Growing the control plane may happen live on a running cluster: the new
+controllers join it one at a time, keeping the Kubernetes API up. The platform
+can refuse a live change (an operation already in flight, controllers still
+reconciling, a configuration that pins the API to one controller), and says
+why. Reducing it is applied offline: stop the cluster (its state is
+preserved), change the count, then start it. On a stopped cluster either
+change applies at the next start.
 
 The instance type can also be changed on a running cluster that has three
 controllers: they are then resized one at a time, keeping the Kubernetes API
@@ -305,8 +307,9 @@ Run "control-plane get" to see which of the two is available right now.`,
 		Long: fmt.Sprintf(`Change the number of controllers (%s; etcd needs an odd number of
 voting members for quorum).
 
-On a running cluster growing the count happens live: the new controllers join
-one at a time and the command prints the operation to follow. Reducing it is
+On a running cluster growing the count may happen live: the new controllers
+join one at a time and the command prints the operation to follow, unless the
+platform refuses the live change and says why. Reducing it is
 refused on a running cluster; stop the cluster (its state is preserved),
 change the count, then start it. On a stopped cluster the change applies at
 the next start.

@@ -331,7 +331,7 @@ func TestControlPlaneSupportedCountsAllowFiveOnlyOnProxmox(t *testing.T) {
 
 func TestControlPlaneHelpSaysGrowthIsLive(t *testing.T) {
 	command := newControlPlaneCmd(stubControlPlaneCountOps(nil), "Hetzner", "")
-	if !strings.Contains(command.Long, "Growing the control plane (1 to 3) happens live") {
+	if !strings.Contains(command.Long, "Growing the control plane may happen live") {
 		t.Errorf("expected the help to say growth is live, got: %s", command.Long)
 	}
 	if strings.Contains(command.Long, "can only be changed while the cluster is stopped") {
