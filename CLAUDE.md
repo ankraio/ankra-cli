@@ -18,6 +18,10 @@ The pre-commit gate is opt-in per clone: git ignores `.githooks/` until
 `core.hooksPath` points at it, and nothing sets that automatically, so a clone
 that never ran `make hooks` commits with no gate and says nothing. Check with
 `git config core.hooksPath` — empty output means the gate is not installed.
+Keep the value relative (`.githooks`, which is what `make hooks` writes): git
+resolves a relative `core.hooksPath` against each worktree, so every worktree
+runs its own branch's hook. An absolute path pins every worktree of the clone
+to one checkout's copy of the hook, whatever branch that checkout is on.
 
 Once installed, the hook runs `go test` for the packages the commit changes
 (every package on a `go.mod`/`go.sum` change) and lints those same packages,
