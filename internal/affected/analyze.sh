@@ -10,9 +10,9 @@
 # The data directory holds graph.awk, "changed" (one repository-relative path
 # per line) and "targets" (one "<key><TAB><go|pnpm><TAB><pattern>" line per
 # target). One "ankra.affected.<key>=true|false" line per key is appended to
-# the outputs file. Any failure exits non-zero having written nothing for the
-# keys it did not reach, and a key with no line runs: the caller never has to
-# tell a broken analysis from an affected stage.
+# the outputs file, all of them at the end and only on success: any failure
+# exits non-zero having written none, and a key with no line runs, so the
+# caller never has to tell a broken analysis from an affected stage.
 #
 # POSIX sh, git, awk and grep only: it runs in the checkout image (alpine/git,
 # busybox) and on a laptop. Every git command takes its configuration from
@@ -31,6 +31,11 @@ affected_git() {
 		-c safe.directory='*' "$@"
 }
 
+# The root must be the top of a work tree: every path the analysis reads and
+# every changed file is relative to it, so a directory inside some other
+# repository (or no repository at all) is refused rather than half-read.
+prefix=$(affected_git rev-parse --show-prefix) || exit 2
+[ -z "$prefix" ] || exit 2
 affected_git ls-files > "$data/files" || exit 2
 awk -v mode=modules -f "$data/graph.awk" "$data/files" > "$data/modules" || exit 2
 : > "$data/edges"
@@ -47,5 +52,10 @@ if grep -q "$(printf '\tgo\t')" "$data/targets" && [ -s "$data/modules" ]; then
 		[ "$status" -le 1 ] || exit 2
 	fi
 fi
-awk -v mode=analyze -v out="$outputs" -f "$data/graph.awk" \
-	"$data/files" "$data/modules" "$data/edges" "$data/changed" "$data/targets"
+# The answers go to a private file first and reach the outputs file only once
+# awk has exited cleanly, so an analysis killed part way (the time limit,
+# memory) never leaves some answers, or half of one, behind.
+: > "$data/answers"
+awk -v mode=analyze -v out="$data/answers" -f "$data/graph.awk" \
+	"$data/files" "$data/modules" "$data/edges" "$data/changed" "$data/targets" || exit 2
+cat "$data/answers" >> "$outputs"

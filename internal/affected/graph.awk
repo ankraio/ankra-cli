@@ -571,7 +571,18 @@ function analyze(   index_, package, project, path, base, directory, module, own
 		base = base_name(path)
 		directory = dir_name(path)
 		if (base == "go.work" || base == "go.work.sum") {
-			go_everything = path
+			# The go command finds go.work in the directory it runs in or
+			# above, so one reaches every package at or below its own
+			# directory; at the root, every Go stage.
+			if (directory == ".") {
+				go_everything = path
+			} else {
+				for (package in is_package) {
+					if (is_within(directory, package) && !(package in changed_package)) {
+						changed_package[package] = path
+					}
+				}
+			}
 		} else if (base == "go.mod" || base == "go.sum" || has_segment(directory, "vendor")) {
 			module = module_of(directory)
 			if (module != "" && !(module in changed_module)) {
@@ -598,6 +609,13 @@ function analyze(   index_, package, project, path, base, directory, module, own
 				changed_project[owner] = path
 			}
 		} else if ((index(path, "/") == 0 && !is_outside_pnpm(path)) || substr(path, 1, 8) == "patches/") {
+			if (pnpm_everything == "") {
+				pnpm_everything = path
+			}
+		}
+		# A pnpm patch (patchedDependencies) may live in any directory the
+		# root manifest names, and changes what every project installs.
+		if (path ~ /\.patch$/ && project_count > 0) {
 			if (pnpm_everything == "") {
 				pnpm_everything = path
 			}
