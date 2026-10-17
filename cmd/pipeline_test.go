@@ -57,6 +57,7 @@ type pipelineLaneMock struct {
 	getErrorsOnCall map[int]error
 
 	cancelRunID  string
+	cancelForce  bool
 	cancelResult *client.PipelineRun
 	cancelError  error
 
@@ -223,9 +224,10 @@ func (mock *pipelineLaneMock) RerunPipelineRun(ctx context.Context, selector cli
 	return mock.rerunResult, nil
 }
 
-func (mock *pipelineLaneMock) CancelPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRun, error) {
+func (mock *pipelineLaneMock) CancelPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, force bool) (*client.PipelineRun, error) {
 	mock.lastSelector = selector
 	mock.cancelRunID = runID
+	mock.cancelForce = force
 	if mock.cancelError != nil {
 		return nil, mock.cancelError
 	}
@@ -837,6 +839,34 @@ func TestPipelineCancelRendersOutcome(t *testing.T) {
 	}
 	if !strings.Contains(output, "Run #4 cancelled") {
 		t.Errorf("output = %q", output)
+	}
+}
+
+func TestPipelineCancelSaysTheFinallyStagesRunAndPassesForce(t *testing.T) {
+	mockClient := &pipelineLaneMock{cancelResult: &client.PipelineRun{ID: "run-1", RunNumber: 9, Status: "running",
+		Cancelling: true}}
+	output, executeError := runPipelineCommand(t, mockClient, "cancel", "run-1", "--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("cancel error = %v", executeError)
+	}
+	if mockClient.cancelForce {
+		t.Error("an ordinary cancel must not force")
+	}
+	if !strings.Contains(output, "Run #9 cancelled; running its finally stages") {
+		t.Errorf("output = %q", output)
+	}
+	if _, executeError := runPipelineCommand(t, mockClient, "cancel", "run-1", "--application", testApplicationID,
+		"--force"); executeError != nil {
+		t.Fatalf("forced cancel error = %v", executeError)
+	}
+	if !mockClient.cancelForce {
+		t.Error("--force was not passed through")
+	}
+}
+
+func TestPipelineRunStateLabelReadsCancellingWhileFinallyRuns(t *testing.T) {
+	if label := pipelineRunStateLabel(client.PipelineRun{Status: "running", Cancelling: true}); label != "cancelling" {
+		t.Errorf("label = %q, want cancelling", label)
 	}
 }
 

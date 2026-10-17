@@ -1503,32 +1503,54 @@ func printPipelineRunAuthority(out io.Writer, detail client.PipelineRunDetail) {
 		"current definition is already approved or cannot be approved, or the server predates reporting it")
 }
 
+// pipelineCancelLong is the help of `pipeline cancel`: what a cancel stops,
+// the finally stages it still runs, and the force that skips them.
+const pipelineCancelLong = `Cancel a pipeline run that has not concluded.
+
+A run that had started stops its main and on_failure stages, then runs its
+finally stages before it concludes cancelled. While they run the run reads
+"running" and "cancelling". A run that never started concludes at once.
+
+--force skips the finally stages: the run concludes cancelled at once. On a
+run that is already cancelling it stops the finally stages still running.
+Cancelling such a run again without --force is refused.`
+
 func newPipelineCancelCommand() *cobra.Command {
+	var isForced bool
 	cancelCommand := &cobra.Command{
 		Use:     "cancel <run>",
 		Aliases: []string{"stop"},
 		Short:   "Cancel a pipeline run that has not concluded",
+		Long:    pipelineCancelLong,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
 			if selectorError != nil {
 				return selectorError
 			}
-			return runPipelineCancel(command, selector, arguments[0])
+			return runPipelineCancel(command, selector, arguments[0], isForced)
 		},
 	}
+	cancelCommand.Flags().BoolVar(&isForced, "force", false,
+		"Skip the run's finally stages, or stop them if the run is already cancelling")
 	registerPipelineSelectorFlags(cancelCommand)
 	registerStructuredOutputFlags(cancelCommand)
 	return cancelCommand
 }
 
-func runPipelineCancel(command *cobra.Command, selector client.PipelineSelector, runID string) error {
-	run, cancelError := apiClient.CancelPipelineRun(command.Context(), selector, strings.TrimSpace(runID))
+func runPipelineCancel(command *cobra.Command, selector client.PipelineSelector, runID string, isForced bool) error {
+	run, cancelError := apiClient.CancelPipelineRun(command.Context(), selector, strings.TrimSpace(runID), isForced)
 	if cancelError != nil {
 		return cancelError
 	}
 	if rendered, renderError := renderStructured(command, run); rendered || renderError != nil {
 		return renderError
+	}
+	if run.Cancelling {
+		_, _ = fmt.Fprintf(command.OutOrStdout(),
+			"Run #%d cancelled; running its finally stages before it concludes (use --force to skip them)\n",
+			run.RunNumber)
+		return nil
 	}
 	_, _ = fmt.Fprintf(command.OutOrStdout(), "Run #%d cancelled (status: %s)\n", run.RunNumber, run.Status)
 	return nil

@@ -3284,7 +3284,7 @@ func (m baseMock) RerunPipelineRun(ctx context.Context, selector client.Pipeline
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) CancelPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRun, error) {
+func (m baseMock) CancelPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, force bool) (*client.PipelineRun, error) {
 	return nil, errors.New("not implemented")
 }
 

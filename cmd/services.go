@@ -958,7 +958,7 @@ type APIClient interface {
 	CreatePipelineRun(ctx context.Context, selector client.PipelineSelector, request client.CreatePipelineRunRequest) (*client.CreatePipelineRunResult, error)
 	GetPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRunDetail, error)
 	RerunPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, failedOnly bool) (*client.CreatePipelineRunResult, error)
-	CancelPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRun, error)
+	CancelPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, force bool) (*client.PipelineRun, error)
 	StreamPipelineStepLogs(ctx context.Context, selector client.PipelineSelector, runID string, stepID string, options client.StepLogStreamOptions) (<-chan client.PipelineLogEvent, error)
 	ListPipelineArtifacts(ctx context.Context, selector client.PipelineSelector, runID string, options client.ListPipelineArtifactsOptions) (*client.PipelineArtifactList, error)
 	DownloadPipelineArtifact(ctx context.Context, selector client.PipelineSelector, artifactID string, destination io.Writer) error

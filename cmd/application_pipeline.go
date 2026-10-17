@@ -190,19 +190,24 @@ func newApplicationPipelineGetCommand() *cobra.Command {
 }
 
 func newApplicationPipelineCancelCommand() *cobra.Command {
+	var isForced bool
 	cancelCommand := &cobra.Command{
 		Use:     "cancel <application-id> <run>",
 		Aliases: []string{"stop"},
 		Short:   "Cancel a pipeline run that has not concluded",
+		Long:    pipelineCancelLong,
 		Args:    cobra.ExactArgs(2),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			applicationID, resolveError := resolveApplicationArgument(command, arguments)
 			if resolveError != nil {
 				return resolveError
 			}
-			return runPipelineCancel(command, client.PipelineSelector{ApplicationID: applicationID}, arguments[1])
+			return runPipelineCancel(command, client.PipelineSelector{ApplicationID: applicationID}, arguments[1],
+				isForced)
 		},
 	}
+	cancelCommand.Flags().BoolVar(&isForced, "force", false,
+		"Skip the run's finally stages, or stop them if the run is already cancelling")
 	registerStructuredOutputFlags(cancelCommand)
 	return cancelCommand
 }
