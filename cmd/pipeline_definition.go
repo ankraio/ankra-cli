@@ -242,9 +242,13 @@ func printPipelinePathSets(out io.Writer, pathSets []client.PipelinePathSet) {
 		if len(pathSet.Includes) > 0 {
 			_, _ = fmt.Fprintf(out, "    includes: %s\n", strings.Join(pathSet.Includes, ", "))
 		}
-		if len(pathSet.UsedBy) > 0 {
+		// The platform sends used_by as a list, empty for a set nothing
+		// references. An absent one (nil) is a platform that did not say, and
+		// is left unprinted rather than read as "unused".
+		switch {
+		case len(pathSet.UsedBy) > 0:
 			_, _ = fmt.Fprintf(out, "    used by: %s\n", strings.Join(pathSet.UsedBy, ", "))
-		} else {
+		case pathSet.UsedBy != nil:
 			_, _ = fmt.Fprintln(out, "    used by: nothing")
 		}
 	}

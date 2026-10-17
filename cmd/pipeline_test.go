@@ -2343,7 +2343,8 @@ func TestPipelineValidatePrintsEachPathSetWithItsExpansionAndUsers(t *testing.T)
 				Includes: []string{"pipeline"},
 				UsedBy:   []string{`stage "test-backend" paths`, "on.pull_request.paths"},
 			},
-			{Name: "orphan", Patterns: []string{"docs/**"}},
+			{Name: "orphan", Patterns: []string{"docs/**"}, UsedBy: []string{}},
+			{Name: "unreported", Patterns: []string{"web/**"}},
 		},
 	}}
 	output, executeError := runPipelineCommand(t, mockClient, "validate", writePipelineFixture(t),
@@ -2356,9 +2357,13 @@ func TestPipelineValidatePrintsEachPathSetWithItsExpansionAndUsers(t *testing.T)
 		"    includes: pipeline\n" +
 		"    used by: stage \"test-backend\" paths, on.pull_request.paths\n" +
 		"  orphan: docs/**\n" +
-		"    used by: nothing\n"
+		"    used by: nothing\n" +
+		"  unreported: web/**\n"
 	if !strings.Contains(output, want) {
 		t.Fatalf("output = %q, want it to contain %q", output, want)
+	}
+	if strings.Count(output, "used by: nothing") != 1 {
+		t.Fatalf("a set whose users the platform did not report must not read as unused, got %q", output)
 	}
 
 	none, executeError := runPipelineCommand(t, &pipelineLaneMock{validateResult: &client.PipelineValidation{Severity: "ok"}},
