@@ -45,7 +45,11 @@ Without --sha, the commit is:
 
 A checkout of any other repository never supplies the commit, so
 'ankra pipeline run --application other-app' from the wrong directory runs
-other-app's default branch, not your local HEAD.`,
+other-app's default branch, not your local HEAD.
+
+--full runs every stage: the pipeline's path filters (on.<event>.paths,
+when.paths and paths:) are set aside for this run, and the run records that
+you asked. A stage's if: still decides.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			target, targetError := resolvePipelineTarget(command)
@@ -69,6 +73,7 @@ func registerPipelineRunDispatchFlags(command *cobra.Command) {
 	command.Flags().StringArray("input", nil, "Dispatch input as key=value (repeatable)")
 	command.Flags().String("reason", "", "Human note recorded on the run")
 	command.Flags().String("spec-file", "", "Run this pipeline definition instead of the stored one (requires pipelines.manage)")
+	command.Flags().Bool("full", false, "Run every stage: set the pipeline's path filters aside for this run")
 	command.Flags().Bool("wait", false, "Wait for the run to conclude before returning")
 	registerPipelineWaitTimeoutFlag(command)
 }
@@ -147,6 +152,7 @@ func runPipelineDispatch(command *cobra.Command, target pipelineTarget) error {
 	reason, _ := command.Flags().GetString("reason")
 	specFile, _ := command.Flags().GetString("spec-file")
 	rawInputs, _ := command.Flags().GetStringArray("input")
+	isFullRun, _ := command.Flags().GetBool("full")
 	wait, _ := command.Flags().GetBool("wait")
 	timeout, timeoutError := pipelineWaitTimeoutFromFlags(command, wait, "--wait")
 	if timeoutError != nil {
@@ -207,6 +213,7 @@ func runPipelineDispatch(command *cobra.Command, target pipelineTarget) error {
 		Inputs:   inputs,
 		Reason:   strings.TrimSpace(reason),
 		SpecYAML: specYAML,
+		FullRun:  isFullRun,
 	})
 	if createError != nil {
 		return createError
@@ -755,12 +762,28 @@ func printPipelineRunPromotion(out io.Writer, detail client.PipelineRunDetail) {
 	_, _ = fmt.Fprintf(out, "  Promotion: %s\n", line)
 }
 
+// printPipelineRunFullRun says why a run set its path filters aside
+// (ankra-efrnzf.17), in the platform's own sentence, or names the source when
+// the server sent none. A run that applied its filters prints nothing.
+func printPipelineRunFullRun(out io.Writer, run client.PipelineRun) {
+	source := strings.TrimSpace(run.FullRunSource)
+	if source == "" {
+		return
+	}
+	line := strings.TrimSpace(run.FullRunMessage)
+	if line == "" {
+		line = "path filters set aside (" + source + ")"
+	}
+	_, _ = fmt.Fprintf(out, "  Full run:  %s\n", line)
+}
+
 func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail, selector client.PipelineSelector) {
 	_, _ = fmt.Fprintf(out, "Run #%d (%s)\n", detail.RunNumber, detail.ID)
 	_, _ = fmt.Fprintf(out, "  Status:    %s\n", renderPipelineRunState(detail.PipelineRun))
 	printPipelineRunSupersession(out, detail.PipelineRun)
 	printPipelineRunCancellation(out, detail.PipelineRun)
 	_, _ = fmt.Fprintf(out, "  Trigger:   %s (%s)\n", detail.Trigger, detail.TriggerRef)
+	printPipelineRunFullRun(out, detail.PipelineRun)
 	_, _ = fmt.Fprintf(out, "  Commit:    %s\n", detail.HeadSHA)
 	printPipelineRunPromotion(out, detail)
 	printPipelineRunAuthority(out, detail)
@@ -1434,6 +1457,11 @@ func printPipelineRunFailure(out io.Writer, run client.PipelineRun) {
 // timed_out, and so does its run, but nothing ran.
 const pipelineErrorClassNeverScheduled = "never_scheduled"
 
+// pipelineErrorClassSkipMarker is a pushed run the platform skipped because
+// the head commit's message carried a skip marker such as [skip ci]
+// (cluster ankra-efrnzf.17). The run's error message names the marker.
+const pipelineErrorClassSkipMarker = "skip_marker"
+
 // pipelineErrorClassLine is the Class line's text: the class verbatim, and
 // for a class whose outcome word says something untrue, what it means beside
 // it. never_scheduled sits under a timed_out Status line that reads as the
@@ -1442,6 +1470,9 @@ const pipelineErrorClassNeverScheduled = "never_scheduled"
 func pipelineErrorClassLine(errorClass string) string {
 	if errorClass == pipelineErrorClassNeverScheduled {
 		return errorClass + " (never started: no node had room for what the step requests)"
+	}
+	if errorClass == pipelineErrorClassSkipMarker {
+		return errorClass + " (skipped by a skip marker such as [skip ci] in the pushed commit's message)"
 	}
 	return errorClass
 }
@@ -1581,7 +1612,11 @@ every upstream step whose output a repeated step reads run again with it;
 steps that succeeded and that nothing repeated needs do not. A failed-only
 re-run that would still skip one of those steps (for example a tag-only
 release behind a failed build, on a re-run of a tag run) is refused with the
-reason rather than passing without it.`
+reason rather than passing without it.
+
+--full sets the pipeline's path filters aside for the new run, so every stage
+whose filters left it out runs, and the run records that you asked. A re-run
+of a run that was already a full run is one again without the flag.`
 
 func newPipelineRerunCommand() *cobra.Command {
 	rerunCommand := &cobra.Command{
@@ -1607,6 +1642,7 @@ func newPipelineRerunCommand() *cobra.Command {
 // `application pipeline rerun`.
 func registerPipelineRerunFlags(command *cobra.Command) {
 	command.Flags().Bool("failed-only", false, "Re-run only the steps that did not succeed, whatever depends on them, and the steps they build on (checkout included)")
+	command.Flags().Bool("full", false, "Run every stage: set the pipeline's path filters aside for the new run")
 	command.Flags().Bool("wait", false, "Wait for the new run to conclude before returning")
 	registerPipelineWaitTimeoutFlag(command)
 }
@@ -1617,13 +1653,15 @@ func runPipelineRerun(command *cobra.Command, selector client.PipelineSelector, 
 		return formatError
 	}
 	failedOnly, _ := command.Flags().GetBool("failed-only")
+	isFullRun, _ := command.Flags().GetBool("full")
 	wait, _ := command.Flags().GetBool("wait")
 	timeout, timeoutError := pipelineWaitTimeoutFromFlags(command, wait, "--wait")
 	if timeoutError != nil {
 		return timeoutError
 	}
 
-	result, rerunError := apiClient.RerunPipelineRun(command.Context(), selector, strings.TrimSpace(runID), failedOnly)
+	result, rerunError := apiClient.RerunPipelineRun(command.Context(), selector, strings.TrimSpace(runID), failedOnly,
+		isFullRun)
 	if rerunError != nil {
 		return rerunError
 	}

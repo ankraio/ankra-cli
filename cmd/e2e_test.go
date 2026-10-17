@@ -3280,7 +3280,7 @@ func (m baseMock) GetPipelineRun(ctx context.Context, selector client.PipelineSe
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) RerunPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, failedOnly bool) (*client.CreatePipelineRunResult, error) {
+func (m baseMock) RerunPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, failedOnly bool, fullRun bool) (*client.CreatePipelineRunResult, error) {
 	return nil, errors.New("not implemented")
 }
 
