@@ -67,7 +67,8 @@ signed release bundle out to **host targets** (machines outside Kubernetes runni
 
 Common fields: `image` (required for `run`; ignored for `build` and `checkout`, whose images are
 Ankra's), `run`, `uses` (**fatal today**), `with`, `needs`, `skippable_needs` (needs this stage still
-runs without when their own path filter left them out), `paths` (affected-only: below), `if` (CEL),
+runs without when their own path filter left them out), `paths` (affected-only: below), `affected`
+(`go`/`pnpm` packages; affected-only from the dependency graph: below), `if` (CEL),
 `when.branches|paths|events`, `when.push|pull_request` (event-scoped `branches`/`paths`), `when.tag`,
 `matrix` (axes + `include`/`exclude`, ≤ 64 legs), `services`, `env` (names starting `ANKRA_`, `PATH`,
 `BUILDKIT*`, `DOCKER_CONFIG` refused), `secrets`, `cache` (`key`, `paths` relative to the workspace root, `size`, `restore_keys`, `fallback` `volume`|`none`),
@@ -84,6 +85,15 @@ Path filters, three shapes:
   It applies on every event. Refused (`pipeline_paths:`) on a stage whose outputs another reads, a
   `build` another stage needs, a `checkout`, `gate` or `approval`, a scan a gate requires, and beside
   a `when` path filter.
+- `affected: { go: [...], pnpm: [...] }` makes a stage affected-only from the **code's dependency
+  graph**: `go` takes `./...`/`./pkg` relative to `working_directory` or import paths (only a
+  trailing `/...` wildcard), `pnpm` takes package names or `./dirs`. The planner leaves the answer to
+  the run's checkout step, which reads the graph of the exact commit (every `go.mod`, local
+  `replace`, `_test.go` imports of the stage's own packages, `package.json` deps incl. `workspace:`)
+  and writes `ankra.affected.<stage>`; the dispatcher skips the step as `not_affected` (satisfied)
+  only on `false`. No answer runs it. `paths:` beside it is an OR (runtime-read files). An
+  incomplete change list, a `.ankra/pipeline.yaml` change or a matching `paths:` runs it without the
+  graph. Same refusals as `paths:`; no `${{ }}` in patterns; no checkout stage is a warning.
 - `when.paths` (or the event block's `paths`) leaves the stage out and **skips what needs it**
   (`dependency_skipped`), unless the dependent lists it in `skippable_needs`.
 - A change list the planner could not read in full never leaves a stage out: a Bitbucket Cloud push

@@ -311,6 +311,12 @@ To skip what a change did not touch, pick the filter by what stands behind the s
 
 - A component's **tests** (nothing reads their outputs): stage `paths:`. Left out, the stage counts
   as satisfied, so gate and publish still run. It applies on pushes too.
+- **Tests of Go packages or pnpm workspace packages**: prefer `affected: { go: ["./..."] }` or
+  `affected: { pnpm: ["@acme/web"] }` over globs. The run's checkout reads the import graph of the
+  commit (cross-module `replace`, `workspace:` deps included) and the stage is skipped as
+  `not_affected`, satisfied like `paths:`, only when no changed file reaches it. Put the files read
+  at run time (migrations, fixtures opened by path, scripts) in `paths:` beside it; that is an OR.
+  `ankra pipeline validate --changed-file <f>` inside the checkout shows the graph's answer.
 - A component's **build/scan/publish chain**: `when.paths`. `paths:` is refused on a `build` another
   stage needs, a scan a gate requires and a gate, and skipping the whole chain is what you want.
 - **"Pull requests check what they touch, pushes check everything"**: an event-scoped
