@@ -281,3 +281,15 @@ func TestPipelineTimeSavedRefusesAnUnknownWindow(t *testing.T) {
 		t.Fatalf("error = %v, want a usage error", executeError)
 	}
 }
+
+// A step the dependency graph skipped (affected:, reason not_affected) is
+// named as such per run and in the totals, not echoed as its raw code.
+func TestPipelineTimeSavedNamesANotAffectedSkip(t *testing.T) {
+	if got := pipelineTimeSavedReason(client.PipelineTimeSavedEntry{Reason: "not_affected"}); got !=
+		"not affected: no changed file is in its dependency graph" {
+		t.Errorf("reason = %q", got)
+	}
+	if got := pipelineTimeSavedReasonLabel("not_affected"); got != "steps the dependency graph showed no change reaches" {
+		t.Errorf("label = %q", got)
+	}
+}

@@ -382,7 +382,11 @@ gate-approved digest as the push's own `sha-<7>`, and the other stages show skip
 Anything else builds in full and says why. `promote_from` is a protected section (approved with the
 default-branch definition); generated application pipelines declare it when their shape allows. A
 stage a pull-request-only filter skipped did not pass, so that merge builds in full: in a
-repository that relies on promotion, prefer `affected:` / `paths:` (they skip on the push too).
+repository that relies on promotion, prefer `affected:` / `paths:` (they skip on the push too). A
+stage the pull request run skipped as `not_affected` counts when the push changes no file that
+run's graph was not asked about (same tree, same answer; a train merge qualifies); otherwise the
+push builds in full and its checkout reads the graph. A `not_affected` skip never waits for a CI
+slot, and its time is recorded as saved (`not_affected`).
 
 **The merge train** (GitHub only, CLI v0.30.0+) tests each queued pull request squashed onto the
 base branch and the cars ahead of it, then merges it through GitHub; every merge is a tree a run
