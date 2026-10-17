@@ -1,6 +1,14 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.40.0 — 2026-10-17
+
+The headline is faster CI you can see and preview: `ankra pipeline get` and
+the new `ankra pipeline time-saved` show the CI time path filters, the
+dependency graph and promoted publishes saved; `ankra pipeline validate`
+lists named path sets and, inside a checkout, answers `affected:` stages from
+the same dependency graph the run reads; and `--full` on `pipeline run` and
+`rerun` sets the path filters aside when you need everything. Every `-o json`
+change is an added field; no existing key changes.
 
 ### Added
 
@@ -28,7 +36,37 @@
   `ankra skills install` now teaches assistants those resources, the
   `project_id` the provider needs in organisations with projects, and which
   changes replace, re-mint or refuse. On provider 0.2.x only the cluster
-  resources exist, and the skill says so.
+  resources exist, and the skill says so. It also says the provider's
+  organisation override falls back to `ANKRA_ORG`, the CLI's variable, not
+  the `ANKRA_ORGANISATION_ID` that Ankra Pipelines sets in every step.
+
+- **`ankra pipeline validate` lists the definition's named path sets.** A
+  definition that declares `path_sets:` (ankraio/cluster#4862) gets a `Path
+  sets` block after the violations: each set with every set it includes
+  expanded, the sets it includes, and every path list and set that uses it.
+  `-o json|yaml` carries them as a new `path_sets` field, absent when the
+  definition declares none. The ankra-ship and ankra-cicd skills document
+  `path_sets:`.
+
+- **`ankra pipeline run --full` and `ankra pipeline rerun --full` run every
+  stage.** The pipeline's path filters (`on.<event>.paths`, `when.paths` and
+  `paths:`) are set aside for that one run, and the run records who asked; a
+  stage's `if:` still decides. The same flag is on `ankra application
+  pipeline run` and `rerun`. `pipeline get` now prints a `Full run:` line
+  saying why a run set its filters aside (a `--full` dispatch or re-run, the
+  `ankra:full-run` pull request label, the organisation's default-branch
+  policy or the definition's `full_run:` block), and `-o json|yaml` carries
+  `full_run_source`, `full_run_requested_by` and `full_run_message`, absent
+  for a run that applied its filters. A run skipped because its pushed commit
+  carried a skip marker shows its `skip_marker` error class with what it
+  means.
+
+- **The ankra-ship and ankra-cicd skills teach `affected:`.** They say when
+  to name the Go or pnpm workspace packages a stage tests instead of listing
+  globs, that `affected:` beside a `when` path filter is refused as `paths:`
+  is, and how a not-affected skip meets CI slots and promotion: it is settled
+  without waiting for a slot, and a promoted push counts it when the push
+  changes nothing the pull request run's graph was not asked about.
 
 - **`ankra pipeline validate --changed-file` reads the dependency graph for
   `affected:` stages.** A stage that declares `affected:` (Go packages or pnpm
@@ -59,7 +97,10 @@
   line gives the platform's estimate of the CI time path filters and a
   promoted publish kept the run from spending, with one line per skipped
   stage saying why and what the estimate is based on. A stage with no
-  history is shown as unknown and never counted. `-o json|yaml` adds the
+  history is shown as unknown and never counted. A stage the dependency
+  graph skipped is named as such ("not affected: no changed file is in its
+  dependency graph", reason `not_affected`, ankraio/cluster#4888), and
+  `time-saved` totals it on its own line. `-o json|yaml` adds the
   record as a new `time_saved` field and leaves every existing field as it
   was. `ankra pipeline time-saved` totals the organisation, or one pipeline
   with `--application` or `--repository`, over the last 30 days (`--window
