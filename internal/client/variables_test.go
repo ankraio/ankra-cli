@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -84,7 +85,7 @@ func TestUpdateOrganisationVariableSecretFlag(t *testing.T) {
 				received = decodeRequestBody(t, request)
 				jsonResponse(t, writer, http.StatusOK, map[string]any{"variable": map[string]any{"name": "API_TOKEN"}})
 			})
-			if _, updateError := apiClient.UpdateOrganisationVariable(context.Background(), "API_TOKEN", "v", "", testCase.secret); updateError != nil {
+			if _, updateError := apiClient.UpdateOrganisationVariable(context.Background(), "API_TOKEN", strPtr("v"), "", testCase.secret); updateError != nil {
 				t.Fatalf("update: %v", updateError)
 			}
 			value, present := received["is_secret"]
@@ -152,5 +153,46 @@ func TestRevealOrganisationVariableForbidden(t *testing.T) {
 	var unexpected *UnexpectedResponseError
 	if !errors.As(revealError, &unexpected) || unexpected.StatusCode != http.StatusForbidden {
 		t.Errorf("error = %v, want an unexpected 403 response", revealError)
+	}
+}
+
+func TestUpdateOrganisationVariableWithoutValueOmitsIt(t *testing.T) {
+	var received map[string]any
+	apiClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		received = decodeRequestBody(t, request)
+		jsonResponse(t, writer, http.StatusOK, map[string]any{"variable": map[string]any{"name": "API_TOKEN", "is_secret": true}})
+	})
+
+	isSecret := true
+	if _, updateError := apiClient.UpdateOrganisationVariable(context.Background(), "API_TOKEN", nil, "", &isSecret); updateError != nil {
+		t.Fatalf("update: %v", updateError)
+	}
+	if _, present := received["value"]; present {
+		t.Errorf("request body = %v, want no value so the stored one is kept", received)
+	}
+	if received["is_secret"] != true {
+		t.Errorf("request body = %v, want is_secret true", received)
+	}
+}
+
+func TestVariableValidationErrorRedactsTheValue(t *testing.T) {
+	apiClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		jsonResponse(t, writer, http.StatusUnprocessableEntity, map[string]any{"detail": []map[string]any{{
+			"loc":   []string{"body", "value"},
+			"msg":   "String should have at most 4096 characters",
+			"input": "s3cret-credential",
+			"ctx":   map[string]any{"value": "s3cret-credential"},
+		}}})
+	})
+
+	_, createError := apiClient.CreateOrganisationVariable(context.Background(), "API_TOKEN", "s3cret-credential", "", true)
+	if createError == nil {
+		t.Fatal("expected a 422 error")
+	}
+	if strings.Contains(createError.Error(), "s3cret-credential") {
+		t.Errorf("error leaked the value: %v", createError)
+	}
+	if !strings.Contains(createError.Error(), "at most 4096 characters") {
+		t.Errorf("error lost the validation message: %v", createError)
 	}
 }

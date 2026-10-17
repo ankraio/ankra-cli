@@ -86,7 +86,7 @@ var orgVariablesGetCmd = &cobra.Command{
 }
 
 var orgVariablesSetCmd = &cobra.Command{
-	Use:   "set <name> <value>",
+	Use:   "set <name> [value]",
 	Short: "Create or update an organisation variable",
 	Long: `Create or update an organisation variable (upsert). If the variable
 does not exist it is created; otherwise its value (and description, when
@@ -99,11 +99,15 @@ Without the flag an update keeps the variable's current setting.
 
 The value can also be read from stdin by passing "-":
 
-  echo "secret-token" | ankra org variables set API_TOKEN - --secret`,
-	Args: cobra.ExactArgs(2),
+  echo "secret-token" | ankra org variables set API_TOKEN - --secret
+
+Leave the value out to change only an existing variable's secret setting or
+description, keeping its value:
+
+  ankra org variables set API_TOKEN --secret`,
+	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		rawValue := args[1]
 		descriptionFlag := cmd.Flags().Lookup("description")
 		description := descriptionFlag.Value.String()
 		descriptionExplicit := descriptionFlag.Changed
@@ -113,13 +117,17 @@ The value can also be read from stdin by passing "-":
 			secretUpdate = &isSecret
 		}
 
-		value, err := readVariableValue(cmd.InOrStdin(), rawValue)
+		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+		defer cancel()
+
+		if len(args) == 1 {
+			return updateOrganisationVariableSettings(ctx, cmd, name, description, descriptionExplicit, secretUpdate)
+		}
+
+		value, err := readVariableValue(cmd.InOrStdin(), args[1])
 		if err != nil {
 			return err
 		}
-
-		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
-		defer cancel()
 
 		_, err = apiClient.CreateOrganisationVariable(ctx, name, value, description, isSecret)
 		if err == nil {
@@ -148,12 +156,45 @@ The value can also be read from stdin by passing "-":
 				}
 			}
 		}
-		if _, err := apiClient.UpdateOrganisationVariable(ctx, name, value, description, secretUpdate); err != nil {
+		if _, err := apiClient.UpdateOrganisationVariable(ctx, name, &value, description, secretUpdate); err != nil {
 			return fmt.Errorf("update organisation variable: %w", err)
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Organisation variable %q updated.\n", name)
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), organisationVariableUpdatedMessage(name, secretUpdate))
 		return nil
 	},
+}
+
+// updateOrganisationVariableSettings changes an existing variable's secret
+// setting or description without sending a value, so the stored value is
+// kept. It needs --secret or --description: with neither there is nothing to
+// change.
+func updateOrganisationVariableSettings(ctx context.Context, cmd *cobra.Command, name, description string,
+	descriptionExplicit bool, secretUpdate *bool) error {
+	if secretUpdate == nil && !descriptionExplicit {
+		return withExitCode(exitUsage, fmt.Errorf(
+			"pass a value, or --secret or --description to change %q without changing its value", name))
+	}
+	if _, updateError := apiClient.UpdateOrganisationVariable(ctx, name, nil, description, secretUpdate); updateError != nil {
+		if errors.Is(updateError, client.ErrVariableNotFound) {
+			return withExitCode(exitNotFound, fmt.Errorf("organisation variable %q not found", name))
+		}
+		return fmt.Errorf("update organisation variable: %w", updateError)
+	}
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), organisationVariableUpdatedMessage(name, secretUpdate))
+	return nil
+}
+
+// organisationVariableUpdatedMessage says what an update did to the secret
+// setting when --secret was passed.
+func organisationVariableUpdatedMessage(name string, secretUpdate *bool) string {
+	switch {
+	case secretUpdate == nil:
+		return fmt.Sprintf("Organisation variable %q updated.", name)
+	case *secretUpdate:
+		return fmt.Sprintf("Organisation variable %q updated; it is now secret.", name)
+	default:
+		return fmt.Sprintf("Organisation variable %q updated; it is no longer secret.", name)
+	}
 }
 
 var orgVariablesDeleteCmd = &cobra.Command{

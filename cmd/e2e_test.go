@@ -817,7 +817,7 @@ func (m baseMock) CreateOrganisationVariable(ctx context.Context, name, value, d
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) UpdateOrganisationVariable(ctx context.Context, name, value, description string, isSecret *bool) (*client.OrganisationVariableResult, error) {
+func (m baseMock) UpdateOrganisationVariable(ctx context.Context, name string, value *string, description string, isSecret *bool) (*client.OrganisationVariableResult, error) {
 	return nil, errors.New("not implemented")
 }
 

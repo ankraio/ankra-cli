@@ -42,8 +42,9 @@ type createVarCall struct {
 	IsSecret                 bool
 }
 type updateVarCall struct {
-	Name, Value, Description string
-	IsSecret                 *bool
+	Name, Description string
+	Value             *string
+	IsSecret          *bool
 }
 type createClusterVarCall struct{ ClusterID, Name, Value, Description string }
 type updateClusterVarCall struct{ ClusterID, Name, Value, Description string }
@@ -75,12 +76,15 @@ func (m *varsMock) CreateOrganisationVariable(ctx context.Context, name, value, 
 	return &client.OrganisationVariableResult{Variable: v}, nil
 }
 
-func (m *varsMock) UpdateOrganisationVariable(ctx context.Context, name, value, description string, isSecret *bool) (*client.OrganisationVariableResult, error) {
+func (m *varsMock) UpdateOrganisationVariable(ctx context.Context, name string, value *string, description string, isSecret *bool) (*client.OrganisationVariableResult, error) {
 	m.updateOrgCalls = append(m.updateOrgCalls, updateVarCall{Name: name, Value: value, Description: description, IsSecret: isSecret})
 	if m.updateOrgErr != nil {
 		return nil, m.updateOrgErr
 	}
-	v := client.OrganisationVariable{Name: name, Value: value, Description: description, UpdatedAt: time.Now()}
+	v := client.OrganisationVariable{Name: name, Description: description, UpdatedAt: time.Now()}
+	if value != nil {
+		v.Value = *value
+	}
 	return &client.OrganisationVariableResult{Variable: v}, nil
 }
 
@@ -168,8 +172,8 @@ func TestRunOrgVariablesSet_UpsertFallsBackToUpdateOn409(t *testing.T) {
 	if len(mock.createOrgCalls) != 1 || len(mock.updateOrgCalls) != 1 {
 		t.Fatalf("expected one create + one update, got %d create / %d update", len(mock.createOrgCalls), len(mock.updateOrgCalls))
 	}
-	if mock.updateOrgCalls[0].Value != "db.new.example.com" {
-		t.Errorf("update value = %q, want db.new.example.com", mock.updateOrgCalls[0].Value)
+	if value := mock.updateOrgCalls[0].Value; value == nil || *value != "db.new.example.com" {
+		t.Errorf("update value = %v, want db.new.example.com", value)
 	}
 	if !strings.Contains(out.String(), `"DB_HOST" updated`) {
 		t.Errorf("expected updated message, got: %s", out.String())
@@ -318,6 +322,57 @@ func TestRunOrgVariablesSet_UpdateSecretFlag(t *testing.T) {
 				t.Errorf("is_secret = %v, want %v", *secretUpdate, testCase.wantIsSecret)
 			}
 		})
+	}
+}
+
+func TestRunOrgVariablesSet_UpdateMessageSaysItIsNowSecret(t *testing.T) {
+	mock := &varsMock{createOrgErr: client.ErrVariableDuplicate}
+	output, executeError := runOrgVariablesCommand(t, mock, "set", "API_TOKEN", "v2", "--secret")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, `"API_TOKEN" updated; it is now secret`) {
+		t.Errorf("expected the update to say it is now secret, got: %s", output)
+	}
+}
+
+func TestRunOrgVariablesSet_SecretWithoutValueKeepsTheValue(t *testing.T) {
+	mock := &varsMock{}
+	output, executeError := runOrgVariablesCommand(t, mock, "set", "API_TOKEN", "--secret")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if len(mock.createOrgCalls) != 0 {
+		t.Errorf("expected no create call, got %+v", mock.createOrgCalls)
+	}
+	if len(mock.updateOrgCalls) != 1 {
+		t.Fatalf("expected one update call, got %d", len(mock.updateOrgCalls))
+	}
+	call := mock.updateOrgCalls[0]
+	if call.Value != nil || call.IsSecret == nil || !*call.IsSecret {
+		t.Errorf("update call = %+v, want no value and is_secret true", call)
+	}
+	if !strings.Contains(output, "it is now secret") {
+		t.Errorf("expected the update message, got: %s", output)
+	}
+}
+
+func TestRunOrgVariablesSet_NameAloneIsAUsageError(t *testing.T) {
+	mock := &varsMock{}
+	_, executeError := runOrgVariablesCommand(t, mock, "set", "API_TOKEN")
+	if executeError == nil || exitCodeFor(executeError) != exitUsage {
+		t.Fatalf("expected a usage error, got %v", executeError)
+	}
+	if len(mock.updateOrgCalls) != 0 || len(mock.createOrgCalls) != 0 {
+		t.Errorf("expected no write, got %+v / %+v", mock.createOrgCalls, mock.updateOrgCalls)
+	}
+}
+
+func TestRunOrgVariablesSet_SecretWithoutValueOnAMissingVariableExitsThree(t *testing.T) {
+	mock := &varsMock{updateOrgErr: client.ErrVariableNotFound}
+	_, executeError := runOrgVariablesCommand(t, mock, "set", "MISSING", "--secret")
+	if executeError == nil || exitCodeFor(executeError) != exitNotFound {
+		t.Fatalf("expected a not-found exit, got %v", executeError)
 	}
 }
 
