@@ -50,6 +50,16 @@ type OrganisationCISettings struct {
 	// no available fix out of the verdict; false keeps every unfixed finding
 	// blocking whatever any pipeline asks for.
 	IgnoreUnfixed bool `json:"ci_ignore_unfixed" yaml:"ci_ignore_unfixed"`
+	// AlwaysRunStages, FullRunOnDefaultBranch and SkipMarkers are the safety
+	// net around path filters: the stages that run whatever their path
+	// filters say (with every stage they need), whether a push to the
+	// default branch runs every stage, and where a [skip ci] marker in a
+	// pushed commit skips the run (everywhere, except_default_branch or
+	// never). FullRunOnDefaultBranch and SkipMarkers are absent from a
+	// platform that predates them rather than reading as false and empty.
+	AlwaysRunStages        []string `json:"ci_always_run_stages,omitempty" yaml:"ci_always_run_stages,omitempty"`
+	FullRunOnDefaultBranch *bool    `json:"ci_full_run_on_default_branch,omitempty" yaml:"ci_full_run_on_default_branch,omitempty"`
+	SkipMarkers            string   `json:"ci_skip_markers,omitempty" yaml:"ci_skip_markers,omitempty"`
 	// PlatformBuildsEnabled reports whether Ankra has granted the organisation
 	// the platform-builders capability that gates the Ankra-operated build
 	// lane. It is Ankra's grant rather than a setting, so the platform refuses
@@ -76,6 +86,19 @@ const (
 	// CIBuildFallbackNone refuses the build instead, for organisations whose
 	// source may not leave their own infrastructure.
 	CIBuildFallbackNone = "none"
+)
+
+// The skip-marker vocabulary, mirroring enginekit/cisettings: where a
+// [skip ci] style marker in a pushed head commit's message skips the run. A
+// merge train car and a tag push never honour one.
+const (
+	// CISkipMarkersEverywhere honours a marker on a push to any branch.
+	CISkipMarkersEverywhere = "everywhere"
+	// CISkipMarkersExceptDefaultBranch honours a marker on every branch but
+	// the repository's default one. It is Ankra's default.
+	CISkipMarkersExceptDefaultBranch = "except_default_branch"
+	// CISkipMarkersNever ignores every marker.
+	CISkipMarkersNever = "never"
 )
 
 // The image-gate vocabulary, mirroring enginekit/trivygate. The stored values

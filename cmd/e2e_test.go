@@ -926,7 +926,7 @@ func (m baseMock) GetOrganisationPreviewSettings(ctx context.Context) (*client.O
 }
 
 func (m baseMock) UpdateOrganisationPreviewSettings(ctx context.Context,
-	changes map[string]*string) (*client.OrganisationPreviewSettings, error) {
+	changes map[string]any) (*client.OrganisationPreviewSettings, error) {
 	return nil, errors.New("not implemented")
 }
 

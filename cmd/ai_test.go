@@ -396,3 +396,94 @@ func TestAIOpenRouterRemoveDeclined(t *testing.T) {
 		t.Errorf("expected errCancelled, got: %v", executeError)
 	}
 }
+
+type aiEndpointCreateMock struct {
+	aiSettingsMock
+	createdName   string
+	createdAPIKey string
+	createCalls   int
+}
+
+func (m *aiEndpointCreateMock) CreateAIEndpoint(name, baseURL, apiKey string) (*client.AIEndpoint, error) {
+	m.createCalls++
+	m.createdName = name
+	m.createdAPIKey = apiKey
+	return &client.AIEndpoint{ID: "ep-1", Name: name, BaseURL: baseURL}, nil
+}
+
+func resetAIEndpointsCreateFlags(t *testing.T) {
+	t.Helper()
+	t.Cleanup(func() {
+		for _, flagName := range []string{"name", "base-url", "api-key"} {
+			_ = aiEndpointsCreateCmd.Flags().Set(flagName, "")
+			aiEndpointsCreateCmd.Flags().Lookup(flagName).Changed = false
+		}
+		rootCmd.SetIn(nil)
+	})
+}
+
+func TestAIEndpointsCreateReadsKeyFromStdin(t *testing.T) {
+	const rawKey = "sk-endpoint-stdin-secret"
+	mock := &aiEndpointCreateMock{}
+	setMockClient(t, mock)
+	resetAIEndpointsCreateFlags(t)
+	rootCmd.SetIn(strings.NewReader(rawKey + "\n"))
+
+	var commandOutput string
+	var executeError error
+	stdoutOutput := captureStdout(t, func() {
+		commandOutput, executeError = executeCommand("ai", "endpoints", "create", "--name", "vllm", "--base-url", "https://vllm.example.com/v1")
+	})
+	if executeError != nil {
+		t.Fatalf("unexpected error: %v\n%s", executeError, commandOutput)
+	}
+	if mock.createdAPIKey != rawKey || mock.createdName != "vllm" {
+		t.Errorf("create call = %q %q, want the stdin key", mock.createdName, mock.createdAPIKey)
+	}
+	if strings.Contains(stdoutOutput, rawKey) || strings.Contains(commandOutput, rawKey) {
+		t.Errorf("the raw API key must never be echoed, got %q / %q", stdoutOutput, commandOutput)
+	}
+	if strings.Contains(commandOutput, "deprecated") {
+		t.Errorf("no deprecation warning expected without --api-key, got %q", commandOutput)
+	}
+}
+
+func TestAIEndpointsCreateAPIKeyFlagStillWorksAndWarns(t *testing.T) {
+	const rawKey = "sk-endpoint-flag-secret"
+	mock := &aiEndpointCreateMock{}
+	setMockClient(t, mock)
+	resetAIEndpointsCreateFlags(t)
+
+	var commandOutput string
+	var executeError error
+	_ = captureStdout(t, func() {
+		commandOutput, executeError = executeCommand("ai", "endpoints", "create", "--name", "vllm", "--base-url", "https://vllm.example.com/v1", "--api-key", rawKey)
+	})
+	if executeError != nil {
+		t.Fatalf("unexpected error: %v\n%s", executeError, commandOutput)
+	}
+	if mock.createdAPIKey != rawKey {
+		t.Errorf("created key = %q, want the flag value", mock.createdAPIKey)
+	}
+	if !strings.Contains(commandOutput, "--api-key is deprecated") {
+		t.Errorf("expected a deprecation warning, got %q", commandOutput)
+	}
+}
+
+func TestAIEndpointsCreateMissingKeyIsUsageError(t *testing.T) {
+	mock := &aiEndpointCreateMock{}
+	setMockClient(t, mock)
+	resetAIEndpointsCreateFlags(t)
+	rootCmd.SetIn(strings.NewReader("\n"))
+
+	var executeError error
+	_ = captureStdout(t, func() {
+		_, executeError = executeCommand("ai", "endpoints", "create", "--name", "vllm", "--base-url", "https://vllm.example.com/v1")
+	})
+	if executeError == nil || exitCodeFor(executeError) != exitUsage {
+		t.Fatalf("expected a usage error, got %v", executeError)
+	}
+	if mock.createCalls != 0 {
+		t.Errorf("expected no create call, got %d", mock.createCalls)
+	}
+}

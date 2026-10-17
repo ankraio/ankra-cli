@@ -18,7 +18,7 @@ type orgPreviewSettingsMock struct {
 	baseMock
 
 	settings   client.OrganisationPreviewSettings
-	updateSeen []map[string]*string
+	updateSeen []map[string]any
 }
 
 func (m *orgPreviewSettingsMock) GetOrganisationPreviewSettings(
@@ -28,7 +28,7 @@ func (m *orgPreviewSettingsMock) GetOrganisationPreviewSettings(
 }
 
 func (m *orgPreviewSettingsMock) UpdateOrganisationPreviewSettings(ctx context.Context,
-	changes map[string]*string) (*client.OrganisationPreviewSettings, error) {
+	changes map[string]any) (*client.OrganisationPreviewSettings, error) {
 	m.updateSeen = append(m.updateSeen, changes)
 	settings := m.settings
 	return &settings, nil
@@ -132,7 +132,7 @@ func TestRunOrgAIEnvironmentSet_SendsOnlyTheFlagsPassed(t *testing.T) {
 	if len(changes) != 1 {
 		t.Fatalf("an untouched field must stay out of the body entirely, got %v", changes)
 	}
-	if changes["demo_cert_issuer_name"] == nil || *changes["demo_cert_issuer_name"] != "letsencrypt-prod" {
+	if changes["demo_cert_issuer_name"] != "letsencrypt-prod" {
 		t.Fatalf("changes = %v", changes)
 	}
 }
@@ -263,7 +263,7 @@ func TestPreviewSettingFlagsAreRegisteredForEveryWireField(t *testing.T) {
 		}
 	}
 	orgAIEnvironmentSetCmd.Flags().VisitAll(func(flag *pflag.Flag) {
-		if !strings.HasPrefix(flag.Name, "demo-") {
+		if !strings.HasPrefix(flag.Name, "demo-") || flag.Name == "demo-ttl-hours" || flag.Name == "demo-ttl-role-cap" {
 			return
 		}
 		if _, isKnown := previewSettingFlagFields[flag.Name]; !isKnown {
@@ -359,5 +359,81 @@ func TestRunOrgAIEnvironmentGet_DoesNotCaveatDNSWithNoPreviewDomain(t *testing.T
 	}
 	if strings.Contains(output, "not an all-clear") {
 		t.Errorf("nothing is published, so there is nothing to caveat, got %s", output)
+	}
+}
+
+func TestRunOrgAIEnvironmentSet_WritesTheWorkspaceSettings(t *testing.T) {
+	const stagingClusterID = "0b8f2f5e-3c1a-4d2b-9e7f-1a2b3c4d5e6f"
+	mock := &orgPreviewSettingsMock{}
+	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "set",
+		"--staging-cluster", stagingClusterID, "--workspace-ttl-hours", "12", "--demo-ttl-hours", "48",
+		"--demo-ttl-role-cap", "member=24", "--demo-ttl-role-cap", "operator=96",
+		"--default-gateway-mode", "agent")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	changes := mock.updateSeen[0]
+	if changes["staging_cluster_id"] != stagingClusterID || changes["workspace_ttl_hours"] != 12 ||
+		changes["demo_ttl_hours"] != 48 || changes["default_gateway_mode"] != "agent" {
+		t.Errorf("changes = %v", changes)
+	}
+	caps, isMap := changes["demo_ttl_role_caps"].(map[string]int)
+	if !isMap || len(caps) != 2 || caps["member"] != 24 || caps["operator"] != 96 {
+		t.Errorf("demo_ttl_role_caps = %#v", changes["demo_ttl_role_caps"])
+	}
+	if len(changes) != 5 {
+		t.Errorf("only the passed settings may be written, got %v", changes)
+	}
+}
+
+func TestRunOrgAIEnvironmentSet_AnEmptyStagingClusterClearsIt(t *testing.T) {
+	mock := &orgPreviewSettingsMock{}
+	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "set", "--staging-cluster", "")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	value, isPresent := mock.updateSeen[0]["staging_cluster_id"]
+	if !isPresent || value != nil {
+		t.Errorf("an empty --staging-cluster must send an explicit null, got %v", mock.updateSeen[0])
+	}
+}
+
+func TestRunOrgAIEnvironmentSet_RefusesAnUnknownGatewayModeOrRoleCap(t *testing.T) {
+	for _, arguments := range [][]string{
+		{"--default-gateway-mode", "auto"},
+		{"--demo-ttl-role-cap", "owner=24"},
+		{"--demo-ttl-role-cap", "member"},
+		{"--demo-ttl-role-cap", "member=forever"},
+	} {
+		mock := &orgPreviewSettingsMock{}
+		_, executeError := runOrgAIEnvironment(t, mock, append([]string{"org", "ai-environment", "set"}, arguments...)...)
+		if executeError == nil || exitCodeFor(executeError) != exitUsage {
+			t.Errorf("%v: expected a usage error, got %v", arguments, executeError)
+		}
+		if len(mock.updateSeen) != 0 {
+			t.Errorf("%v: expected no write, got %v", arguments, mock.updateSeen)
+		}
+	}
+}
+
+func TestRunOrgAIEnvironmentGet_ShowsTheWorkspaceSettings(t *testing.T) {
+	stagingClusterID := "0b8f2f5e-3c1a-4d2b-9e7f-1a2b3c4d5e6f"
+	stagingClusterName := "staging"
+	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
+		StagingClusterID: &stagingClusterID, StagingClusterName: &stagingClusterName, StagingClusterOnline: true,
+		WorkspaceTTLHours: 8, DemoTTLHours: 24, DefaultGatewayMode: "ask",
+		DemoTTLRoleCaps: map[string]int{"admin": 720, "member": 72, "operator": 168},
+	}}
+	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	for _, want := range []string{
+		"Staging cluster:   staging", "Workspace TTL:     8 hours", "Demo TTL:          24 hours",
+		"Demo TTL caps:     admin 720h, member 72h, operator 168h", "Gateway mode:      ask",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("get output missing %q:\n%s", want, output)
+		}
 	}
 }

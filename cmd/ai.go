@@ -341,12 +341,28 @@ var aiEndpointsCreateCmd = &cobra.Command{
 	Short: "Add an OpenAI-compatible endpoint",
 	Long: `Add a named OpenAI-API-standard endpoint (OpenRouter, vLLM, LiteLLM,
 Ollama, ...). The server validates and probes the endpoint before saving; the
-API key is stored server-side and never returned.`,
+API key is stored server-side and never returned.
+
+Pipe the API key on stdin, or run interactively to be prompted for it (the
+prompt masks the input):
+
+  ankra ai endpoints create --name vllm --base-url https://vllm.example.com/v1 < key.txt
+
+--api-key still works but is deprecated: a key on the command line lands in
+the shell history and the process list.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if cmd.Flags().Changed("api-key") {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
+				"Warning: --api-key is deprecated because the key lands in shell history; pipe it on stdin or omit it to be prompted.")
+		}
+		apiKey, secretError := resolveSecretInput(cmd, "api-key", "Endpoint API key")
+		if secretError != nil {
+			return secretError
+		}
 		endpoint, err := apiClient.CreateAIEndpoint(
 			mustFlagString(cmd, "name"),
 			mustFlagString(cmd, "base-url"),
-			mustFlagString(cmd, "api-key"),
+			apiKey,
 		)
 		if err != nil {
 			return fmt.Errorf("creating AI endpoint: %w", err)
@@ -719,10 +735,9 @@ func init() {
 
 	aiEndpointsCreateCmd.Flags().String("name", "", "Endpoint name")
 	aiEndpointsCreateCmd.Flags().String("base-url", "", "OpenAI-compatible base URL (e.g. https://openrouter.ai/api/v1)")
-	aiEndpointsCreateCmd.Flags().String("api-key", "", "API key for the endpoint")
+	aiEndpointsCreateCmd.Flags().String("api-key", "", "API key for the endpoint (deprecated: lands in shell history; omit to read stdin or be prompted)")
 	_ = aiEndpointsCreateCmd.MarkFlagRequired("name")
 	_ = aiEndpointsCreateCmd.MarkFlagRequired("base-url")
-	_ = aiEndpointsCreateCmd.MarkFlagRequired("api-key")
 	aiEndpointsUpdateCmd.Flags().String("name", "", "Endpoint name")
 	aiEndpointsUpdateCmd.Flags().String("base-url", "", "OpenAI-compatible base URL")
 	aiEndpointsUpdateCmd.Flags().String("api-key", "", "New API key (omit to keep the stored key)")

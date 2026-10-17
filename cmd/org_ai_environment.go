@@ -5,6 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"slices"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"ankra/internal/client"
@@ -15,11 +20,14 @@ import (
 
 var orgAIEnvironmentCmd = &cobra.Command{
 	Use:   "ai-environment",
-	Short: "Show or change where PR demos are published",
+	Short: "Show or change where AI workspaces and PR demos run and are published",
 	Long: `Show or change the organisation's preview settings - where an on-demand
-demo or PR preview is published, and how it terminates TLS.
+demo or PR preview is published, and how it terminates TLS - and where AI
+workspaces and demos run (the staging cluster), how long they live, and the
+mode new AI gateway connections start in.
 
   ankra org ai-environment get
+  ankra org ai-environment set --staging-cluster staging --demo-ttl-hours 48
   ankra org ai-environment set --demo-base-domain previews.example.com
   ankra org ai-environment set --demo-cert-issuer letsencrypt-prod
   ankra org ai-environment set --demo-base-domain ""
@@ -84,7 +92,7 @@ admin.`,
 
 var orgAIEnvironmentGetCmd = &cobra.Command{
 	Use:   "get",
-	Short: "Show the organisation's preview settings",
+	Short: "Show the organisation's AI workspace and preview settings",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		out, formatError := structuredFormatFromFlags(cmd)
@@ -105,7 +113,7 @@ var orgAIEnvironmentGetCmd = &cobra.Command{
 
 var orgAIEnvironmentSetCmd = &cobra.Command{
 	Use:   "set",
-	Short: "Change the organisation's preview settings",
+	Short: "Change the organisation's AI workspace and preview settings",
 	Long: `Change where PR demos are published, and how they terminate TLS.
 
 Only the flags you pass are written; the rest keep their stored values. Pass a
@@ -114,6 +122,20 @@ flag with an empty value to clear that field:
   ankra org ai-environment set --demo-base-domain previews.example.com
   ankra org ai-environment set --demo-cert-issuer letsencrypt-prod
   ankra org ai-environment set --demo-cert-issuer ""
+
+The same command sets where AI workspaces and demos run and how long they live:
+
+  ankra org ai-environment set --staging-cluster staging
+  ankra org ai-environment set --workspace-ttl-hours 12 --demo-ttl-hours 48
+  ankra org ai-environment set --demo-ttl-role-cap member=24 --demo-ttl-role-cap operator=96
+  ankra org ai-environment set --default-gateway-mode ask
+
+--staging-cluster takes a cluster name or id; an empty value clears it.
+--workspace-ttl-hours is 1-168, --demo-ttl-hours 1-720, and each
+--demo-ttl-role-cap (admin, operator or member) is the longest demo that role
+may ask for, 1-720 hours; roles not named keep their cap.
+--default-gateway-mode is the mode new AI gateway connections start in: ask
+or agent.
 
 --demo-cert-issuer only applies alongside a demo base domain: on the Ankra
 subzone Ankra picks the issuer itself, from the networking stack it can
@@ -130,7 +152,7 @@ Requires organisation admin.`,
 			return formatError
 		}
 
-		changes := map[string]*string{}
+		changes := map[string]any{}
 		for flagName, field := range previewSettingFlagFields {
 			flag := cmd.Flags().Lookup(flagName)
 			if flag == nil || !flag.Changed {
@@ -140,13 +162,17 @@ Requires organisation admin.`,
 				changes[field] = nil
 				continue
 			}
-			value := flag.Value.String()
-			changes[field] = &value
+			changes[field] = flag.Value.String()
+		}
+		if workspaceError := addWorkspaceSettingChanges(cmd, changes); workspaceError != nil {
+			return workspaceError
 		}
 		if len(changes) == 0 {
 			return withExitCode(exitUsage, errors.New(
 				"pass at least one of --demo-base-domain, --demo-ingress-class, "+
-					"--demo-tls-secret or --demo-cert-issuer"))
+					"--demo-tls-secret, --demo-cert-issuer, --staging-cluster, "+
+					"--workspace-ttl-hours, --demo-ttl-hours, --demo-ttl-role-cap "+
+					"or --default-gateway-mode"))
 		}
 
 		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
@@ -206,6 +232,7 @@ func renderOrganisationPreviewSettings(cmd *cobra.Command,
 	// DNS first: an unresolvable hostname is why the TLS one is usually
 	// there too, and reading the certificate complaint before the reason for
 	// it sends people to the wrong setting.
+	renderWorkspaceSettings(out, settings)
 	if settings.PreviewDNSWarning != "" {
 		_, _ = fmt.Fprintf(out, "\n%s\n", settings.PreviewDNSWarning)
 	}
@@ -221,6 +248,43 @@ func renderOrganisationPreviewSettings(cmd *cobra.Command,
 		_, _ = fmt.Fprintf(out, "\n%s\n", settings.PreviewTLSWarning)
 	}
 	return nil
+}
+
+// renderWorkspaceSettings prints the staging cluster, the lifetimes and the
+// gateway mode. A platform that sends none of them (zero lifetimes and no
+// mode) gets no lines rather than a column of zeros.
+func renderWorkspaceSettings(out io.Writer, settings *client.OrganisationPreviewSettings) {
+	if settings.WorkspaceTTLHours == 0 && settings.DemoTTLHours == 0 && settings.DefaultGatewayMode == "" &&
+		settings.StagingClusterID == nil {
+		return
+	}
+	switch {
+	case settings.StagingClusterID == nil:
+		_, _ = fmt.Fprintln(out, "Staging cluster:   (none - AI workspaces and demos have nowhere to run)")
+	case settings.StagingClusterName == nil || *settings.StagingClusterName == "":
+		_, _ = fmt.Fprintf(out, "Staging cluster:   %s (no such cluster - it has been deleted)\n", *settings.StagingClusterID)
+	case !settings.StagingClusterOnline:
+		_, _ = fmt.Fprintf(out, "Staging cluster:   %s (offline)\n", *settings.StagingClusterName)
+	default:
+		_, _ = fmt.Fprintf(out, "Staging cluster:   %s\n", *settings.StagingClusterName)
+	}
+	_, _ = fmt.Fprintf(out, "Workspace TTL:     %d hours\n", settings.WorkspaceTTLHours)
+	_, _ = fmt.Fprintf(out, "Demo TTL:          %d hours\n", settings.DemoTTLHours)
+	if len(settings.DemoTTLRoleCaps) > 0 {
+		roles := make([]string, 0, len(settings.DemoTTLRoleCaps))
+		for role := range settings.DemoTTLRoleCaps {
+			roles = append(roles, role)
+		}
+		sort.Strings(roles)
+		caps := make([]string, 0, len(roles))
+		for _, role := range roles {
+			caps = append(caps, fmt.Sprintf("%s %dh", role, settings.DemoTTLRoleCaps[role]))
+		}
+		_, _ = fmt.Fprintf(out, "Demo TTL caps:     %s\n", strings.Join(caps, ", "))
+	}
+	if settings.DefaultGatewayMode != "" {
+		_, _ = fmt.Fprintf(out, "Gateway mode:      %s\n", settings.DefaultGatewayMode)
+	}
 }
 
 func orEmptyDefault(value string) string {
@@ -252,8 +316,75 @@ var previewSettingFlagUsage = map[string]string{
 	"demo-cert-issuer":   "cert-manager ClusterIssuer to ask instead of the cluster's own; empty clears it",
 }
 
+// demoTTLRoles are the roles a demo lifetime cap can be set for.
+var demoTTLRoles = []string{"admin", "operator", "member"}
+
+// addWorkspaceSettingChanges adds the staging cluster, lifetime and gateway
+// flags the caller passed to changes. An untouched flag stays out of the body,
+// so its stored value is kept; --staging-cluster "" is the explicit null that
+// clears the staging cluster. Bounds are the platform's, which refuses with a
+// sentence naming them.
+func addWorkspaceSettingChanges(cmd *cobra.Command, changes map[string]any) error {
+	if cmd.Flags().Changed("staging-cluster") {
+		nameOrID, _ := cmd.Flags().GetString("staging-cluster")
+		nameOrID = strings.TrimSpace(nameOrID)
+		if nameOrID == "" {
+			changes["staging_cluster_id"] = nil
+		} else {
+			clusterID, resolveError := resolveClusterID(nameOrID)
+			if resolveError != nil {
+				return resolveError
+			}
+			changes["staging_cluster_id"] = clusterID
+		}
+	}
+	if cmd.Flags().Changed("workspace-ttl-hours") {
+		hours, _ := cmd.Flags().GetInt("workspace-ttl-hours")
+		changes["workspace_ttl_hours"] = hours
+	}
+	if cmd.Flags().Changed("demo-ttl-hours") {
+		hours, _ := cmd.Flags().GetInt("demo-ttl-hours")
+		changes["demo_ttl_hours"] = hours
+	}
+	if cmd.Flags().Changed("default-gateway-mode") {
+		mode, _ := cmd.Flags().GetString("default-gateway-mode")
+		mode = strings.TrimSpace(mode)
+		if mode != "ask" && mode != "agent" {
+			return withExitCode(exitUsage, errors.New("--default-gateway-mode must be ask or agent"))
+		}
+		changes["default_gateway_mode"] = mode
+	}
+	if cmd.Flags().Changed("demo-ttl-role-cap") {
+		raw, _ := cmd.Flags().GetStringArray("demo-ttl-role-cap")
+		caps := map[string]int{}
+		for _, entry := range raw {
+			role, hoursText, hasSeparator := strings.Cut(strings.TrimSpace(entry), "=")
+			role = strings.TrimSpace(role)
+			hours, parseError := strconv.Atoi(strings.TrimSpace(hoursText))
+			if !hasSeparator || parseError != nil || !slices.Contains(demoTTLRoles, role) {
+				return withExitCode(exitUsage, fmt.Errorf(
+					"--demo-ttl-role-cap %q must be <role>=<hours> with role %s", entry,
+					strings.Join(demoTTLRoles, ", ")))
+			}
+			caps[role] = hours
+		}
+		changes["demo_ttl_role_caps"] = caps
+	}
+	return nil
+}
+
 func init() {
 	registerStructuredOutputFlags(orgAIEnvironmentGetCmd, orgAIEnvironmentSetCmd)
+	orgAIEnvironmentSetCmd.Flags().String("staging-cluster", "",
+		"Cluster name or id AI workspaces and PR demos run on; empty clears it")
+	orgAIEnvironmentSetCmd.Flags().Int("workspace-ttl-hours", 0,
+		"How long an AI workspace lives, in hours (1-168)")
+	orgAIEnvironmentSetCmd.Flags().Int("demo-ttl-hours", 0,
+		"How long a PR demo lives by default, in hours (1-720)")
+	orgAIEnvironmentSetCmd.Flags().StringArray("demo-ttl-role-cap", nil,
+		"Longest demo a role may ask for, as <role>=<hours> (admin, operator or member; 1-720; repeatable)")
+	orgAIEnvironmentSetCmd.Flags().String("default-gateway-mode", "",
+		"Mode new AI gateway connections start in: ask or agent")
 	// Both directions of drift are fatal here: walking the field map catches
 	// a field with no usage string, and the count check catches a usage
 	// string naming a flag that writes nothing.
