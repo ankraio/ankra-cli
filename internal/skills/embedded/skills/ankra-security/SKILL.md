@@ -1,9 +1,22 @@
 ---
 name: ankra-security
-description: Secure an Ankra organisation end to end - API tokens and their MCP scopes, organisation roles and membership, cluster access grants through the kube gateway (time-boxed grants, break-glass elevation and the organisation access policy), credential scope for Git/registry/cloud, secret handling with SOPS, application code and container scanning findings, the Security Center's fleet-wide CVE findings with CISA KEV and EPSS exploitation intelligence, and how much autonomy the AI agents and MCP tool servers are given. Use when the user asks about permissions, RBAC, who can access a cluster, break-glass access, token scopes, least privilege, a security review, hardening, handling secrets safely, vulnerabilities, a CVE, or what is exploited in the wild.
+description: Secure an Ankra organisation end to end - API tokens, service tokens, rotation and GitHub OIDC trust, MCP scopes, organisation roles and membership, cluster access grants through the kube gateway (time-boxed grants, break-glass elevation and the organisation access policy), credential scope for Git/registry/cloud, secret handling with SOPS, application code and container scanning findings, the Security Center's fleet-wide CVE findings with CISA KEV and EPSS exploitation intelligence, and how much autonomy the AI agents and MCP tool servers are given, including the AI kill switch. Use when the user asks about permissions, RBAC, who can access a cluster, break-glass access, token scopes, least privilege, a security review, hardening, handling secrets safely, vulnerabilities, a CVE, or what is exploited in the wild.
 ---
 
 # Ankra security
+
+## Recommended path
+
+- Golden paths 3 (the estate) and 4 (day 2), as listed in `ankra-platform-principles`. Start a
+  review read-only with `ankra org current`, then the review pass at the end of this skill.
+- Fix CVEs top-down by exploitation (CISA KEV, then EPSS), not by CVSS. A code fix goes through a
+  pull request and the pipeline (`ankra-ship`); an add-on fix is a pinned chart bump in Git
+  (`ankra-gitops`).
+- Least privilege everywhere: expiring, narrowly scoped tokens; `view` grants with time-boxed
+  elevation above it; secrets sealed with SOPS (`ankra-sops-secrets`); AI in Ask mode until a
+  binding is deliberately promoted (`ankra-ai-gateway`).
+- Anti-patterns: standing `cluster-admin`, a long-lived CI token in a repository secret, a decrypted
+  value in a transcript, and changing anything during a review pass without asking.
 
 Ankra has five distinct places where access is granted. Confusing them is how a "read-only" token
 ends up able to open pull requests, and how a developer who needed to read logs ends up
@@ -24,8 +37,14 @@ ankra tokens list
 ankra tokens create ci-payments --expires 2026-12-31
 ankra tokens create cursor-readonly --scopes mcp:read
 ankra tokens create agent-writer   --scopes mcp:read,mcp:write
+ankra tokens rotate <token-id> --overlap-hours 24   # same name and scopes; the old one stops after the overlap
 ankra tokens revoke <token-id>
 ankra tokens delete <token-id>          # only after it is revoked
+
+# Automation: a service account's token, which outlives the person who made it
+ankra tokens create ci-deployer --service --role member --label pipeline --expires 2027-01-31T00:00:00Z
+ankra tokens list --service
+ankra tokens rotate <token-id> --service
 ```
 
 - **Omitting `--scopes` creates a REST-only token** — it can drive the CLI and API but exposes no
@@ -38,6 +57,15 @@ ankra tokens delete <token-id>          # only after it is revoked
   remember to rotate.
 - Revoke first, delete second — the two-step exists so an accidental delete cannot hide an active
   credential.
+- **Automation uses a service token, not a person's.** `--service` makes the token belong to a
+  service account with its own role (which may not exceed yours), so it keeps working when someone
+  leaves. Renew it with `tokens rotate`, which prints only the new value when stdout is not a
+  terminal (`TOKEN=$(ankra tokens rotate <id>)`).
+- **No stored token at all** is better still where it applies: CI on Ankra Pipelines runs inside
+  the platform, and a GitHub Actions job that must call Ankra can exchange its OIDC token for a
+  minutes-long one (`ankra org oidc-trust create ...`, then `ankra login --github-oidc
+  --organisation-id <id>`). A policy names one repository by its numeric ids; pin a ref and a
+  protected environment.
 
 Resolution order in the CLI is `--token`, then the saved login from `ankra login`, then
 `ANKRA_API_TOKEN`. A saved login **beats** the environment variable, so a script that seems to
@@ -52,7 +80,7 @@ committed `.ankra.yaml`.
 ankra org members
 ankra org roles                          # the assignable roles
 ankra org invite <email> --role viewer   # owner, admin, operator, member, viewer, read-only
-ankra org remove <email>
+ankra org remove <user-id>               # the id `org members` prints
 ankra org current
 ```
 
@@ -81,8 +109,9 @@ existing grant in place.
 Two rules that carry most of the value here:
 
 - **`view` is enough for troubleshooting.** `ankra cluster logs --previous`, `describe`, `events`
-  and `top` all work through the agent without a grant at all; a grant is only needed for direct
-  `kubectl`. Reaching for `edit` to read a crash log is a common and unnecessary escalation.
+  and `top` all work through the platform without a grant at all; a grant is only needed for a
+  person's own kubeconfig context. Reaching for `edit` to read a crash log is a common and
+  unnecessary escalation.
 - **Standing `admin` and `cluster-admin` grants are a finding.** Access above `view` should be
   time-boxed: grant it with `--expires` and `--reason`, or let the person who needs it take it
   through break-glass. Replace every standing one with a time-boxed grant unless someone
@@ -170,8 +199,9 @@ repository frequently reaches an entire organisation, and nothing in its name sa
 ```bash
 ankra cluster sops-config                          # the public key in use
 ankra cluster encrypt manifest <name> --key password --key username
-ankra cluster encrypt addon <name> --key apiKey
+ankra cluster encrypt addon --name <addon> --key apiKey
 ankra cluster decrypt manifest <name>              # verify shape, never to copy values
+ankra cluster get secrets <name> -n <namespace>    # values come back as sha256 digests
 ankra application env-secrets list <application-id>
 ```
 
@@ -180,23 +210,31 @@ ankra application env-secrets list <application-id>
   ciphertext.
 - **Never print a decrypted value** into a terminal transcript, a pull request, a commit message,
   an issue, or chat. Report the key name and its state.
-- **Rotate and re-encrypt when access changes**, and scope decryption to the clusters that need it.
-- Opening a stack profile builder draft on a published profile **drops `encrypted_paths`** —
-  re-declare them before publishing (see `ankra-stack-profiles`).
+- **Live Secret values are digests by default.** `ankra cluster get secrets` shows keys and
+  `sha256:` digests (which still change when a value does). `--reveal` prints one named Secret's
+  values, needs `kubernetes.secrets_reveal` (operator, admin, owner) and is audited. Reach for it
+  only when a person explicitly needs the value.
+- **When a credential leaks, rotate it at the source** and re-seal the new value with
+  `encrypt --set`. Organisation key rotation is not self-service.
+- Profiles never store secret values; after building a stack profile from a sealed stack, confirm
+  each sealed resource still declares its `encrypted_paths` before publishing (see
+  `ankra-stack-profiles`).
 
 ## 6. Supply chain
 
 ```bash
-ankra application upgrade-workflow <application-id>    # add scanning to the build workflow
 ankra application code-security <application-id>
 ankra application container-security <application-id>
 ankra application security-versions <application-id>   # every published tag: BOM, findings, where it runs, licence verdict
 ankra application pull-request-reviews <application-id>
+ankra application upgrade-workflow <application-id>    # add scanning steps to an older build workflow
 ```
 
-An application whose build workflow has no scanning step is a finding in itself. So is a floating
-image tag or an unpinned chart version: a mutable tag means the artefact you reviewed is not
-necessarily the artefact that runs, which defeats every other control here.
+The recommended build is Ankra Pipelines (`ankra-ship`): Semgrep over the source, Checkov over the
+manifests and Trivy over the image, gated before an immutable `sha-` tag is published. An
+application whose build has no scanning step is a finding in itself. So is a floating image tag or
+an unpinned chart version: a mutable tag means the artefact you reviewed is not necessarily the
+artefact that runs, which defeats every other control here.
 
 ## 7. The Security Center: findings, KEV and EPSS
 
@@ -210,6 +248,7 @@ ankra security workloads --known-exploited       # scanned workloads ranked by r
 ankra security clusters --status stale           # per-cluster posture and scanner freshness
 ankra security namespaces --cluster <c>          # per-namespace posture; rows sum to the cluster
 ankra security pods --cluster <c> --namespace <ns>   # each container joined to its scanned workload
+ankra security stacks --cluster <c>              # per-stack exposure; `security stack <name>` for one
 ankra security addon <addon> --cluster <c>       # one add-on's attributed findings on a cluster
 ankra security advisory CVE-2026-1234            # the platform's advisory: NVD/OSV, CISA, your exposure
 ```
@@ -283,6 +322,11 @@ in the next 30 days.
 - SBOM generation is opt-in per cluster (`trivy_sbom_generation_enabled` in the security
   baseline profile); the coverage line says how many scanned clusters publish one.
 - Everything takes `-o json` for reporting and automation; the two exports write files.
+- **Fixing is ordinary change, not a special path.** An application CVE is a base-image or package
+  bump in a pull request through the pipeline; an add-on CVE is a pinned chart version bump in Git.
+  The DevSecOps agent (**AI** → **Agents**) does this at **Propose** autonomy: one pull request per
+  application listing the CVEs it clears. Route `security_findings` alerts (`kev`,
+  `new_kev_cves`) to the owning team (`ankra-alerts-webhooks`).
 
 ## 8. Agent autonomy
 
@@ -295,6 +339,11 @@ ankra org mcp-servers grant <name> <tool> --role admin
 ankra org mcp-servers revoke-grant <name> <tool> --role admin
 ankra org mcp-servers disable <name>
 ankra agents runs --status failed
+ankra ai remediation policy                            # autonomy level, per-tool 'auto' overrides, cluster scope
+ankra ai autonomy status
+ankra ai autonomy pause --reason "..."                 # AI may not change anything unapproved; `resume` undoes exactly that
+ankra ai autonomy stop-all --reason "..."              # incident stop: cancels every AI session and run; `start-all` releases
+ankra org ai-spend-cap show
 ```
 
 - **Ask is the safe default and the gateway fails closed to it.** A binding with no explicit mode
@@ -305,13 +354,17 @@ ankra agents runs --status failed
   restrict with `--cluster` where a server should only serve some clusters, and store credential
   headers with `--secret-header` (a secret slot) rather than `--header` (plaintext).
 - Grant mutating tools to the narrowest role that needs them, not to `member`.
+- **In the remediation policy, a per-tool `auto` runs with no approval card, and an unset cluster
+  allow list means every cluster.** Both are review findings. The policy is read-only from the CLI;
+  an admin changes it in the portal under **AI** → **Settings** → **Autonomy**.
 
 See `ankra-ai-agents` for the full surface and `ankra-ai-gateway` for the Ask/Agent contract.
 
 ## A review pass, in order
 
 ```bash
-ankra tokens list                        # no-expiry tokens, over-scoped mcp:write
+ankra tokens list ; ankra tokens list --service   # no-expiry tokens, over-scoped mcp:write
+ankra org oidc-trust list                # each trusted repository pinned to a ref or environment
 ankra org members ; ankra org roles      # who holds what
 ankra cluster access list --cluster <c>  # standing admin/cluster-admin, no Expires or Reason
 ankra org access-policy get              # a ceiling and an elevated lifetime are set
@@ -324,6 +377,7 @@ ankra security dispositions --status expiring --status fix_available   # accepte
 ankra security compliance                # benchmark posture per cluster; not_available is a finding
 ankra security sbom containers --status absent   # running containers with no bill of materials
 ankra org mcp-servers list               # read_write tiers, wide tool grants
+ankra ai remediation policy              # per-tool auto overrides, unscoped clusters
 ankra backup vaults list                 # every vault ready, keys scoped to their bucket
 ```
 
@@ -334,7 +388,8 @@ closes it. Do not change anything in a review pass without asking, and never pri
 
 - **Least privilege at every layer**, and the layers are independent — a narrow role does not
   narrow a token.
-- **Expiry on every token.** Revoke, then delete.
+- **Expiry on every token.** Rotate before expiry; revoke, then delete. Automation gets a service
+  token or OIDC trust, never a person's token.
 - **`view` before `edit`, `edit` before `admin`**, namespace-scoped before cluster-wide.
 - **Access above `view` is time-boxed** with `--expires` and `--reason`, or taken through
   `elevate`. Standing `admin` and `cluster-admin` grants are findings.

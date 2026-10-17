@@ -9,6 +9,10 @@ The provider is published on the Terraform Registry as `ankraio/ankra`. Since **
 
 Operational commands stay in the CLI: logs, exec, metrics, runs and reruns, `cluster scale`, `cluster upgrade`, chat, the AI board. Never wrap them in `local-exec`.
 
+## Recommended path
+
+This is the **infrastructure as code** golden path in `ankra-platform-principles`: use the provider when the organisation already runs Terraform; otherwise **GitOps as the source of truth** (`ankra-gitops`, `ankra cluster apply`) is the default. Keep one source of truth per object: a given cluster's Stacks live in GitOps YAML or in `ankra_cluster`, never both, and nothing Terraform manages is also changed in the portal or with the CLI. Applications still ship through `ankra-ship` and Ankra Pipelines; Terraform declares them, it does not replace the pipeline.
+
 ## Provider block
 
 ```hcl

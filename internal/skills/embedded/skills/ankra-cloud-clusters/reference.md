@@ -83,8 +83,10 @@ Two traps that cost a rebuild:
 
 Same concepts, different names. `--name`, `--credential-id`, `--ssh-key-credential-id`,
 `--distribution`, `--kubernetes-version`, `--control-plane-count`, `--worker-count`,
-`--external-cloud-provider`, `--include-networking`, `--include-dns`, `--gitops-repository`,
-`--gitops-credential-name` and `--gitops-branch` are common to every provider.
+`--etcd-topology`, `--etcd-node-count`, `--include-networking` and `--include-dns` are common to
+every provider. `--gitops-repository`, `--gitops-credential-name` and `--gitops-branch` exist on
+Hetzner, DigitalOcean, OVH, UpCloud, AWS and Ankra Cloud (not Scaleway, Proxmox or Morpheus);
+`--external-cloud-provider` only on Hetzner, DigitalOcean, OVH and UpCloud.
 
 | Concept | Hetzner | DigitalOcean | OVH | UpCloud |
 |---------|---------|--------------|-----|---------|
@@ -97,9 +99,13 @@ Same concepts, different names. `--name`, `--credential-id`, `--ssh-key-credenti
 | Zones | — | — | `--availability-zones` | `--zones` (+ `--network-mode`, `ankra cluster upcloud zones` to grow; node-group `--zone`) |
 | CNI | — | — | — | `--cni flannel\|calico\|cilium` |
 
-Proxmox VE and Morpheus have their own placement flags (host node, storage, template, bridge /
-cloud, group, layout, plan) — run `ankra cluster proxmox create --help` and
-`ankra cluster morpheus create --help`; the discovery commands above list the valid values.
+Scaleway (`--zone`/`--region`, `--*-type`, `--gateway-type`, `--private-network-id`) and AWS
+(`--region`, `--*-type`, `--vpc-id`, `--node-subnet-ids`, `--bastion-subnet-id`, `--egress-mode`,
+`--architecture`, `--root-volume-gib`) take `--retention-policy retain|delete` for what a teardown
+leaves behind. Proxmox VE (`--node`, `--storage`, `--template`, `--bridge`,
+`--*-instance-type`) and Morpheus (`--group-id`, `--cloud-id`, `--network-id`, `--layout-id`,
+`--*-plan-id`) have their own placement flags - run `create --help`; the discovery commands above
+list the valid values.
 
 Ankra Cloud (`ankra cluster ankracloud create`) uses `--zone`, the `*-plan` compute flags,
 `--network-ip-range` or `--private-network-id`, and `--network-mode ipv4_nat|ipv6_only`
@@ -118,9 +124,10 @@ with the same flag; the flag is accepted by both commands.
 - **Stop what is not in use.** `ankra cluster <provider> stop` and `ankra cluster power-schedules`
   turn a dev cluster off nightly. Note a plain stop can still bill for parked networking and load
   balancers — check the provider's rules before assuming a stopped cluster is free.
-- **Teardown with `--force`** on UpCloud, Hetzner, OVH and DigitalOcean so leftover CSI volumes and
-  load balancers are released. Orphaned volumes bill indefinitely and belong to no cluster, so
-  nothing surfaces them later.
+- **Know what a teardown keeps.** `deprovision --force` also releases leftover load balancers on
+  UpCloud, Hetzner, OVH, DigitalOcean and AWS; volumes go only with `--accept-volume-data-loss`
+  (or a yes at the prompt), and a `retain` cluster (AWS, Scaleway, Ankra Cloud default) keeps them.
+  Kept volumes bill indefinitely and belong to no cluster, so nothing surfaces them later.
 - **Dedicated vCPU costs more per core and less per unit of predictability.** Use it where jitter
   actually hurts, not by default.
 
@@ -136,4 +143,5 @@ with the same flag; the flag is accepted by both commands.
 | Everything `Pending` on an ARM cluster | An image with no `arm64` variant. |
 | A one-node group landed in the wrong zone | Unpinned group on a zone-spread cluster: it takes the thinnest zone. Pin with `--availability-zone`. |
 | Upgrade aborted partway | A drain blocked by a PodDisruptionBudget. Fix the PDB or re-run with `--force`. |
-| Cluster gone but the bill is not | Deprovisioned without `--force`: CSI volumes and load balancers were left behind. |
+| Cluster gone but the bill is not | Load balancers left by a deprovision without `--force`, or volumes kept by `retain` or by declining the volume prompt. |
+| A node-group change "succeeded" but nothing changed | The write was refused later (stock, quota). `ankra cluster operations list --failed --cluster <c>` names the reason. |

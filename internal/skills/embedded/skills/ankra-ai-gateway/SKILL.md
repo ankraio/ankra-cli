@@ -1,86 +1,145 @@
 ---
 name: ankra-ai-gateway
-description: Configure Ankra's AI Gateway across Slack, Microsoft Teams, GitHub, GitLab, and Bitbucket, set per-binding Ask/Agent safety modes, pick the org staging cluster for ephemeral AI workspace pods and PR demos, and run the pipeline-failure investigation and auto-fix-PR flow. Use when the user connects an AI integration, mentions Ask vs Agent mode, AI workspaces, PR demos, a staging cluster for AI, or wants the AI to investigate a failing pipeline and open a fix PR.
+description: Configure Ankra's AI Gateway across Slack, Microsoft Teams, GitHub, GitLab, and Bitbucket - per-connection Ask/Agent safety modes, the AI code review on every pull request (per-repository rules, related repositories, review model, `@ankraai` mentions), the org staging cluster for ephemeral AI workspace pods and PR demos and where demos are published, and the failed-build investigation and fix-pull-request flow. Use when the user connects an AI integration, mentions Ask vs Agent mode, AI code review or `ankra org ai-review`, AI workspaces, PR demos or previews, a staging cluster for AI, or wants the AI to investigate a failing build and open a fix PR.
 ---
 
 # Ankra AI Gateway
 
-The Ankra AI Gateway lets Ankra AI answer and act from your chat and source-control tools. It supports **Slack, Microsoft Teams, GitHub, GitLab, and Bitbucket**. Every integration runs under a **safety mode** that decides whether the AI can only read and explain, or can also change things.
+## Recommended path
 
-## Safety modes (the core concept)
+- Golden paths 4 (day 2: AI review of every pull request, failed-build investigation with fix
+  pull requests) and 5 (agent-driven work); see `ankra-platform-principles`.
+- Connect the provider, turn the review on deliberately (`ankra org ai-review repos set ...
+  --review --mentions`), keep every connection in **Ask**, and promote one connection to **Agent**
+  only where you want fix pull requests opened for you.
+- A pull request is the review gate: Agent opens one, a person merges it. The pipeline the fix runs
+  through is `ankra-cicd`; agent governance and model choice are `ankra-ai-agents`.
+- Anti-patterns: setting the organisation default to Agent "to save clicks", and expecting an
+  automatic review to change code.
 
-Two modes, set per integration (and an org-wide default):
+The Ankra AI Gateway lets Ankra AI answer and act from **Slack, Microsoft Teams, GitHub, GitLab,
+and Bitbucket Cloud**. Connections are made under **AI** → **Settings** → **Connections**, and
+connecting one is an organisation admin action.
+
+## Safety modes
+
+Every connection carries an **AI mode**, separate from its capability switches: the switches decide
+*whether* the AI answers, the mode decides *how far* the answer may go.
 
 | Mode | What the AI can do |
 |------|--------------------|
-| **Ask** (read-only) | Investigate and explain. Plus a curated set of **safe creations** that cannot damage existing infrastructure: spin up an ephemeral **workspace pod** to clone and search an Application's repos, deploy a **throwaway PR demo** to the staging cluster, and create a **brand-new stack**. It cannot modify, apply to, or delete anything that already exists, and it never opens a pull request. |
-| **Agent** | Everything Ask allows, plus mutating actions. **Opening a pull request is automatic** (the PR is itself the human review gate). Ask it to fix a bug from Slack, Teams, or the portal and it fixes it and opens the PR for you, replying with the link. Commits to existing branches and other destructive changes still require confirmation. |
+| **Ask** (default) | Investigate and explain, plus a curated set of **safe creations** that cannot damage existing infrastructure: an ephemeral **workspace pod** to clone and search an application's repositories, a **throwaway PR demo** on the staging cluster, and a **brand-new stack**. It never modifies existing infrastructure and never opens a pull request. |
+| **Agent** (marked **Can act**) | Everything Ask allows, plus acting. It opens fix pull requests on its own - the pull request is the review gate. Other destructive changes still ask for confirmation. |
 
-Ask is the safe default and the gateway **fails closed** to it: a binding with no explicit mode inherits the org default, and the org default is itself `ask` until an admin changes it. A Slack workspace or Teams tenant must be **explicitly set to Agent** (or the org default flipped to Agent) before it will auto-open pull requests — an unconfigured, misrouted, or lookup-failing binding stays read-only.
+Ask is the default and the gateway **fails closed** to it: a connection with no explicit mode
+inherits the organisation default, which is `ask` until an admin changes it. Mode is enforced at
+the tool offer, the dispatch guard and the executor, so a stale offer or a prompt-injected
+instruction cannot escalate. Automatic review events stay read-only whatever the mode.
 
-Mode is enforced in three places, so a stale offer or a prompt-injected instruction cannot escalate: the tool **offer filter**, the tool **dispatch guard**, and the tool **executor**. An automatic webhook review (e.g. an AI review on every PR) always stays read-only regardless of mode; only an explicit `@ankra` mention in an Agent-mode binding can propose a concrete, ready-to-apply fix.
+On GitLab and Bitbucket Cloud, Ankra cannot open the pull request itself, so an Agent-mode reply
+proposes the fix with a branch name and commit message instead.
 
-## Configure a binding's mode
+`ankra chat --mode ask|agent` picks the same modes for a CLI conversation, and MCP token scopes
+mirror them (`mcp:read` is the Ask surface, `mcp:write` the Agent surface; see `ankra-security`).
 
-In the portal: **Organisation settings → Integrations**. Each Slack workspace, Teams tenant, and SCM (GitHub/GitLab/Bitbucket) binding has an **AI mode** selector (Ask / Agent). Unset bindings inherit the org default (`default_gateway_mode`, itself `ask` out of the box), so a workspace only gains Agent autonomy once an admin sets it explicitly.
+## AI code review on every pull request
 
-Over the API:
+**Nothing runs until it is switched on.** A new source-control connection has every capability
+off: no review, no mention replies, no previews. Turn them on per connection (the default row) in
+the portal, or per repository from the CLI:
 
-```
-GET  /api/v1/org/ai-gateway/bindings                                  # list bindings + effective mode
-PUT  /api/v1/org/ai-gateway/bindings/{provider}/{binding_external_id} # {"mode":"ask"|"agent"}
-```
+```bash
+ankra org ai-review repos list                         # connections, their defaults and repository rules
+ankra org ai-review repos list --reachable             # also what each GitHub App installation can see
+ankra org ai-review repos set my-org/api --review --mentions --max-reviews-per-pr 5
+ankra org ai-review repos set my-org/api --review-drafts=false --model think
+ankra org ai-review repos set my-org/web --previews     # PR preview environments (GitHub only)
+ankra org ai-review repos unset my-org/api             # follow the connection defaults again
 
-## Staging cluster for AI workloads
-
-Ephemeral AI work — workspace pods and PR demos — runs on one **staging cluster** you nominate per organisation. Configure it in **Organisation settings → AI → Environment**:
-
-- **Staging cluster** — must belong to the org and have an online agent. Used for all small throwaway AI workloads.
-- **Workspace TTL** — how long a workspace pod lives (default 8h).
-- **Demo TTL** — how long a PR demo lives (default 24h).
-- **Default gateway mode** — Ask or Agent for bindings that don't override it.
-
-A reaper tears down expired workspaces and demos automatically. The **Active AI workspaces & demos** panel lists what is running and lets you terminate early.
-
-```
-GET    /api/v1/org/ai-environment                 # settings
-PUT    /api/v1/org/ai-environment                 # staging cluster, TTLs, default mode
-GET    /api/v1/org/ai-workspaces                  # active workspaces + PR demos
-DELETE /api/v1/org/ai-workspaces/{workspace_id}   # terminate now
+ankra org ai-review related-repos add my-org/web my-org/api   # reviews of either read the other
+ankra org ai-review related-repos list
+ankra ai lanes set pr_review think                     # organisation-wide review model
+ankra application pull-request-reviews <application-id>  # what the review posted
 ```
 
-## Workspace pods and PR demos (Ask-allowed)
+- `set` changes only the switches you pass (`--review`, `--mentions`, `--previews`, `--model`,
+  `--review-drafts`, `--max-reviews-per-pr`; `=false` turns one off); pass
+  `--binding <provider>/<id>` when the connection is ambiguous. `set` and `unset` need organisation
+  admin.
+- Related repositories belong to one GitHub App installation and both must be reachable by it;
+  pick it with `--credential <github-credential>` when the organisation has more than one.
+  `related-repos remove` takes the pair or the relationship id. Applications on the same cluster
+  are related with no configuration.
+- The review posts **one comment per pull request**, updated in place, with a verdict (`looks
+  good`, `no findings`, `comments`, `changes requested`) and at most eight findings pinned to their
+  lines. It also reads callers in the same repository and related repositories for code the change
+  can break.
+- **Talk to it with `@ankraai`** in a pull request comment (needs **Mention replies**). A mention
+  always runs, even on a draft or past the per-pull-request cap.
+- A skipped review says why on the **Ankra AI review** check run (switched off, draft, out-of-scope
+  branch, budget reached). Two budgets apply: **Auto reviews / PR** (default 5) on the repository
+  rule, and **Max runs per day** under the application's AI settings.
+- Per-application lanes (branch patterns, ignore paths, budgets, instructions) are
+  `ankra application ai-config`, keyed by repository.
 
-- **Workspace pod** — ask Ankra to search an Application's code and it spins up a locked-down sandbox on the staging cluster, shallow-clones the linked repo, and searches/reads files. Non-root, read-only root filesystem, time-limited.
-- **PR demo** — deploy a throwaway copy of an Application's PR build to a TTL namespace (`ankra-demo-pr-<n>`) on the staging cluster, so reviewers can click through the change. Stopped with `demo_stop` or reaped at TTL.
+## Staging cluster, workspaces and PR demos
 
-These are available in Ask mode because they only create isolated, ephemeral state.
+Ephemeral AI work runs on one **staging cluster** the organisation nominates (portal: **AI** →
+**Settings** → **Workspaces**), with a workspace lifetime (default 8h), a demo lifetime (default
+24h) and the default gateway mode. It must belong to the organisation and have an online agent.
+Without it, the safe-creation tools answer "configure a staging cluster first". Expired workspaces
+and demos are reaped automatically, and the portal lists what is running so you can stop it early.
 
-## Pipeline-failure investigation and auto-fix PRs
+- **Workspace pod** - a locked-down sandbox (non-root, read-only root filesystem, time-limited)
+  that shallow-clones an application's repository to search and read it.
+- **PR demo** - a throwaway copy of a pull request's build in its own namespace on the staging
+  cluster, with a public https URL for reviewers.
 
-When a pipeline fails, Ankra can:
+Where demos are published:
 
-1. **Investigate** — list pipeline runs and read the failing job logs (GitHub Actions today; GitLab/Bitbucket via minted short-lived tokens).
-2. **Reproduce** — clone the repo into a workspace pod and inspect the offending files.
-3. **Propose a fix** — explain the root cause and show the exact file changes.
-4. **Open the PR** — in **Agent** mode this happens automatically (`scm_create_pull_request`); in **Ask** mode Ankra stops at the proposed patch and tells you to switch to Agent to open it.
+```bash
+ankra org ai-environment get
+ankra org ai-environment set --demo-base-domain previews.example.com   # a wildcard zone you point at the staging cluster
+ankra org ai-environment set --demo-cert-issuer letsencrypt-prod       # only alongside a base domain
+ankra org ai-environment set --demo-base-domain ""                     # back to the staging cluster's Ankra subzone
+```
 
-### From Slack or Teams
+The preview domain is not the organisation's root domain (`ankra org domain`). A write that leaves
+previews on plain http says so. In Terraform, `ankra_ai_environment` manages the staging cluster,
+lifetimes, default gateway mode and preview domain together.
 
-In an **Agent**-mode Slack workspace or Teams tenant, message Ankra something like *"fix the failing build in `owner/repo`"* (or "fix this bug…"). Ankra investigates, commits the fix to a new branch, opens the pull request, and replies **in the thread with the PR link** — you never leave chat. It commits to a new branch and opens a PR; it never pushes to your default branch and never merges.
+## Failed builds and fix pull requests
 
-On an SCM PR itself, `@ankra`-mention a failing pull request from an Agent-mode binding and Ankra replies with a concrete fix and opens it as a pull request the same way.
+On Ankra Pipelines, a failed build on an application's tracked branch dispatches an agent. The
+application's **CI/CD** AI lane decides how far it goes:
+
+| Lane | What happens |
+|------|--------------|
+| **Ask** (default) | It investigates and proposes a fix, without committing |
+| **Agent** | It commits the fix on a new branch and opens a pull request for you to review |
+
+A failed run on someone's own pull request is never committed to: the pull request gets the
+explanation and a **Fix with Ankra** link on the run page instead.
+
+From an **Agent**-mode Slack workspace or Teams tenant, *"fix the failing build in
+`owner/repo`"* works the same way: Ankra investigates, opens the pull request, and replies in the
+thread with the link. It never pushes to the default branch, never force-pushes and never merges.
+From an Ask-mode connection it stops at the proposed patch and says to switch to Agent.
 
 ## Rules
 
-- **Start in Ask.** Only promote a binding to Agent when you want it to act; Agent auto-opens PRs.
-- **Set the staging cluster before using workspaces or PR demos.** Without it, the safe-creation tools answer "configure a staging cluster first".
-- **Auto reviews stay read-only.** Agent mode changes only what a human explicitly mentions the agent to do; it never mutates on an automatic webhook review.
-- **A pull request is the review gate.** Agent opens PRs without a confirmation prompt on purpose, but never merges and never force-pushes.
+- **Start in Ask.** Promote one connection to Agent deliberately; leave the organisation default
+  at `ask`.
+- **Switch the review on per connection or repository**; nothing runs by default.
+- **Set the staging cluster before using workspaces or PR demos**, and publish demos on a public
+  https preview domain, never a port-forward.
+- **A pull request is the review gate.** Agent opens pull requests without a prompt on purpose; a
+  person reviews and merges them.
 
 ## Related skills
 
-- `ankra-ship` — where the AI review, run watch and auto-fix sit in the shipping path.
-- `ankra-cli` — `ankra chat --mode ask|agent`, and MCP token scopes (`mcp:read` = Ask surface, `mcp:write` = Agent surface).
-- `ankra-cicd` — the GitOps deploy pattern the fix PRs plug into.
-- `ankra-stacks-addons` / `ankra-import-cluster` — the Applications and stacks the AI reasons about.
+- `ankra-ship` - where the AI review, run watch and fix pull requests sit in the shipping path.
+- `ankra-cicd` - Ankra Pipelines, which the fix pull requests run through.
+- `ankra-ai-agents` - models, lanes, autonomy, the board and agent runs.
+- `ankra-security` - token scopes, roles and the AI review of who can do what.
+- `ankra-domains-dns` - the preview domain and DNS for demos.

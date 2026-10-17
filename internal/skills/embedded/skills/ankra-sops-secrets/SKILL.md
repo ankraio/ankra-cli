@@ -5,6 +5,18 @@ description: Encrypt Kubernetes Secrets and sensitive addon values with SOPS and
 
 # Ankra secrets with SOPS
 
+## Recommended path
+
+- Golden path 2 (GitOps as the source of truth; see `ankra-platform-principles`): the Secret or
+  values file lives in the GitOps repository sealed with SOPS, `encrypted_paths` declares it, and
+  `ankra cluster apply` plus the Ankra engine deploy it.
+- First run `ankra cluster sops-config`; then encrypt in file mode (`-f cluster.yaml`) when the repo
+  is the source of truth, or in cluster mode for a stack that already runs.
+- To change a value, use `encrypt --set` so the plaintext never reaches Git. Repository layout is
+  `ankra-gitops`; a secret only one application reads belongs in `ankra application env-secrets`.
+- Anti-patterns: a plaintext commit "to encrypt later", a structural key name (`key`, `name`,
+  `host`) in `encrypted_paths`, and decrypted output in a transcript.
+
 Never commit a plaintext Secret. Ankra integrates SOPS (with AGE keys) so sensitive manifest and
 addon values are ciphertext in Git and decrypted only at deploy time — while the surrounding YAML
 stays readable, so diffs remain reviewable.
@@ -40,8 +52,9 @@ ankra cluster encrypt manifest db-secret --all-data --cluster prod
 ankra cluster encrypt manifest db-secret --key 'glob:stringData.DB_*' --cluster prod
 ankra cluster encrypt manifest db-secret --key password -f cluster.yaml
 
-ankra cluster encrypt addon my-app --key apiKey
-ankra cluster encrypt addon my-app --key 'glob:*Password' -f cluster.yaml
+ankra cluster encrypt addon --name my-app --key apiKey
+ankra cluster encrypt addon --name my-app --key apiKey --cluster prod --stack apps   # --stack when the name is in several stacks
+ankra cluster encrypt addon --name my-app --key 'glob:*Password' -f cluster.yaml
 ```
 
 Key semantics worth knowing before you write a `--key`:
@@ -59,6 +72,19 @@ Key semantics worth knowing before you write a `--key`:
   values already encrypted. The manifest must be a Secret; `--all-data` and `--key` are mutually
   exclusive.
 - After encrypting, the CLI verifies every value really is `ENC[...]` ciphertext and fails if not.
+- Every key the resource already declares in `encrypted_paths` is sealed again together with
+  `--key`, in both modes, so a file decrypted for inspection is sealed whole on the next encrypt.
+
+### What an entry actually matches
+
+An entry names a **key**, not a location. Ankra compiles the entries into a SOPS `encrypted_regex`
+of key names, and SOPS applies it at every depth: `auth.password` seals **every** `password` key in
+the file. That is why a key added under a new section is covered, and why a structural name is a
+trap: **never declare `key`, `name`, `path`, `value`, `type`, `host`, `port` or `operator`**, bare
+or as the last segment (`tls.key`, `metadata.name`). It seals the chart's own fields too, and the
+render or sync then fails. Give the secret a distinctive name (`smtpPassword`) or put it in its own
+Secret manifest. `ankra cluster validate` reports over-broad entries as
+`encrypted_paths_over_match`.
 
 ## Changing a secret value without committing plaintext
 
@@ -71,7 +97,9 @@ ankra cluster encrypt manifest db-secret --key password \
 ```
 
 In cluster mode `--set` applies the value edit **in memory before encrypting**, so the plaintext
-never reaches Git history.
+never reaches Git history. It also replaces a value that is already sealed, which is how a sealed
+credential is rotated in place (escape a key that starts with a dot:
+`--set 'data.\.dockerconfigjson=<base64>'`).
 
 ```bash
 # Wrong: this commits the plaintext value first, and it stays in history forever
@@ -88,7 +116,7 @@ then encrypt the new one. Rewriting Git history is not a fix.
 ankra cluster decrypt manifest db-secret
 ankra cluster decrypt manifest db-secret --cluster prod
 ankra cluster decrypt manifest db-secret -f cluster.yaml
-ankra cluster decrypt addon my-app --cluster prod
+ankra cluster decrypt addon --name my-app --cluster prod
 ```
 
 Decryption prints to stdout. Use it to **verify shape** — that the right keys are encrypted, that a
@@ -128,6 +156,15 @@ Verify what the platform actually stored:
 ankra cluster stacks list <stack> -o json     # echoes each resource's encrypted_paths
 ```
 
+**Empty and absent are different.** Over the API, omitting `encrypted_paths` on an update keeps
+the stored declaration, while `encrypted_paths: []` clears it and the next platform write renders
+the file as plain content. `ankra cluster apply` drops an empty list, so `[]` in a cluster YAML
+keeps what is stored; a sealed `from_file` with no stored declaration is refused. In a repository
+Ankra syncs, the declaration is derived from the sealed file's `sops` metadata.
+
+**Who decrypts.** On the native engine (the default) the Ankra agent fetches the organisation's
+private key at deploy time and decrypts inside the cluster; nothing is installed beforehand.
+
 ## Where a secret should live
 
 SOPS in Git is one of three homes, and picking the wrong one is a common mistake:
@@ -142,13 +179,15 @@ See `ankra-app-integrations` for the full split.
 
 ## Traps
 
-- **`encrypted_paths` lost on a stack profile draft.** Opening a builder draft on a published
-  profile drops them. Re-declare before publishing, or the launch deploys ciphertext.
+- **Stack profiles carry no secret values.** Capture redacts them. Before publishing a profile
+  built from a sealed stack, check each sealed resource still declares `encrypted_paths`, and bind
+  secrets at launch with `--set-file`/`--set-env` (see `ankra-stack-profiles`).
 - **A key that does not exist yet.** An exact `--key` for a key added later is not covered; use a
   `glob:` pattern when the key set will grow.
 - **Cross-namespace Secrets.** A Secret is only visible to pods in its own namespace. Encrypting it
   correctly does not make it reachable from elsewhere.
-- **Rotation.** Re-encrypt when access changes, and scope decryption to the clusters that need it.
+- **Rotation.** Rotate a leaked value at its source, then re-seal it with `encrypt --set`.
+  Organisation key rotation is not self-service: every sealed file must be re-encrypted first.
 
 ## Rules
 

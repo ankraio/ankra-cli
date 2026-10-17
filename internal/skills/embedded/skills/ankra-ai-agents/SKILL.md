@@ -1,9 +1,22 @@
 ---
 name: ankra-ai-agents
-description: Run and govern Ankra's AI agents - choosing the model provider and catalogue (Ankra, Anthropic, OpenRouter, or an OpenAI-compatible endpoint such as LiteLLM or vLLM), registering MCP tool servers and granting individual tools to organisation roles, dispatching and supervising agent runs and their transcripts, working the AI board of tickets, and confirming or rejecting the writes an agent proposes. Use when the user mentions Ankra AI, AI agents, sub-agents, agent runs, MCP servers or tools, the AI board or tickets, the model catalogue, or configuring which model Ankra uses.
+description: Run and govern Ankra's AI agents - choosing the model provider and catalogue (Ankra, Anthropic, OpenRouter, or an OpenAI-compatible endpoint such as LiteLLM or vLLM), choosing the model per AI function (lanes), registering MCP tool servers and granting individual tools to organisation roles, the AI kill switch and pause, the auto-remediation policy, daily AI spend caps, the board identity, dispatching and supervising agent runs and their transcripts, working the AI board of tickets, and confirming or rejecting the writes an agent proposes. Use when the user mentions Ankra AI, AI agents, sub-agents, agent runs, MCP servers or tools, the AI board or tickets, the model catalogue, or configuring which model Ankra uses.
 ---
 
 # Ankra AI agents
+
+## Recommended path
+
+- Golden paths 4 (day 2) and 5 (agent-driven work); see `ankra-platform-principles`. Agents
+  investigate and propose; a person approves writes, merges pull requests and promotes to
+  production.
+- Before widening anything, read the current envelope: `ankra ai status`, `ankra ai autonomy
+  status`, `ankra ai remediation policy`, `ankra org mcp-servers list`.
+- Keep agents that can reach production at **Propose**, MCP servers `read_only` with a trimmed
+  allow-list, and caps set (`ankra org ai-spend-cap`). Ask/Agent per integration is
+  `ankra-ai-gateway`; token scopes and roles are `ankra-security`.
+- Anti-patterns: approving a write without reading the transcript, a per-tool `auto` override
+  nobody reviewed, and a secret pasted into a ticket or chat.
 
 Ankra runs AI agents against your organisation: they investigate incidents, answer questions about
 clusters, propose changes, and open pull requests. This skill is the **operator's** view — which
@@ -34,13 +47,13 @@ ankra ai provider openai_compatible
 Set the credential **before** switching — switching is blocked without a valid one:
 
 ```bash
-ankra ai anthropic set                # your own Anthropic key (sk-ant-...)
-ankra ai openrouter set
+ankra ai anthropic set                # your own Anthropic key (sk-ant-...); `anthropic delete` removes it
+ankra ai openrouter set               # `openrouter remove` removes it
 ankra ai endpoints create --name litellm --base-url https://llm.example.com/v1 --api-key <key>
-ankra ai endpoints discover litellm   # the model ids the endpoint advertises
-ankra ai endpoints list
-ankra ai endpoints update litellm --base-url ...
-ankra ai endpoints delete litellm
+ankra ai endpoints list               # prints each endpoint's id
+ankra ai endpoints discover <endpoint-id>   # the model ids the endpoint advertises
+ankra ai endpoints update <endpoint-id> --base-url ...   # --api-key rotates the key
+ankra ai endpoints delete <endpoint-id>     # also removes its catalogue models
 ```
 
 `endpoints` is the multi-endpoint surface (LiteLLM, vLLM, TGI, Ollama, OpenRouter, Together — any
@@ -52,11 +65,20 @@ The catalogue is what the chat model picker offers:
 
 ```bash
 ankra ai models list
-ankra ai models create --name <model-id> ...
-ankra ai models update <model-id> ...
-ankra ai models delete <model-id>
+ankra ai models create --key local-fast --name "Local fast" --model-id <id-from-discover> \
+  --endpoint <endpoint-id> --tier quick
+ankra ai models update <id|key> ...
+ankra ai models delete <id|key>
 ankra ai models reset                 # back to the built-in defaults
+
+ankra ai lanes list                   # the model each non-chat function runs on
+ankra ai lanes set pr_review think    # a catalogue key, or an exact OpenRouter model id
+ankra ai lanes clear pr_review        # back to the lane's default tier
 ```
+
+A lane is one AI function outside chat: deploy analysis, troubleshooting, CI/CD generation, stack
+README generation and AI code review. A lane with no selection follows its default tier, so it
+moves when the catalogue does.
 
 In OpenAI-compatible mode, tool-using paths (the agentic assistant, AI insights, CI/CD file
 generation, deploy analysis) fall back to the Ankra platform provider; stack descriptions and
@@ -138,6 +160,29 @@ Statuses: `pending`, `running`, `awaiting_user`, `completed`, `failed`, `cancell
 `agents transcript` is the audit trail: it shows what the agent read, which tools it called, and
 what it concluded. Read it before accepting a conclusion, and always before approving a write.
 
+### Autonomy, remediation and cost
+
+```bash
+ankra ai remediation policy                   # autonomy level, per-tool overrides, cluster scope (read-only)
+ankra ai autonomy status
+ankra ai autonomy pause --reason "..."        # nothing changes without approval; chat and diagnosis keep working
+ankra ai autonomy resume                      # restores exactly what the pause switched off
+ankra ai autonomy stop-all --reason "..."     # incident stop: cancels every AI session and run, blocks chat
+ankra ai autonomy start-all
+ankra org ai-spend-cap show
+ankra org ai-spend-cap set --daily-usd 25 --token-soft-cap 2000000 --token-hard-cap 5000000
+```
+
+- Autonomy is opt-in: a new organisation has auto-remediation off and no active agents. When an
+  admin enables the policy (in the portal, **AI** → **Settings** → **Autonomy**), its levels are
+  **Observe only**, **Propose** (the default: every action goes for approval) and **Autonomous**
+  (low-risk reversible actions run, the rest ask). Per-agent autonomy uses the same three levels.
+- In `remediation policy`, a per-tool `auto` executes with no approval card, and a cluster allow
+  list that was never set covers every cluster. Read both before trusting the policy.
+- Prefer `pause` to tighten; `stop-all` is for incidents.
+- Spend caps: the daily USD cap bounds chat; past the token soft cap unattended runs degrade to the
+  quick tier, past the hard cap new runs are refused until midnight UTC.
+
 ## 4. The AI board
 
 Tickets are how agents track incidents, insights and requests, and how they ask a human for a
@@ -177,6 +222,16 @@ actually `blocked` on a decision — otherwise use `tickets comment` to talk to 
 **Commenting on a ticket re-admits it** and re-dispatches the agent, but only once any running turn
 has terminated. That is the supported way to steer an agent that is already working.
 
+Board tickets are worked only by an agent an admin designates (**AI** → **Settings** →
+**Autonomy**); until then every ticket escalates to a person. Platform-created agents first need
+the board identity, a principal with its own role that cannot sign in and has no token:
+
+```bash
+ankra ai board-identity status
+ankra ai board-identity provision --role operator   # operator (default), member or viewer
+ankra ai board-identity revoke                      # agents escalate to a person again
+```
+
 ## 5. Chat, and approving what it proposes
 
 ```bash
@@ -184,6 +239,7 @@ ankra chat --mode ask "why is the payments pod crashlooping in prod?"
 ankra chat --mode agent "open a PR fixing the failing lint job"
 ankra chat health                                  # AI-analysed cluster health
 ankra chat history ; ankra chat show <conversation-id> ; ankra chat delete <id>
+ankra ai memories list ; ankra ai memories clear   # what the assistant remembers about you
 
 ankra chat actions list <conversation-id>          # writes awaiting confirmation
 ankra chat actions confirm <action-id>
@@ -200,16 +256,18 @@ itself the review gate. Nothing is merged and nothing is force-pushed.
 
 ## 6. Where ephemeral AI work runs
 
-Workspace pods and PR demos run on one **staging cluster** nominated per organisation, configured
-in **Organisation settings → AI → Environment** along with the workspace and demo TTLs and the
-default gateway mode. Without it, the safe-creation tools answer "configure a staging cluster
-first". `ankra org ai-environment` shows and changes where PR demos are published; see
-`ankra-ai-gateway`.
+Workspace pods and PR demos run on one **staging cluster** nominated per organisation (portal:
+**AI** → **Settings** → **Workspaces**, with the workspace and demo lifetimes and the default
+gateway mode). Without it, the safe-creation tools answer "configure a staging cluster first".
+`ankra org ai-environment get|set` covers where demos are published; see `ankra-ai-gateway`.
 
-Per-application AI behaviour:
+Per-application AI lanes (review, mentions, CI/CD investigation, demo URL) for the application's
+repository:
 
 ```bash
-ankra application ai-config <application-id>       # read, set, or reset the app's AI lane config
+ankra application ai-config get <application-id> -o json > lanes.json
+ankra application ai-config set <application-id> --file lanes.json
+ankra application ai-config clear <application-id>   # follow the organisation defaults again
 ```
 
 ## Rules
@@ -221,7 +279,9 @@ ankra application ai-config <application-id>       # read, set, or reset the app
 - **`read_only` tier and a trimmed allow-list by default.** Widen deliberately, per tool, per role.
 - **Read the transcript before approving a write.** `agents transcript` is the evidence.
 - **Watch `awaiting_user` and `--needs-human`.** An unanswered decision is a stalled agent.
-- **Cancel rather than let a wrong run finish** — `agents cancel` interrupts within seconds.
+- **Cancel rather than let a wrong run finish** — `agents cancel` interrupts within seconds;
+  `ai autonomy pause` or `stop-all` when it is more than one run.
+- **Production stays a human decision.** Agents that can reach production stay at Propose.
 - **Never paste a provider API key or a secret header value** into a ticket, a transcript, a PR or
   chat.
 

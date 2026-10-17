@@ -1,12 +1,26 @@
 ---
 name: ankra-troubleshooting
-description: Diagnose a failing workload, deployment or Ankra operation on a managed cluster - reading logs (including the previous container of a CrashLoopBackOff), events scoped to one object, describe output, live CPU/memory from the metrics API, PromQL against the cluster's Prometheus, and the platform execution history that explains most deploy failures. Use when something is broken, a pod is crashlooping or Pending, a deploy failed, a stack will not come up, or the user asks to check logs, events, metrics or operations.
+description: Diagnose a failing workload, deployment or Ankra operation on a managed cluster - reading logs (including the previous container of a CrashLoopBackOff), events scoped to one object, describe output, live CPU/memory from the metrics API, PromQL against the cluster's Prometheus, the platform execution history that explains most deploy failures, and Ankra AI's own investigation (the analysis on every alert firing, `ankra chat`). Use when something is broken, a pod is crashlooping or Pending, a deploy failed, a stack will not come up, or the user asks to check logs, events, metrics or operations.
 ---
 
 # Troubleshooting an Ankra cluster
 
 Diagnose read-only first, propose the fix second, apply it only when asked. Almost everything here
-is a bounded read that needs no cluster credentials of your own — the Ankra agent proxies it.
+is a bounded read that needs no cluster credentials of your own - the Ankra agent proxies it.
+
+## Recommended path
+
+- Golden path **4, day 2**: everything through Ankra. If an alert fired, start from the AI
+  analysis already attached to the firing (**AI → Inbox**) or `ankra chat --mode ask`, then verify
+  its evidence with the reads below. A failed pipeline run is investigated by Ankra AI, which can
+  open a fix pull request (`ankra-ai-gateway`).
+- Then `ankra cluster operations list --failed`, `describe`, `events --for`, `logs --previous`,
+  `top` / `metrics query` - in that order.
+- The fix lands where the definition lives: the GitOps repo or `ankra cluster apply` for stacks,
+  a pull request for application code (golden paths 1 and 2). Backup and restore failures are
+  `ankra runs` (`ankra-backups`).
+- Avoid: `kubectl`/`helm` for reads or writes, port-forwards, re-applying as a probe, and editing
+  live objects that the next reconcile will revert.
 
 ## Order of investigation
 
@@ -14,7 +28,8 @@ The order matters more than the commands. Working bottom-up from pod logs wastes
 whose cause is one layer up.
 
 ```
-1. operations   did the platform execution succeed?      ankra cluster operations list
+0. ai           what has Ankra AI already found?         AI Inbox / ankra chat --mode ask
+1. operations   did the platform execution succeed?      ankra cluster operations list --failed
 2. object       what does the object itself say?         ankra cluster describe <kind> <name>
 3. events       what happened to it?                     ankra cluster events --for <kind>/<name>
 4. logs         what did the process say?                ankra cluster logs ... --previous
@@ -30,15 +45,24 @@ behind it, and its step output names the cause directly.
 ```bash
 ankra cluster info                                   # confirm which cluster you are on
 ankra cluster operations list
+ankra cluster operations list --failed --attention open   # failures that still need you
+ankra cluster operations list --name kyverno --watch      # one addon/stack, until terminal
 ankra cluster operations list <execution-id>         # detail for one execution
 ankra cluster operations steps <execution-id>        # per-step status and output
+ankra cluster operations steps <execution-id> --results   # what each step created, deleted or skipped
 ankra cluster operations retry <execution-id>        # terminal (failed/cancelled/timeout) only
 ankra cluster operations cancel <execution-id>
 ankra cluster operations cancel-step <execution-id> <step-id>
 ```
 
 Retry is the right move for a transient failure (a registry timeout, a node that came back). It is
-the wrong move for a bad manifest: fix the definition, then re-apply.
+the wrong move for a bad manifest: fix the definition, then re-apply. `--attention resolved`
+hides failures a later run already cleared. Retry and cancel need the `executions.operate`
+permission on the cluster; the refusal names it.
+
+`ankra cluster addons values <addon>` shows the values an addon is actually deployed with - the
+place to spot a placeholder or a SOPS value that was never declared in `encrypted_paths` and
+shipped as ciphertext.
 
 ## 2. The object itself
 
@@ -65,7 +89,7 @@ ankra cluster events --for deployment/<name> -n <namespace> --type Warning
 ankra cluster events --all-namespaces --type Warning -o json
 ```
 
-`--for` is a server-side field selector on `involvedObject`, not a substring match — it is what
+`--for` is a server-side field selector on `involvedObject`, not a substring match - it is what
 turns "the pod is Pending" into "no node matches the nodeSelector". Prefer it over reading a
 namespace-wide list by eye.
 
@@ -100,7 +124,7 @@ ankra cluster metrics query-range 'rate(node_cpu_seconds_total[5m])' --range 6h 
 ```
 
 `top` reads the aggregated metrics API directly, so it works on clusters where Prometheus was
-never installed — it is the "which container just got OOMKilled" view. `metrics` proxies PromQL to
+never installed - it is the "which container just got OOMKilled" view. `metrics` proxies PromQL to
 the Prometheus source configured in **Cluster Settings → Metrics**, and is the view for trends over
 time. See `ankra-observability` for installing and wiring those sources.
 
@@ -120,17 +144,25 @@ An offline agent is the first thing to rule out when every command is failing ra
 workload. `ankra cluster stacks history` is the cheapest way to answer "what changed?" when
 something that worked yesterday does not today.
 
-## 7. Ask Ankra AI
+## 7. Ankra AI's investigation
 
 ```bash
-ankra chat health                                     # AI-analysed cluster health
+ankra chat health --cluster prod                      # AI-analysed cluster health
 ankra chat --mode ask "why is the payments pod crashlooping in prod?"
 ankra tickets list --needs-human                      # incidents the agents have filed
+ankra ai remediation policy                           # what an alert-triggered AI run may do
 ```
 
-Ask mode is read-only. It is a good first pass on an unfamiliar cluster, and it will tell you what
-it looked at — verify the evidence rather than acting on the conclusion alone. See
-`ankra-ai-agents`.
+Every alert firing already carries an AI analysis (pod state, warning events, recent logs, node
+conditions, root cause, recommended actions) on the firing and in **AI → Inbox**; AI Insights
+scans clusters on a schedule when switched on. Ask mode is read-only and a good first pass on an
+unfamiliar cluster - it tells you what it looked at, so verify the evidence rather than acting on
+the conclusion alone. Agent mode can act and proposes writes for confirmation
+(`ankra chat actions list|confirm|reject`). See `ankra-ai-agents`.
+
+Logs older than the running containers come from the cluster's log source or Ankra hosted logs
+(`ankra cluster logs-ship status`, `ankra-observability`); `ankra cluster logs` reads live
+containers only.
 
 ## Classifying what you found
 
@@ -143,13 +175,13 @@ it looked at — verify the evidence rather than acting on the conclusion alone.
 | Pending, `no nodes available` | Scheduling / capacity | Node group size, requests, tolerations |
 | OOMKilled | Limits | Chart values; check `top pods` first |
 | Ready but unreachable | Port, ingress path, probe path | Chart values / ingress manifest |
-| Deployed too early, dependency missing | Stack ordering | `parents` edges — see `ankra-stacks-addons` |
+| Deployed too early, dependency missing | Stack ordering | `parents` edges - see `ankra-stacks-addons` |
 | Execution failed before any pod existed | Platform / manifest | The stack or addon definition |
 
 ## Rules
 
 - **Read before you write.** Diagnose fully, then propose. Do not re-apply or reconcile as a
-  probe — it changes the state you are diagnosing.
+  probe - it changes the state you are diagnosing.
 - **`--follow=false` for anything scripted.** The default streams forever.
 - **`--previous` for CrashLoopBackOff**, every time.
 - **Name the layer.** "Platform" and "application code" have different owners and different fixes;
@@ -167,8 +199,8 @@ it looked at — verify the evidence rather than acting on the conclusion alone.
 
 ## Related skills
 
-- `ankra-observability` — installing Prometheus/Grafana/Loki and wiring external metrics sources.
-- `ankra-alerts-webhooks` — routing what you just found to Slack, Teams, or PagerDuty.
-- `ankra-stacks-addons` — dependency ordering, the cause behind most "deployed too early" failures.
-- `ankra-applications` — application deploys, env-secrets, and their failure modes.
-- `ankra-ai-agents` — Ankra AI's own investigation, agent runs, and the incident board.
+- `ankra-observability` - installing Prometheus/Grafana/Loki and wiring external metrics sources.
+- `ankra-alerts-webhooks` - routing what you just found to Slack, Teams, or PagerDuty.
+- `ankra-stacks-addons` - dependency ordering, the cause behind most "deployed too early" failures.
+- `ankra-applications` - application deploys, env-secrets, and their failure modes.
+- `ankra-ai-agents` - Ankra AI's own investigation, agent runs, and the incident board.

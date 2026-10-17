@@ -6,7 +6,7 @@ description: Give Ankra clusters public hostnames with DNS and TLS - the generat
 # Domains, DNS and TLS on Ankra
 
 An Ankra cluster can publish an Ingress hostname, create its DNS record and get a TLS certificate
-with no manual step — but only inside the zone whose credential it holds. Almost every "it does not
+with no manual step - but only inside the zone whose credential it holds. Almost every "it does not
 resolve" or "there is no certificate" comes down to a hostname outside that zone.
 
 ## The four things people conflate
@@ -14,12 +14,25 @@ resolve" or "there is no certificate" comes down to a hostname outside that zone
 | Thing | What it is | Set with |
 |-------|-----------|----------|
 | **Organisation root domain** | The root every Ankra-generated hostname nests under. `ankra.cc` by default. | `ankra org domain set` |
-| **Cluster generated domain** | `<cluster_short_id>.<root>` — one subzone per cluster, served by the external-dns Ankra installs on it. | `ankra cluster domain --enable` |
+| **Cluster generated domain** | `<cluster_short_id>.<root>` - one subzone per cluster, served by the external-dns Ankra installs on it. | `ankra cluster domain --enable` |
 | **Custom DNS zone** | A zone you hold in **your own** DNS account, served by an extra external-dns using **your** credential. | `ankra org custom-dns-zones add` / `ankra cluster custom-dns-zones add` |
 | **Preview domain** | Where PR demos and on-demand previews publish. Changes nothing else. | `ankra org ai-environment set --demo-base-domain` |
 
 The first two are Ankra's own DNS account. The third is yours. The fourth is a separate setting that
 people reach for the root domain to fix, and should not.
+
+## Recommended path
+
+- Golden path **3, the estate**: declare DNS once at organisation level - your root domain
+  delegated to Ankra (`ankra org domain set`), or your own zone with `ankra org custom-dns-zones
+  add` - so every cluster, including ones created later, publishes hostnames and gets
+  certificates with no per-cluster step.
+- Hostnames are an Ingress annotation (`external-dns.alpha.kubernetes.io/hostname`) plus
+  `cert-manager.io/cluster-issuer` on Traefik, committed in the stack (`ankra-stacks-addons`).
+- Demos and previews are public https URLs on the preview domain (`ankra.cc` by default, or the
+  organisation's demo base domain) - never a port-forward.
+- Avoid: hand-made records for hostnames an Ingress could own, per-cluster zone declarations,
+  Global API Keys, and ingress-nginx (Ankra installs Traefik).
 
 ## The default path: nothing to configure
 
@@ -38,7 +51,7 @@ external-dns is wired to it on the next cloud-provider pass. A cluster with none
 
 **Scope, and this is the whole trap:** that external-dns manages **only** the generated subdomain.
 Its credential is scoped to that zone by the DNS provider, so an Ingress on any other hostname is
-dropped **silently** — no record, no certificate, no error.
+dropped **silently** - no record, no certificate, no error.
 
 ## Your own root domain, delegated to Ankra
 
@@ -51,10 +64,10 @@ ankra org domain set --default                 # back to ankra.cc
 The domain must be **delegated to the Ankra nameservers first**; the write is refused otherwise and
 names the nameservers to point at.
 
-What this actually does: Ankra adopts the domain **as the organisation's zone apex** — it does not
+What this actually does: Ankra adopts the domain **as the organisation's zone apex** - it does not
 carve a subzone out of it. Each cluster then gets `<cluster_short_id>.example.com`. The external-dns
 on every cluster holds a token pinned to the whole domain, so an Ingress on **any** hostname under
-it — `app.example.com` included — is published by the cluster serving it, with no credential of
+it - `app.example.com` included - is published by the cluster serving it, with no credential of
 your own. Records you already publish that no Ingress claims are left alone: each cluster's
 external-dns owns only the records it created.
 
@@ -89,16 +102,20 @@ When the domain lives in your provider account and cannot be delegated to Ankra,
 own credential instead:
 
 ```bash
-ankra org dns credentials create ...                        # the external-dns webhook credential
+ankra org dns credentials create --name example-dns \
+  --webhook-provider-url "$WEBHOOK_URL"                     # the external-dns webhook endpoint, token included
 ankra org dns credentials list
 
 ankra org custom-dns-zones add --zone example.com --credential <name>
 ankra org custom-dns-zones list
 ankra org custom-dns-zones remove --zone example.com
 
-ankra cluster custom-dns-zones add --zone example.com --credential <name>   # one cluster only
-ankra cluster custom-dns-zones list
+ankra cluster custom-dns-zones add <cluster> --zone example.com --credential <name>   # one cluster only
+ankra cluster custom-dns-zones list <cluster>
 ```
+
+Re-running `credentials create` under an existing name replaces the stored URL and re-points
+every binding that names it - that is the rotation path.
 
 For a zone hosted at **Cloudflare**, connect a scoped API token (user or account-owned, with
 Zone:Read and DNS:Edit on the zone) and bind the zone to it with `--cloudflare-credential`:
@@ -114,13 +131,28 @@ owns and never changes or deletes a record someone else made, so hand-made recor
 safe (records of a withdrawn host are left for you to remove). Proxy a host through Cloudflare with
 the `external-dns.alpha.kubernetes.io/cloudflare-proxied: "true"` Ingress annotation. A credential
 listed as `needs-reconnect` has lost its token: run `ankra org cloudflare connect <name>` again
-under the same name.
+under the same name (`--verify-only` checks a token without storing it).
+
+The same credential manages records in your Cloudflare domains directly, for names no Ingress
+owns (mail, SPF, a hand-pointed apex). They are written to your account and take effect at once:
+
+```bash
+ankra org cloudflare domains
+ankra org cloudflare records example.com --type A
+ankra org cloudflare add example.com www CNAME app.example.com --proxied
+ankra org cloudflare add example.com @ MX mail.example.com --priority 10
+ankra org cloudflare update example.com app 203.0.113.11
+ankra org cloudflare delete example.com app
+```
+
+Only A, AAAA and CNAME can be proxied, and `--ttl` is refused with `--proxied`. Never use a
+Global API Key - a scoped token with Zone:Read and DNS:Edit on the zones Ankra should touch.
 
 Ankra renders and reconciles a **separate** external-dns for each declared zone, pinned to exactly
 that zone with its own record ownership, so it can never fight Ankra's own controller, another
 cluster's, or records you publish yourself.
 
-- **`org custom-dns-zones` covers every cluster** — the ones that exist and the ones created later.
+- **`org custom-dns-zones` covers every cluster** - the ones that exist and the ones created later.
   That "and later" is the reason to declare org-wide: a cluster created after a per-cluster
   declaration comes up with your hostnames silently unserved.
 - **A cluster's own declaration wins** over the organisation's on that cluster, which is how one
@@ -130,7 +162,7 @@ cluster's, or records you publish yourself.
   untouched. Clusters that declared the zone themselves keep theirs.
 
 Once a custom zone covers the organisation's preview domain, that becomes the cluster's **public**
-domain — what hostnames publish under and what `${{ ankra.cluster_domain }}` resolves to in stacks
+domain - what hostnames publish under and what `${{ ankra.cluster_domain }}` resolves to in stacks
 and stack profiles. `ankra cluster domain <cluster>` reports both the generated and the public one.
 
 ## Preview and demo URLs
@@ -143,7 +175,7 @@ ankra org ai-environment set --demo-cert-issuer letsencrypt-prod
 ankra org ai-environment set --demo-tls-secret <secret>
 ```
 
-This decides only where PR demos and on-demand previews publish — demos land at
+This decides only where PR demos and on-demand previews publish - demos land at
 `<namespace>.<preview-domain>`. It is **not** `ankra org domain`, and reaching for the root domain
 to change preview URLs is the common mistake. Both fields sit on the same portal screen
 (**AI → Settings → Workspaces**), which is why they get confused.
@@ -152,19 +184,19 @@ to change preview URLs is the common mistake. Both fields sit on the same portal
 records only inside the subzones it delegates, and a cluster's external-dns credential is scoped to
 that cluster's own Ankra subzone and nothing else. In practice you create **one wildcard** pointing
 at the staging cluster's ingress. Without it the demo still deploys and still reports ready, and its
-URL does not load — and the certificate goes the same way, because an HTTP-01 challenge is answered
+URL does not load - and the certificate goes the same way, because an HTTP-01 challenge is answered
 over the hostname being certified, so a name that does not resolve never gets one. An unpublished
 preview domain costs you the URL and the TLS together.
 
 `ankra org ai-environment get` relays the platform's verdict, naming the wildcard to create and the
-address to point it at when the domain answers nothing — and says so explicitly when the platform
+address to point it at when the domain answers nothing - and says so explicitly when the platform
 reports no verdict at all, rather than letting silence read as an all-clear.
 
 TLS on your own preview domain: each demo hostname is concrete when the ingress is written, so an
 HTTP-01 challenge answers for it and no wildcard certificate is involved. `--demo-tls-secret` serves
 a certificate you already hold and requests nothing; `--demo-cert-issuer` asks a different
 cert-manager `ClusterIssuer`. A staging cluster carrying no ACME HTTP-01 issuer cannot be asked for
-a certificate at all, so its previews stay on plain HTTP — `get` says so when that is the case.
+a certificate at all, so its previews stay on plain HTTP - `get` says so when that is the case.
 
 On an Ankra subzone none of this applies: the platform provisions the zone and the in-cluster
 external-dns publishes each preview record itself.
@@ -187,7 +219,7 @@ failures are usually DNS failures one step earlier:
 |---------|-------|
 | Ingress host on your own domain gets no record at all | The generated external-dns only serves the generated subdomain. Declare the zone with `custom-dns-zones`. |
 | Worked on one cluster, not on a newly created one | The zone was declared per cluster. Declare it with `ankra org custom-dns-zones` so later clusters inherit it. |
-| Record exists but does not resolve | Still `pending` — not yet published to the authoritative nameservers. |
+| Record exists but does not resolve | Still `pending` - not yet published to the authoritative nameservers. |
 | `ankra org domain set` refused | The domain is not delegated to the Ankra nameservers yet, or zones/records still live under the old root. |
 | Certificate never issues | The DNS record is missing or unresolvable; fix DNS first. |
 | Preview URLs on the wrong domain | `ankra org ai-environment set --demo-base-domain`, not `ankra org domain`. |
@@ -199,11 +231,11 @@ failures are usually DNS failures one step earlier:
 ## Rules
 
 - **Know which zone a hostname is in** before debugging anything else. Generated subdomain, your own
-  declared zone, or neither — the third case explains most failures.
+  declared zone, or neither - the third case explains most failures.
 - **Delegate before registering** a root domain; the write is refused otherwise.
-- **Declare org-wide** unless one cluster genuinely needs a different credential — per-cluster
+- **Declare org-wide** unless one cluster genuinely needs a different credential - per-cluster
   declarations leave later clusters unserved.
-- **The preview domain is a separate setting** from the root domain — and on a domain you own,
+- **The preview domain is a separate setting** from the root domain - and on a domain you own,
   publishing its wildcard record is yours, not Ankra's.
 - **Removing a cluster domain is held** until you `--enable` it again; nothing re-creates it.
 - **Withdrawing a custom zone never touches your records.**
@@ -211,8 +243,11 @@ failures are usually DNS failures one step earlier:
 
 ## Related skills
 
-- `ankra-cloud-clusters` — `--include-dns` / `--include-networking` at create time.
-- `ankra-getting-started` — where domains fit in the onboarding order.
-- `ankra-stacks-addons` — the Ingress manifests that carry these hostnames.
-- `ankra-ai-gateway` — PR demos and the staging cluster they publish from.
-- `ankra-troubleshooting` — reading events and certificate state.
+- `ankra-cloud-clusters` - `--include-dns` / `--include-networking` at create time.
+- `ankra-getting-started` - where domains fit in the onboarding order.
+- `ankra-stacks-addons` - the Ingress manifests that carry these hostnames.
+- `ankra-ai-gateway` - PR demos and the staging cluster they publish from.
+- `ankra-troubleshooting` - reading events and certificate state.
+- `ankra-terraform` - `ankra_organisation_domain`, `ankra_organisation_custom_dns_zone`,
+  `ankra_cluster_custom_dns_zone`, `ankra_dns_credential` and DNS record resources, when DNS is
+  managed as code.
