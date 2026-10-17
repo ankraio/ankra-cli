@@ -107,11 +107,13 @@ kind: Pipeline
 metadata:
   name: "<repository>"               # required
 on:                                  # any subset; a pipeline with none is still dispatchable
-  push:         { branches: ["main"], paths: ["api/**"] }
+  push:         { branches: ["main"], paths: [{ set: "api" }] }   # a path_sets name, or patterns
   pull_request: { branches: ["main"], fork_policy: "read_only" }   # none | read_only | trusted
   tag:          { patterns: ["v*"] }
   schedule:     [{ cron: "0 3 * * 1-5", branch: "main", stages: ["checkout", "nightly"] }]
   manual:       { inputs: [{ name: "environment", type: "choice", enum: ["staging", "production"], default: "staging" }] }
+path_sets:                           # named path lists, reused with { set: <name> } in any path filter
+  api: ["api/**", "go.work", ".ankra/**"]
 concurrency:  { group: "<repository>-${{ ankra.ref }}", cancel_in_progress: true }
 workspace:    { size: "20Gi", access: "rwo" }                     # the volume every stage shares
 defaults:     { image: "golang:1.26", timeout: "30m", network: "egress-https", working_directory: "." }

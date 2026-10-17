@@ -2378,3 +2378,72 @@ func TestSkipCellNeverLeavesADanglingLabel(t *testing.T) {
 		t.Errorf("a reason with a line break renders as %q, want it on one line", cell)
 	}
 }
+
+// TestPipelineValidatePrintsEachPathSetWithItsExpansionAndUsers covers the
+// path_sets the platform's dry run returns (ankra-efrnzf.18): the plan reads
+// the expanded lists, so the names the author wrote are shown beside what
+// they stand for and where they are used.
+func TestPipelineValidatePrintsEachPathSetWithItsExpansionAndUsers(t *testing.T) {
+	mockClient := &pipelineLaneMock{validateResult: &client.PipelineValidation{
+		Severity: "warn",
+		PathSets: []client.PipelinePathSet{
+			{
+				Name:     "backend",
+				Patterns: []string{"backend/**", ".ankra/**"},
+				Includes: []string{"pipeline"},
+				UsedBy:   []string{`stage "test-backend" paths`, "on.pull_request.paths"},
+			},
+			{Name: "orphan", Patterns: []string{"docs/**"}, UsedBy: []string{}},
+			{Name: "unreported", Patterns: []string{"web/**"}},
+		},
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "validate", writePipelineFixture(t),
+		"--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	want := "Path sets:\n" +
+		"  backend: backend/**, .ankra/**\n" +
+		"    includes: pipeline\n" +
+		"    used by: stage \"test-backend\" paths, on.pull_request.paths\n" +
+		"  orphan: docs/**\n" +
+		"    used by: nothing\n" +
+		"  unreported: web/**\n"
+	if !strings.Contains(output, want) {
+		t.Fatalf("output = %q, want it to contain %q", output, want)
+	}
+	if strings.Count(output, "used by: nothing") != 1 {
+		t.Fatalf("a set whose users the platform did not report must not read as unused, got %q", output)
+	}
+
+	none, executeError := runPipelineCommand(t, &pipelineLaneMock{validateResult: &client.PipelineValidation{Severity: "ok"}},
+		"validate", writePipelineFixture(t), "--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	if strings.Contains(none, "Path sets:") {
+		t.Fatalf("a definition with no path set prints no section, got %q", none)
+	}
+}
+
+func TestPipelineValidateJSONCarriesPathSetsOnlyWhenDeclared(t *testing.T) {
+	withSets, executeError := runPipelineCommand(t, &pipelineLaneMock{validateResult: &client.PipelineValidation{
+		Severity: "ok",
+		PathSets: []client.PipelinePathSet{{Name: "web", Patterns: []string{"web/**"}, Includes: []string{},
+			UsedBy: []string{`stage "test" paths`}}},
+	}}, "validate", writePipelineFixture(t), "--application", testApplicationID, "-o", "json")
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	if !strings.Contains(withSets, `"path_sets"`) || !strings.Contains(withSets, `"used_by"`) {
+		t.Fatalf("output = %q, want the wire field names kept for scripts", withSets)
+	}
+	without, executeError := runPipelineCommand(t, &pipelineLaneMock{validateResult: &client.PipelineValidation{Severity: "ok"}},
+		"validate", writePipelineFixture(t), "--application", testApplicationID, "-o", "json")
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	if strings.Contains(without, `"path_sets"`) {
+		t.Fatalf("output = %q, want no path_sets key when none is declared", without)
+	}
+}
