@@ -133,3 +133,21 @@ func TestPipelineValidateNotesAProgramThatDiffersFromThePlatforms(t *testing.T) 
 		t.Fatalf("no note about the differing program:\n%s", output)
 	}
 }
+
+// --changed-file names are cleaned to the form a provider reports, and a
+// name outside the repository is a usage error rather than a change that
+// matches nothing.
+func TestPipelineValidateChangedFilesAreCleanRepositoryPaths(t *testing.T) {
+	cleaned, cleanError := pipelineValidateChangedFiles([]string{" ./api/x.go ", "web//ui/../ui/index.ts", ""})
+	if cleanError != nil || strings.Join(cleaned, ",") != "api/x.go,web/ui/index.ts" {
+		t.Fatalf("cleaned = %v, %v", cleaned, cleanError)
+	}
+	for _, refused := range []string{"/etc/passwd", "../outside.go", ".", ".."} {
+		if _, refusedError := pipelineValidateChangedFiles([]string{refused}); refusedError == nil {
+			t.Errorf("%q must be refused", refused)
+		}
+	}
+	if none, noneError := pipelineValidateChangedFiles(nil); none != nil || noneError != nil {
+		t.Errorf("no flag must stay nil, got %v, %v", none, noneError)
+	}
+}

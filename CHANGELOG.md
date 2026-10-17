@@ -13,8 +13,10 @@
   (`graph: affected`) or not (`skip: not affected (graph)`, satisfied for the
   stages that need it). `--no-local-graph` leaves them to the run. The CLI
   carries its own copy of the analysis and says so when it differs from the
-  platform's; it never runs a script the API sends. Needs `sh`, `git` and
-  `awk` (not on Windows).
+  platform's; it never runs a script the API sends. Needs `sh`, `git`, `awk`
+  and `grep` (not on Windows). `--changed-file` names are now cleaned to the
+  repository-relative form (`./api/x.go` is `api/x.go`), and one outside the
+  repository is a usage error.
 
 - **`ankra ai memories list` and `ankra ai memories clear` show and delete
   what the assistant remembers about you.** Ankra's chat stores short facts

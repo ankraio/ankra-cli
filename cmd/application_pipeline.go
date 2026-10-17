@@ -299,9 +299,13 @@ func newApplicationPipelineValidateCommand() *cobra.Command {
 				return pathError
 			}
 			gitReference, _ := command.Flags().GetString("ref")
-			changedFiles, _ := command.Flags().GetStringArray("changed-file")
+			changedFileFlags, _ := command.Flags().GetStringArray("changed-file")
+			changedFiles, changedFilesError := pipelineValidateChangedFiles(changedFileFlags)
+			if changedFilesError != nil {
+				return changedFilesError
+			}
 			return runPipelineValidate(command, client.PipelineSelector{ApplicationID: applicationID},
-				filePath, strings.TrimSpace(gitReference), pipelineValidateChangedFiles(changedFiles))
+				filePath, strings.TrimSpace(gitReference), changedFiles)
 		},
 	}
 	validateCommand.Flags().String("spec-file", "",

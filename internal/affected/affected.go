@@ -57,7 +57,7 @@ type Target struct {
 
 // ErrUnsupportedPlatform refuses a platform without a POSIX shell to run the
 // analysis in.
-var ErrUnsupportedPlatform = errors.New("the dependency-graph analysis needs a POSIX shell, git and awk, which Windows does not provide")
+var ErrUnsupportedPlatform = errors.New("the dependency-graph analysis needs a POSIX shell, git, awk and grep, which Windows does not provide")
 
 // Analyse runs the analysis over the repository at root for the given change
 // and answers each stage it reached a verdict for: true when a changed file
@@ -69,7 +69,7 @@ func Analyse(ctx context.Context, root string, changedFiles []string, targets []
 	if runtime.GOOS == "windows" {
 		return nil, "", ErrUnsupportedPlatform
 	}
-	for _, tool := range []string{"sh", "git", "awk"} {
+	for _, tool := range []string{"sh", "git", "awk", "grep"} {
 		if _, lookError := exec.LookPath(tool); lookError != nil {
 			return nil, "", fmt.Errorf("the dependency-graph analysis needs %s on PATH: %w", tool, lookError)
 		}

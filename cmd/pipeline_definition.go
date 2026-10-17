@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"path"
+	"path/filepath"
 	"strings"
 
 	"ankra/internal/affected"
@@ -72,9 +74,12 @@ The reference is resolved locally, so a branch someone else pushed needs a
 				return pathError
 			}
 			gitReference, _ := command.Flags().GetString("ref")
-			changedFiles, _ := command.Flags().GetStringArray("changed-file")
-			return runPipelineValidate(command, selector, filePath, strings.TrimSpace(gitReference),
-				pipelineValidateChangedFiles(changedFiles))
+			changedFileFlags, _ := command.Flags().GetStringArray("changed-file")
+			changedFiles, changedFilesError := pipelineValidateChangedFiles(changedFileFlags)
+			if changedFilesError != nil {
+				return changedFilesError
+			}
+			return runPipelineValidate(command, selector, filePath, strings.TrimSpace(gitReference), changedFiles)
 		},
 	}
 	registerPipelineSelectorFlags(validateCommand)
@@ -93,14 +98,27 @@ The reference is resolved locally, so a branch someone else pushed needs a
 // pipelineValidateChangedFiles answers the dry-run diff --changed-file names:
 // nil when the flag was not given, so the platform plans with no change list
 // rather than an empty one, which would exclude every path-filtered stage.
-func pipelineValidateChangedFiles(values []string) []string {
+//
+// Each name is cleaned into the repository-relative form a provider reports
+// ("./api/x.go" becomes "api/x.go"), and an absolute path or one above the
+// repository root is refused: neither can match a path filter or the
+// dependency graph, so planning with it would report every filtered stage as
+// left out for a change that was never measured.
+func pipelineValidateChangedFiles(values []string) ([]string, error) {
 	var changedFiles []string
 	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			changedFiles = append(changedFiles, trimmed)
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
 		}
+		cleaned := path.Clean(filepath.ToSlash(trimmed))
+		if path.IsAbs(cleaned) || cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+			return nil, withExitCode(exitUsage, fmt.Errorf(
+				"--changed-file %q is not a path inside the repository; name it relative to the repository root, for example api/main.go", value))
+		}
+		changedFiles = append(changedFiles, cleaned)
 	}
-	return changedFiles
+	return changedFiles, nil
 }
 
 // pipelineValidateFilePath answers which definition file `validate` reads.
