@@ -1,6 +1,6 @@
 ---
 name: ankra-cloud-clusters
-description: Provision and operate clusters Ankra builds on cloud infrastructure - Hetzner, OVHcloud, UpCloud, DigitalOcean, Scaleway, AWS (self-managed EC2), Proxmox VE and HPE Morpheus - choosing the region and the right instance family, picking kubeadm (the default) or k3s and the etcd topology, wiring the generated stack straight into a GitOps repository, taking the ingress/DNS/TLS batteries at create time, then scaling, node groups, availability zones, upgrades and teardown. Use when the user wants Ankra to build a cluster rather than import one, asks which server type or region to pick, or mentions Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, AWS EC2 (not EKS), Proxmox or Morpheus clusters.
+description: Provision and operate clusters Ankra builds on cloud infrastructure - Hetzner, OVHcloud, UpCloud, DigitalOcean, Scaleway, AWS (self-managed EC2), Ankra Cloud servers, Proxmox VE and HPE Morpheus - laying out a hub-and-spoke estate (infrastructure cluster first, then production and development), choosing the region and the right instance family, picking kubeadm (the default) or k3s and the etcd topology, wiring the generated stack straight into a GitOps repository, taking the ingress/DNS/TLS batteries at create time, then scaling, node groups, availability zones, upgrades and teardown. Use when the user wants Ankra to build a cluster rather than import one, plans a multi-cluster platform, asks which server type or region to pick, or mentions Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, AWS EC2 (not EKS), Ankra Cloud, Proxmox or Morpheus clusters, or the playground.
 ---
 
 # Ankra cloud clusters
@@ -11,9 +11,25 @@ after creation almost everything is a **provider-agnostic** verb (`ankra cluster
 `ankra cluster upgrade`, `ankra cluster node-group ...`) because Ankra detects the provider from
 the cluster.
 
-Providers: `hetzner`, `ovh`, `upcloud`, `digitalocean`, `scaleway`, `aws`, `proxmox`, `morpheus`.
-Every one of them has `create` and `preflight`; Scaleway builds on Instances behind a Public
-Gateway, and `aws` builds k3s/kubeadm on plain EC2 inside a VPC you already own (never EKS — for
+## Recommended path
+
+- **Golden paths:** *The estate* (hub-and-spoke) on top of *GitOps as the source of truth* - see
+  `ankra-platform-principles`. Build the **infrastructure (hub) cluster first** (three control
+  planes), then one spoke (production, three control planes; development may run one), and grow
+  from there. The full worked example is the docs use case *Production Multi-Cluster Platform*.
+- **First:** credentials, then discover region and instance family, then `create` **with the
+  `--gitops-*` flags** so the generated stacks land in the one platform repository from minute one.
+- **Then hand over:** stacks to `ankra-gitops` / `ankra-stacks-addons`, central metrics and logs
+  to `ankra-observability`, vaults to `ankra-backups`, the on-call channel to `ankra-alerts-webhooks`.
+- **Avoid:** clicking clusters into existence with no repository, ingress-nginx instead of the
+  Traefik Ankra installs, and `kubectl`/`helm` against the result - use the `ankra` CLI.
+- Organisations already on Terraform can declare the same clusters with `ankra_<provider>_cluster`
+  and `ankra_node_group` - see `ankra-terraform`; keep one source of truth per cluster.
+
+Providers: `hetzner`, `ovh`, `upcloud`, `digitalocean`, `scaleway`, `aws`, `proxmox`, `morpheus`,
+`ankracloud`. Every one has `create`; `scaleway`, `aws` and `ankracloud` also have `preflight`,
+which checks the same flags without building anything. Scaleway builds on Instances behind a Public
+Gateway, and `aws` builds k3s/kubeadm on plain EC2 inside a VPC you already own (never EKS - for
 EKS use `ankra cluster managed`). The AWS create adopts your networking, so it takes `--vpc-id`,
 `--node-subnet-ids`, `--bastion-subnet-id` and `--bastion-allowed-ips` on top of the usual flags;
 list them with `ankra cluster aws vpcs|subnets|availability-zones --credential-id <id> --region
@@ -23,7 +39,7 @@ credential is the organisation's existing AWS credential - an assumable role con
 with `create-keys`; `ankra credentials aws list` shows the ids. A role onboarded with scope `cost`
 cannot build clusters. The SSH key credential is organisation-wide: `ankra credentials ssh-key create`.
 
-`ankracloud` (alias `ankra-cloud`, behind the `ankra_cloud_provider` feature flag) builds kubeadm
+`ankracloud` (alias `ankra-cloud`; closed beta, enabled per organisation on request) builds kubeadm
 (default) or k3s (`--distribution k3s`) on Ankra Cloud servers. Servers are sized by **plan**, not
 instance type: `--bastion-plan`, `--control-plane-plan`, `--worker-plan`, `--etcd-plan`. Browse
 with `ankra cluster ankracloud zones|plans|templates|networks|pricing --credential-id <id>`
@@ -33,10 +49,12 @@ with `ankra cluster ankracloud zones|plans|templates|networks|pricing --credenti
 `ipv4_nat`): a zone with no public IPv4 left needs `ipv6_only`, and the `preflight` says so — rerun
 `ankra cluster ankracloud preflight ... --network-mode ipv6_only`, then `create` with the same flag.
 
-For a control plane the *provider* runs — DOKS, UKS, GKE, OVH MKS, AKS, EKS, Kapsule — use
-`ankra cluster managed ...` and the `ankra-managed-kubernetes` skill instead. Rule of thumb: this
-skill when you want cluster-admin over the control plane, node-level control, or a provider with no
-managed offering; `managed` when you want the provider to own the control plane's uptime.
+For a control plane the *provider* runs - DOKS, UKS, GKE, OVH MKS, AKS, EKS, Kapsule, Ankra Cloud
+Kubernetes - use `ankra cluster managed ...` and the `ankra-managed-kubernetes` skill instead. Rule
+of thumb: this skill when you want cluster-admin over the control plane, node-level control, or a
+provider with no managed offering; `managed` when you want the provider to own the control plane's
+uptime. To just try something, `ankra cluster playground create` gives the organisation one
+short-lived virtual cluster with the agent installed (`plans`, `status`, `resize`, `destroy`).
 
 ## 1. Credentials first
 
@@ -74,8 +92,11 @@ each has a discovery command that lists what the credential can actually deploy:
 | DigitalOcean | `ankra cluster digitalocean regions` | `ankra cluster digitalocean sizes --region <r> --available-only` | `--worker-size`, `--control-plane-size` |
 | OVH | `ankra cluster ovh regions [--with-zones]` | flavors (`b2-*`, `c2-*`, `r2-*`, `t1/t2-*` GPU) | `--worker-flavor-id`, `--control-plane-flavor-id` |
 | UpCloud | zones (`--zone`) | plans (`2xCPU-4GB`, …) | `--worker-plan`, `--control-plane-plan` |
-| Proxmox VE | `ankra cluster proxmox hosts` | `ankra cluster proxmox sizes` (presets) | see `proxmox create --help` |
-| Morpheus | `ankra cluster morpheus clouds` / `groups` | `ankra cluster morpheus plans`, `layouts` | see `morpheus create --help` |
+| Scaleway | `ankra cluster scaleway locations` | `scaleway instance-types`, `gateway-types` | `--worker-type`, `--control-plane-type`, `--gateway-type` |
+| AWS (EC2) | `ankra cluster aws regions`, `availability-zones` | `aws instance-types`, `images`, `pricing` | `--worker-type`, `--control-plane-type` |
+| Ankra Cloud | `ankra cluster ankracloud zones` | `ankracloud plans`, `pricing` | `--worker-plan`, `--control-plane-plan` |
+| Proxmox VE | `ankra cluster proxmox hosts`, `storages`, `bridges`, `templates` | `ankra cluster proxmox sizes` (presets) | `--worker-instance-type`, `--control-plane-instance-type` |
+| Morpheus | `ankra cluster morpheus clouds` / `groups` / `networks` | `ankra cluster morpheus plans`, `layouts` | `--worker-plan-id`, `--control-plane-plan-id` |
 
 All discovery commands take `--credential-id`. **A region not enabled on the account fails the
 reconcile late, at private-network setup** — list first rather than guessing from the provider's
@@ -122,7 +143,7 @@ ankra cluster ovh create \
 ```
 
 `create` submits and returns; it does not take `--wait`. Track it with
-`ankra cluster operations list` and `ankra cluster info`.
+`ankra cluster operations list` and `ankra cluster list` until the cluster reads online.
 
 ### Distribution and etcd topology
 
@@ -131,12 +152,17 @@ ankra cluster ovh create \
 etcd on the control planes; `external` gives it dedicated VMs (`--etcd-node-count 3|5`,
 `--etcd-server-type` / `--etcd-flavor-id` / `--etcd-plan` / `--etcd-size`).
 
-**`--control-plane-count 3` is what makes a cluster survive losing a node** — one control plane is
-fine for dev and is a single point of failure everywhere else. Count is 1 or 3.
+**`--control-plane-count 3` is what makes a cluster survive losing a node** - one control plane is
+fine for dev and is a single point of failure everywhere else. Count is 1 or 3;
+`ankra cluster <provider> control-plane set-count <cluster> 1|3` can change it later, but choose
+3 at create for the hub and production. The distribution, CNI (`--cni`), etcd topology and network
+mode cannot be changed after create.
 
-### The batteries — take them at create time
+### The batteries - take them at create time
 
-Three flags decide whether the cluster is usable the moment it comes up. All default **on**:
+These flags decide whether the cluster is usable the moment it comes up. All default **on**
+(`--external-cloud-provider` exists on Hetzner, DigitalOcean, OVH and UpCloud; the others install
+their cloud integration as part of the generated stack):
 
 - **`--external-cloud-provider`** — installs the provider's CCM and CSI, so `LoadBalancer`
   Services get a real load balancer and `PersistentVolumeClaim`s get real disks. Turning it off
@@ -168,7 +194,11 @@ ankra cluster hetzner create ... \
 
 Do this on the first create rather than wiring GitOps afterwards: it is the difference between a
 cluster whose base layer is reviewable in a pull request and one whose base layer only exists in
-the platform. `ankra cluster gitops status` shows what a cluster syncs from. See `ankra-gitops`.
+the platform. Ankra writes each cluster to `clusters/<name>-<short-id>/` in the repository, so
+every cluster of the estate can share one repository. Always pass `--gitops-branch`: the server
+default is `master`. The flags exist on Hetzner, DigitalOcean, OVH, UpCloud, AWS and Ankra Cloud;
+for Scaleway, Proxmox and Morpheus connect the repository after create (see `ankra-gitops`).
+`ankra cluster gitops status` shows what a cluster syncs from.
 
 ### OVH availability zones
 
@@ -202,7 +232,7 @@ ankra cluster upcloud create --name prod --zone fi-hel1 \
   --zones fi-hel1,fi-hel2,se-sto1 --control-plane-count 3 \
   --credential-id <id> --ssh-key-credential-id <id>
 ankra cluster upcloud zones <cluster_id> --zones fi-hel1,fi-hel2,se-sto1,de-fra1   # grow the pool
-ankra cluster upcloud node-group add <cluster_id> --name db-sto --instance-type 4xCPU-8GB --count 2 --zone se-sto1
+ankra cluster node-group add <cluster_id> --name db-sto --instance-type 4xCPU-8GB --count 2 --zone se-sto1
 ```
 
 `--zone` is the primary (bastion, first control plane, default network) and must be in `--zones`. A
@@ -231,10 +261,16 @@ ankra cluster node-group add <cluster_id> --name gpu --instance-type <type> --co
 ankra cluster node-group scale <cluster_id> <group> <count>
 ankra cluster node-group labels <cluster_id> <group> --labels k=v,...
 ankra cluster node-group taints <cluster_id> <group> --taints k=v:NoSchedule,...
-ankra cluster node-group autoscaling get|set <cluster_id> <group>
-ankra cluster node-group upgrade <cluster_id> <group>   # instance type change, IRREVERSIBLE
+ankra cluster node-group autoscaling get|set <cluster_id> <group> [--enabled --min 2 --max 6]
+ankra cluster node-group upgrade <cluster_id> <group> <instance_type>   # IRREVERSIBLE
 ankra cluster node-group delete <cluster_id> <group>
 ```
+
+The per-provider `ankra cluster hetzner|ovh|upcloud node-group ...` forms are deprecated; use the
+generic verbs above. Node-group writes submit and return unless `--wait` is passed; a refusal that
+arrives later (no stock in the location, for example) is recorded as a failed operation - read it
+with `ankra cluster operations list --failed --cluster <cluster>`. On UpCloud a plan from another
+family replaces each node (drained, deleted, re-provisioned) instead of resizing it in place.
 
 Removing workers (`cluster scale` or `node-group scale` down, `node-group delete`) drains each
 node through its pods' PodDisruptionBudgets first. A node whose drain is refused (a budget allows
@@ -278,26 +314,29 @@ stopped cluster's offline resize drains nothing and ignores it, and so does a ru
 fewer than three controllers (the rolling resize refuses it) or one already on that type. Same rule
 as for workers: say so before using it, never add it by reflex.
 
-## 5. Teardown — three different things
+## 5. Teardown - power is not deletion
 
 Do not confuse these; the words are similar and the outcomes are not.
 
 | Command | What it does |
 |---------|--------------|
 | `ankra cluster <provider> stop` / `start` | **Power.** Compute off and on, state kept. Also `ankra cluster power-schedules`. |
-| `ankra cluster deprovision <name>` | **Teardown.** Releases every cloud resource (servers, networks, SSH keys) and uninstalls every stack resource. The cluster *record* is kept. |
-| `ankra cluster provision <name>` | Rebuilds a deprovisioned cluster's infrastructure and redeploys its stacks from the stored definition. Not a power-on. |
-| `ankra delete cluster <name>` | Removes the cluster record itself (`--dry-run` first). |
+| `ankra cluster deprovision <name>` | **Teardown and deletion** for a cloud cluster: releases every cloud resource (servers, networks, SSH keys), uninstalls every stack resource, and **deletes the cluster record** - its id and stacks are gone and `provision` cannot bring it back. Rebuilding means a new `create` (which is why the stacks belong in Git). |
+| `ankra cluster provision <name>` | Only for *imported* clusters, whose record survives a deprovision: redeploys their stacks from the stored definition. |
+| `ankra delete cluster <name>` | Removes a cluster record (`--dry-run` first). |
 
 ```bash
 ankra cluster info                                     # confirm the target, every time
-ankra cluster deprovision prod --yes
-ankra cluster deprovision prod --force                 # also clears leftover CSI volumes and LBs
+ankra cluster deprovision prod                         # names the volumes it will delete, then asks
+ankra cluster deprovision prod --force --accept-volume-data-loss --yes
 ```
 
-`--force` on UpCloud, Hetzner, OVH and DigitalOcean also deletes leftover CSI storage volumes and
-load balancers — without it, a teardown can leave paid-for orphans behind. After a `provision`,
-verify anything that was patched in place: `ankra cluster addons list`, `ankra cluster manifests list`.
+On Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, Ankra Cloud and AWS the cluster's CSI volumes are
+deleted with it, and only after the prompt is answered or `--accept-volume-data-loss` is passed
+(`--yes` does not imply it). A cluster created with `--retention-policy retain` (AWS, Scaleway,
+Ankra Cloud; their default) keeps its volumes, which keep billing. `--force` tolerates an
+unexpected state and also deletes leftover load balancers on UpCloud, Hetzner, OVH, DigitalOcean
+and AWS; on Proxmox it finishes when the host is unreachable and leaves the VMs behind.
 
 ## Rules
 
@@ -311,14 +350,16 @@ verify anything that was patched in place: `ankra cluster addons list`, `ankra c
 - **`create` has no `--wait`.** Follow it with `ankra cluster operations list`; do not re-submit.
 - **Pin the group when it runs zonal storage**, and remember node spread is not fault tolerance.
 - **Node-group `upgrade` is irreversible** — it replaces instances.
-- **Confirm before teardown**, and prefer `--force` on cloud providers so orphaned volumes and load
-  balancers are not left billing.
-- **Upgrade non-production first**, one minor at a time.
+- **Confirm before teardown** - a cloud `deprovision` deletes the cluster and, once accepted, its
+  volumes. Back stateful stacks up into a vault first (`ankra-backups`).
+- **Upgrade non-production first**, one minor at a time: development, then production, then the hub.
 
 ## Related skills
 
 - `ankra-getting-started` — the whole path from an empty organisation to a first app.
-- `ankra-managed-kubernetes` — DOKS, UKS, GKE, OVH MKS, AKS, EKS, Kapsule.
+- `ankra-managed-kubernetes` — DOKS, UKS, GKE, OVH MKS, AKS, EKS, Kapsule, Ankra Cloud Kubernetes.
+- `ankra-observability`, `ankra-backups`, `ankra-alerts-webhooks` — the hub's services and the spokes' wiring.
+- `ankra-terraform` — the same clusters as Terraform resources.
 - `ankra-import-cluster` — adopting a cluster that already exists.
 - `ankra-domains-dns` — the generated domain, your own zones, and where TLS comes from.
 - `ankra-gitops` — the repository `--gitops-repository` commits into.

@@ -1,9 +1,24 @@
 ---
 name: ankra-backups
-description: Manage the organisation's backup vaults with `ankra backup vaults` - the S3-compatible buckets cluster backups and migration data move through - and, where the closed-beta `backups` feature is on, the restore points over them: protect a stack on a schedule, take a restore point now, inspect what one carries and what it does not, restore a stack in place, clone a stack onto another cluster with its data, and follow the runs that move the data. Use when the user mentions backups, backup vaults, restore points, protecting or restoring a stack, cloning a stack with its data, object storage for backups, an S3 or MinIO bucket for the platform, or asks where migration dumps are kept.
+description: Protect every stateful stack into a backup vault and restore from it - `ankra backup vaults` (the S3-compatible buckets cluster backups and migration data move through), protecting a stack or an application deployment on a schedule, reading a cluster's backup posture with `ankra cluster backups status`, taking a restore point now, inspecting what one carries and what it does not, restoring a stack in place, cloning a stack onto another cluster with its data, and following the runs that move the data. Use when the user mentions backups, backup posture, backup vaults, restore points, protecting or restoring a stack, cloning a stack with its data, object storage for backups, an S3 or MinIO bucket for the platform, or asks where migration dumps are kept.
 ---
 
-# Backup vaults
+# Backups, restore points and vaults
+
+## Recommended path
+
+- Golden path **3, the estate**: one vault per environment (production and development kept
+  apart), then **every stateful stack protected** into its environment's vault, on staggered
+  schedules. `ankra cluster backups status` showing no stack with data at `no_policy` is the bar
+  before calling a cluster production.
+- Order: `vaults provision` -> `cluster stacks data list` -> `cluster stacks protect ... --backup-now
+  --wait` -> `restore-points get` to prove one can be read.
+- Day 2 (golden path **4**): a restore point before risky changes, restore in place or clone with
+  data to rehearse; failed runs are read with `ankra runs` (`ankra-troubleshooting`).
+- Avoid: an in-cluster Velero `Schedule` or CloudNativePG `ScheduledBackup` next to Ankra's
+  policy (the data is captured twice and only Ankra's copies are listable), and vault keys in Git.
+
+## Backup vaults
 
 A backup vault is an organisation-level target for data that must survive a cluster:
 an S3-compatible bucket plus the access keys to reach it, registered with Ankra. Cluster
@@ -16,7 +31,7 @@ ankra backup vaults list
 ankra backup vaults get offsite          # endpoint, bucket, status, and the failure excerpt when a check failed
 ```
 
-## Adding a vault: provision or create
+### Adding a vault: provision or create
 
 **Provision** - Ankra creates the bucket for you from one of the organisation's provider
 credentials (Hetzner, UpCloud, DigitalOcean or Scaleway), mints or stores the keys, verifies
@@ -48,7 +63,7 @@ Prefer **provision** when a supported provider credential exists - the keys are 
 the one bucket and never pass through your hands. Prefer **create** when backups must land in
 storage you already govern (retention policies, object locks, your own encryption).
 
-## Verification
+### Verification
 
 The credential check runs when the vault is registered and its result sticks as the status.
 After rotating or fixing the keys, re-run it:
@@ -62,14 +77,24 @@ a missing bucket permission each read differently there. Migrations and restores
 organisation's only **ready** vault" automatically; a vault stuck unverified breaks that
 default silently, so `verify` after every key rotation.
 
-## What a vault holds
+### What a vault holds
+
+```bash
+ankra backup vaults contents production-backups                    # per restore point, read from the bucket
+ankra backup vaults contents production-backups --orphans-only     # objects no restore point accounts for
+ankra backup vaults contents production-backups --restore-point 0b2f --objects
+```
+
+`contents` reads the object store, not Ankra's rows, so it is how you confirm a deleted restore
+point really left and find orphaned objects. Volume data sits in a repository shared per cluster
+and namespace and is reported separately - never delete that prefix by hand.
 
 Migration restores keep their uploads in the vault under `imports/<import-id>/` so they can
 be restored again. List and remove them with `ankra migrate imports list` and
 `ankra migrate imports delete <import-id>` (see `ankra-migrate`) - those dumps are complete
 copies of production databases and should not outlive their purpose.
 
-## Deleting a vault
+### Deleting a vault
 
 ```bash
 ankra backup vaults delete offsite
@@ -100,9 +125,7 @@ vault registering a bucket you created yourself - your bucket, your teardown.
 
 ## Restore points
 
-Backups and restore points are available to every organisation (out of closed beta on
-2026-09-21), with nothing to request. An older platform that still answers
-`Backups are not enabled for this organisation.` predates that release.
+Backups and restore points are available to every organisation, with nothing to request.
 
 A **restore point** is an immutable copy of a stack's data in a vault, self-describing enough
 to be read without the cluster it came from. Backing up creates one; restoring applies one.
@@ -112,7 +135,8 @@ to be read without the cluster it came from. Backing up creates one; restoring a
 ```bash
 ankra cluster stacks data list shop                       # what a backup would have to carry
 ankra cluster stacks protect shop --vault production-backups \
-  --schedule daily --retention daily=7,weekly=4,monthly=6
+  --schedule "0 1 * * *" --retention daily=7,weekly=4,monthly=6 \
+  --include-pvc shop/uploads --backup-now --wait
 ankra cluster stacks unprotect shop                        # retype the stack name to confirm
 ```
 
@@ -123,8 +147,30 @@ cluster, so nothing is called protected while the Velero that would do the prote
 arriving. `--vault` is required - a protected stack with nowhere to write to is not protected.
 `--schedule` takes `hourly`, `daily`, `weekly` or a five-field cron expression. Databases are
 captured by default and volumes only where named with `--include-pvc namespace/name`;
-`--exclude-databases` needs `--confirm-exclude-databases` beside it. Unprotecting stops future
-backups and **keeps** every restore point already taken.
+`--exclude-databases` needs `--confirm-exclude-databases` beside it. `--backup-now` takes the first restore point
+immediately instead of waiting for the schedule. Unprotecting stops future backups and **keeps**
+every restore point already taken.
+
+The policy lands in the cluster YAML as a `backup` block on the stack (`enabled`, `vault`,
+`schedule`, `retention`, `selection`), so from then on it is reviewed and versioned in GitOps like
+everything else. Stagger schedules (`0 1 * * *`, `10 1 * * *`, ...) so captures do not compete
+for disks and the vault. The first protect on a cluster installs the backup data plane (Velero
+and the CloudNativePG Barman plugin); captures started before it lands wait rather than fail.
+
+### Read the posture
+
+```bash
+ankra cluster backups status --cluster production
+ankra cluster backups status --protection unprotected -o json
+ankra application backups shop                             # per deployment of one application
+```
+
+One row per stack: `protected`, `unprotected` (with the reason - `no_policy` is the one you owe,
+`no_data_assets` has nothing to carry) or `unknown` (Ankra could not assess it - not the same as
+unprotected), with the last run and the next one. For an application, `ankra application protect
+<app> --cluster <cluster> [--vault ...] [--backup-now]` and `ankra application backup <app>
+--cluster <cluster> --note ... --wait` act on the stack behind that deployment; `protect` rewrites
+the whole policy, so restate `--schedule`, `--retention` and `--include-pvc` when re-running it.
 
 ### Take one, read one, restore one
 
@@ -225,3 +271,4 @@ ankra runs retry <run-id>          # opens a NEW run from the step that failed
 - `ankra-troubleshooting` - reading a failed backup or restore run on the cluster.
 - `ankra-security` - credential scope and the review pass that should include vault keys.
 - `ankra-cloud-clusters` - the provider credentials `provision` draws on.
+- `ankra-terraform` - `ankra_backup_vault`, when vaults are managed as code.

@@ -14,6 +14,15 @@ Use this skill for *your own code*. For third-party software (a Helm chart someo
 maintains) use `ankra-stacks-addons`; the two meet when an application publishes its manifests as
 a catalogue add-on.
 
+## Recommended path
+
+Golden path 1, **Ship code**, owned by `ankra-ship` (the canonical list is in
+`ankra-platform-principles`). Start there: `ankra application ship . --cluster <dev-cluster>` is
+the one command, and this skill is its detail - registries, components, deployments, many
+clusters, backups. Development follows every merge; a person promotes the same `sha-` tag to
+production (`ankra-ship` §7). Never hand-write a GitHub Actions workflow or Kubernetes manifests
+for an application, and never rebuild per environment.
+
 ## The lifecycle
 
 ```
@@ -32,8 +41,10 @@ ankra application add . --credential github-acme --branch main
 ```
 
 `add` reads the local Git checkout: it detects the GitHub repository from the remote (`--remote`,
-default `origin`), uses the remote's default branch, and picks the GitHub credential when the
-choice is unambiguous.
+default `origin`), uses the remote's default branch (else the current branch), and picks the GitHub
+credential when the choice is unambiguous. The portal's **Add application** wizard does the same,
+and also approves the generated pipeline in your name; one added from the CLI or an agent waits for
+an administrator to approve it (`ankra-cicd` §5).
 
 **Declare a registry you already operate in the same command** — not afterwards:
 
@@ -101,7 +112,10 @@ ankra application retry <application-id>             # re-run a failed setup
 ```
 
 Things worth checking before merging: the base image and its tag, the exposed port, the health
-probe paths, resource requests, and that nothing secret was baked into the image.
+probe paths, resource requests, and that nothing secret was baked into the image. When the
+analysis finds the app needs Postgres, the PR also adds a CloudNativePG database with
+`DATABASE_URL` wired. A setup PR that fails its own checks gets a fix commit from Ankra AI on the
+same PR.
 
 The PR also carries `.ankra/ankra.yaml`, the application descriptor: `metadata`, the `options` that
 are the deploy form's contract (edit them in Git and re-run setup to change the form), and an
@@ -179,10 +193,12 @@ organisation's CI runner label (`ankra application settings set --ci-runner-labe
 read and steer the GitHub Actions workflow. Convert instead of tuning it:
 `ankra application pipeline convert <application-id>`.
 
-With auto-deploy on, a build Ankra observes on the tracked branch rolls itself out unattended.
-With it off, a push still builds and waits for an explicit `ankra application deploy`. Choose
-deliberately: auto-deploy is right for dev and staging, and for production only when the branch
-is protected and the pipeline gates on tests.
+With auto-deploy on, a build Ankra observes on the tracked branch rolls itself out unattended to
+every environment that follows pushes. With it off, a push still builds and waits for an explicit
+`ankra application deploy`. `auto-deploy set` is application-wide; the per-environment switch is
+the portal's **Settings → Push to deploy → What follows pushes**. The golden path: development
+follows pushes, production does not, and a person promotes the tag development proved with
+`ankra application deploy <application-id> --cluster <prod> --set image_tag=sha-<7>` (`ankra-ship` §7).
 
 **If `pipeline list` stays empty after a merge**, the pipeline is not failing — it has nowhere to
 run. Ankra Pipelines execute on the cluster agent's own step scheduler, whose `ci_worker_count`
@@ -264,8 +280,8 @@ ankra application demo config <application-id>                    # saved demo d
 
 Demos are ephemeral workspaces on the organisation's AI/staging cluster with their own TTL, and
 they are reaped automatically. They are the reviewable artefact for a pull request — a public
-preview URL, not a port-forward. Configure the staging cluster in **Organisation settings → AI →
-Environment** (`ankra-ai-gateway`).
+preview URL, not a port-forward. Configure the staging cluster in **AI → Settings → Workspaces**
+(`ankra-ai-gateway`).
 
 ## 8. One service, many clusters
 
@@ -340,8 +356,8 @@ and `ankra-migrate` for moving data between clusters.
   wrong registry.
 - **Ankra Pipelines, never a hand-written workflow.** `add` lands on `.ankra/pipeline.yaml`; an
   application still on `generated_workflow` is converted with `ankra application pipeline convert`.
-- **Immutable image tags.** Commit SHA or semver; never `latest`. This is what makes promotion and
-  rollback meaningful.
+- **Immutable image tags.** Deploy, promote and roll back by `sha-<7>`; never by `latest` or an
+  extra `publish.tags` entry. Rollback is `deploy --set image_tag=` with the previous tag.
 - **Secrets by stdin or prompt**, never `--value`, and never printed back into a transcript.
 - **`env-secrets set` then `env-secrets apply`.** Setting alone does not reach a running workload.
 - **Verify before promoting.** Operations, pods, logs — in that order. A green `deploy` command is

@@ -21,6 +21,8 @@ services: { <name>: { image, env, ports, ready: { tcp | http } } }              
 stages: […]                    # the DAG
 on_failure: […]                # runs only if a main stage failed, timed out or hit an infra error; skips are not failures
 finally: […]                   # runs after everything else, whatever the outcome; also after a cancel
+full_run: { events: [push], branches: [main] }   # these runs set every path filter aside (logic, not protected)
+path_sets: { <name>: [patterns | {set: <name>}] }  # named path lists, below
 environments: { <name>: { data, verify, rollout, gate } }   # Protected; no executor acts on it yet
 ```
 
@@ -49,7 +51,8 @@ source the logic came from.
 
 Run triggers on the wire: `push`, `pull_request`, `tag`, `schedule`, `manual`, `api`, `agent`,
 `rerun`, `merge_train`. A `rerun` is planned as the event the run it repeats was planned as: a
-re-run of a push plans the push's `publish` again, a re-run of a pull request or a merge train car
+re-run of a push plans the push's `publish` again (the image never becomes the push-to-deploy
+candidate, so a re-run rolls nothing), a re-run of a pull request or a merge train car
 plans as a pull request, a re-run of a schedule repeats that entry's `stages`, and it reuses the
 original's change list. A re-run of a tag, manual, API or agent run is planned as `rerun`. A
 `merge_train` car is planned as a pull request. Dispatches (`manual`, `api`, `agent`, `rerun`) are never deduplicated; provider events are
@@ -73,7 +76,7 @@ runs without when their own path filter left them out), `paths` (affected-only: 
 `matrix` (axes + `include`/`exclude`, ≤ 64 legs), `services`, `env` (names starting `ANKRA_`, `PATH`,
 `BUILDKIT*`, `DOCKER_CONFIG` refused), `secrets`, `cache` (`key`, `paths` relative to the workspace root, `size`, `restore_keys`, `fallback` `volume`|`none`),
 `artifacts` (`name`, `paths`, `retention_days`), `test_results` (`junit`|`go-test`|`pytest`|`playwright`;
-carried, not ingested yet), `outputs`, `timeout` (default 30m, max 6h), `resources.cpu|memory|gpu`
+every test's outcome recorded, `ankra pipeline tests <run>`), `outputs`, `timeout` (default 30m, max 6h), `resources.cpu|memory|gpu`
 (500m/1Gi default; ≤ 8 cores, 32Gi, 4 GPUs; requests = limits), `runs_on.cluster|node_selector|
 tolerations|runtime_class|arch` (all protected), `network`, `shm_size` (64Mi), `working_directory`,
 `allow_failure`, `continue_on_error`, `retry` (accepted, not applied), `environment`.
@@ -123,7 +126,7 @@ Kind blocks:
 | `build` | `dockerfile` (path from the repo root), `context`, `target`, `platforms` (do not pin), `build_args` (names, resolved from variables), `provenance`, `sbom`, `cache_to`. `dockerfile` and `context` resolve independently: `context: backend` + `dockerfile: Dockerfile` reads the **root** Dockerfile; write `dockerfile: backend/Dockerfile`. |
 | `scan` | `scanners` (`semgrep`, `checkov`, `trivy`), `fail_on` (scanner → its own severity word, folded into the gate tighten-only; a value outside that scanner's vocabulary — the generated `trivy: "app"`, `checkov: "none"` — carries no floor and leaves the organisation gate to decide), `with.semgrep_config` (space-separated packs; else `--config=auto`), `with.image_gate` (`app`/`all`/`off`, tighten-only) |
 | `gate` | `require_stages` (the scan stages whose findings it judges; a required scanner that recorded nothing fails it by name), `approval_roles` |
-| `publish` | `with.image` is accepted and **not read** — the target is the application's own registry, resolved like the build's push target. Needs a successful `gate` upstream; re-tags the judged digest as `sha-<7>`. Outputs `image_ref` (`<repository>:sha-<7>`), `image_digest`, `image_tag`, `image_tags`: a later stage pins those, never a hand-built name or a copy to another registry. |
+| `publish` | `with.image` is accepted and **not read** — the target is the application's own registry, resolved like the build's push target. Needs a successful `gate` upstream; re-tags the judged digest as `sha-<7>`. `publish.tags` adds extra tags to the same digest (never deploy by them); `publish.promote_from: pull_request` (protected) re-tags a passed pull request run's digest on a push with the identical tree instead of rebuilding - see `ankra-cicd` §7b. Outputs `image_ref` (`<repository>:sha-<7>`), `image_digest`, `image_tag`, `image_tags`: a later stage pins those, never a hand-built name or a copy to another registry. |
 | `deploy` | `environment` (the stage's own field) plus `deploy.artifact` (the `publish` stage inside `needs`), `deploy.release` (`metadata.name` of the bundle's `ankra-release.yaml`), `deploy.targets.match_labels`. The artifact must be a signed release bundle (`build.bundle.path` + `build.bundle.manifest`) this run published. Protected. Skipped with no `deploy` block or an unknown environment; never runs for a pull request or fork. Outputs `deployment_id`, `digest`, `environment`, `targets_succeeded`, `targets_failed`. |
 
 What every step carries: the workspace at `/workspace`; `ANKRA_RUN_ID`, `ANKRA_STEP_ID`,
@@ -225,8 +228,8 @@ stages:
     when: { events: [push, tag] }
 ```
 
-Read against what executes today: everything above runs. `test_results` is carried and not read;
-the run's verdict is the stages' exit codes plus the gate. A `verify`, `agent` or `webhook` stage
+Read against what executes today: everything above runs. `test_results` is recorded per test
+(`ankra pipeline tests`); the run's verdict is still the stages' exit codes plus the gate. A `verify`, `agent` or `webhook` stage
 added here would validate as `warn` and be skipped — say so in the PR that adds it.
 
 ## Scripting contract
@@ -265,7 +268,7 @@ The `run_id` field is the umbrella run across lifecycles — correlate it with
 
 `ankra application ship -o json`: `application_id`, `application_name`, `repository`, `branch`,
 `registered`, `setup_pr_url`, `build_ref`, `organisation_name`, `cluster_id`, `cluster_name`,
-`namespace`, `installation_id`, `url`, `state` (`healthy`|`parked`).
+`namespace`, `installation_id`, `url`, `url_problem`, `state` (`healthy`|`parked`|`unroutable`).
 
 ## Organisation CI settings
 
@@ -274,9 +277,12 @@ empty clears; unset falls back to the AI staging cluster), `--build-fallback pla
 (default `platform_builders`, also needs the `Platform builds enabled` grant), `--image-gate
 app|all|off`, `--ignore-unfixed` (default true; `=false` makes every unfixed finding block),
 `--allowed-image-prefix` (replaces the list; organisation registry and platform images are always
-allowed), `--egress-allowed-cidr` (replaces the list, ≤ 32), `--max-parallel-runs` (default 4, ≤ 64,
-per organisation), `--max-parallel-steps` (default 8, ≤ 256, per organisation),
+allowed), `--egress-allowed-cidr` (replaces the list, ≤ 32), `--max-parallel-runs` (default 16, ≤ 64,
+per organisation), `--max-parallel-steps` (default 8, ≤ 256, per run),
 `--run-retention-days` (90; 7–365), `--artifact-retention-days` (30), `--cache-retention-days` (14).
+Portal and API only (no CLI flag yet): `ci_always_run_stages` (stage names no path filter can skip;
+a pull request cannot change it), `ci_full_run_on_default_branch`, and `ci_skip_markers`
+(`except_default_branch` default, `everywhere`, `never` - where `[skip ci]` skips a branch push).
 
 CI cluster pool: `ankra org ci-settings pool list|add <cluster> [--weight N]|remove <cluster>` spreads
 runs over more clusters than `--cluster` (the primary, always a member). Each run is pinned at its
@@ -347,7 +353,7 @@ Other vocabulary: `pipeline_source` ∈ `ankra_pipeline` · `own_ci` · `generat
 `enqueued`, `already_queued`, `already_recorded`, `skipped`, `refused`, `repository_not_onboarded`,
 `no_ci_cluster`, `no_definition`, `trigger_not_declared`. Planner skips: `event_filter`,
 `branch_filter`, `path_filter`, `schedule_subset`, `condition_false`, `condition_unreadable`,
-`fork_policy`, `dependency_skipped`, `kind_unavailable`, `deploy_untrusted_event` (a `deploy` stage
+`fork_policy`, `dependency_skipped`, `kind_unavailable`, `not_affected`, `skip_marker` (`[skip ci]`), `deploy_untrusted_event` (a `deploy` stage
 in a pull request or fork run), `promoted` (a push publishes the digest a pull request or merge train
 run already passed for the same tree, so the stages it needs are not run again). Notification kinds: `pipeline_run_failed`,
 `pipeline_run_succeeded`, `image_gate_blocked`, `preview_ready`, `preview_failed`. Comment markers:
@@ -362,7 +368,169 @@ human-only), `credentials.read|write|delete`.
 Step timeout 30m default, 6h max · one automatic retry for Ankra's own failure classes only ·
 matrix ≤ 64 legs (8 on a restricted fork) · step compute 500m/1Gi default, ≤ 8 cores, 32Gi, 4 GPUs
 (2 cores/4Gi on a fork) · caches 4 GiB per saved path, 10 GiB per repository (a 5Gi volume per path on an agent without cache archives) · artifacts 512 MiB per object, 2 GiB per run, 20
-uploads per step, links valid 5 minutes · parallelism 4 runs / 8 steps per organisation by default ·
+uploads per step, links valid 5 minutes · parallelism 16 runs per organisation, 8 steps per run by default ·
 retention: artifacts and logs 30 days, caches 14, runs 90 · grants ≤ 32 per step, alive for the
 step's timeout plus 15 minutes · live log queues 1,024 lines and keeps the last 8 MiB on upload ·
 expressions ≤ 8,192 bytes per template, 64 per template, 2,048 bytes and 24 levels each.
+
+## The generated pipeline, annotated
+
+```yaml
+apiVersion: ankra.io/v1
+kind: Pipeline
+metadata: { name: "shop" }
+on:
+  push: { branches: ["main"] }
+  pull_request: { branches: ["main"], fork_policy: "read_only" }
+  manual: {}
+concurrency: { group: "${{ ankra.repository }}-${{ ankra.ref }}", cancel_in_progress: true }
+workspace: { size: "10Gi", access: "rwo" }
+defaults: { image: "node:22", timeout: "30m", network: "egress-https" }
+permissions: { contents: "read" }
+stages:
+  - { name: checkout, kind: checkout }
+  - name: test
+    kind: run
+    needs: [checkout]
+    run: "npm ci && npm test"
+    test_results: [{ format: junit, path: "test-results.xml" }]
+  - name: build
+    kind: build
+    needs: [test]
+    build: { dockerfile: "Dockerfile", provenance: true, sbom: true }
+  - name: scan
+    kind: scan
+    needs: [build]
+    with: { image_gate: "app", semgrep_config: "p/default p/docker p/javascript p/typescript" }
+    scan:
+      scanners: [semgrep, checkov, trivy]
+      fail_on: { semgrep: "error", checkov: "none", trivy: "app" }
+  - { name: gate, kind: gate, needs: [scan], gate: { require_stages: [scan] } }
+  - name: publish
+    kind: publish
+    needs: [gate]
+    when: { events: [push] }
+    with: { image: "harbor.ankra.cloud/<project>/shop" }   # recorded, not read: the target is the app's registry
+```
+
+Stages without `needs` run in parallel; `publish` refuses without a successful `gate` upstream and
+only runs on `push`, so a pull request builds, scans and reports but never publishes. `fail_on`
+values outside a scanner's own severity words (`trivy: "app"`, `checkov: "none"`) carry no floor
+and leave the organisation gate to decide. `registry_auth` and `source_token` are reserved bindings
+Ankra adds from the push robot — never declare them. Do not pin `build.platforms`: builds run
+natively, and a fabricated `linux/amd64` fails on an arm64 cluster ("no QEMU emulation
+registered"). [reference.md](reference.md) has the full schema.
+
+
+## Run states, error classes and re-runs
+
+`get --wait --exit-code` is the primitive to gate anything external on: `0` succeeded, `1` concluded
+otherwise, `5` not concluded by `--timeout`, `3` no run matched. `status` is the lifecycle
+(`queued` → `running` → `concluded`); `outcome` is the verdict (`success`, `failure`, `cancelled`,
+`timed_out`, `skipped`, `infra_error`). A failed run names its error class: `step_failed` is your
+build, `image_gate_blocked` is a finding, `registry_push_failed`, `build_runtime_confined` and
+`platform_build_infra` are placement or Ankra. A `rerun` is planned as the event it repeats: a
+re-run of a push publishes the `sha-` image again but **does not become the push-to-deploy
+candidate**, so it never rolls a deployment; a re-run of a pull request does not publish, and a
+re-run of a tag, manual, API or agent run is planned as `rerun`, which a `when.events` list must
+name. `--full` (on `run` and `rerun`) sets path filters aside for that run. `--failed-only` also re-runs the checkout and every step the failed ones
+build on (the new run's workspace starts empty), and is refused when a step that failed could not
+run in a re-run. Logs attach once a step has an execution; a concluded step replays for
+24 h and from the archived artifact after that.
+
+
+## Converting a GitHub Actions application
+
+```bash
+ankra application pipeline convert <application-id>                  # stores the converted definition, opens the PR
+ankra application pipeline convert <application-id> --keep-workflows
+```
+
+Ankra converts the workflow to `.ankra/pipeline.yaml`, records it as the definition of record,
+**switches the generated workflow off on GitHub** so no commit builds twice, and opens a PR on
+`ankra/pipeline-migration` that commits the file and removes Ankra's generated workflow (a workflow
+the repository wrote itself is never touched). Review the result: marketplace actions it cannot map
+become `run` stages that exit 1 with an explanation, never a silent drop.
+
+
+## A test stage with a database, matrix and cache
+
+```yaml
+services:
+  postgres:
+    image: "postgres:16"
+    env: { POSTGRES_PASSWORD: "test", POSTGRES_DB: "shop" }
+    ports: ["5432"]
+    ready: { tcp: "5432" }
+stages:
+  - name: test
+    kind: run
+    needs: [checkout]
+    image: "golang:${{ matrix.go }}"
+    network: services
+    services: [postgres]
+    env:
+      DATABASE_URL: "postgres://postgres:test@postgres:5432/shop?sslmode=disable"
+      GOMODCACHE: "/workspace/.ankra-go/mod"     # the root filesystem is read-only: keep caches on the workspace
+      GOCACHE: "/workspace/.ankra-go/cache"
+    cache:
+      - key: "go-${{ hashFiles('go.mod', 'go.sum') }}"
+        paths: [".ankra-go/mod", ".ankra-go/cache"]  # relative to the workspace root
+        restore_keys: ["go-"]
+        fallback: none
+    run: |
+      go test ./... -json > test-results.json
+    test_results: [{ format: go-test, path: "test-results.json" }]
+    matrix:
+      go: ["1.25", "1.26"]
+```
+
+
+## Caches and outputs
+
+Caches: `hashFiles` is evaluated after checkout in the stage's `working_directory`; the exact key
+restores first, then each `restore_keys` prefix in order. A default-branch run reads and saves only
+its own scope; a branch or PR run reads its own scope then the default branch's and saves only its
+own; fork and tag runs get none. A save happens only after the step passes (a `hashFiles` key once,
+a static key every time). 14 days unused, 10 GiB per repository, 4 GiB per path. On an agent
+without cache archives a cache is a shared 5Gi volume per path - `fallback: none` makes it an
+empty directory instead, which never wedges overlapping runs. The generated `test` stage declares
+its package caches (pnpm/Yarn/npm, Go, pip/uv/Poetry/Pipenv, cargo) this way under
+`/workspace/.ankra-*`, keyed on the lock file, with `fallback: none`; a committed file is never
+rewritten, so copy the block into an older one. A cache path outside the workspace is refused. Every step's output is archived as a `step_log` artifact, and `key=value` lines
+appended to `$ANKRA_OUTPUT` become `${{ needs.test.outputs.<name> }}` downstream.
+
+
+## What is not there yet, in full
+
+Say this out loud rather than promising it. The spec accepts fifteen stage kinds; **seven execute**:
+`checkout`, `run`, `build`, `scan`, `gate`, `publish`, `deploy`. `deploy` releases a signed bundle
+to host targets outside Kubernetes (`ankra targets`), never to a cluster. `preview`, `verify`, `agent`,
+`approval`, `webhook`, `automation`, `ankra` and `external` validate with a warning and are skipped
+as `kind_unavailable`; `uses:` is refused outright (write the step as `run:`); `retry:` is
+accepted but not yet applied. `on_failure:` stages run only after a
+main stage failed, timed out or hit an infrastructure error (a skipped stage is not a failure; after
+a green run they are skipped with that reason), and `finally:` stages run after everything else
+whatever the outcome. Cancelling a run that started (a person, a superseding push, a closed pull
+request, the merge train) stops its main and `on_failure` stages, runs its `finally:` stages
+(15-minute budget; `ankra pipeline cancel --force` skips them), then concludes it `cancelled`. So **an
+`approval` stage blocks nothing — everything downstream runs**, and a skipped stage is not a failed
+one: do not make the `Ankra pipeline` check *required* while the definition carries an unexecuted
+kind, or it goes green having done none of what that stage names. Previews, deploys to a cluster, rollback and
+promotion happen through the application lanes above, not inside a pipeline. GitLab and Bitbucket
+plan from the stored definition (the head-sha file is read on GitHub only) and have no setup-PR
+writer yet. `egress-https` reaches **public addresses only**; name a private range with
+`ankra org ci-settings set --egress-allowed-cidr <cidr>` before the step runs.
+
+
+## Rarer symptoms
+
+| Symptom | Cause | Do |
+|---|---|---|
+| `build_fallback_none` | fallback needs `--build-fallback platform_builders` **and** the grant | `ankra org ci-settings get` |
+| Exit 79, "no QEMU emulation registered" | pinned `platforms` on an arm64 cluster | drop `build.platforms` |
+| `no_scan_results` | scan report never uploaded | a ready backup vault (`ankra-backups`) or an older platform; do not treat as clean |
+| A stage's log says `UNAUTHORIZED: project <name> not found` from a Harbor registry | the project does not exist; it is not a credential fault | a hand-written copy to a second registry: remove it and deploy `publish`'s `image_ref` (`ankra-cicd` §3), or declare the registry on the application |
+| Test or build times out reaching a private host | `egress-https` is public-only | `ankra org ci-settings set --egress-allowed-cidr 10.0.0.0/8` |
+| No "Ankra pipeline" check on the PR, only a comment | GitHub App lacks `checks:write` | grant it on the installation |
+| Setup PR 403 "Resource not accessible by integration" | repo not in the App installation | add it (owner-only) or choose "All repositories" |
