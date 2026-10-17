@@ -1338,11 +1338,11 @@ func (m baseMock) CreateSecurityDisposition(client.SecurityDispositionCreateRequ
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) UpdateSecurityDisposition(string, client.SecurityDispositionUpdateRequest) (*client.SecurityDispositionMutation, error) {
+func (m baseMock) UpdateSecurityDisposition(string, client.SecurityDispositionUpdateRequest) (*client.SecurityDisposition, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) RevokeSecurityDisposition(string, client.SecurityDispositionRevokeRequest) (*client.SecurityDispositionMutation, error) {
+func (m baseMock) RevokeSecurityDisposition(string, client.SecurityDispositionRevokeRequest) (*client.SecurityDisposition, error) {
 	return nil, errors.New("not implemented")
 }
 

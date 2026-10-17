@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Changed
+
+- **`ankra security dispositions update -o json|yaml` and `revoke -o
+  json|yaml` print the bare policy.** The output is the policy object itself
+  (`id`, `disposition`, `status`, `selector`, ...), not the
+  `{policy, preview}` envelope `record` prints. A script that read
+  `.policy.<field>` from update or revoke output reads `.<field>` instead; it
+  was getting empty values before, because the platform never sent that
+  envelope for these two.
+
 ### Fixed
 
 - **`ankra application pipeline validate` takes `--no-local-graph`.** It
@@ -10,6 +20,11 @@
   was registered only on `pipeline validate`, so the application variant
   always read the graph. `--no-local-graph` now shows those stages as decided
   at run time on both commands, and both register their flags from one place.
+
+- **`ankra security dispositions update` and `revoke` print the policy they
+  changed.** Both printed an empty summary because they expected the
+  policy-and-preview shape `record` returns, while an edit or revoke returns
+  the policy alone. They now show the stored policy.
 
 ## v0.40.0 — 2026-10-17
 
