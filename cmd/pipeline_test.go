@@ -75,6 +75,7 @@ type pipelineLaneMock struct {
 
 	rerunRunID      string
 	rerunFailedOnly bool
+	rerunFullRun    bool
 	rerunResult     *client.CreatePipelineRunResult
 	rerunError      error
 
@@ -214,10 +215,11 @@ func (mock *pipelineLaneMock) GetPipelineRun(ctx context.Context, selector clien
 	return mock.getResult, nil
 }
 
-func (mock *pipelineLaneMock) RerunPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, failedOnly bool) (*client.CreatePipelineRunResult, error) {
+func (mock *pipelineLaneMock) RerunPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, failedOnly bool, fullRun bool) (*client.CreatePipelineRunResult, error) {
 	mock.lastSelector = selector
 	mock.rerunRunID = runID
 	mock.rerunFailedOnly = failedOnly
+	mock.rerunFullRun = fullRun
 	if mock.rerunError != nil {
 		return nil, mock.rerunError
 	}
@@ -889,6 +891,54 @@ func TestPipelineRerunPassesFailedOnly(t *testing.T) {
 	}
 	if mockClient.rerunRunID != "run-1" {
 		t.Errorf("rerun run id = %q", mockClient.rerunRunID)
+	}
+}
+
+func TestPipelineRunAndRerunPassFull(t *testing.T) {
+	mockClient := &pipelineLaneMock{
+		createResult: &client.CreatePipelineRunResult{PipelineRunID: "run-1", RunNumber: 7},
+		rerunResult:  &client.CreatePipelineRunResult{PipelineRunID: "run-2", RunNumber: 8},
+	}
+	if _, executeError := runPipelineCommand(t, mockClient, "run", "--application", testApplicationID,
+		"--sha", strings.Repeat("c", 40), "--full"); executeError != nil {
+		t.Fatalf("run error = %v", executeError)
+	}
+	if !mockClient.createRequest.FullRun {
+		t.Error("--full was not passed through on a dispatch")
+	}
+	if _, executeError := runPipelineCommand(t, mockClient, "rerun", "run-1", "--application", testApplicationID,
+		"--full"); executeError != nil {
+		t.Fatalf("rerun error = %v", executeError)
+	}
+	if !mockClient.rerunFullRun || mockClient.rerunFailedOnly {
+		t.Errorf("rerun full = %v failed-only = %v, want only --full", mockClient.rerunFullRun, mockClient.rerunFailedOnly)
+	}
+}
+
+func TestPipelineRunDetailSaysWhyItRanInFull(t *testing.T) {
+	var output strings.Builder
+	printPipelineRunDetail(&output, client.PipelineRunDetail{PipelineRun: client.PipelineRun{
+		ID: "run-1", RunNumber: 3, Status: "running", Trigger: "pull_request", TriggerRef: "refs/heads/main",
+		FullRunSource:  "label",
+		FullRunMessage: "Path filters were set aside: the pull request carries the ankra:full-run label.",
+	}}, client.PipelineSelector{ApplicationID: testApplicationID})
+	if !strings.Contains(output.String(),
+		"  Full run:  Path filters were set aside: the pull request carries the ankra:full-run label.\n") {
+		t.Fatalf("detail = %q", output.String())
+	}
+	output.Reset()
+	printPipelineRunDetail(&output, client.PipelineRunDetail{PipelineRun: client.PipelineRun{
+		ID: "run-2", RunNumber: 4, Status: "running", Trigger: "push", TriggerRef: "refs/heads/main",
+	}}, client.PipelineSelector{ApplicationID: testApplicationID})
+	if strings.Contains(output.String(), "Full run") {
+		t.Fatalf("a run that applied its filters must not claim a full run: %q", output.String())
+	}
+}
+
+func TestPipelineErrorClassLineExplainsASkipMarker(t *testing.T) {
+	if line := pipelineErrorClassLine("skip_marker"); line !=
+		"skip_marker (skipped by a skip marker such as [skip ci] in the pushed commit's message)" {
+		t.Fatalf("line = %q", line)
 	}
 }
 

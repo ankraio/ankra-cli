@@ -3290,7 +3290,7 @@ func (m baseMock) GetPipelineTimeSavedSummary(ctx context.Context, selector clie
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) RerunPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, failedOnly bool) (*client.CreatePipelineRunResult, error) {
+func (m baseMock) RerunPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, failedOnly bool, fullRun bool) (*client.CreatePipelineRunResult, error) {
 	return nil, errors.New("not implemented")
 }
 
