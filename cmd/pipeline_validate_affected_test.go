@@ -117,6 +117,54 @@ func TestPipelineValidateLeavesTheGraphToTheRunWhenAsked(t *testing.T) {
 	}
 }
 
+// `application pipeline validate` shares the runner, so it reads the graph
+// locally too, and --no-local-graph leaves it to the run there as well. The
+// flag was registered only on `pipeline validate`; on the application variant
+// GetBool's error read as false and the graph always ran (ankra-efrnzf.34).
+func TestApplicationPipelineValidateHonoursNoLocalGraph(t *testing.T) {
+	affectedCheckout(t)
+	fixture := writePipelineFixture(t)
+
+	localClient := &pipelineLaneMock{validateResult: affectedValidation()}
+	output, executeError := runApplicationCommand(t, localClient, "pipeline", "validate", testApplicationID, fixture,
+		"--changed-file", "web/ui/index.ts")
+	if executeError != nil {
+		t.Fatalf("validate error = %v\n%s", executeError, output)
+	}
+	if !strings.Contains(output, "test-web (test-web, run) [graph: affected]") {
+		t.Fatalf("the application variant did not read the graph locally:\n%s", output)
+	}
+
+	optOutClient := &pipelineLaneMock{validateResult: affectedValidation()}
+	output, executeError = runApplicationCommand(t, optOutClient, "pipeline", "validate", testApplicationID, fixture,
+		"--changed-file", "web/ui/index.ts", "--no-local-graph")
+	if executeError != nil {
+		t.Fatalf("validate --no-local-graph error = %v\n%s", executeError, output)
+	}
+	if !strings.Contains(output, "[graph: decided by the run's checkout]") ||
+		!strings.Contains(output, "graph: decided at run time") {
+		t.Fatalf("the graph must be shown as decided at run time:\n%s", output)
+	}
+	if optOutClient.validateResult.Events[0].LocalAffected != nil {
+		t.Fatalf("--no-local-graph analysed anyway: %v", optOutClient.validateResult.Events[0].LocalAffected)
+	}
+}
+
+// Both validate commands register the same flags, so neither can drift into
+// reading an unregistered one as its zero value.
+func TestPipelineValidateCommandsRegisterTheSameFlags(t *testing.T) {
+	pipelineCommand := newPipelineValidateCommand()
+	applicationCommand := newApplicationPipelineValidateCommand()
+	for _, name := range []string{"spec-file", "ref", "changed-file", "no-local-graph", "output"} {
+		if pipelineCommand.Flags().Lookup(name) == nil {
+			t.Errorf("pipeline validate does not register --%s", name)
+		}
+		if applicationCommand.Flags().Lookup(name) == nil {
+			t.Errorf("application pipeline validate does not register --%s", name)
+		}
+	}
+}
+
 // A platform whose program differs from this CLI's copy still gets the local
 // answer, with a note that the copy may be out of date.
 func TestPipelineValidateNotesAProgramThatDiffersFromThePlatforms(t *testing.T) {
