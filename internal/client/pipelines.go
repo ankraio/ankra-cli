@@ -618,6 +618,20 @@ type PipelineValidation struct {
 	Severity   string              `json:"severity"`
 	Violations []string            `json:"violations"`
 	Events     []PipelineEventPlan `json:"events"`
+	// PathSets is every named path set the definition declares (path_sets:),
+	// expanded. Omitted when the definition declares none, or when the
+	// platform is older than the field.
+	PathSets []PipelinePathSet `json:"path_sets,omitempty"`
+}
+
+// PipelinePathSet is one named path set in a dry run: its patterns with every
+// set it includes expanded, the sets it includes directly, and each list that
+// references it ("on.push.paths", `stage "test" paths`, `path set "backend"`).
+type PipelinePathSet struct {
+	Name     string   `json:"name"`
+	Patterns []string `json:"patterns"`
+	Includes []string `json:"includes"`
+	UsedBy   []string `json:"used_by"`
 }
 
 // PipelineSchedule is the wire shape of a `pipeline_schedules` row.
