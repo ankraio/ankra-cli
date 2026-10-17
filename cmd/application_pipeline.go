@@ -308,13 +308,7 @@ func newApplicationPipelineValidateCommand() *cobra.Command {
 				filePath, strings.TrimSpace(gitReference), changedFiles)
 		},
 	}
-	validateCommand.Flags().String("spec-file", "",
-		"Validate this definition file, the same as passing it as the argument")
-	validateCommand.Flags().String("ref", "",
-		"Read the definition from this git reference in the current checkout (for example origin/my-branch) instead of the working tree")
-	validateCommand.Flags().StringArray("changed-file", nil,
-		"Plan as if this repository-relative path changed (repeatable), so path filters decide instead of passing")
-	registerStructuredOutputFlags(validateCommand)
+	registerPipelineValidateFlags(validateCommand)
 	return validateCommand
 }
 

@@ -83,6 +83,16 @@ The reference is resolved locally, so a branch someone else pushed needs a
 		},
 	}
 	registerPipelineSelectorFlags(validateCommand)
+	registerPipelineValidateFlags(validateCommand)
+	return validateCommand
+}
+
+// registerPipelineValidateFlags registers the flags runPipelineValidate reads,
+// on both `pipeline validate` and `application pipeline validate`. They share
+// one runner, so a flag registered on only one of them reads as its zero value
+// on the other: --no-local-graph was missing from the application variant, and
+// GetBool's error for an unregistered flag made it silently false there.
+func registerPipelineValidateFlags(validateCommand *cobra.Command) {
 	validateCommand.Flags().String("spec-file", "",
 		"Validate this definition file, the same as passing it as the argument")
 	validateCommand.Flags().String("ref", "",
@@ -92,7 +102,6 @@ The reference is resolved locally, so a branch someone else pushed needs a
 	validateCommand.Flags().Bool("no-local-graph", false,
 		"Do not read the dependency graph of the local checkout for affected: stages")
 	registerStructuredOutputFlags(validateCommand)
-	return validateCommand
 }
 
 // pipelineValidateChangedFiles answers the dry-run diff --changed-file names:

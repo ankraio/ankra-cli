@@ -1,5 +1,16 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`ankra application pipeline validate` takes `--no-local-graph`.** It
+  reads the local dependency graph for `affected:` stages the same way
+  `ankra pipeline validate` does, but had no way to turn that off: the flag
+  was registered only on `pipeline validate`, so the application variant
+  always read the graph. `--no-local-graph` now shows those stages as decided
+  at run time on both commands, and both register their flags from one place.
+
 ## v0.40.0 — 2026-10-17
 
 The headline is faster CI you can see and preview: `ankra pipeline get` and
