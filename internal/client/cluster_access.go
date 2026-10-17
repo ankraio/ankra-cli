@@ -217,7 +217,7 @@ func (e *ClusterAccessRoleGrantError) Unwrap() error { return e.response }
 
 // roleGrantRefusalMarker is the part of the platform's 409 sentence
 // (clusteraccess.RoleGrantNotRevocableDetail) that names the cause.
-const roleGrantRefusalMarker = "organisation role"
+const roleGrantRefusalMarker = "comes from the member's organisation role"
 
 // revokeResponseError is accessResponseError for the revoke route. Today a
 // 409 there has one cause, the grant coming from an organisation role, but

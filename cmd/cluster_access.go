@@ -420,7 +420,10 @@ func displayClusterReference() string {
 
 // granteeLabelsForGrants names the service principals among the grantees.
 // The roster is read only when a grantee has no email, which is what a
-// service account looks like on a grant.
+// service account looks like on a grant. One roster serves the whole list
+// because a listing is one cluster's grants, and the platform scopes it to
+// that cluster's organisation, so every row carries the same organisation
+// id. A grantee the roster does not name keeps its id.
 func granteeLabelsForGrants(grants []client.ClusterAccessGrant) map[string]string {
 	organisationID := ""
 	needed := false
