@@ -34,8 +34,10 @@ ankra application registry set <application-id> \
 - `--credential` is what Ankra uses to **read** the registry (verify builds, pull demo images).
   Without it Ankra can describe where images live but reports builds as never published.
 - `--admin-credential` is a credential with **project administrator** rights. Given one, Ankra
-  mints, rotates and revokes a per-application push robot and stores it in the repository's
-  Actions secrets. Ankra never mints a robot for a registry it was not handed admin keys to.
+  mints, rotates and revokes a per-application push robot; Ankra Pipelines hand it to each build
+  as `registry_auth` (a legacy generated workflow reads it from the repository's Actions secrets).
+  It also checks the project exists, creating it (private, or `--project-public`) or refusing the
+  declaration. Ankra never mints a robot for a registry it was not handed admin keys to.
 - `--manage-actions-secrets` (without an admin credential) writes the *declared* credential into
   the repository's Actions secrets instead. Use it when you want to keep control of the robot.
 - `--username-secret` / `--password-secret` name the Actions secrets a legacy generated GitHub
@@ -186,9 +188,9 @@ Fix or accept every high finding deliberately. An accepted finding should be wri
 
 ```bash
 ankra application deploy <app-id> --cluster <staging-cluster-id> --namespace payments
-# verify, then
+# verify, then a person promotes the tag that passed
 ankra application deploy <app-id> --cluster <prod-cluster-id> --namespace payments \
-  --mode high_availability --set replicas=3
+  --set image_tag=sha-<the-tag-that-passed> --mode high_availability --set replicas=3
 ```
 
 The **same image tag** promotes. If the tag differs between staging and production, you did not
@@ -197,12 +199,13 @@ promote — you shipped something that was never tested.
 ### 9. Continuous delivery
 
 ```bash
-ankra application auto-deploy set <app-id> --enabled          # dev / staging
 ankra application auto-deploy get <app-id>
+ankra application auto-deploy set <app-id> --enabled          # application-wide: every environment
 ```
 
-For production, leave auto-deploy off unless the tracked branch is protected and the pipeline
-gates on tests. `ankra-cicd` covers `.ankra/pipeline.yaml` authoring and the GitOps bump for
+Development follows pushes; production does not. Switch production off per environment in the
+portal (**Settings → Push to deploy → What follows pushes**) - `auto-deploy set --enabled=false`
+would stop development following merges too - and promote by tag (`ankra-ship` §7). `ankra-cicd` covers `.ankra/pipeline.yaml` authoring and the GitOps bump for
 stack-managed deployments.
 
 ### 10. The rest of the fleet

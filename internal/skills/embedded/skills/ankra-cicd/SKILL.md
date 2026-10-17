@@ -1,6 +1,6 @@
 ---
 name: ankra-cicd
-description: Put any repository's CI/CD on Ankra Pipelines - a committed `.ankra/pipeline.yaml` that Ankra runs in-cluster on the organisation's CI cluster, for application repositories (`ankra application add` lands on it) AND for bare repositories with no application (platform code, libraries, docs, values repos) via `ankra pipeline repositories connect` - with the authoring primer, the `Ankra pipeline` check run, the human-only authority approval gate, and the GitOps-bump deploy pattern. Use whenever the user wants CI, a pipeline, tests on every PR or push, build-and-push on merge, or asks how to deploy on push; whenever GitHub Actions is failing, out of budget ("an Actions budget is preventing further use"), slow, or should be replaced; for a repository without an application; and whenever an Ankra pipeline produced no run, a run was skipped with a fatal violation, or a build died on a rootlesskit mount error. Never write a `.github/workflows` or `.gitlab-ci.yml` CI file for a repository Ankra can reach - that manual pattern is only for repositories on a provider Ankra cannot connect.
+description: Put any repository's CI/CD on Ankra Pipelines - a committed `.ankra/pipeline.yaml` that Ankra runs on the organisation's CI cluster, for application repositories AND bare repositories with no application via `ankra pipeline repositories connect` - with the authoring primer, the `Ankra pipeline` check run, the human-only authority approval gate, fast CI (affected-only stages, path filters, build once and re-tag with promote_from, the merge train, full runs and [skip ci]) and the GitOps-bump deploy pattern. Use whenever the user wants CI, a pipeline, tests on every PR or push, build-and-push on merge, faster CI, or asks how to deploy on push; whenever GitHub Actions is failing, out of budget, slow, or should be replaced; for a repository without an application; and whenever an Ankra pipeline produced no run, a run was skipped, or a build died on a rootlesskit mount error. Never write a `.github/workflows` or `.gitlab-ci.yml` CI file for a repository Ankra can reach.
 ---
 
 # Ankra CI/CD
@@ -16,11 +16,20 @@ A repository does **not** need an Ankra application to run on Ankra Pipelines. A
 Rust, Go and Next.js tests and no image to deploy is a first-class citizen: connect it, commit the
 file, done. That is the case agents have got wrong most often, so it comes first below.
 
+## Recommended path
+
+Golden path 6, **Fast CI** (the canonical list is in `ankra-platform-principles`). An application
+repository starts at `ankra-ship` (`ankra application ship` / `add` write the pipeline); a bare
+repository connects here (§2). Then make it fast (§7b): `affected:` / path filters so a change runs
+only the stages it touches, build once and re-tag the tested image on merge (`promote_from`), and
+the merge train. Anti-pattern: a `.github/workflows` file for a repository Ankra can reach, or a
+second build of a commit its pull request already built and tested.
+
 ## The decision table — read this before writing any CI file
 
 | Repository | Do | Never |
 |---|---|---|
-| **Application repository** (a service with an image to deploy) | `ankra application add . --name <name> --branch main --wait` — the setup PR carries `.ankra/pipeline.yaml`, and Ankra records it as the definition of record immediately. Confirm with `ankra application get <application-id> -o json` → `pipeline_source: ankra_pipeline`. | Hand-write a workflow; run `ankra application add` and then add a second build |
+| **Application repository** (a service with an image to deploy) | `ankra-ship`: `ankra application ship . --cluster <dev-cluster>` (or `ankra application add . --name <name> --wait` to read the setup PR first) — the setup PR carries `.ankra/pipeline.yaml`, and Ankra records it as the definition of record immediately. Confirm with `ankra application get <application-id> -o json` → `pipeline_source: ankra_pipeline`. | Hand-write a workflow; run `ankra application add` and then add a second build |
 | **Bare repository** — no application, tests only, a library, docs, a values repo, a platform monorepo | §2: `ankra pipeline repositories connect …`, author and commit `.ankra/pipeline.yaml` (§3, §4), a human approves the authority once (§5) | Write `.github/workflows/ci.yml` "because there is no application" |
 | **Existing GitHub Actions / GitLab CI on an application** | `ankra application pipeline convert <application-id>` — converts, records, switches the generated workflow off, opens the PR | Keep both running (two builds per commit) |
 | **Existing GitHub Actions / GitLab CI on a bare repository** | Convert by hand into `.ankra/pipeline.yaml` (§4 maps the concepts), connect, commit; then delete or disable the workflow file in the same PR | Leave the workflow as a "fallback" |
@@ -177,9 +186,9 @@ Facts that decide whether the first run works:
   declare them. Never commit a value.
 - **Schedules** name the stage subset they run (`stages:`), so a nightly runs the expensive suite
   without `if:` on every stage. `when.events` decides what runs on `push` vs `pull_request`. A
-  re-run is planned as the event it repeats, so a re-run of a push publishes again and a re-run
-  of a pull request does not; only a re-run of a tag, manual, API or agent run is planned as
-  `rerun`.
+  re-run is planned as the event it repeats, so a re-run of a push publishes again (its image never
+  becomes the push-to-deploy candidate) and a re-run of a pull request does not; only a re-run of
+  a tag, manual, API or agent run is planned as `rerun`.
 - **Which component a build belongs to** (application-bound repositories). A `kind: build`
   stage belongs to the component its `build.component` names, else the one its `build-<component>`
   name carries, else a single-component application's one component. Declare `build.component`
@@ -251,7 +260,7 @@ that will never post again.
 Ankra's rule is **logic is open, authority is closed.** Anyone may change what a stage *runs* on any
 branch; the *protected sections* — `permissions`, `secrets`, `credentials`, `on.pull_request.fork_policy`,
 the `services` catalog, `defaults.network` above `egress-https`, and per stage: `network: services`,
-`runs_on`, `resources`, `timeout`, `cache`, `with`, gate/approval roles, `kind: external`, agent
+`runs_on`, `resources`, `timeout`, `cache`, `with`, gate/approval roles, `publish.promote_from`, `kind: external`, agent
 mode — come only from the **default-branch definition an administrator approved**. This is what stops
 a pull request from granting itself a credential or moving its own pod onto a privileged node pool.
 
@@ -340,10 +349,81 @@ deployment — CI commits the new tag into the GitOps repository and the Ankra e
 [reference.md](reference.md) §C; a `deploy` stage does *not* do it, because it releases only to
 host targets outside Kubernetes.
 
-Rules that hold for every application: **immutable tags only** (`sha-<7>`, never `latest`); **CI
+Rules that hold for every application: **immutable tags only** (deploy and promote by `sha-<7>`;
+an extra `publish.tags` entry such as `latest` is for outside consumers, never a deploy); **CI
 updates Git, Ankra deploys** — no `kubectl apply`/`helm upgrade` from CI; **one image, many
-environments** — promote the tag, never rebuild; **encrypt any secret that lands in a repository**
-with SOPS (`ankra-sops-secrets`).
+environments** — development follows merges and a person promotes the same tag to production
+(`ankra-ship` §7), never a rebuild; **encrypt any secret that lands in a repository** with SOPS
+(`ankra-sops-secrets`).
+
+## 7b. Fast CI: run only what a change needs, build once
+
+Skipping is opt-in, and Ankra never skips what it cannot prove the change left alone: a change list
+it could not read in full (over 300 files, a branch-creating or force push, a provider error) or an
+edit to `.ankra/pipeline.yaml` sets every filter aside, and the run's `paths_unverified` says why.
+Pick the filter by what stands behind the stage:
+
+| You want | Use |
+|---|---|
+| Docs-only changes run nothing | trigger `on.push.paths` / `on.pull_request.paths` with `!` exclusions (`["!docs/**", "!*.md"]`) - the run is recorded as skipped |
+| Tests of Go or pnpm workspace packages run only when something they import changed | `affected: { go: ["./..."] }` / `affected: { pnpm: ["@acme/web"] }`, plus `paths:` for files read at run time (migrations, fixtures) - an OR. The checkout reads the commit's import graph (cross-module `replace`, `workspace:` deps); no answer runs the stage |
+| A component's tests skip on every event when its files did not change | stage `paths:` (affected-only: a skipped stage counts as satisfied, so build, gate and publish still run). Refused where a skip is unsafe: a stage whose outputs another reads, a `build` another needs, `checkout`, `gate`, a scan a gate judges |
+| Pull requests check what they touch, pushes check everything | `when: { pull_request: { paths: [...] }, push: {} }`, plus `skippable_needs` on the stages behind it |
+| A component's whole build/scan/publish chain skips | `when.paths` (skips what needs it unless `skippable_needs`) |
+| The same list on many stages | top-level `path_sets:` and `{set: <name>}` in any path filter |
+| A merge publishes the image its pull request already tested | `publish: { promote_from: pull_request }` |
+| Each pull request tested on top of the latest main | the merge train |
+| A slow suite nightly | `on.schedule` with `stages:`, and `when.events: [schedule]` on the suite |
+
+**Build once and re-tag.** With `promote_from: pull_request` on `publish`, a push whose commit has
+the **same git tree** as a pull request run that passed every stage `publish` needs - same approved
+authority, within 72 hours, not from a fork - runs `publish` alone: it re-tags that run's
+gate-approved digest as the push's own `sha-<7>`, and the other stages show skipped as `promoted`.
+Anything else builds in full and says why. `promote_from` is a protected section (approved with the
+default-branch definition); generated application pipelines declare it when their shape allows. A
+stage a pull-request-only filter skipped did not pass, so that merge builds in full: in a
+repository that relies on promotion, prefer `affected:` / `paths:` (they skip on the push too). A
+stage the pull request run skipped as `not_affected` counts when the push changes no file that
+run's graph was not asked about (same tree, same answer; a train merge qualifies); otherwise the
+push builds in full and its checkout reads the graph. A `not_affected` skip never waits for a CI
+slot, and its time is recorded as saved (`not_affected`).
+
+**The merge train** (GitHub only, CLI v0.30.0+) tests each queued pull request squashed onto the
+base branch and the cars ahead of it, then merges it through GitHub; every merge is a tree a run
+already passed, so `promote_from` makes merge-to-published a re-tag.
+
+```bash
+ankra pipeline train enable --application <application> --max-cars 3     # pipelines.manage; or --repository <id>
+ankra pipeline train add <pr-number> --application <application>         # --head-sha pins the reviewed commit
+ankra pipeline train list --application <application>
+ankra pipeline train remove <entry-id> --application <application>
+```
+
+Make the **Ankra merge train** check required on the base branch; on a repository with the train
+on, merge with `train add`, never around it. A failing car leaves the train and the cars behind it
+are retested without it.
+
+**Setting the filters aside** (shipped 2026-10-17):
+
+- `ankra pipeline run --full` / `ankra pipeline rerun <run> --full` runs every stage once.
+- The `ankra:full-run` label on a GitHub pull request runs it, its later pushes and its train car
+  in full while the label stays.
+- A top-level `full_run: { events: [push], branches: [main] }` block runs every push to main in
+  full; the organisation setting `ci_full_run_on_default_branch` does the same for every repository.
+- `ci_always_run_stages` (organisation setting) names stages no path filter - and no pull request -
+  can skip. A stage that must always run belongs there, not in a repository `if:`.
+- `[skip ci]` (also `[ci skip]`, `[no ci]`, `[skip ankra]`, `[ankra skip]`, or a `skip-checks:
+  true` trailer) in a pushed head commit records a skipped run - on every branch but the default
+  branch by default (`ci_skip_markers`). Tag pushes, pull request runs and train cars never honour it.
+
+The three organisation settings are portal and API (`PUT /api/v1/org/ci-settings`) only; `ankra org
+ci-settings set` has no flag for them yet. Each full run records why (`full_run_source`).
+
+Check the plan before committing: `ankra pipeline validate --application <application>
+--spec-file .ankra/pipeline.yaml --changed-file web/app.ts` prints every stage against each event;
+run it inside the checkout for `affected:` stages. `ankra pipeline get <run-id>` reports **Time
+saved** per skipped or promoted stage. For local test and lint loops, `ankra exec -- <command>` runs
+in a warm Ankra Workspace on the CI pool and `ankra dev install` routes heavy commands there.
 
 ## 8. Troubleshooting
 
@@ -369,6 +449,9 @@ with SOPS (`ankra-sops-secrets`).
 | Build exits ~30 s: `[rootlesskit:child] … failed to share mount point: /: permission denied` | the node runtime (containerd AppArmor, kubelet `seccompDefault`) confines the rootless builder | **do not widen the node**; `ankra org ci-settings set --build-fallback platform_builders` (needs `Platform builds enabled: yes` on `ci-settings get`, Ankra's grant) or build on a cluster that does not confine |
 | Step log: `UNAUTHORIZED: project <name> not found`, or a 401 on a manifest lookup, from a Harbor registry whose credential is known good | **the project does not exist.** Harbor answers a missing project as unauthorized to a robot that cannot see it; this is not a credential or scope fault, so rotating the robot changes nothing | a hand-written copy or push stage is aiming at a project nobody created: delete the stage and deploy the `image_ref` that `publish` wrote (§3), or declare the registry with `ankra application registry set … --admin-credential …`, which creates the project or refuses |
 | Run and the `Ankra pipeline` check are **green**, but an image, release or bump never arrived | a stage failed under `allow_failure` (or `continue_on_error`): the run's outcome hides it by design | read the steps, not the run: `ankra pipeline get <run-id> --repository <repository-id>` lists each step's own outcome, `ankra pipeline logs <run-id> --repository <repository-id> --step <stage>` shows why; then remove the flag from every stage whose failure means "not shipped" |
+| A stage skipped as `path_filter` / `not_affected` that should have run | filters too narrow, or the stage must never skip | `ankra pipeline rerun <run-id> --full`; widen `paths:`; or list it in `ci_always_run_stages` |
+| A push recorded as skipped, error class `skip_marker` | `[skip ci]` (or a variant) in the head commit | push without it, or `ankra pipeline run --ref <branch>` |
+| A merge rebuilt in full although its PR passed | tree differs, a stage a PR-only filter skipped, over 72 h, a fork, or authority changed - the run says which | expected; prefer `affected:`/`paths:` and the merge train |
 | `artifact_store_unavailable` | no ready backup vault | `ankra-backups` |
 | `image_gate_blocked` / `no_scan_results` | a finding at or above the gate / scan report never uploaded | fix or disposition in `ankra-security`; never treat `no_scan_results` as clean |
 | Exit 79, "no QEMU emulation registered" | pinned `build.platforms` on an arm64 cluster | drop `build.platforms` |
@@ -399,6 +482,8 @@ get a fix PR (`ankra-ai-gateway`). `ankra application build start <application-i
 - **Immutable tags, CI updates Git, Ankra deploys.** No cluster credentials in CI, ever.
 - **One registry per image, and it is the one `publish` wrote.** Deploy `publish`'s `image_ref`; a
   different registry is declared on the application, never reached by a copy script in a `run` stage.
+- **Fast by skipping only what is proven untouched, and building once.** `affected:`/`paths:`,
+  `promote_from: pull_request` and the merge train - never a second build to publish or promote.
 - **A stage that ships something never carries `allow_failure`.** That flag is for advisory work (a
   flaky lint, an optional report). On a publish, release or bump stage it turns "not shipped" into a
   green check that nobody reads.

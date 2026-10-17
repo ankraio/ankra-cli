@@ -4,6 +4,32 @@
 
 ### Added
 
+- **The agent skills steer assistants onto Ankra's recommended paths.**
+  `ankra skills install` ships all 25 skills reviewed against the current
+  CLI and documentation. `ankra-platform-principles` names seven golden paths
+  (ship code, GitOps as the source of truth, the estate, day 2, agent-driven
+  work, fast CI, infrastructure as code) and routes every request to the skill
+  that owns it. Every other skill opens with a short recommended path saying
+  what to do first, which skill takes over next and what to avoid. Commands,
+  flags and fields that had drifted are corrected: for example
+  `registry_url` instead of the legacy `repository_url`, the teardown and
+  preflight rules per provider, and backups being available to every
+  organisation. Capabilities the skills did not cover are added: fast CI with
+  `promote_from` and the merge train, hub-and-spoke observability, GitOps
+  conflicts and repointing, Ankra Cloud Kubernetes, AI review repositories,
+  service tokens and GitHub OIDC trust.
+
+- **The `ankra-terraform` skill covers Terraform provider 0.3.0.** The
+  provider now manages what the CLI can create, change or delete (97
+  resources and 42 data sources: every cluster lane, managed Kubernetes,
+  node groups, credentials, Helm registries, variables, cluster settings,
+  alerts and DNS, applications and pipelines, stack profiles, backups, the
+  image registry, members, tokens, and AI, cost and security settings), and
+  `ankra skills install` now teaches assistants those resources, the
+  `project_id` the provider needs in organisations with projects, and which
+  changes replace, re-mint or refuse. On provider 0.2.x only the cluster
+  resources exist, and the skill says so.
+
 - **`ankra pipeline validate --changed-file` reads the dependency graph for
   `affected:` stages.** A stage that declares `affected:` (Go packages or pnpm
   workspace packages) is decided at run time by the run's checkout, from the

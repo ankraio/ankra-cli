@@ -5,8 +5,17 @@ description: Drive the Ankra CLI end to end - log in, switch organisation and cl
 
 # Ankra CLI
 
-`ankra` is the terminal client for the Ankra Platform. Everything the portal does, it does — and
+`ankra` is the terminal client for the Ankra Platform. Everything the portal does, it does - and
 unlike the portal it is scriptable, which is why agent work should go through it.
+
+## Recommended path
+
+The CLI is the instrument of every golden path in `ankra-platform-principles`: it is how an
+assistant touches a cluster, reads included, instead of `kubectl` or `helm`. Orient first
+(`ankra org current`, `ankra cluster info`), then hand off to the skill that owns the job via the
+command map below - `ankra-ship` for code, `ankra-cicd` for CI, `ankra-gitops` for cluster state.
+Declarative change goes through Git and `ankra cluster apply`; the imperative commands here are for
+reads and operational fixes. If the CLI has no command for something, report the gap and stop.
 
 ## Install and verify
 
@@ -34,30 +43,40 @@ ankra cluster info                  # confirm what you are about to change
 
 Most `ankra cluster ...` subcommands act on the **selected** cluster. Override per command with
 `--cluster <name|id>`, and the organisation with the global `--org <name|id>`. In a shared script,
-never rely on the selection — pass both explicitly.
+never rely on the selection - pass both explicitly.
 
 ## The command map
 
 | Area | Entry point | Skill |
 |------|-------------|-------|
-| Clusters, stacks, addons, manifests | `ankra cluster ...` | `ankra-import-cluster`, `ankra-stacks-addons` |
-| Your own code, deployed | `ankra application ...` | `ankra-applications` |
-| Shipping code end to end, in-cluster CI | `ankra application ship`, `ankra pipeline ...`, `ankra org ci-settings`, `ankra cluster agent ci` | `ankra-ship` |
+| Clusters, stacks, addons, manifests, variables | `ankra cluster apply\|draft\|stacks\|addons\|manifests\|variables ...` | `ankra-import-cluster`, `ankra-stacks-addons` |
+| GitOps sync state and merge conflicts | `ankra cluster gitops status\|conflicts list\|resolve` | `ankra-gitops` |
+| Shipping code end to end | `ankra application ship\|add\|deploy\|deployments\|auto-deploy\|env-secrets\|demo ...` | `ankra-ship`, `ankra-applications` |
+| Ankra Pipelines (CI for any repository) | `ankra pipeline list\|get\|logs\|run\|rerun\|cancel\|validate\|tests\|findings\|artifacts\|time-saved`, `ankra pipeline repositories\|definitions\|schedules\|train ...`, `ankra org ci-settings`, `ankra cluster agent ci` | `ankra-cicd` |
+| AI review of pull requests | `ankra org ai-review repos\|related-repos ...` | `ankra-ai-gateway` |
+| Managed services, image registry | `ankra services ...`, `ankra registry projects\|robots\|storage ...` | `ankra-app-integrations`, `ankra-applications` |
 | Reusable parameterised stacks | `ankra stack-profiles ...` | `ankra-stack-profiles` |
-| Cloud clusters Ankra provisions | `ankra cluster hetzner\|ovh\|upcloud\|digitalocean\|scaleway\|ankracloud\|aws\|proxmox\|morpheus ...` | `ankra-cloud-clusters` |
+| Cloud clusters Ankra provisions | `ankra cluster hetzner\|ovh\|upcloud\|digitalocean\|scaleway\|ankracloud\|aws\|proxmox\|morpheus ...`, `ankra cluster scale\|upgrade\|node-group\|power-schedules\|mesh ...` | `ankra-cloud-clusters` |
 | Provider-managed Kubernetes | `ankra cluster managed ...` | `ankra-managed-kubernetes` |
+| A playground cluster to try things | `ankra cluster playground create\|status\|destroy` | `ankra-getting-started` |
+| Domains and DNS | `ankra cluster domain`, `ankra org domain\|dns\|custom-dns-zones\|cloudflare ...`, `ankra cluster custom-dns-zones` | `ankra-domains-dns` |
 | Helm chart sources | `ankra helm registries\|credentials ...`, `ankra charts` | `ankra-helm-registries` |
 | Secrets in Git | `ankra cluster encrypt\|decrypt\|sops-config` | `ankra-sops-secrets` |
-| Alerts and routing | `ankra alerts destinations\|routes ...` | `ankra-alerts-webhooks` |
-| Metrics and logs | `ankra cluster metrics\|top\|logs\|events` | `ankra-observability`, `ankra-troubleshooting` |
-| AI provider, tools, runs, board | `ankra ai ...`, `ankra org mcp-servers ...`, `ankra agents ...`, `ankra tickets ...` | `ankra-ai-agents` |
-| Tokens, roles, cluster access | `ankra tokens`, `ankra org members\|roles`, `ankra cluster access grant\|list\|revoke\|elevate`, `ankra org access-policy get` | `ankra-security` |
+| Alerts and routing | `ankra alerts destinations\|routes\|ingest-credentials ...` | `ankra-alerts-webhooks` |
+| Metrics and logs | `ankra cluster metrics\|top\|logs\|events\|logs-ship` | `ankra-observability`, `ankra-troubleshooting` |
+| Debugging inside a cluster | `ankra cluster exec\|terminal\|debug ...` | `ankra-troubleshooting` |
+| AI provider, tools, runs, board, memories | `ankra ai ...`, `ankra org mcp-servers ...`, `ankra agents ...`, `ankra tickets ...`, `ankra chat` | `ankra-ai-agents` |
+| Tokens, roles, cluster access | `ankra tokens create\|list\|rotate\|revoke\|delete` (`--service` for service accounts), `ankra org members\|roles\|invite`, `ankra cluster access grant\|list\|revoke\|elevate`, `ankra org access-policy get`, `ankra org oidc-trust` | `ankra-security` |
 | Credentials | `ankra credentials ...` | `ankra-security` |
-| Vulnerabilities and CVEs | `ankra security ...` | `ankra-security` |
-| Backup vaults | `ankra backup vaults ...` | `ankra-backups` |
+| Vulnerabilities, CVEs, compliance | `ankra security overview\|findings\|clusters\|compliance\|dispositions ...` | `ankra-security` |
+| Backup vaults, object storage | `ankra backup vaults ...`, `ankra bucket ...` | `ankra-backups` |
 | Protecting and restoring a stack's data | `ankra cluster stacks protect\|unprotect\|restore-points\|data ...`, `ankra backup restore-points ...`, `ankra runs ...` | `ankra-backups` |
 | Migrating existing deployments | `ankra migrate ...` | `ankra-migrate` |
-| Cloud cost | `ankra cost summary\|savings\|cluster\|settings` | below |
+| Host deploy targets (machines, not clusters) | `ankra targets ...`, `ankra deployments ...` | `ankra-applications` |
+| Cloud cost and Ankra usage | `ankra cost ...`, `ankra org usage\|limits` | below |
+| Heavy local commands in a workspace pod | `ankra exec`, `ankra workspace up\|status\|down`, `ankra dev install\|mode\|status` | below |
+| Sharing a page at a public URL | `ankra canvas publish\|list\|unpublish` | below |
+| Agent skills for assistants | `ankra skills install\|list\|clients\|uninstall` | below |
 | Support requests | `ankra support create\|list\|get\|comment\|attach\|close` | below |
 
 ## Applying configuration
@@ -73,7 +92,7 @@ ankra cluster clone existing.yaml new.yaml --stack monitoring
 
 `ankra cluster draft` is the safe default on an environment you are not ready to change: the local
 checks run first, then each stack is saved as a resource draft to review, edit and deploy from the
-stack builder. **`apply` replaces a stack's contents declaratively** — what is not in the file is
+stack builder. **`apply` replaces a stack's contents declaratively** - what is not in the file is
 removed from that stack.
 
 ## Reading a cluster
@@ -143,7 +162,7 @@ ankra cluster stacks history <stack>
 ankra cluster agent status
 ```
 
-A failed platform execution explains more deploy failures than pod logs do — start there. See
+A failed platform execution explains more deploy failures than pod logs do - start there. See
 `ankra-troubleshooting`.
 
 ## Agent upgrades
@@ -224,7 +243,7 @@ for the database pods, then dumps and restores. It is safe to re-run. `export` d
 MySQL/MariaDB through the docker CLI with the credentials the container actually runs with
 (`--option docker-host=ssh://root@host` for a remote daemon, `--option project=<name>` when the compose
 project runs under another name); `restore` uploads the dumps to the organisation's backup vault with
-presigned URLs and the cluster's agent restores them inside the cluster — no kubectl, no database
+presigned URLs and the cluster's agent restores them inside the cluster - no kubectl, no database
 client, Ankra never holds the data. Needs a ready backup vault (`ankra backup vaults provision`; picked
 automatically when there is one) and an agent that supports data restores. Not carried, and named in
 the plan: files in the volumes of non-database workloads, Redis/MongoDB/search data.
@@ -240,10 +259,10 @@ ankra tickets list --needs-human
 ankra agents runs --status running
 ```
 
-- `--mode ask` — read-only, plus curated safe creations (a workspace pod to search an
+- `--mode ask` - read-only, plus curated safe creations (a workspace pod to search an
   application's repositories, a throwaway PR demo, a brand-new stack). It never changes existing
   infrastructure and never opens a pull request.
-- `--mode agent` — can act. Opening a pull request is automatic (the PR is the review gate); other
+- `--mode agent` - can act. Opening a pull request is automatic (the PR is the review gate); other
   destructive changes stay confirmation-gated via `ankra chat actions`.
 
 Omit `--mode` to use the server default. MCP token scopes mirror the modes:
@@ -272,6 +291,12 @@ ankra cost savings                       # savings levers per cluster (right-siz
 ankra cost cluster prod-eu               # one cluster: breakdown by component, namespace allocation, daily trend
 ankra cost settings get                  # display currency, effective discount, network egress estimate
 ankra cost settings set --currency eur --discount 12.5   # admins only; only the flags you pass change
+ankra cost namespaces prod-eu            # cost per namespace; `cost object` for one stack, application or credential
+ankra cost trend                         # how the run rate moved, with `cost events` for why
+ankra cost budgets list                  # monthly budgets (set, delete)
+ankra cost decisions list                # proposals and their ledger (`cost ledger`: what decisions actually saved)
+ankra cost autopilot get                 # how much Ankra may do about cost on its own
+ankra org usage                          # what the organisation used of Ankra itself, per meter
 ```
 
 Figures are list-price estimates in the organisation's display currency, priced hourly from each
@@ -279,18 +304,32 @@ cluster's node inventory and allocated to namespaces by CPU and memory share. A 
 estimate prints its readiness reason (no cloud credential, unsupported provider, nodes still
 syncing) - never zeros. Add `-o json` to script against the same document the portal reads.
 
+## Workspaces, pages and skills
+
+```bash
+ankra exec -- go test ./...              # a heavy command for this checkout, run in its Ankra Workspace pod
+ankra workspace up --wait                # bring the workspace up ahead of time (status, down)
+ankra dev install                        # shims so plain go test / golangci-lint / pnpm typecheck go to the workspace
+ankra canvas publish report.html         # an HTML, SVG or Markdown page at a public, unguessable URL (list, unpublish)
+ankra skills install                     # these skills plus the /ankra-* workflow commands, into every assistant found
+ankra skills install --with-hooks        # also ask before an assistant runs a cluster-mutating kubectl or helm
+ankra skills list
+```
+
 ## Scripting
 
 ```bash
 export ANKRA_API_TOKEN=<token>              # never hardcode in a repository
 ankra cluster info --cluster prod -o json
 ankra cluster logs -l app=web -n prod --follow=false -o json | jq '.[].message'
+ankra login --github-oidc                   # a GitHub Actions job that must call Ankra, with no stored token (needs an `ankra org oidc-trust` policy); CI itself belongs on Ankra Pipelines
+ankra tokens rotate <token-id>              # renew before expiry; the old value keeps working for --overlap-hours
 ```
 
 - **Structured output**: most read commands take `-o json|yaml`. stdout stays parseable; hints and
   errors go to stderr.
 - **Token resolution order**: explicit `--token`, then the saved login from `ankra login`, then
-  `ANKRA_API_TOKEN`. A saved login **beats** the environment variable — run `ankra logout` first if
+  `ANKRA_API_TOKEN`. A saved login **beats** the environment variable - run `ankra logout` first if
   you want the variable to win.
 - **Exit codes are a contract**: `0` success, `1` API/runtime, `2` usage, `3` not found,
   `4` confirmation declined, `5` `--wait`/`--timeout` expiry, `6` auth, `7` RBAC permission denied
@@ -309,12 +348,12 @@ ankra cluster logs -l app=web -n prod --follow=false -o json | jq '.[].message'
   `ankra cluster exec <pod> -n <namespace> -- <command>` to run one command in a container.
   Changes belong in the GitOps repo or `ankra cluster apply`. If the CLI has no command for
   something, report that gap and stop; do not suggest `kubectl` in its place.
-- **Never paste secrets** into a command line — use stdin, a prompt, `--set-file` or `--set-env`.
+- **Never paste secrets** into a command line - use stdin, a prompt, `--set-file` or `--set-env`.
 
 ## Related skills
 
 - Authoring the YAML you apply: `ankra-import-cluster`, `ankra-stacks-addons`.
-- Deploying your own code: `ankra-applications`, `ankra-cicd`.
+- Deploying your own code: `ankra-ship` first, then `ankra-applications` and `ankra-cicd`.
 - Reusing a stack across clusters: `ankra-stack-profiles`.
 - When it breaks: `ankra-troubleshooting`.
 - Everything above, safely: `ankra-security`, `ankra-sops-secrets`, `ankra-platform-principles`.
