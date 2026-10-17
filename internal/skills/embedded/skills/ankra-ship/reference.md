@@ -93,7 +93,8 @@ Path filters, three shapes:
   and writes `ankra.affected.<stage>`; the dispatcher skips the step as `not_affected` (satisfied)
   only on `false`. No answer runs it. `paths:` beside it is an OR (runtime-read files). An
   incomplete change list, a `.ankra/pipeline.yaml` change or a matching `paths:` runs it without the
-  graph. Same refusals as `paths:`; no `${{ }}` in patterns; no checkout stage is a warning.
+  graph. Same refusals as `paths:`, beside a `when` path filter included; no `${{ }}` in
+  patterns; no checkout stage is a warning.
 - `when.paths` (or the event block's `paths`) leaves the stage out and **skips what needs it**
   (`dependency_skipped`), unless the dependent lists it in `skippable_needs`.
 - A change list the planner could not read in full never leaves a stage out: a Bitbucket Cloud push
