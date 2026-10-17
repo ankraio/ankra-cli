@@ -144,6 +144,8 @@ func pipelineTimeSavedReason(saving client.PipelineTimeSavedEntry) string {
 		return "skipped because a stage it needs was left out by a path filter"
 	case "promoted":
 		return "not run again, the publish was promoted"
+	case "not_affected":
+		return "not affected: no changed file is in its dependency graph"
 	case "run_paths_excluded":
 		return "the trigger's paths matched none of the changed files"
 	default:
@@ -340,6 +342,8 @@ func pipelineTimeSavedReasonLabel(reason string) string {
 		return "stages skipped behind a path filter"
 	case "promoted":
 		return "steps a promoted publish did not run again"
+	case "not_affected":
+		return "steps the dependency graph showed no change reaches"
 	case "run_paths_excluded":
 		return "whole runs skipped by the trigger's paths"
 	default:

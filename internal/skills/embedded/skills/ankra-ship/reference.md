@@ -94,7 +94,10 @@ Path filters, three shapes:
   the run's checkout step, which reads the graph of the exact commit (every `go.mod`, local
   `replace`, `_test.go` imports of the stage's own packages, `package.json` deps incl. `workspace:`)
   and writes `ankra.affected.<stage>`; the dispatcher skips the step as `not_affected` (satisfied)
-  only on `false`. No answer runs it. `paths:` beside it is an OR (runtime-read files). An
+  only on `false`, at once, without waiting for a CI slot, and records the time saved
+  (`not_affected`). No answer runs it. Promotion (`promote_from`) counts a source run's
+  `not_affected` skip when the push plans the stage for the graph too, asks it the same patterns,
+  and changes only files the source's analysis read; anything else builds the push in full. `paths:` beside it is an OR (runtime-read files). An
   incomplete change list, a `.ankra/pipeline.yaml` change or a matching `paths:` runs it without the
   graph. Same refusals as `paths:`, beside a `when` path filter included; no `${{ }}` in
   patterns; no checkout stage is a warning.
