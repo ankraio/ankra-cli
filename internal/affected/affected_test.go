@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -92,5 +93,18 @@ func TestProgramDigestIsAHexSHA256OfTheProgram(t *testing.T) {
 	}
 	if parsed := parseAnswers("ankra.affected.a=true\nankra.affected.b=false\nankra.affected.c=maybe\nsha=x\n"); !reflect.DeepEqual(parsed, map[string]bool{"a": true, "b": false}) {
 		t.Fatalf("parseAnswers = %v", parsed)
+	}
+}
+
+// A stage name or pattern the line-based targets file cannot carry is
+// refused before anything runs, like a changed file.
+func TestAnalyseRefusesATargetTheDataFileCannotCarry(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the analysis needs a POSIX shell")
+	}
+	_, _, analyseError := Analyse(context.Background(), t.TempDir(), []string{"a.go"},
+		[]Target{{Stage: "api\tgo", Go: []string{"dir:api"}}})
+	if analyseError == nil || !strings.Contains(analyseError.Error(), "cannot be handed to the analysis") {
+		t.Fatalf("error = %v, want a refusal naming the target", analyseError)
 	}
 }

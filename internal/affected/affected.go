@@ -89,6 +89,11 @@ func Analyse(ctx context.Context, root string, changedFiles []string, targets []
 	}
 	var targetLines strings.Builder
 	for _, target := range targets {
+		for _, text := range append(append([]string{target.Stage}, target.Go...), target.Pnpm...) {
+			if text == "" || strings.ContainsAny(text, "\n\r\t\x00") {
+				return nil, "", fmt.Errorf("the target %q cannot be handed to the analysis", text)
+			}
+		}
 		for _, pattern := range target.Go {
 			targetLines.WriteString(target.Stage + "\tgo\t" + pattern + "\n")
 		}
@@ -113,6 +118,9 @@ func Analyse(ctx context.Context, root string, changedFiles []string, targets []
 	defer cancel()
 	outputs := filepath.Join(data, "outputs.env")
 	command := exec.CommandContext(analysisContext, "sh", filepath.Join(data, "analyze.sh"), root, data, outputs)
+	// The time limit stops the whole analysis, git and awk included, not
+	// only the shell that started them.
+	killProcessGroupOnCancel(command)
 	var log bytes.Buffer
 	command.Stdout = &log
 	command.Stderr = &log

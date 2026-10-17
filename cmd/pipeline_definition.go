@@ -197,7 +197,16 @@ func runPipelineValidate(
 		return validateError
 	}
 	if skipLocalGraph, _ := command.Flags().GetBool("no-local-graph"); !skipLocalGraph && changedFiles != nil {
-		annotateLocalAffected(command, validation)
+		if gitReference != "" {
+			// The definition was read at a reference, and the graph would be
+			// read from the working tree: two different commits.
+			if hasAffectedAnalysis(validation) {
+				_, _ = fmt.Fprintln(command.ErrOrStderr(),
+					"note: --ref reads the definition at a reference and the local graph is the working tree's, so the affected: stages are shown as decided at run time; check the reference out to read its graph")
+			}
+		} else {
+			annotateLocalAffected(command, validation)
+		}
 	}
 	if format != outputDefault {
 		return encodeStructured(command.OutOrStdout(), format, validation)
@@ -345,6 +354,7 @@ func printPipelineEventTable(out io.Writer, events []client.PipelineEventPlan) {
 func annotateLocalAffected(command *cobra.Command, validation *client.PipelineValidation) {
 	stderr := command.ErrOrStderr()
 	var root string
+	isDigestNoted := false
 	answered := map[string]map[string]bool{}
 	for index := range validation.Events {
 		analysis := validation.Events[index].AffectedAnalysis
@@ -359,10 +369,11 @@ func annotateLocalAffected(command *cobra.Command, validation *client.PipelineVa
 				return
 			}
 			root = strings.TrimSpace(top)
-			if analysis.ProgramDigest != "" && analysis.ProgramDigest != affected.ProgramDigest() {
-				_, _ = fmt.Fprintln(stderr,
-					"note: this CLI's copy of the dependency-graph analysis differs from the platform's; update the CLI if an answer below looks wrong")
-			}
+		}
+		if !isDigestNoted && analysis.ProgramDigest != "" && analysis.ProgramDigest != affected.ProgramDigest() {
+			isDigestNoted = true
+			_, _ = fmt.Fprintln(stderr,
+				"note: this CLI's copy of the dependency-graph analysis differs from the platform's; update the CLI if an answer below looks wrong")
 		}
 		targets := make([]affected.Target, 0, len(analysis.Targets))
 		for _, target := range analysis.Targets {
@@ -385,6 +396,16 @@ func annotateLocalAffected(command *cobra.Command, validation *client.PipelineVa
 		}
 		validation.Events[index].LocalAffected = answers
 	}
+}
+
+// hasAffectedAnalysis reports whether any event left stages to the graph.
+func hasAffectedAnalysis(validation *client.PipelineValidation) bool {
+	for _, event := range validation.Events {
+		if event.AffectedAnalysis != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // graphNote is what a dry-run step line adds for a step the dependency graph
