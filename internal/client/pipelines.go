@@ -183,6 +183,17 @@ type PipelineRun struct {
 	// peak its steps were observed to use. Nil on a server older than the
 	// field and on a run its cluster never estimated.
 	Reservation *PipelineRunReservation `json:"reservation,omitempty"`
+	// FullRunSource says why the run set every path filter aside
+	// (ankra-efrnzf.17): "dispatch" or "rerun" (asked for with --full),
+	// "label" (the pull request carries ankra:full-run),
+	// "organisation_policy" (the organisation runs every push to the default
+	// branch in full) or "pipeline" (the definition's full_run block).
+	// FullRunRequestedBy is who asked and FullRunMessage the platform's
+	// sentence. All three are absent for a run that applied its filters, and
+	// from servers older than the fields.
+	FullRunSource      string `json:"full_run_source,omitempty"`
+	FullRunRequestedBy string `json:"full_run_requested_by,omitempty"`
+	FullRunMessage     string `json:"full_run_message,omitempty"`
 }
 
 // PipelineStep is the wire shape of a `pipeline_run_steps` row.
@@ -366,6 +377,10 @@ type CreatePipelineRunRequest struct {
 	Reason   string            `json:"reason,omitempty"`
 	SpecYAML string            `json:"spec_yaml,omitempty"`
 	Event    string            `json:"event,omitempty"`
+	// FullRun asks for a run of every stage whatever the pipeline's path
+	// filters say (ankra-efrnzf.17). A platform from before the field ignores
+	// it, and the run then reads back without full_run_source.
+	FullRun bool `json:"full_run,omitempty"`
 }
 
 // PipelineDispatchEventPush is the CreatePipelineRunRequest.Event that runs
@@ -646,6 +661,20 @@ type PipelineValidation struct {
 	Severity   string              `json:"severity"`
 	Violations []string            `json:"violations"`
 	Events     []PipelineEventPlan `json:"events"`
+	// PathSets is every named path set the definition declares (path_sets:),
+	// expanded. Omitted when the definition declares none, or when the
+	// platform is older than the field.
+	PathSets []PipelinePathSet `json:"path_sets,omitempty"`
+}
+
+// PipelinePathSet is one named path set in a dry run: its patterns with every
+// set it includes expanded, the sets it includes directly, and each list that
+// references it ("on.push.paths", `stage "test" paths`, `path set "backend"`).
+type PipelinePathSet struct {
+	Name     string   `json:"name"`
+	Patterns []string `json:"patterns"`
+	Includes []string `json:"includes"`
+	UsedBy   []string `json:"used_by"`
 }
 
 // PipelineSchedule is the wire shape of a `pipeline_schedules` row.
@@ -1112,16 +1141,24 @@ func (c *Client) GetPipelineRun(ctx context.Context, selector PipelineSelector,
 // …/pipeline-runs/{run_id}/rerun). failedOnly restricts the new run to the
 // steps that did not succeed, whatever depends on them, and the upstream
 // steps they consume, the checkout included; the platform refuses one that
-// could not run a step that failed.
+// could not run a step that failed. fullRun (?full_run=true) sets every path
+// filter aside for the new run (ankra-efrnzf.17).
 func (c *Client) RerunPipelineRun(ctx context.Context, selector PipelineSelector,
-	runID string, failedOnly bool) (*CreatePipelineRunResult, error) {
+	runID string, failedOnly bool, fullRun bool) (*CreatePipelineRunResult, error) {
 	base, selectorError := selector.basePath()
 	if selectorError != nil {
 		return nil, selectorError
 	}
 	endpoint := fmt.Sprintf("%s%s/pipeline-runs/%s/rerun", c.BaseURL, base, neturl.PathEscape(runID))
+	query := neturl.Values{}
 	if failedOnly {
-		endpoint += "?failed_only=true"
+		query.Set("failed_only", "true")
+	}
+	if fullRun {
+		query.Set("full_run", "true")
+	}
+	if len(query) > 0 {
+		endpoint += "?" + query.Encode()
 	}
 	var result CreatePipelineRunResult
 	if requestError := c.doPipelineRequest(ctx, http.MethodPost, endpoint, nil, &result); requestError != nil {

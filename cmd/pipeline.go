@@ -75,6 +75,7 @@ stored definition directly by its own id and take neither flag - see
 		newPipelineSchedulesCommand(),
 		newPipelineRepositoriesCommand(),
 		newPipelineTrainCommand(),
+		newPipelineTimeSavedCommand(),
 	)
 	return pipelineCommand
 }

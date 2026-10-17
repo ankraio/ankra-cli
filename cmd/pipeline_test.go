@@ -75,6 +75,7 @@ type pipelineLaneMock struct {
 
 	rerunRunID      string
 	rerunFailedOnly bool
+	rerunFullRun    bool
 	rerunResult     *client.CreatePipelineRunResult
 	rerunError      error
 
@@ -214,10 +215,11 @@ func (mock *pipelineLaneMock) GetPipelineRun(ctx context.Context, selector clien
 	return mock.getResult, nil
 }
 
-func (mock *pipelineLaneMock) RerunPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, failedOnly bool) (*client.CreatePipelineRunResult, error) {
+func (mock *pipelineLaneMock) RerunPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, failedOnly bool, fullRun bool) (*client.CreatePipelineRunResult, error) {
 	mock.lastSelector = selector
 	mock.rerunRunID = runID
 	mock.rerunFailedOnly = failedOnly
+	mock.rerunFullRun = fullRun
 	if mock.rerunError != nil {
 		return nil, mock.rerunError
 	}
@@ -889,6 +891,54 @@ func TestPipelineRerunPassesFailedOnly(t *testing.T) {
 	}
 	if mockClient.rerunRunID != "run-1" {
 		t.Errorf("rerun run id = %q", mockClient.rerunRunID)
+	}
+}
+
+func TestPipelineRunAndRerunPassFull(t *testing.T) {
+	mockClient := &pipelineLaneMock{
+		createResult: &client.CreatePipelineRunResult{PipelineRunID: "run-1", RunNumber: 7},
+		rerunResult:  &client.CreatePipelineRunResult{PipelineRunID: "run-2", RunNumber: 8},
+	}
+	if _, executeError := runPipelineCommand(t, mockClient, "run", "--application", testApplicationID,
+		"--sha", strings.Repeat("c", 40), "--full"); executeError != nil {
+		t.Fatalf("run error = %v", executeError)
+	}
+	if !mockClient.createRequest.FullRun {
+		t.Error("--full was not passed through on a dispatch")
+	}
+	if _, executeError := runPipelineCommand(t, mockClient, "rerun", "run-1", "--application", testApplicationID,
+		"--full"); executeError != nil {
+		t.Fatalf("rerun error = %v", executeError)
+	}
+	if !mockClient.rerunFullRun || mockClient.rerunFailedOnly {
+		t.Errorf("rerun full = %v failed-only = %v, want only --full", mockClient.rerunFullRun, mockClient.rerunFailedOnly)
+	}
+}
+
+func TestPipelineRunDetailSaysWhyItRanInFull(t *testing.T) {
+	var output strings.Builder
+	printPipelineRunDetail(&output, client.PipelineRunDetail{PipelineRun: client.PipelineRun{
+		ID: "run-1", RunNumber: 3, Status: "running", Trigger: "pull_request", TriggerRef: "refs/heads/main",
+		FullRunSource:  "label",
+		FullRunMessage: "Path filters were set aside: the pull request carries the ankra:full-run label.",
+	}}, client.PipelineSelector{ApplicationID: testApplicationID})
+	if !strings.Contains(output.String(),
+		"  Full run:  Path filters were set aside: the pull request carries the ankra:full-run label.\n") {
+		t.Fatalf("detail = %q", output.String())
+	}
+	output.Reset()
+	printPipelineRunDetail(&output, client.PipelineRunDetail{PipelineRun: client.PipelineRun{
+		ID: "run-2", RunNumber: 4, Status: "running", Trigger: "push", TriggerRef: "refs/heads/main",
+	}}, client.PipelineSelector{ApplicationID: testApplicationID})
+	if strings.Contains(output.String(), "Full run") {
+		t.Fatalf("a run that applied its filters must not claim a full run: %q", output.String())
+	}
+}
+
+func TestPipelineErrorClassLineExplainsASkipMarker(t *testing.T) {
+	if line := pipelineErrorClassLine("skip_marker"); line !=
+		"skip_marker (skipped by a skip marker such as [skip ci] in the pushed commit's message)" {
+		t.Fatalf("line = %q", line)
 	}
 }
 
@@ -2326,5 +2376,74 @@ func TestSkipCellNeverLeavesADanglingLabel(t *testing.T) {
 	}
 	if cell := skipCell("path\nfilter"); cell != "skip: path filter" {
 		t.Errorf("a reason with a line break renders as %q, want it on one line", cell)
+	}
+}
+
+// TestPipelineValidatePrintsEachPathSetWithItsExpansionAndUsers covers the
+// path_sets the platform's dry run returns (ankra-efrnzf.18): the plan reads
+// the expanded lists, so the names the author wrote are shown beside what
+// they stand for and where they are used.
+func TestPipelineValidatePrintsEachPathSetWithItsExpansionAndUsers(t *testing.T) {
+	mockClient := &pipelineLaneMock{validateResult: &client.PipelineValidation{
+		Severity: "warn",
+		PathSets: []client.PipelinePathSet{
+			{
+				Name:     "backend",
+				Patterns: []string{"backend/**", ".ankra/**"},
+				Includes: []string{"pipeline"},
+				UsedBy:   []string{`stage "test-backend" paths`, "on.pull_request.paths"},
+			},
+			{Name: "orphan", Patterns: []string{"docs/**"}, UsedBy: []string{}},
+			{Name: "unreported", Patterns: []string{"web/**"}},
+		},
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "validate", writePipelineFixture(t),
+		"--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	want := "Path sets:\n" +
+		"  backend: backend/**, .ankra/**\n" +
+		"    includes: pipeline\n" +
+		"    used by: stage \"test-backend\" paths, on.pull_request.paths\n" +
+		"  orphan: docs/**\n" +
+		"    used by: nothing\n" +
+		"  unreported: web/**\n"
+	if !strings.Contains(output, want) {
+		t.Fatalf("output = %q, want it to contain %q", output, want)
+	}
+	if strings.Count(output, "used by: nothing") != 1 {
+		t.Fatalf("a set whose users the platform did not report must not read as unused, got %q", output)
+	}
+
+	none, executeError := runPipelineCommand(t, &pipelineLaneMock{validateResult: &client.PipelineValidation{Severity: "ok"}},
+		"validate", writePipelineFixture(t), "--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	if strings.Contains(none, "Path sets:") {
+		t.Fatalf("a definition with no path set prints no section, got %q", none)
+	}
+}
+
+func TestPipelineValidateJSONCarriesPathSetsOnlyWhenDeclared(t *testing.T) {
+	withSets, executeError := runPipelineCommand(t, &pipelineLaneMock{validateResult: &client.PipelineValidation{
+		Severity: "ok",
+		PathSets: []client.PipelinePathSet{{Name: "web", Patterns: []string{"web/**"}, Includes: []string{},
+			UsedBy: []string{`stage "test" paths`}}},
+	}}, "validate", writePipelineFixture(t), "--application", testApplicationID, "-o", "json")
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	if !strings.Contains(withSets, `"path_sets"`) || !strings.Contains(withSets, `"used_by"`) {
+		t.Fatalf("output = %q, want the wire field names kept for scripts", withSets)
+	}
+	without, executeError := runPipelineCommand(t, &pipelineLaneMock{validateResult: &client.PipelineValidation{Severity: "ok"}},
+		"validate", writePipelineFixture(t), "--application", testApplicationID, "-o", "json")
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	if strings.Contains(without, `"path_sets"`) {
+		t.Fatalf("output = %q, want no path_sets key when none is declared", without)
 	}
 }

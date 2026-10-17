@@ -318,6 +318,11 @@ To skip what a change did not touch, pick the filter by what stands behind the s
   **Not in a repository whose `publish` has `promote_from`**: a stage the pull request run skipped
   is one the push needs and nobody passed, so the push builds in full (`source_not_green`). Use
   `paths:` there; it skips on the push as well, so promotion still applies.
+- **The same list on many stages** (every component list also names `.ankra/**`): declare it once
+  under top-level `path_sets:` and write `{set: <name>}` where the list was, in any path filter
+  (`on.<event>.paths`, `paths:`, `when.paths`, `when.<event>.paths`). Sets may include sets.
+  Expanded when the file is read, so the plan and the stored definition are the written-out lists;
+  `validate` refuses an unknown set or a cycle, warns about an unused one, and lists each set.
 
 If the build dies within ~30 s on `rootlesskit … failed to share mount point: /: permission denied`,
 the node's runtime confines the builder (containerd AppArmor, kubelet `seccompDefault`; DigitalOcean

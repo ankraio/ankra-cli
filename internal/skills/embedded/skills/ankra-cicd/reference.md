@@ -381,6 +381,11 @@ whatever the outcome, and after a started run is cancelled: the cancel stops the
 `on_failure` stages, runs `finally` within a 15-minute budget, then concludes `cancelled`;
 `ankra pipeline cancel --force` skips or stops it) · `environments` (pipeline half of a binding; deploy kinds do not execute yet).
 
+Path sets: top-level `path_sets: {<name>: [<pattern> | {set: <name>}, ...]}`; every path filter
+(`on.push|pull_request.paths`, stage `paths`, `when.paths`, `when.push|pull_request.paths`) takes
+`{set: <name>}` in place of a pattern. Expanded in place at parse; unknown set / cycle fatal
+(`pipeline_path_sets:`), unused set a warning.
+
 Triggers: `push {branches, paths}` · `pull_request {branches, paths, fork_policy: none|read_only|trusted}`
 · `tag {patterns}` (glob) · `schedule [{cron, branch, stages}]` · `manual {inputs [{name, type:
 string|boolean|number|choice, default, enum, required, description}]}` · `webhook {}`.
