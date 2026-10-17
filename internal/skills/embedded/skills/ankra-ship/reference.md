@@ -20,7 +20,7 @@ credentials: [ { name, from: cloud|git|registry|object_storage, as } ]          
 services: { <name>: { image, env, ports, ready: { tcp | http } } }                  # Protected.
 stages: […]                    # the DAG
 on_failure: […]                # runs only if a main stage failed, timed out or hit an infra error; skips are not failures
-finally: […]                   # runs after everything else, whatever the outcome; not on a cancelled run
+finally: […]                   # runs after everything else, whatever the outcome; also after a cancel
 environments: { <name>: { data, verify, rollout, gate } }   # Protected; no executor acts on it yet
 ```
 

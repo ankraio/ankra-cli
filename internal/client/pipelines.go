@@ -137,6 +137,11 @@ type PipelineRun struct {
 	CancelledBy  *string `json:"cancelled_by"`
 	CancelReason *string `json:"cancel_reason"`
 	CancelledAt  *string `json:"cancelled_at"`
+	// Cancelling is true while a run that was cancelled with work in flight
+	// runs its finally stages: Status still reads "running", the fields
+	// above already say who cancelled it, and it will conclude "cancelled".
+	// A server too old to report it answers nothing, which reads as false.
+	Cancelling bool `json:"cancelling"`
 	// AuthorityState, AuthorityHash and AuthorityDefinitionID are the
 	// authority the run was planned under (ankra-vn0bd.10.8): whose
 	// protected sections it executes, their digest, and the stored
@@ -1098,17 +1103,25 @@ func (c *Client) RerunPipelineRun(ctx context.Context, selector PipelineSelector
 }
 
 // CancelPipelineRun stops a run that has not concluded (POST
-// …/pipeline-runs/{run_id}/cancel) and returns the settled run.
+// …/pipeline-runs/{run_id}/cancel) and returns the run as the cancel left it.
+//
+// A run that had started and declares finally stages runs them before it
+// concludes, so the answer can still read "running" with Cancelling true.
+// force (?force=true) skips them: the run concludes at once, and a run already
+// cancelling has its finally stages stopped. Without force, cancelling a run
+// that is already cancelling answers the server's 409.
 func (c *Client) CancelPipelineRun(ctx context.Context, selector PipelineSelector,
-	runID string) (*PipelineRun, error) {
+	runID string, force bool) (*PipelineRun, error) {
 	base, selectorError := selector.basePath()
 	if selectorError != nil {
 		return nil, selectorError
 	}
+	endpoint := fmt.Sprintf("%s%s/pipeline-runs/%s/cancel", c.BaseURL, base, neturl.PathEscape(runID))
+	if force {
+		endpoint += "?force=true"
+	}
 	var result PipelineRun
-	if requestError := c.doPipelineRequest(ctx, http.MethodPost,
-		fmt.Sprintf("%s%s/pipeline-runs/%s/cancel", c.BaseURL, base, neturl.PathEscape(runID)),
-		nil, &result); requestError != nil {
+	if requestError := c.doPipelineRequest(ctx, http.MethodPost, endpoint, nil, &result); requestError != nil {
 		return nil, requestError
 	}
 	return &result, nil

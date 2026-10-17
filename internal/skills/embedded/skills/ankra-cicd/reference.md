@@ -377,7 +377,9 @@ Top level: `apiVersion: ankra.io/v1` · `kind: Pipeline` · `metadata.name` (req
 `credentials [{name, from: cloud|git|registry|object_storage, as}]` ·
 `services {<name>: {image, env, ports, ready {tcp|http}}}` · `stages` · `on_failure` (runs only if
 a main stage failed, timed out or hit an infra error; skips are not failures) · `finally` (runs
-whatever the outcome) · neither runs on a run cancelled as a whole · `environments` (pipeline half of a binding; deploy kinds do not execute yet).
+whatever the outcome, and after a started run is cancelled: the cancel stops the main and
+`on_failure` stages, runs `finally` within a 15-minute budget, then concludes `cancelled`;
+`ankra pipeline cancel --force` skips or stops it) · `environments` (pipeline half of a binding; deploy kinds do not execute yet).
 
 Triggers: `push {branches, paths}` · `pull_request {branches, paths, fork_policy: none|read_only|trusted}`
 · `tag {patterns}` (glob) · `schedule [{cron, branch, stages}]` · `manual {inputs [{name, type:

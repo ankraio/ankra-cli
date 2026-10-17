@@ -477,7 +477,9 @@ as `kind_unavailable`; `uses:` is refused outright (write the step as `run:`); `
 `test_results` ingestion are accepted but not yet honoured. `on_failure:` stages run only after a
 main stage failed, timed out or hit an infrastructure error (a skipped stage is not a failure; after
 a green run they are skipped with that reason), and `finally:` stages run after everything else
-whatever the outcome. A run cancelled as a whole runs neither. So **an
+whatever the outcome. Cancelling a run that started (a person, a superseding push, a closed pull
+request, the merge train) stops its main and `on_failure` stages, runs its `finally:` stages
+(15-minute budget; `ankra pipeline cancel --force` skips them), then concludes it `cancelled`. So **an
 `approval` stage blocks nothing — everything downstream runs**, and a skipped stage is not a failed
 one: do not make the `Ankra pipeline` check *required* while the definition carries an unexecuted
 kind, or it goes green having done none of what that stage names. Previews, deploys to a cluster, rollback and
