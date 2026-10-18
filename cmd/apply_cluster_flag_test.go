@@ -27,9 +27,11 @@ spec:
 type applyOverrideMock struct {
 	baseMock
 	applied []client.CreateImportClusterRequest
+	lookups int
 }
 
 func (mock *applyOverrideMock) GetCluster(name string) (client.ClusterListItem, error) {
+	mock.lookups++
 	if name == "prod-eu" {
 		return client.ClusterListItem{ID: "11111111-1111-1111-1111-111111111111", Name: "prod-eu"}, nil
 	}
@@ -37,6 +39,7 @@ func (mock *applyOverrideMock) GetCluster(name string) (client.ClusterListItem, 
 }
 
 func (mock *applyOverrideMock) GetClusterByID(clusterID string) (client.ClusterListItem, error) {
+	mock.lookups++
 	if clusterID == "11111111-1111-1111-1111-111111111111" {
 		return client.ClusterListItem{ID: clusterID, Name: "prod-eu"}, nil
 	}
@@ -138,5 +141,28 @@ func TestClusterApplyUnknownClusterFlagFails(t *testing.T) {
 	}
 	if len(mock.applied) != 0 {
 		t.Errorf("nothing should be applied: %+v", mock.applied)
+	}
+}
+
+// TestClusterApplyDryRunWithClusterFlagStaysOffline pins that --dry-run never
+// resolves --cluster: apply's dry-run is offline (no credentials, so no API
+// client), and resolving the flag there dereferenced a nil client and panicked.
+func TestClusterApplyDryRunWithClusterFlagStaysOffline(t *testing.T) {
+	resetClusterApplyFlags(t)
+	mock := &applyOverrideMock{}
+	setMockClient(t, mock)
+	path := writeApplyOverrideDocument(t)
+
+	stdout := captureStdout(t, func() {
+		if _, executeError := executeCommand("cluster", "apply", "-f", path, "--dry-run", "--cluster", "11111111-1111-1111-1111-111111111111"); executeError != nil {
+			t.Errorf("dry-run failed: %v", executeError)
+		}
+	})
+
+	if mock.lookups != 0 || len(mock.applied) != 0 {
+		t.Fatalf("dry-run called the API: %d lookups, %d applies", mock.lookups, len(mock.applied))
+	}
+	if !strings.Contains(stdout, "Validation succeeded") || !strings.Contains(stdout, "is resolved when the file is applied") {
+		t.Errorf("dry-run must validate and say --cluster is resolved at apply time:\n%s", stdout)
 	}
 }
