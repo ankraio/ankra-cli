@@ -260,6 +260,47 @@ func TestPatch_ClusterScopedKindNeedsNoNamespace(t *testing.T) {
 	}
 }
 
+// TestPatch_ClusterScopedKindsOutsideTheOldTable pins PLA-910 for patch: a
+// CustomResourceDefinition resolves as cluster-scoped from the table, and any
+// other custom kind reaches the cluster-scoped object with --cluster-scoped.
+func TestPatch_ClusterScopedKindsOutsideTheOldTable(t *testing.T) {
+	mock := &patchCommandMock{}
+	out, err := runPatch(t, mock, "", "crd", "kafkas.kafka.strimzi.io", "--cluster", "prod-cluster", "--yes",
+		"--type", "merge", "--patch", `{"metadata":{"labels":{"stale":"true"}}}`)
+	if err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out)
+	}
+	request := mock.requests[0]
+	if request.Kind != "CustomResourceDefinition" || request.Group != "apiextensions.k8s.io" ||
+		request.Resource != "customresourcedefinitions" || request.Namespace != "" {
+		t.Errorf("request = %+v, want a cluster-scoped CustomResourceDefinition patch", request)
+	}
+
+	mock = &patchCommandMock{}
+	out, err = runPatch(t, mock, "", "ClusterIssuer", "letsencrypt", "--group", "cert-manager.io", "--api-version", "v1",
+		"--cluster-scoped", "--cluster", "prod-cluster", "--yes", "--type", "merge", "--patch", `{"spec":{"acme":{}}}`)
+	if err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out)
+	}
+	if request := mock.requests[0]; request.Kind != "ClusterIssuer" || request.Namespace != "" {
+		t.Errorf("request = %+v, want a cluster-scoped ClusterIssuer patch", request)
+	}
+	if !strings.Contains(out, `clusterissuer "letsencrypt" patched`) || strings.Contains(out, "in namespace") {
+		t.Errorf("expected a patched line without a namespace suffix, got: %s", out)
+	}
+
+	mock = &patchCommandMock{}
+	_, err = runPatch(t, mock, "", "ClusterIssuer", "letsencrypt", "--group", "cert-manager.io", "--api-version", "v1",
+		"--cluster", "prod-cluster", "--yes", "--patch", `{"spec":{"acme":{}}}`)
+	if got := exitCodeFor(err); got != exitUsage || !strings.Contains(err.Error(), "--cluster-scoped") {
+		t.Errorf("a custom kind with neither -n nor --cluster-scoped should exit %d naming the flag, got %d (err=%v)",
+			exitUsage, got, err)
+	}
+	if len(mock.requests) != 0 {
+		t.Error("the scope check must run before any API call")
+	}
+}
+
 func TestPatch_CustomResourcePassesGroupAndVersion(t *testing.T) {
 	mock := &patchCommandMock{}
 	out, err := runPatch(t, mock, "", "Certificate", "web-tls", "-n", "prod", "--cluster", "prod-cluster", "--yes",

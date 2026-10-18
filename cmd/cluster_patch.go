@@ -38,8 +38,10 @@ manager owns - a value the API server defaulted on an older chart, a label a
 release left behind - without taking that object over or deleting it.
 
 The kind takes the kubectl spellings - pod, deployment, deploy, service, svc,
-configmap, cm, node, ... - and a custom resource is reachable with --group
+configmap, cm, node, crd, ... - and a custom resource is reachable with --group
 and --api-version, exactly like 'cluster get resources' and 'cluster delete'.
+A custom kind is taken to be namespaced; pass --cluster-scoped for one that
+is not (ClusterIssuer, ClusterPolicy, ...).
 The patch goes through the cluster's Ankra agent: no kubeconfig is needed and
 the same organisation permissions as the portal apply.
 
@@ -56,7 +58,9 @@ Examples:
     --patch '[{"op":"remove","path":"/metadata/annotations/deprecated"}]'
   ankra cluster patch node worker-1 --patch '{"metadata":{"labels":{"tier":"gpu"}}}' --dry-run
   ankra cluster patch Certificate web-tls -n prod --group cert-manager.io --api-version v1 \
-    --patch '{"spec":{"renewBefore":"720h"}}'`,
+    --patch '{"spec":{"renewBefore":"720h"}}'
+  ankra cluster patch ClusterIssuer letsencrypt --group cert-manager.io --api-version v1 \
+    --cluster-scoped --type merge --patch '{"spec":{"acme":{"email":"ops@example.com"}}}'`,
 	Args:        cobra.MinimumNArgs(2),
 	Annotations: map[string]string{"group": "kubernetes"},
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -68,17 +72,16 @@ Examples:
 		inlinePatch, _ := cmd.Flags().GetString("patch")
 		patchFile, _ := cmd.Flags().GetString("patch-file")
 		patchType, _ := cmd.Flags().GetString("type")
+		clusterScoped, _ := cmd.Flags().GetBool("cluster-scoped")
 
 		resolvedKind, kindError := resolveK8sKind(args[0], apiGroup, apiVersion)
 		if kindError != nil {
 			return kindError
 		}
 		names := args[1:]
-		if !resolvedKind.clusterScoped && namespace == "" {
-			return withExitCode(exitUsage, fmt.Errorf("--namespace (-n) is required to patch a %s", resolvedKind.kind))
-		}
-		if resolvedKind.clusterScoped {
-			namespace = ""
+		namespace, namespaceError := resolveObjectNamespace(&resolvedKind, args[0], namespace, clusterScoped, "patch")
+		if namespaceError != nil {
+			return namespaceError
 		}
 
 		patchType = strings.ToLower(strings.TrimSpace(patchType))
@@ -202,6 +205,7 @@ func init() {
 	clusterPatchCmd.Flags().Bool("dry-run", false, "Report what would change without changing anything")
 	clusterPatchCmd.Flags().String("group", "", "API group for a kind outside the built-in set (e.g. cert-manager.io)")
 	clusterPatchCmd.Flags().String("api-version", "", "API version for a kind outside the built-in set (e.g. v1, v1beta1)")
+	clusterPatchCmd.Flags().Bool("cluster-scoped", false, clusterScopedFlagUsage)
 
 	clusterCmd.AddCommand(clusterPatchCmd)
 }

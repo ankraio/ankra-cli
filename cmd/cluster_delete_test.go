@@ -120,6 +120,100 @@ func TestDelete_CustomResourcePassesGroupAndVersion(t *testing.T) {
 	}
 }
 
+// TestDelete_CustomResourceDefinitionIsClusterScoped pins PLA-910: deleting a
+// leftover CRD answered "--namespace (-n) is required to delete a
+// CustomResourceDefinition", because every kind outside the table was taken
+// to be namespaced, and passing -n would have built a namespaced path that
+// 404s. Both the kubectl short name and the spelling the customer used must
+// reach the cluster-scoped object.
+func TestDelete_CustomResourceDefinitionIsClusterScoped(t *testing.T) {
+	mock := &deleteResourceMock{}
+	out, err := runDelete(t, mock, "y\n", "crd", "kafkas.kafka.strimzi.io", "--cluster", "prod-cluster")
+	if err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out)
+	}
+	if len(mock.requests) != 1 {
+		t.Fatalf("expected one delete call, got %d", len(mock.requests))
+	}
+	request := mock.requests[0]
+	if request.Kind != "CustomResourceDefinition" || request.Group != "apiextensions.k8s.io" || request.Version != "v1" ||
+		request.Resource != "customresourcedefinitions" || request.Namespace != "" || request.Name != "kafkas.kafka.strimzi.io" {
+		t.Errorf("request = %+v, want a cluster-scoped apiextensions.k8s.io/v1 customresourcedefinitions delete", request)
+	}
+	if !strings.Contains(out, "deletes every custom resource of that kind") {
+		t.Errorf("a CRD delete prompt should warn that its custom resources go with it, got: %s", out)
+	}
+	if !strings.Contains(out, `customresourcedefinition "kafkas.kafka.strimzi.io" deleted`) || strings.Contains(out, "in namespace") {
+		t.Errorf("expected a deleted line without a namespace suffix, got: %s", out)
+	}
+
+	mock = &deleteResourceMock{}
+	out, err = runDelete(t, mock, "", "CustomResourceDefinition", "kafkas.kafka.strimzi.io",
+		"--group", "apiextensions.k8s.io", "--api-version", "v1", "--cluster", "prod-cluster", "--yes")
+	if err != nil {
+		t.Fatalf("the spelling with explicit --group/--api-version must work too: %v\noutput: %s", err, out)
+	}
+	if request := mock.requests[0]; request.Namespace != "" || request.Resource != "customresourcedefinitions" {
+		t.Errorf("explicit overrides must keep the table's scope and plural, got %+v", request)
+	}
+}
+
+func TestDelete_ClusterScopedFlagReachesACustomKind(t *testing.T) {
+	mock := &deleteResourceMock{}
+	out, err := runDelete(t, mock, "", "ClusterIssuer", "letsencrypt", "--group", "cert-manager.io", "--api-version", "v1",
+		"--cluster-scoped", "--cluster", "prod-cluster", "--yes")
+	if err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out)
+	}
+	request := mock.requests[0]
+	if request.Kind != "ClusterIssuer" || request.Group != "cert-manager.io" || request.Namespace != "" {
+		t.Errorf("request = %+v, want a cluster-scoped cert-manager.io ClusterIssuer delete", request)
+	}
+	if !strings.Contains(out, `clusterissuer "letsencrypt" deleted`) || strings.Contains(out, "in namespace") {
+		t.Errorf("expected a deleted line without a namespace suffix, got: %s", out)
+	}
+}
+
+func TestDelete_CustomKindWithoutNamespaceNamesTheClusterScopedFlag(t *testing.T) {
+	mock := &deleteResourceMock{}
+	_, err := runDelete(t, mock, "", "ClusterIssuer", "letsencrypt", "--group", "cert-manager.io", "--api-version", "v1",
+		"--cluster", "prod-cluster", "--yes")
+	if got := exitCodeFor(err); got != exitUsage {
+		t.Fatalf("a custom kind with neither -n nor --cluster-scoped should exit %d, got %d (err=%v)", exitUsage, got, err)
+	}
+	if !strings.Contains(err.Error(), "--cluster-scoped") {
+		t.Errorf("the usage error should say how to reach a cluster-scoped kind, got: %v", err)
+	}
+	if len(mock.requests) != 0 {
+		t.Error("the scope check must run before any API call")
+	}
+
+	_, err = runDelete(t, mock, "", "pod", "web-0", "--cluster", "prod-cluster", "--yes")
+	if err == nil || strings.Contains(err.Error(), "--cluster-scoped") {
+		t.Errorf("a built-in namespaced kind knows its scope; the hint is noise there, got: %v", err)
+	}
+}
+
+func TestDelete_ClusterScopedFlagRefusesAContradiction(t *testing.T) {
+	cases := map[string][]string{
+		"with a namespace": {"ClusterIssuer", "letsencrypt", "--group", "cert-manager.io", "--api-version", "v1",
+			"--cluster-scoped", "-n", "prod"},
+		"on a namespaced built-in kind": {"pod", "web-0", "--cluster-scoped"},
+	}
+	for name, args := range cases {
+		t.Run(name, func(t *testing.T) {
+			mock := &deleteResourceMock{}
+			_, err := runDelete(t, mock, "", append(args, "--cluster", "prod-cluster", "--yes")...)
+			if got := exitCodeFor(err); got != exitUsage {
+				t.Errorf("should exit %d, got %d (err=%v)", exitUsage, got, err)
+			}
+			if len(mock.requests) != 0 {
+				t.Error("a contradictory scope must be rejected before any API call")
+			}
+		})
+	}
+}
+
 func TestDelete_UnknownKindExitsUsage(t *testing.T) {
 	mock := &deleteResourceMock{}
 	_, err := runDelete(t, mock, "", "Certificate", "web-tls", "-n", "prod", "--cluster", "prod-cluster", "--yes")

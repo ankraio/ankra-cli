@@ -36,12 +36,14 @@ involvedObject is this resource, rather than a namespace-wide event list you
 have to filter by eye.
 
 Kinds outside the built-in set need --group (and sometimes --api-version),
-exactly like 'cluster get resources'.
+exactly like 'cluster get resources', and are taken to be namespaced; pass
+--cluster-scoped for one that is not.
 
 Examples:
   ankra cluster describe pod web-7d9f-2xkvp -n default
   ankra cluster describe deployment web -n default
   ankra cluster describe node worker-1
+  ankra cluster describe crd kafkas.kafka.strimzi.io
   ankra cluster describe pvc data-web-0 -n default -o json`,
 	Args:        cobra.ExactArgs(2),
 	Annotations: map[string]string{"group": "kubernetes"},
@@ -53,18 +55,16 @@ Examples:
 		namespace, _ := cmd.Flags().GetString("namespace")
 		apiGroup, _ := cmd.Flags().GetString("group")
 		apiVersion, _ := cmd.Flags().GetString("api-version")
+		clusterScoped, _ := cmd.Flags().GetBool("cluster-scoped")
 
 		resolvedKind, kindError := resolveK8sKind(args[0], apiGroup, apiVersion)
 		if kindError != nil {
 			return kindError
 		}
 		name := args[1]
-		if !resolvedKind.clusterScoped && namespace == "" {
-			return withExitCode(exitUsage, fmt.Errorf(
-				"--namespace (-n) is required to describe a %s", resolvedKind.kind))
-		}
-		if resolvedKind.clusterScoped {
-			namespace = ""
+		namespace, namespaceError := resolveObjectNamespace(&resolvedKind, args[0], namespace, clusterScoped, "describe")
+		if namespaceError != nil {
+			return namespaceError
 		}
 
 		cluster, clusterError := resolveActiveCluster(cmd)
@@ -468,6 +468,7 @@ func init() {
 	clusterDescribeCmd.Flags().StringP("output", "o", "table", "Output format: table, json, yaml")
 	clusterDescribeCmd.Flags().String("group", "", "API group override (e.g. apps, networking.k8s.io)")
 	clusterDescribeCmd.Flags().String("api-version", "", "API version override (e.g. v1, v1beta1)")
+	clusterDescribeCmd.Flags().Bool("cluster-scoped", false, clusterScopedFlagUsage)
 
 	clusterCmd.AddCommand(clusterDescribeCmd)
 }

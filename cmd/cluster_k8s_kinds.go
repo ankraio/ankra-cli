@@ -54,6 +54,18 @@ var builtinK8sKinds = map[string]k8sKind{
 	"rolebinding":             {kind: "RoleBinding", group: "rbac.authorization.k8s.io", version: "v1"},
 	"clusterrole":             {kind: "ClusterRole", group: "rbac.authorization.k8s.io", version: "v1", clusterScoped: true},
 	"clusterrolebinding":      {kind: "ClusterRoleBinding", group: "rbac.authorization.k8s.io", version: "v1", clusterScoped: true},
+	"customresourcedefinition": {kind: "CustomResourceDefinition", group: "apiextensions.k8s.io", version: "v1",
+		resource: "customresourcedefinitions", clusterScoped: true},
+	"mutatingwebhookconfiguration": {kind: "MutatingWebhookConfiguration", group: "admissionregistration.k8s.io", version: "v1",
+		resource: "mutatingwebhookconfigurations", clusterScoped: true},
+	"validatingwebhookconfiguration": {kind: "ValidatingWebhookConfiguration", group: "admissionregistration.k8s.io", version: "v1",
+		resource: "validatingwebhookconfigurations", clusterScoped: true},
+	"apiservice":    {kind: "APIService", group: "apiregistration.k8s.io", version: "v1", resource: "apiservices", clusterScoped: true},
+	"priorityclass": {kind: "PriorityClass", group: "scheduling.k8s.io", version: "v1", resource: "priorityclasses", clusterScoped: true},
+	"runtimeclass":  {kind: "RuntimeClass", group: "node.k8s.io", version: "v1", resource: "runtimeclasses", clusterScoped: true},
+	"csidriver":     {kind: "CSIDriver", group: "storage.k8s.io", version: "v1", resource: "csidrivers", clusterScoped: true},
+	"volumeattachment": {kind: "VolumeAttachment", group: "storage.k8s.io", version: "v1",
+		resource: "volumeattachments", clusterScoped: true},
 }
 
 // k8sKindShortNames maps the kubectl short spellings onto their canonical
@@ -82,6 +94,9 @@ var k8sKindShortNames = map[string]string{
 	"sc":     "storageclass",
 	"limits": "limitrange",
 	"quota":  "resourcequota",
+	"crd":    "customresourcedefinition",
+	"crds":   "customresourcedefinition",
+	"pc":     "priorityclass",
 }
 
 // singularK8sKindKey normalises a user-typed kind to the singular lower-case
@@ -158,6 +173,47 @@ func resolveK8sKind(rawKind string, groupOverride string, versionOverride string
 		resolved.version = versionOverride
 	}
 	return resolved, nil
+}
+
+// clusterScopedFlagUsage is the --cluster-scoped help shared by the commands
+// that address one named object.
+const clusterScopedFlagUsage = "The kind is cluster-scoped (e.g. ClusterIssuer, ClusterPolicy); " +
+	"only needed for a kind outside the built-in set"
+
+// resolveObjectNamespace settles where a named object lives, for the verbs
+// that address one (delete, patch, describe). A built-in kind knows its own
+// scope. A kind outside the table carries none the CLI can know - the relay
+// offers no API discovery - so it is namespaced unless the caller passes
+// --cluster-scoped. Guessing is worse than asking either way: a namespaced
+// path for a cluster-scoped object answers 404, which these verbs report as a
+// confident "not found" for an object that exists. It returns the namespace
+// to send ("" for a cluster-scoped object) and marks kind cluster-scoped when
+// the flag says so, so the prompt and the outcome lines name no namespace.
+func resolveObjectNamespace(kind *k8sKind, rawKind string, namespace string, clusterScopedFlag bool, verb string) (string, error) {
+	builtin, isBuiltin := builtinK8sKinds[singularK8sKindKey(rawKind)]
+	if clusterScopedFlag {
+		if isBuiltin && !builtin.clusterScoped {
+			return "", withExitCode(exitUsage, fmt.Errorf(
+				"%s is namespaced: drop --cluster-scoped and pass --namespace (-n)", kind.kind))
+		}
+		if namespace != "" {
+			return "", withExitCode(exitUsage, fmt.Errorf(
+				"--cluster-scoped and --namespace (-n) contradict each other: a cluster-scoped %s lives in no namespace", kind.kind))
+		}
+		kind.clusterScoped = true
+	}
+	if kind.clusterScoped {
+		return "", nil
+	}
+	if namespace == "" {
+		if isBuiltin {
+			return "", withExitCode(exitUsage, fmt.Errorf("--namespace (-n) is required to %s a %s", verb, kind.kind))
+		}
+		return "", withExitCode(exitUsage, fmt.Errorf(
+			"--namespace (-n) is required to %s a %s, or pass --cluster-scoped if %s is a cluster-scoped kind",
+			verb, kind.kind, kind.kind))
+	}
+	return namespace, nil
 }
 
 // singularKindSpelling trims a plural suffix while preserving the caller's

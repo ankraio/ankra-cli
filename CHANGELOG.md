@@ -61,6 +61,20 @@
 
 ### Fixed
 
+- **`ankra cluster delete`, `patch` and `describe` reach cluster-scoped kinds
+  outside the built-in set.** Every kind the CLI did not know was taken to be
+  namespaced, so `ankra cluster delete CustomResourceDefinition <name>`
+  demanded `--namespace`, and passing one looked the object up inside that
+  namespace and reported "not found" for an object that exists. There was no
+  way to remove a leftover CRD, ClusterIssuer or webhook configuration
+  without a kubeconfig. CustomResourceDefinition (`crd`), the two webhook
+  configurations, APIService, PriorityClass (`pc`), RuntimeClass, CSIDriver
+  and VolumeAttachment are now known kinds, so `ankra cluster delete crd
+  kafkas.kafka.strimzi.io` works and its prompt warns that every custom
+  resource of that kind goes with it. For any other cluster-scoped custom
+  kind, pass `--cluster-scoped` with `--group` and `--api-version`; the
+  "--namespace is required" error for a custom kind now says so.
+
 - **`ankra stack-profiles drafts annotate --default ""` clears the default.**
   It used to drop the default from the input, and the platform, which
   re-detects a draft's inputs on every save, filled it straight back in from

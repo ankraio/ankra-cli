@@ -298,6 +298,50 @@ func TestDescribeClusterScopedKindNeedsNoNamespace(t *testing.T) {
 	}
 }
 
+// TestDescribeClusterScopedFlagReadsACustomKindWithoutNamespace pins PLA-910:
+// a custom kind outside the table was always taken to be namespaced, so a
+// ClusterIssuer could not be described at all - -n was demanded, and with -n
+// the read was namespaced and came back empty.
+func TestDescribeClusterScopedFlagReadsACustomKindWithoutNamespace(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	resetCommandFlags(t, clusterDescribeCmd)
+	mock := newDebugVerbsMock()
+	mock.responses["ClusterIssuer"] = client.ResourceResponseItem{
+		Items: []interface{}{objectMap(map[string]interface{}{
+			"apiVersion": "cert-manager.io/v1",
+			"metadata":   map[string]interface{}{"name": "letsencrypt"},
+		})},
+	}
+	mock.responses["Event"] = client.ResourceResponseItem{Items: []interface{}{}}
+	setMockClient(t, mock)
+
+	_, executeError := executeCommand("cluster", "describe", "ClusterIssuer", "letsencrypt",
+		"--group", "cert-manager.io", "--api-version", "v1")
+	if got := exitCodeFor(executeError); got != exitUsage {
+		t.Fatalf("a custom kind without -n or --cluster-scoped should exit %d, got %d (%v)", exitUsage, got, executeError)
+	}
+	if !strings.Contains(executeError.Error(), "--cluster-scoped") {
+		t.Errorf("the usage error should name --cluster-scoped, got %q", executeError.Error())
+	}
+	if len(mock.requests) != 0 {
+		t.Fatal("the scope check must run before any API call")
+	}
+
+	resetCommandFlags(t, clusterDescribeCmd)
+	output := captureStdout(t, func() {
+		if _, executeError := executeCommand("cluster", "describe", "ClusterIssuer", "letsencrypt",
+			"--group", "cert-manager.io", "--api-version", "v1", "--cluster-scoped"); executeError != nil {
+			t.Fatalf("describing a cluster-scoped custom kind failed: %v", executeError)
+		}
+	})
+	if !strings.Contains(stripANSICodes(output), "ClusterIssuer/letsencrypt") {
+		t.Errorf("cluster issuer description missing:\n%s", output)
+	}
+	if mock.requests[0].Kind != "ClusterIssuer" || mock.requests[0].Namespace != "" {
+		t.Errorf("a cluster-scoped read must not carry a namespace, got %+v", mock.requests[0])
+	}
+}
+
 func TestDescribeUnknownKindWithoutGroupExitsUsage(t *testing.T) {
 	writeSelectedClusterJSON(t)
 	resetCommandFlags(t, clusterDescribeCmd)
@@ -1156,6 +1200,16 @@ func TestResolveK8sKindAcceptsKubectlSpellings(t *testing.T) {
 		"deployments": {kind: "Deployment", group: "apps", version: "v1"},
 		"ingresses":   {kind: "Ingress", group: "networking.k8s.io", version: "v1", resource: "ingresses"},
 		"endpoints":   {kind: "Endpoints", version: "v1", resource: "endpoints"},
+		"crd": {kind: "CustomResourceDefinition", group: "apiextensions.k8s.io", version: "v1",
+			resource: "customresourcedefinitions", clusterScoped: true},
+		"crds": {kind: "CustomResourceDefinition", group: "apiextensions.k8s.io", version: "v1",
+			resource: "customresourcedefinitions", clusterScoped: true},
+		"customresourcedefinitions": {kind: "CustomResourceDefinition", group: "apiextensions.k8s.io", version: "v1",
+			resource: "customresourcedefinitions", clusterScoped: true},
+		"PriorityClasses": {kind: "PriorityClass", group: "scheduling.k8s.io", version: "v1",
+			resource: "priorityclasses", clusterScoped: true},
+		"ValidatingWebhookConfiguration": {kind: "ValidatingWebhookConfiguration", group: "admissionregistration.k8s.io",
+			version: "v1", resource: "validatingwebhookconfigurations", clusterScoped: true},
 	}
 	for spelling, expected := range cases {
 		resolved, resolveError := resolveK8sKind(spelling, "", "")
