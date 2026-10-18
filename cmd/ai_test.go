@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"ankra/internal/client"
+
+	"github.com/spf13/cobra"
 )
 
 type aiSettingsMock struct {
@@ -266,7 +268,7 @@ func TestAIOpenRouterSetWithFlag(t *testing.T) {
 	const rawKey = "sk-or-v1-flag-secret-000"
 	mock := &aiSettingsMock{}
 	setMockClient(t, mock)
-	t.Cleanup(func() { _ = aiOpenRouterSetCmd.Flags().Set("api-key", "") })
+	t.Cleanup(func() { resetAPIKeyFlag(aiOpenRouterSetCmd) })
 
 	var commandOutput string
 	stdoutOutput := captureStdout(t, func() {
@@ -334,7 +336,7 @@ func TestAIOpenRouterSetPlatformRejects(t *testing.T) {
 			"Invalid OpenRouter API key format (must start with sk-or-)"),
 	}
 	setMockClient(t, mock)
-	t.Cleanup(func() { _ = aiOpenRouterSetCmd.Flags().Set("api-key", "") })
+	t.Cleanup(func() { resetAPIKeyFlag(aiOpenRouterSetCmd) })
 
 	var executeError error
 	_ = captureStdout(t, func() {
@@ -411,6 +413,14 @@ func (m *aiEndpointCreateMock) CreateAIEndpoint(name, baseURL, apiKey string) (*
 	m.createdName = name
 	m.createdAPIKey = apiKey
 	return &client.AIEndpoint{ID: "ep-1", Name: name, BaseURL: baseURL}, nil
+}
+
+// resetAPIKeyFlag empties a command's --api-key and marks it unset again.
+// Setting the value alone leaves Changed true, and resolveSecretInput reads a
+// passed-but-empty flag as a usage error, so the next test would inherit it.
+func resetAPIKeyFlag(command *cobra.Command) {
+	_ = command.Flags().Set("api-key", "")
+	command.Flags().Lookup("api-key").Changed = false
 }
 
 func resetAIEndpointsCreateFlags(t *testing.T) {
