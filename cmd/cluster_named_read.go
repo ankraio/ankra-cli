@@ -22,10 +22,7 @@ import (
 func namedReadItems(response *client.GetResourcesResponse, kind string, name string, namespace string) ([]interface{}, error) {
 	notFound := withExitCode(exitNotFound, fmt.Errorf("%s %q not found%s", kind, name, namespaceSuffix(namespace)))
 	if response == nil || len(response.ResourceResponses) == 0 {
-		// One item per request item is the wire contract: a reply with none
-		// was never an answer about the object, so it is not a not-found.
-		return nil, fmt.Errorf("reading %s %q%s failed: the platform answered no item for it",
-			kind, name, namespaceSuffix(namespace))
+		return nil, noItemInReplyError(fmt.Sprintf("%s %q%s", kind, name, namespaceSuffix(namespace)))
 	}
 	item := response.ResourceResponses[0]
 	if item.NotFound || isAgentNotFoundText(item) {
@@ -55,6 +52,14 @@ const agentNotFoundText = "Resource not found"
 
 func isAgentNotFoundText(item client.ResourceResponseItem) bool {
 	return item.Status == "error" && item.ErrorResponse != nil && strings.TrimSpace(*item.ErrorResponse) == agentNotFoundText
+}
+
+// noItemInReplyError is the error for a reply that carries no item for the
+// request: one item per request item is the wire contract, so such a reply
+// was never an answer about the subject, and reading it as "not found" or as
+// an empty listing would invent one.
+func noItemInReplyError(subject string) error {
+	return fmt.Errorf("reading %s failed: the platform answered no item for it", subject)
 }
 
 // failedReadError answers the error for an item the platform could not read

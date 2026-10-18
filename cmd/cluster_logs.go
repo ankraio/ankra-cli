@@ -79,9 +79,12 @@ func resolveLogTargets(
 			return nil, namedReadError
 		}
 	}
-	if podName == "" && len(response.ResourceResponses) > 0 {
-		if readError := failedReadError(response.ResourceResponses[0],
-			fmt.Sprintf("the pods matching selector %q in namespace %s", labelSelector, namespace)); readError != nil {
+	if podName == "" {
+		subject := fmt.Sprintf("the pods matching selector %q in namespace %s", labelSelector, namespace)
+		if len(response.ResourceResponses) == 0 {
+			return nil, noItemInReplyError(subject)
+		}
+		if readError := failedReadError(response.ResourceResponses[0], subject); readError != nil {
 			return nil, readError
 		}
 	}

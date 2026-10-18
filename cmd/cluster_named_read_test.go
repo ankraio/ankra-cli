@@ -216,3 +216,33 @@ func TestGetListThatFailedIsNotReportedAsEmpty(t *testing.T) {
 		t.Errorf("the platform's reason must reach the user, got %v", executeError)
 	}
 }
+
+// noItemMock answers every resources/get with a reply carrying no item at
+// all, which the wire contract never sends for a request item.
+type noItemMock struct{ debugVerbsMock }
+
+func (mock *noItemMock) GetResources(string, client.GetResourcesRequest) (*client.GetResourcesResponse, error) {
+	return &client.GetResourcesResponse{}, nil
+}
+
+func TestListingsWithNoItemInTheReplyAreFailedReadsNotEmpty(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	deploymentsCommand := findClusterGetSubcommand(t, "deployments")
+	resetCommandFlags(t, deploymentsCommand)
+	resetCommandFlags(t, clusterLogsCmd)
+	setMockClient(t, &noItemMock{debugVerbsMock: *newDebugVerbsMock()})
+
+	var getError error
+	output := captureStdout(t, func() {
+		_, getError = executeCommand("cluster", "get", "deployments", "-n", "default")
+	})
+	if got := exitCodeFor(getError); got != exitError || strings.Contains(output, "No deployments found") {
+		t.Fatalf("a listing the reply never answered must exit %d without 'No deployments found', got %d (%v):\n%s",
+			exitError, got, getError, output)
+	}
+	_, logsError := executeCommand("cluster", "logs", "-l", "app=web", "-n", "default", "--follow=false")
+	if got := exitCodeFor(logsError); got != exitError {
+		t.Fatalf("a selector the reply never answered must exit %d, not 'no pods match', got %d (%v)",
+			exitError, got, logsError)
+	}
+}
