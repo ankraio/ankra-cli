@@ -4,6 +4,18 @@
 
 ### Fixed
 
+- **A deleted resource no longer reads as live.** `ankra cluster describe`,
+  `ankra cluster get <kind> <name>`, `ankra cluster logs <pod>
+  --all-containers` and `ankra cluster terminal` printed or used the
+  platform's last record of an object the cluster had already deleted, so a
+  pod removed while the agent was offline still showed as running. They now
+  say `<kind> "<name>" was deleted from the cluster at <time>` and exit 3
+  (not found), as they already did for an object that never existed. A named
+  read the platform could not complete (lost RBAC, an apiserver that did not
+  answer) is now reported with the platform's reason and exit 1, instead of
+  as a missing object; `get <kind> <name>` of a missing object exits 3 rather
+  than printing `No <kind> found.`
+
 - **`ankra application pipeline validate` takes `--no-local-graph`.** It
   reads the local dependency graph for `affected:` stages the same way
   `ankra pipeline validate` does, but had no way to turn that off: the flag

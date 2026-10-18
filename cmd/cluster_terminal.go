@@ -85,10 +85,11 @@ func defaultPodContainer(clusterID string, namespace string, podName string) (st
 	if requestError != nil {
 		return "", requestError
 	}
-	if len(response.ResourceResponses) == 0 || len(response.ResourceResponses[0].Items) == 0 {
-		return "", withExitCode(exitNotFound, fmt.Errorf("pod %q not found in namespace %q", podName, namespace))
+	items, namedReadError := namedReadItems(response, "pod", podName, namespace)
+	if namedReadError != nil {
+		return "", namedReadError
 	}
-	pod, isObject := response.ResourceResponses[0].Items[0].(map[string]interface{})
+	pod, isObject := items[0].(map[string]interface{})
 	if !isObject {
 		return "", fmt.Errorf("unexpected pod payload for %q", podName)
 	}

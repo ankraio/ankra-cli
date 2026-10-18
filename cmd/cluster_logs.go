@@ -74,11 +74,12 @@ func resolveLogTargets(
 	if requestError != nil {
 		return nil, requestError
 	}
-	if len(response.ResourceResponses) == 0 || len(response.ResourceResponses[0].Items) == 0 {
-		if podName != "" {
-			return nil, withExitCode(exitNotFound, fmt.Errorf(
-				"pod %q not found in namespace %s", podName, namespace))
+	if podName != "" {
+		if _, namedReadError := namedReadItems(response, "pod", podName, namespace); namedReadError != nil {
+			return nil, namedReadError
 		}
+	}
+	if len(response.ResourceResponses) == 0 || len(response.ResourceResponses[0].Items) == 0 {
 		return nil, withExitCode(exitNotFound, fmt.Errorf(
 			"no pods match selector %q in namespace %s", labelSelector, namespace))
 	}

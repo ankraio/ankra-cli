@@ -608,6 +608,13 @@ func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, ou
 	if err != nil {
 		return err
 	}
+	if nameFilter != "" {
+		// A named read must not render a deleted object's last body, or
+		// a failed read as "No X found." (namedReadItems).
+		if _, namedReadError := namedReadItems(response, cfg.kind, nameFilter, reqItem.Namespace); namedReadError != nil {
+			return namedReadError
+		}
+	}
 
 	var items []interface{}
 	if len(response.ResourceResponses) > 0 {
