@@ -712,3 +712,94 @@ func TestRunOrgCISettingsGet_ACapacityFailureIsReportedOnStderr(t *testing.T) {
 		t.Errorf("stderr = %q, want the failure named", standardError.String())
 	}
 }
+
+func TestRunOrgCISettingsSet_WritesThePathFilterSafetyNet(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock,
+		"org", "ci-settings", "set",
+		"--always-run-stage", "security-scan", "--always-run-stage", " lint ",
+		"--full-run-on-default-branch", "--skip-markers", "never")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	changes := mock.updateSeen[0]
+	stages, isList := changes["ci_always_run_stages"].([]string)
+	if !isList || len(stages) != 2 || stages[0] != "security-scan" || stages[1] != "lint" {
+		t.Errorf("ci_always_run_stages = %#v, want [security-scan lint]", changes["ci_always_run_stages"])
+	}
+	if changes["ci_full_run_on_default_branch"] != true {
+		t.Errorf("ci_full_run_on_default_branch = %v, want true", changes["ci_full_run_on_default_branch"])
+	}
+	if changes["ci_skip_markers"] != client.CISkipMarkersNever {
+		t.Errorf("ci_skip_markers = %v, want never", changes["ci_skip_markers"])
+	}
+	if len(changes) != 3 {
+		t.Errorf("only the three passed settings may be written, got %v", changes)
+	}
+}
+
+func TestRunOrgCISettingsSet_ClearsTheAlwaysRunStagesAndSendsAnExplicitFalse(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock,
+		"org", "ci-settings", "set", "--always-run-stage", "", "--full-run-on-default-branch=false")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	changes := mock.updateSeen[0]
+	stages, isList := changes["ci_always_run_stages"].([]string)
+	if !isList || len(stages) != 0 {
+		t.Errorf("ci_always_run_stages = %#v, want an empty list", changes["ci_always_run_stages"])
+	}
+	if value, isPresent := changes["ci_full_run_on_default_branch"]; !isPresent || value != false {
+		t.Errorf("ci_full_run_on_default_branch = %v, want an explicit false", changes)
+	}
+}
+
+func TestRunOrgCISettingsSet_NamesTheVocabularyForAnUnknownSkipMarkersValue(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	_, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "set", "--skip-markers", "sometimes")
+	if executeError == nil || exitCodeFor(executeError) != exitUsage {
+		t.Fatalf("expected a usage error, got %v", executeError)
+	}
+	if !strings.Contains(executeError.Error(), "everywhere, except_default_branch or never") {
+		t.Errorf("error = %v, want the vocabulary named", executeError)
+	}
+	if len(mock.updateSeen) != 0 {
+		t.Errorf("expected no write, got %v", mock.updateSeen)
+	}
+}
+
+func TestRunOrgCISettingsGet_ShowsThePathFilterSafetyNet(t *testing.T) {
+	settings := defaultCISettings()
+	fullRun := true
+	settings.AlwaysRunStages = []string{"security-scan"}
+	settings.FullRunOnDefaultBranch = &fullRun
+	settings.SkipMarkers = client.CISkipMarkersExceptDefaultBranch
+	mock := &orgCISettingsMock{settings: settings}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	for _, want := range []string{
+		"Always-run stages:       security-scan",
+		"Full run on default:     yes",
+		"Skip markers honoured:   except_default_branch",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("get output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestRunOrgCISettingsGet_OlderPlatformShowsNoSafetyNetLines(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	for _, unwanted := range []string{"Always-run stages", "Full run on default", "Skip markers"} {
+		if strings.Contains(output, unwanted) {
+			t.Errorf("a platform that sends none of these must not show %q:\n%s", unwanted, output)
+		}
+	}
+}

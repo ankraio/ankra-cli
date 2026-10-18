@@ -20,7 +20,36 @@
   in the audit log, and an unknown name exits 3. A refused variable write no
   longer echoes the value in its error message.
 
+- **`ankra org ci-settings set` covers the path-filter safety net.** It gains
+  `--always-run-stage` (repeatable; replaces the list, empty clears it),
+  `--full-run-on-default-branch` and `--skip-markers everywhere|
+  except_default_branch|never`, which were settable only in the portal and
+  the API. `get` shows them, and `-o json|yaml` carries
+  `ci_always_run_stages`, `ci_full_run_on_default_branch` and
+  `ci_skip_markers` when the platform reports them.
+
+- **`ankra org ai-environment set` sets where AI workspaces run and how long
+  they live.** New flags: `--staging-cluster` (name or id; empty clears it),
+  `--workspace-ttl-hours`, `--demo-ttl-hours`, `--demo-ttl-role-cap
+  <role>=<hours>` (repeatable) and `--default-gateway-mode ask|agent`. `get`
+  shows them, and `-o json|yaml` gains `staging_cluster_id`,
+  `staging_cluster_name`, `staging_cluster_online`, `workspace_ttl_hours`,
+  `demo_ttl_hours`, `demo_ttl_role_caps` and `default_gateway_mode`.
+
 ### Changed
+
+- **`ankra ai endpoints create` reads the API key from stdin or a masked
+  prompt.** `--api-key` is no longer required and is deprecated, because a key
+  on the command line lands in shell history; it still works and prints a
+  warning. `--api-key ""` is a usage error rather than a fall-through to
+  stdin, and a stdin that is not a terminal and sends nothing within three
+  seconds (ssh with a command, `docker run -i` without `-t`) fails with a
+  usage error instead of waiting. `ankra ai openrouter set` reads its key the
+  same way.
+
+- **An invalid control-plane `set-count` exits 2.** A count that is not a
+  number, or not one the provider accepts, is a usage error (exit 2); it
+  exited 1 before.
 
 - **`ankra security dispositions update -o json|yaml` and `revoke -o
   json|yaml` print the bare policy.** The output is the policy object itself
@@ -43,6 +72,14 @@
   changed.** Both printed an empty summary because they expected the
   policy-and-preview shape `record` returns, while an edit or revoke returns
   the policy alone. They now show the stored policy.
+
+- **Control-plane `set-count` says what actually happens.** The help said a
+  count change needs a stopped cluster; growing the control plane may happen
+  live on a running cluster (the platform says why when it refuses), and only
+  a reduction needs a stop. After a live change the command now names the
+  operation to follow instead of telling you to start a running cluster.
+  Proxmox VE also accepts 5 controllers, which the CLI used to refuse before
+  asking the platform.
 
 ## v0.40.0 — 2026-10-17
 

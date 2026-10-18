@@ -218,7 +218,7 @@ type APIClient interface {
 	GetOrganisationDomain(ctx context.Context) (*client.OrganisationDomain, error)
 	GetOrganisationPreviewSettings(ctx context.Context) (*client.OrganisationPreviewSettings, error)
 	UpdateOrganisationPreviewSettings(ctx context.Context,
-		changes map[string]*string) (*client.OrganisationPreviewSettings, error)
+		changes map[string]any) (*client.OrganisationPreviewSettings, error)
 	SetOrganisationDomain(ctx context.Context, rootDomain string) (*client.OrganisationDomain, error)
 	GetOrganisationCISettings(ctx context.Context) (*client.OrganisationCISettings, error)
 	UpdateOrganisationCISettings(ctx context.Context,

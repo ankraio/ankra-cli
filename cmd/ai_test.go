@@ -2,10 +2,14 @@ package cmd
 
 import (
 	"errors"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"ankra/internal/client"
+
+	"github.com/spf13/cobra"
 )
 
 type aiSettingsMock struct {
@@ -264,7 +268,7 @@ func TestAIOpenRouterSetWithFlag(t *testing.T) {
 	const rawKey = "sk-or-v1-flag-secret-000"
 	mock := &aiSettingsMock{}
 	setMockClient(t, mock)
-	t.Cleanup(func() { _ = aiOpenRouterSetCmd.Flags().Set("api-key", "") })
+	t.Cleanup(func() { resetAPIKeyFlag(aiOpenRouterSetCmd) })
 
 	var commandOutput string
 	stdoutOutput := captureStdout(t, func() {
@@ -332,7 +336,7 @@ func TestAIOpenRouterSetPlatformRejects(t *testing.T) {
 			"Invalid OpenRouter API key format (must start with sk-or-)"),
 	}
 	setMockClient(t, mock)
-	t.Cleanup(func() { _ = aiOpenRouterSetCmd.Flags().Set("api-key", "") })
+	t.Cleanup(func() { resetAPIKeyFlag(aiOpenRouterSetCmd) })
 
 	var executeError error
 	_ = captureStdout(t, func() {
@@ -394,5 +398,155 @@ func TestAIOpenRouterRemoveDeclined(t *testing.T) {
 	}
 	if !errors.Is(executeError, errCancelled) {
 		t.Errorf("expected errCancelled, got: %v", executeError)
+	}
+}
+
+type aiEndpointCreateMock struct {
+	aiSettingsMock
+	createdName   string
+	createdAPIKey string
+	createCalls   int
+}
+
+func (m *aiEndpointCreateMock) CreateAIEndpoint(name, baseURL, apiKey string) (*client.AIEndpoint, error) {
+	m.createCalls++
+	m.createdName = name
+	m.createdAPIKey = apiKey
+	return &client.AIEndpoint{ID: "ep-1", Name: name, BaseURL: baseURL}, nil
+}
+
+// resetAPIKeyFlag empties a command's --api-key and marks it unset again.
+// Setting the value alone leaves Changed true, and resolveSecretInput reads a
+// passed-but-empty flag as a usage error, so the next test would inherit it.
+func resetAPIKeyFlag(command *cobra.Command) {
+	_ = command.Flags().Set("api-key", "")
+	command.Flags().Lookup("api-key").Changed = false
+}
+
+func resetAIEndpointsCreateFlags(t *testing.T) {
+	t.Helper()
+	t.Cleanup(func() {
+		for _, flagName := range []string{"name", "base-url", "api-key"} {
+			_ = aiEndpointsCreateCmd.Flags().Set(flagName, "")
+			aiEndpointsCreateCmd.Flags().Lookup(flagName).Changed = false
+		}
+		rootCmd.SetIn(nil)
+	})
+}
+
+func TestAIEndpointsCreateReadsKeyFromStdin(t *testing.T) {
+	const rawKey = "sk-endpoint-stdin-secret"
+	mock := &aiEndpointCreateMock{}
+	setMockClient(t, mock)
+	resetAIEndpointsCreateFlags(t)
+	rootCmd.SetIn(strings.NewReader(rawKey + "\n"))
+
+	var commandOutput string
+	var executeError error
+	stdoutOutput := captureStdout(t, func() {
+		commandOutput, executeError = executeCommand("ai", "endpoints", "create", "--name", "vllm", "--base-url", "https://vllm.example.com/v1")
+	})
+	if executeError != nil {
+		t.Fatalf("unexpected error: %v\n%s", executeError, commandOutput)
+	}
+	if mock.createdAPIKey != rawKey || mock.createdName != "vllm" {
+		t.Errorf("create call = %q %q, want the stdin key", mock.createdName, mock.createdAPIKey)
+	}
+	if strings.Contains(stdoutOutput, rawKey) || strings.Contains(commandOutput, rawKey) {
+		t.Errorf("the raw API key must never be echoed, got %q / %q", stdoutOutput, commandOutput)
+	}
+	if strings.Contains(commandOutput, "deprecated") {
+		t.Errorf("no deprecation warning expected without --api-key, got %q", commandOutput)
+	}
+}
+
+func TestAIEndpointsCreateAPIKeyFlagStillWorksAndWarns(t *testing.T) {
+	const rawKey = "sk-endpoint-flag-secret"
+	mock := &aiEndpointCreateMock{}
+	setMockClient(t, mock)
+	resetAIEndpointsCreateFlags(t)
+
+	var commandOutput string
+	var executeError error
+	_ = captureStdout(t, func() {
+		commandOutput, executeError = executeCommand("ai", "endpoints", "create", "--name", "vllm", "--base-url", "https://vllm.example.com/v1", "--api-key", rawKey)
+	})
+	if executeError != nil {
+		t.Fatalf("unexpected error: %v\n%s", executeError, commandOutput)
+	}
+	if mock.createdAPIKey != rawKey {
+		t.Errorf("created key = %q, want the flag value", mock.createdAPIKey)
+	}
+	if !strings.Contains(commandOutput, "--api-key is deprecated") {
+		t.Errorf("expected a deprecation warning, got %q", commandOutput)
+	}
+}
+
+func TestAIEndpointsCreateFailsFastOnASilentStdin(t *testing.T) {
+	mock := &aiEndpointCreateMock{}
+	setMockClient(t, mock)
+	resetAIEndpointsCreateFlags(t)
+	originalWait := secretStdinWait
+	secretStdinWait = 50 * time.Millisecond
+	t.Cleanup(func() { secretStdinWait = originalWait })
+	silentReader, silentWriter := io.Pipe()
+	t.Cleanup(func() { _ = silentWriter.Close() })
+	rootCmd.SetIn(silentReader)
+
+	started := time.Now()
+	var executeError error
+	_ = captureStdout(t, func() {
+		_, executeError = executeCommand("ai", "endpoints", "create", "--name", "vllm", "--base-url", "https://vllm.example.com/v1")
+	})
+	if executeError == nil || exitCodeFor(executeError) != exitUsage {
+		t.Fatalf("expected a usage error, got %v", executeError)
+	}
+	if !strings.Contains(executeError.Error(), "stdin is not a terminal and sent nothing") {
+		t.Errorf("error = %v, want it to name the silent stdin", executeError)
+	}
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Errorf("took %s, want a fast failure", elapsed)
+	}
+	if mock.createCalls != 0 {
+		t.Errorf("expected no create call, got %d", mock.createCalls)
+	}
+}
+
+func TestAIEndpointsCreateEmptyAPIKeyFlagDoesNotReadStdin(t *testing.T) {
+	mock := &aiEndpointCreateMock{}
+	setMockClient(t, mock)
+	resetAIEndpointsCreateFlags(t)
+	rootCmd.SetIn(strings.NewReader("sk-from-stdin\n"))
+
+	var executeError error
+	_ = captureStdout(t, func() {
+		_, executeError = executeCommand("ai", "endpoints", "create", "--name", "vllm", "--base-url", "https://vllm.example.com/v1", "--api-key", "")
+	})
+	if executeError == nil || exitCodeFor(executeError) != exitUsage {
+		t.Fatalf("expected a usage error, got %v", executeError)
+	}
+	if !strings.Contains(executeError.Error(), "--api-key is empty") {
+		t.Errorf("error = %v, want it to name the empty flag", executeError)
+	}
+	if mock.createCalls != 0 {
+		t.Errorf("expected no create call, got %d", mock.createCalls)
+	}
+}
+
+func TestAIEndpointsCreateMissingKeyIsUsageError(t *testing.T) {
+	mock := &aiEndpointCreateMock{}
+	setMockClient(t, mock)
+	resetAIEndpointsCreateFlags(t)
+	rootCmd.SetIn(strings.NewReader("\n"))
+
+	var executeError error
+	_ = captureStdout(t, func() {
+		_, executeError = executeCommand("ai", "endpoints", "create", "--name", "vllm", "--base-url", "https://vllm.example.com/v1")
+	})
+	if executeError == nil || exitCodeFor(executeError) != exitUsage {
+		t.Fatalf("expected a usage error, got %v", executeError)
+	}
+	if mock.createCalls != 0 {
+		t.Errorf("expected no create call, got %d", mock.createCalls)
 	}
 }
