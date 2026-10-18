@@ -61,6 +61,11 @@
 
 ### Fixed
 
+- **`ankra cluster apply --dry-run --cluster <name|id>` no longer crashes.**
+  A dry-run validates the file offline, without credentials, but it still
+  tried to resolve `--cluster` through the API and panicked. It now validates
+  the file and says that `--cluster` is resolved when the file is applied.
+
 - **Commands run in the organisation `ankra org current` shows.** With no
   `--org` or `ANKRA_ORG`, requests ran in the platform's current
   organisation, which also changes when you switch organisation in the portal
