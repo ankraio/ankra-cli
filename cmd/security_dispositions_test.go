@@ -25,6 +25,7 @@ type securityDispositionsMock struct {
 	preview            *client.SecurityDispositionPreview
 	previewRequest     *client.SecurityDispositionPreviewRequest
 	mutation           *client.SecurityDispositionMutation
+	policy             *client.SecurityDisposition
 	createRequest      *client.SecurityDispositionCreateRequest
 	updateRequest      *client.SecurityDispositionUpdateRequest
 	revokeRequest      *client.SecurityDispositionRevokeRequest
@@ -64,15 +65,15 @@ func (m *securityDispositionsMock) CreateSecurityDisposition(request client.Secu
 	return m.mutation, nil
 }
 
-func (m *securityDispositionsMock) UpdateSecurityDisposition(_ string, request client.SecurityDispositionUpdateRequest) (*client.SecurityDispositionMutation, error) {
+func (m *securityDispositionsMock) UpdateSecurityDisposition(_ string, request client.SecurityDispositionUpdateRequest) (*client.SecurityDisposition, error) {
 	m.updateRequest = &request
-	return m.mutation, nil
+	return m.policy, nil
 }
 
-func (m *securityDispositionsMock) RevokeSecurityDisposition(policyID string, request client.SecurityDispositionRevokeRequest) (*client.SecurityDispositionMutation, error) {
+func (m *securityDispositionsMock) RevokeSecurityDisposition(policyID string, request client.SecurityDispositionRevokeRequest) (*client.SecurityDisposition, error) {
 	m.revokedPolicyID = policyID
 	m.revokeRequest = &request
-	return m.mutation, nil
+	return m.policy, nil
 }
 
 // runSecurityCommandWithInput is runSecurityCommand with a stdin, for the
@@ -447,7 +448,8 @@ func TestSecurityDispositionsUpdate_RefusesEmptyDeadline(t *testing.T) {
 }
 
 func TestSecurityDispositionsUpdate_SendsOnlyChangedMembers(t *testing.T) {
-	mock := &securityDispositionsMock{mutation: &client.SecurityDispositionMutation{Policy: sampleDisposition(), Preview: *sampleDispositionPreview()}}
+	policy := sampleDisposition()
+	mock := &securityDispositionsMock{policy: &policy}
 	output, err := runSecurityCommand(t, mock, "security", "dispositions", "update", "policy-1", "--reason", "new reason", "--yes")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -458,6 +460,22 @@ func TestSecurityDispositionsUpdate_SendsOnlyChangedMembers(t *testing.T) {
 	}
 	if !strings.Contains(output, "Updated accepted_risk policy") {
 		t.Errorf("expected the updated line:\n%s", output)
+	}
+}
+
+func TestSecurityDispositionsUpdate_JSONIsThePolicy(t *testing.T) {
+	policy := sampleDisposition()
+	mock := &securityDispositionsMock{policy: &policy}
+	output, err := runSecurityCommand(t, mock, "security", "dispositions", "update", policy.ID, "--reason", "new reason", "--yes", "-o", "json")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var decoded client.SecurityDisposition
+	if decodeError := json.Unmarshal([]byte(output), &decoded); decodeError != nil {
+		t.Fatalf("output is not a policy: %v\n%s", decodeError, output)
+	}
+	if decoded.ID != policy.ID || decoded.Disposition != "accepted_risk" {
+		t.Errorf("decoded policy = %+v", decoded)
 	}
 }
 
@@ -472,7 +490,7 @@ func TestSecurityDispositionsRevoke_RequiresReason(t *testing.T) {
 func TestSecurityDispositionsRevoke_ConfirmsThenRevokes(t *testing.T) {
 	policy := sampleDisposition()
 	policy.Status = "revoked"
-	mock := &securityDispositionsMock{mutation: &client.SecurityDispositionMutation{Policy: policy, Preview: *sampleDispositionPreview()}}
+	mock := &securityDispositionsMock{policy: &policy}
 	stdout, _, err := runSecurityCommandWithInput(t, mock, "y\n", "security", "dispositions", "revoke", policy.ID, "--reason", "fix rolled out")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
