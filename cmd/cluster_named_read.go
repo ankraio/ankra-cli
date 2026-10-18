@@ -22,7 +22,10 @@ import (
 func namedReadItems(response *client.GetResourcesResponse, kind string, name string, namespace string) ([]interface{}, error) {
 	notFound := withExitCode(exitNotFound, fmt.Errorf("%s %q not found%s", kind, name, namespaceSuffix(namespace)))
 	if response == nil || len(response.ResourceResponses) == 0 {
-		return nil, notFound
+		// One item per request item is the wire contract: a reply with none
+		// was never an answer about the object, so it is not a not-found.
+		return nil, fmt.Errorf("reading %s %q%s failed: the platform answered no item for it",
+			kind, name, namespaceSuffix(namespace))
 	}
 	item := response.ResourceResponses[0]
 	if item.NotFound || isAgentNotFoundText(item) {

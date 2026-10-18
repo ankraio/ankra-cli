@@ -59,7 +59,7 @@ func TestNamedReadItemsClassifiesEveryAnswer(t *testing.T) {
 			wantExitCode: exitError, wantMessageHas: "is forbidden"},
 		{name: "failed read without a reason", item: client.ResourceResponseItem{Status: "error", ErrorResponse: &empty},
 			wantExitCode: exitError, wantMessageHas: "the platform gave no reason"},
-		{name: "empty listing", item: client.ResourceResponseItem{Status: "success"},
+		{name: "empty answer", item: client.ResourceResponseItem{Status: "success"},
 			wantExitCode: exitNotFound, wantMessageHas: "not found"},
 	}
 	for _, testCase := range cases {
@@ -171,6 +171,46 @@ func TestLogsSelectorReadThatFailedIsNotReportedAsNoMatch(t *testing.T) {
 	_, executeError := executeCommand("cluster", "logs", "-l", "app=web", "-n", "default", "--follow=false")
 	if got := exitCodeFor(executeError); got != exitError {
 		t.Fatalf("a refused selector read should exit %d, got %d (%v)", exitError, got, executeError)
+	}
+	if !strings.Contains(executeError.Error(), "is forbidden") {
+		t.Errorf("the platform's reason must reach the user, got %v", executeError)
+	}
+}
+
+func TestNamedReadWithNoItemInTheReplyIsAFailedReadNotNotFound(t *testing.T) {
+	_, readError := namedReadItems(&client.GetResourcesResponse{}, "Pod", "web", "default")
+	if got := exitCodeFor(readError); got != exitError {
+		t.Fatalf("a reply carrying no item is not an answer about the object, want exit %d, got %d (%v)",
+			exitError, got, readError)
+	}
+}
+
+func TestGetListThatFailedIsNotReportedAsEmpty(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	var deploymentsCommand *cobra.Command
+	for _, command := range clusterGetCmd.Commands() {
+		if command.Name() == "deployments" {
+			deploymentsCommand = command
+		}
+	}
+	if deploymentsCommand == nil {
+		t.Fatal("cluster get deployments is not registered")
+	}
+	resetCommandFlags(t, deploymentsCommand)
+	mock := newDebugVerbsMock()
+	forbidden := "deployments.apps is forbidden: User cannot list resource"
+	mock.responses["Deployment"] = client.ResourceResponseItem{Status: "error", ErrorResponse: &forbidden}
+	setMockClient(t, mock)
+
+	var executeError error
+	output := captureStdout(t, func() {
+		_, executeError = executeCommand("cluster", "get", "deployments", "-n", "default")
+	})
+	if got := exitCodeFor(executeError); got != exitError {
+		t.Fatalf("a refused listing should exit %d, got %d (%v)", exitError, got, executeError)
+	}
+	if strings.Contains(output, "No deployments found") {
+		t.Fatalf("a refused listing must not read as an empty one:\n%s", output)
 	}
 	if !strings.Contains(executeError.Error(), "is forbidden") {
 		t.Errorf("the platform's reason must reach the user, got %v", executeError)

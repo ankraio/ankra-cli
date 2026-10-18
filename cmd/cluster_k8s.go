@@ -614,6 +614,11 @@ func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, ou
 		if _, namedReadError := namedReadItems(response, cfg.kind, nameFilter, reqItem.Namespace); namedReadError != nil {
 			return namedReadError
 		}
+	} else if len(response.ResourceResponses) > 0 {
+		// A listing that failed is not an empty one.
+		if readError := failedReadError(response.ResourceResponses[0], cfg.commandName+namespaceSuffix(reqItem.Namespace)); readError != nil {
+			return readError
+		}
 	}
 
 	var items []interface{}
