@@ -200,11 +200,10 @@ annotations live.`,
 			parameter["title"] = title
 		}
 		if changed("default") {
-			if defaultValue == "" {
-				delete(parameter, "default")
-			} else {
-				parameter["default"] = defaultValue
-			}
+			// An empty default is sent, not dropped: the platform re-detects
+			// the draft's inputs on every save and fills a missing default
+			// from the stack's variables, so only an explicit "" clears one.
+			parameter["default"] = defaultValue
 		}
 		if changed("type") {
 			parameter["type"] = parameterType

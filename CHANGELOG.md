@@ -61,6 +61,13 @@
 
 ### Fixed
 
+- **`ankra stack-profiles drafts annotate --default ""` clears the default.**
+  It used to drop the default from the input, and the platform, which
+  re-detects a draft's inputs on every save, filled it straight back in from
+  the stack's variables, so `drafts validate` kept reporting "is required
+  and also carries the default". The CLI now sends the empty default, which
+  the platform keeps, and a required input without a default validates.
+
 - **`ankra cluster apply --dry-run --cluster <name|id>` no longer crashes.**
   A dry-run validates the file offline, without credentials, but it still
   tried to resolve `--cluster` through the API and panicked. It now validates
