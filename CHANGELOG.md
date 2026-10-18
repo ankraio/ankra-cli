@@ -4,6 +4,24 @@
 
 ### Added
 
+- **`ankra cluster delete`, `patch` and `describe` reach cluster-scoped
+  kinds outside the built-in set.** A CustomResourceDefinition no longer
+  answers "--namespace (-n) is required": `crd`, `crds` and
+  `CustomResourceDefinition` resolve to `apiextensions.k8s.io/v1` and are
+  cluster-scoped, so `ankra cluster delete crd kafkas.kafka.strimzi.io` clears
+  a leftover CRD that blocks a chart install. APIService,
+  Validating/MutatingWebhookConfiguration, PriorityClass (`pc`),
+  RuntimeClass, CSIDriver, CSINode and VolumeAttachment join the table the
+  same way. A cluster-scoped custom kind (ClusterIssuer, ClusterPolicy, ...)
+  takes the new `--cluster-scoped` flag alongside `--group` and
+  `--api-version`, and the usage error for a custom kind without a namespace
+  now points at it.
+
+- **`ankra helm credentials create` and `update` take `--password-stdin`.**
+  The password can be piped in for scripted and agent use instead of only an
+  interactive prompt; the trailing newline is dropped and an empty stdin is a
+  usage error.
+
 - **`ankra org variables set --secret` stores a secret organisation
   variable.** A credential stored through the CLI no longer has to be
   readable by every member: `--secret` creates the variable as a secret, or

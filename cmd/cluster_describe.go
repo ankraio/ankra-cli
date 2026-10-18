@@ -51,17 +51,14 @@ Examples:
 			return err
 		}
 		namespace, _ := cmd.Flags().GetString("namespace")
-		apiGroup, _ := cmd.Flags().GetString("group")
-		apiVersion, _ := cmd.Flags().GetString("api-version")
 
-		resolvedKind, kindError := resolveK8sKind(args[0], apiGroup, apiVersion)
+		resolvedKind, kindError := resolveK8sKindFromFlags(cmd, args[0])
 		if kindError != nil {
 			return kindError
 		}
 		name := args[1]
 		if !resolvedKind.clusterScoped && namespace == "" {
-			return withExitCode(exitUsage, fmt.Errorf(
-				"--namespace (-n) is required to describe a %s", resolvedKind.kind))
+			return namespaceRequiredError("describe", resolvedKind)
 		}
 		if resolvedKind.clusterScoped {
 			namespace = ""
@@ -466,8 +463,7 @@ func renderObjectEvents(events []map[string]interface{}) {
 func init() {
 	clusterDescribeCmd.Flags().StringP("namespace", "n", "", "Kubernetes namespace")
 	clusterDescribeCmd.Flags().StringP("output", "o", "table", "Output format: table, json, yaml")
-	clusterDescribeCmd.Flags().String("group", "", "API group override (e.g. apps, networking.k8s.io)")
-	clusterDescribeCmd.Flags().String("api-version", "", "API version override (e.g. v1, v1beta1)")
+	registerK8sKindFlags(clusterDescribeCmd)
 
 	clusterCmd.AddCommand(clusterDescribeCmd)
 }

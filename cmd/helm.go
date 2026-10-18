@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -586,27 +587,19 @@ var helmCredentialsCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a Helm registry credential",
 	Long: `Create a Helm registry credential with username and password.
-The password will be prompted interactively.
+The password is prompted interactively, or read from stdin with
+--password-stdin so scripts and agents can create it without a terminal.
 
-Example:
-  ankra helm credentials create --name my-cred --username user`,
+Examples:
+  ankra helm credentials create --name my-cred --username user
+  printf '%s' "$REGISTRY_TOKEN" | ankra helm credentials create --name my-cred --username robot --password-stdin`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		username, _ := cmd.Flags().GetString("username")
 
-		passwordPrompt := promptui.Prompt{
-			Label: "Password",
-			Mask:  '*',
-			Validate: func(input string) error {
-				if len(input) == 0 {
-					return fmt.Errorf("password cannot be empty")
-				}
-				return nil
-			},
-		}
-		password, err := passwordPrompt.Run()
+		password, err := readHelmCredentialPassword(cmd)
 		if err != nil {
-			return fmt.Errorf("prompt cancelled: %w", err)
+			return err
 		}
 
 		result, err := apiClient.CreateHelmRegistryCredential(client.CreateHelmCredentialRequest{
@@ -629,6 +622,40 @@ Example:
 		fmt.Printf("Helm registry credential '%s' created successfully!\n", name)
 		return nil
 	},
+}
+
+// readHelmCredentialPassword takes the registry password from stdin
+// (--password-stdin) or a masked prompt, and never echoes it. Only the
+// trailing newline a pipe or heredoc adds is dropped, since a registry token
+// may legitimately carry other whitespace.
+func readHelmCredentialPassword(cmd *cobra.Command) (string, error) {
+	isFromStdin, _ := cmd.Flags().GetBool("password-stdin")
+	if isFromStdin {
+		raw, readError := io.ReadAll(cmd.InOrStdin())
+		if readError != nil {
+			return "", fmt.Errorf("read the password from stdin: %w", readError)
+		}
+		password := strings.TrimRight(string(raw), "\r\n")
+		if password == "" {
+			return "", withExitCode(exitUsage, errors.New("no password was read from stdin"))
+		}
+		return password, nil
+	}
+	passwordPrompt := promptui.Prompt{
+		Label: "Password",
+		Mask:  '*',
+		Validate: func(input string) error {
+			if len(input) == 0 {
+				return fmt.Errorf("password cannot be empty")
+			}
+			return nil
+		},
+	}
+	password, promptError := passwordPrompt.Run()
+	if promptError != nil {
+		return "", fmt.Errorf("prompt cancelled: %w", promptError)
+	}
+	return password, nil
 }
 
 var helmCredentialsGetCmd = &cobra.Command{
@@ -667,10 +694,12 @@ var helmCredentialsUpdateCmd = &cobra.Command{
 	Short: "Update a Helm registry credential",
 	Long: `Update a Helm registry credential's username and password, addressed by
 its name or by the id 'ankra helm credentials list' prints.
-The password will be prompted interactively.
+The password is prompted interactively, or read from stdin with
+--password-stdin.
 
-Example:
-  ankra helm credentials update my-cred --username user`,
+Examples:
+  ankra helm credentials update my-cred --username user
+  printf '%s' "$REGISTRY_TOKEN" | ankra helm credentials update my-cred --username robot --password-stdin`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		credentialName, err := resolveHelmCredentialName(apiClient, args[0])
@@ -679,19 +708,9 @@ Example:
 		}
 		username, _ := cmd.Flags().GetString("username")
 
-		passwordPrompt := promptui.Prompt{
-			Label: "Password",
-			Mask:  '*',
-			Validate: func(input string) error {
-				if len(input) == 0 {
-					return fmt.Errorf("password cannot be empty")
-				}
-				return nil
-			},
-		}
-		password, err := passwordPrompt.Run()
+		password, err := readHelmCredentialPassword(cmd)
 		if err != nil {
-			return fmt.Errorf("prompt cancelled: %w", err)
+			return err
 		}
 
 		if err := apiClient.UpdateHelmRegistryCredential(credentialName, client.UpdateHelmCredentialRequest{
@@ -768,8 +787,10 @@ func init() {
 	helmCredentialsCreateCmd.Flags().String("username", "", "Registry username (required)")
 	_ = helmCredentialsCreateCmd.MarkFlagRequired("name")
 	_ = helmCredentialsCreateCmd.MarkFlagRequired("username")
+	helmCredentialsCreateCmd.Flags().Bool("password-stdin", false, "Read the password from stdin instead of prompting")
 	helmCredentialsUpdateCmd.Flags().String("username", "", "Registry username (required)")
 	_ = helmCredentialsUpdateCmd.MarkFlagRequired("username")
+	helmCredentialsUpdateCmd.Flags().Bool("password-stdin", false, "Read the password from stdin instead of prompting")
 	helmCredentialsDeleteCmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
 
 	registerStructuredOutputFlags(helmRegistriesListCmd, helmRegistriesGetCmd, helmRegistriesSyncJobsCmd, helmCredentialsListCmd)

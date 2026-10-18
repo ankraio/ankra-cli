@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/spf13/cobra"
 )
 
 // k8sKind is the group/version/scope a resources/get request needs for a
@@ -54,6 +56,18 @@ var builtinK8sKinds = map[string]k8sKind{
 	"rolebinding":             {kind: "RoleBinding", group: "rbac.authorization.k8s.io", version: "v1"},
 	"clusterrole":             {kind: "ClusterRole", group: "rbac.authorization.k8s.io", version: "v1", clusterScoped: true},
 	"clusterrolebinding":      {kind: "ClusterRoleBinding", group: "rbac.authorization.k8s.io", version: "v1", clusterScoped: true},
+	"customresourcedefinition": {kind: "CustomResourceDefinition", group: "apiextensions.k8s.io", version: "v1",
+		resource: "customresourcedefinitions", clusterScoped: true},
+	"apiservice": {kind: "APIService", group: "apiregistration.k8s.io", version: "v1", resource: "apiservices", clusterScoped: true},
+	"validatingwebhookconfiguration": {kind: "ValidatingWebhookConfiguration", group: "admissionregistration.k8s.io", version: "v1",
+		resource: "validatingwebhookconfigurations", clusterScoped: true},
+	"mutatingwebhookconfiguration": {kind: "MutatingWebhookConfiguration", group: "admissionregistration.k8s.io", version: "v1",
+		resource: "mutatingwebhookconfigurations", clusterScoped: true},
+	"priorityclass":    {kind: "PriorityClass", group: "scheduling.k8s.io", version: "v1", resource: "priorityclasses", clusterScoped: true},
+	"runtimeclass":     {kind: "RuntimeClass", group: "node.k8s.io", version: "v1", resource: "runtimeclasses", clusterScoped: true},
+	"csidriver":        {kind: "CSIDriver", group: "storage.k8s.io", version: "v1", resource: "csidrivers", clusterScoped: true},
+	"csinode":          {kind: "CSINode", group: "storage.k8s.io", version: "v1", resource: "csinodes", clusterScoped: true},
+	"volumeattachment": {kind: "VolumeAttachment", group: "storage.k8s.io", version: "v1", resource: "volumeattachments", clusterScoped: true},
 }
 
 // k8sKindShortNames maps the kubectl short spellings onto their canonical
@@ -82,6 +96,9 @@ var k8sKindShortNames = map[string]string{
 	"sc":     "storageclass",
 	"limits": "limitrange",
 	"quota":  "resourcequota",
+	"crd":    "customresourcedefinition",
+	"crds":   "customresourcedefinition",
+	"pc":     "priorityclass",
 }
 
 // singularK8sKindKey normalises a user-typed kind to the singular lower-case
@@ -116,6 +133,45 @@ func singularK8sKindKey(rawKind string) string {
 		}
 	}
 	return lowered
+}
+
+// resolveK8sKindFromFlags resolves the kind argument of a command that
+// registers --group, --api-version and --cluster-scoped. A custom resource
+// outside the table is namespaced unless --cluster-scoped says otherwise:
+// the CLI has no discovery of its own, and guessing cluster scope for a
+// namespaced kind would silently drop the namespace the caller typed.
+func resolveK8sKindFromFlags(cmd *cobra.Command, rawKind string) (k8sKind, error) {
+	apiGroup, _ := cmd.Flags().GetString("group")
+	apiVersion, _ := cmd.Flags().GetString("api-version")
+	isClusterScoped, _ := cmd.Flags().GetBool("cluster-scoped")
+	resolved, resolveError := resolveK8sKind(rawKind, apiGroup, apiVersion)
+	if resolveError != nil {
+		return k8sKind{}, resolveError
+	}
+	if isClusterScoped {
+		resolved.clusterScoped = true
+	}
+	return resolved, nil
+}
+
+// registerK8sKindFlags adds the flags resolveK8sKindFromFlags reads.
+func registerK8sKindFlags(command *cobra.Command) {
+	command.Flags().String("group", "", "API group for a kind outside the built-in set (e.g. cert-manager.io)")
+	command.Flags().String("api-version", "", "API version for a kind outside the built-in set (e.g. v1, v1beta1)")
+	command.Flags().Bool("cluster-scoped", false,
+		"Treat a kind outside the built-in set as cluster-scoped (e.g. ClusterIssuer, ClusterPolicy); no --namespace is needed")
+}
+
+// namespaceRequiredError is the usage error for a namespaced kind given
+// without --namespace. It names --cluster-scoped for a custom kind, since a
+// cluster-scoped custom resource is the one case the table cannot know.
+func namespaceRequiredError(verb string, kind k8sKind) error {
+	if _, isBuiltin := builtinK8sKinds[strings.ToLower(kind.kind)]; isBuiltin {
+		return withExitCode(exitUsage, fmt.Errorf("--namespace (-n) is required to %s a %s", verb, kind.kind))
+	}
+	return withExitCode(exitUsage, fmt.Errorf(
+		"--namespace (-n) is required to %s a %s; pass --cluster-scoped if %s is a cluster-scoped kind",
+		verb, kind.kind, kind.kind))
 }
 
 // resolveK8sKind maps a user-typed kind onto its group/version/scope.
