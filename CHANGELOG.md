@@ -1,6 +1,14 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.41.0 — 2026-10-18
+
+The headline is reaching cluster-scoped kinds: `ankra cluster delete`,
+`patch` and `describe` now handle CustomResourceDefinitions and the other
+built-in cluster-scoped kinds without a namespace, and take `--cluster-scoped`
+for custom kinds such as ClusterIssuer, so a chart install blocked by leftover
+CRDs can be cleared without kubectl. Secrets move out of argv and prompts:
+`ankra org variables set --secret`, `ankra helm credentials --password-stdin`
+and an API key that no longer has to be passed on the command line.
 
 ### Added
 
