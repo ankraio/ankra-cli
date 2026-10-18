@@ -242,6 +242,7 @@ func (runner *execRunner) notRun(reason string) int {
 // ensureClient resolves credentials the way every command does, which the
 // auth annotation skipped so a missing login is "not run".
 func ensureExecClient(cmd *cobra.Command) error {
+	var tokenSource credentialSource
 	if apiClient == nil {
 		resolved, resolveError := resolveCredentials(cmd)
 		if resolveError != nil {
@@ -249,6 +250,7 @@ func ensureExecClient(cmd *cobra.Command) error {
 		}
 		apiToken = resolved.token
 		baseURL = resolved.baseURL
+		tokenSource = resolved.source
 		apiClient = newAPIClient()
 	}
 	orgFlag, _ := flagValue(cmd.Root().PersistentFlags().Lookup("org"))
@@ -263,7 +265,7 @@ func ensureExecClient(cmd *cobra.Command) error {
 			return nil
 		}
 	}
-	return applyOrganisationOverride(cmd)
+	return applyOrganisationOverride(cmd, tokenSource)
 }
 
 // isTransientWorkspaceError reports whether a failed call is worth retrying:

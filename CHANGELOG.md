@@ -61,6 +61,19 @@
 
 ### Fixed
 
+- **Commands run in the organisation `ankra org current` shows.** With no
+  `--org` or `ANKRA_ORG`, requests ran in the platform's current
+  organisation, which also changes when you switch organisation in the portal
+  or another session, so a command could silently act on a different
+  organisation from the one `ankra org switch` selected (for example `ankra
+  pipeline get` answering "Pipeline repository not found"). The CLI now sends
+  the selected organisation with every request made with your `ankra login`.
+  `--org` and `ANKRA_ORG` still win, and a token passed with `--token` or
+  `ANKRA_API_TOKEN` keeps its own organisation. `ankra org current` warns when
+  the portal's current organisation differs from the CLI's selection, or when
+  the selection names an organisation you no longer belong to, and a refusal
+  caused by such a selection now tells you to run `ankra org switch` or set
+  `ANKRA_ORG`.
 - **A deleted resource no longer reads as live.** `ankra cluster describe`,
   `ankra cluster get <kind> <name>`, `ankra cluster logs <pod>
   --all-containers` and `ankra cluster terminal` printed or used the

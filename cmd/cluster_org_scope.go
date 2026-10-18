@@ -186,7 +186,7 @@ func adoptOwningOrganisation(clusterID string, notify io.Writer) (organisationSc
 // which organisation to use, so it is never silently replaced; the search
 // still runs, but only so the error can name the owner and the exact retry.
 func resolveOwningOrganisation(clusterID string, notify io.Writer) (organisationScopeSearch, bool) {
-	if apiClient.OrganisationOverride() != "" {
+	if apiClient.OrganisationOverride() != "" && !organisationScopedByLocalSelection {
 		return findClusterInOtherOrganisations(clusterID), false
 	}
 	return adoptOwningOrganisation(clusterID, notify)
@@ -309,7 +309,7 @@ func effectiveOrganisationID() string {
 // against, without an API call — error messages must not depend on a second
 // request succeeding. Returns "" when nothing local identifies it.
 func scopedOrganisationLabel() string {
-	if override := apiClient.OrganisationOverride(); override != "" {
+	if override := apiClient.OrganisationOverride(); override != "" && !organisationScopedByLocalSelection {
 		return override
 	}
 	if selected, err := loadSelectedOrganisation(); err == nil && selected.OrganisationID != "" {
