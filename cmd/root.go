@@ -81,6 +81,7 @@ func Execute() {
 	executedCommand, err := rootCmd.ExecuteC()
 	if err != nil {
 		printBillingRestrictedHint(os.Stderr, err)
+		printOrganisationSelectionHint(os.Stderr, err)
 		printSupportHintForUnexpectedError(os.Stderr, executedCommand, err)
 		os.Exit(exitCodeFor(err))
 	}
@@ -278,18 +279,21 @@ func persistentPreRunE(cmd *cobra.Command, _ []string) error {
 		apiClient = newAPIClient()
 	}
 
-	if err := applyOrganisationOverride(cmd); err != nil {
+	if err := applyOrganisationOverride(cmd, resolved.source); err != nil {
 		return err
 	}
 	return nil
 }
 
-// applyOrganisationOverride resolves the global `--org` flag (or the ANKRA_ORG
-// environment variable) to an organisation ID and scopes all subsequent API
-// requests to it, without changing the persistently selected organisation. The
-// value may be an organisation name or ID. The flag takes precedence over the
-// environment variable.
-func applyOrganisationOverride(cmd *cobra.Command) error {
+// applyOrganisationOverride scopes every API request of this invocation to
+// one organisation without changing the persistently selected one. An explicit
+// `--org` flag or ANKRA_ORG (an organisation name or ID, the flag winning) is
+// resolved and sent. Without one, the organisation saved by `ankra org switch`
+// is sent, so commands run in the organisation `ankra org current` reports
+// rather than in the server-side current organisation, which the portal and
+// other sessions can move.
+func applyOrganisationOverride(cmd *cobra.Command, tokenSource credentialSource) error {
+	organisationScopedByLocalSelection = false
 	orgValue := ""
 	if flag, _ := flagValue(cmd.Root().PersistentFlags().Lookup("org")); flag != "" {
 		orgValue = flag
@@ -298,6 +302,7 @@ func applyOrganisationOverride(cmd *cobra.Command) error {
 	}
 	orgValue = strings.TrimSpace(orgValue)
 	if orgValue == "" {
+		applyLocalOrganisationSelection(cmd, tokenSource)
 		return nil
 	}
 	orgID, err := resolveOrgFlagToID(orgValue)

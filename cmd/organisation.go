@@ -174,9 +174,16 @@ var orgCurrentCmd = &cobra.Command{
 	Use:   "current",
 	Short: "Show the currently selected organisation",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		org, source, err := resolveTargetOrganisation(cmd)
+		organisations, err := apiClient.ListOrganisations()
+		if err != nil {
+			return fmt.Errorf("fetching organisations: %w", err)
+		}
+		org, source, err := resolveTargetOrganisationFrom(cmd, organisations)
 		if err != nil {
 			return err
+		}
+		if warning := organisationScopeWarning(org, source, organisations); warning != "" {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), warning)
 		}
 
 		if rendered, err := renderStructured(cmd, currentOrganisationOutput{Organisation: org, Source: source}); rendered || err != nil {
@@ -404,6 +411,12 @@ func resolveTargetOrganisation(cmd *cobra.Command) (client.OrganisationSummary, 
 	if err != nil {
 		return client.OrganisationSummary{}, "", fmt.Errorf("fetching organisations: %w", err)
 	}
+	return resolveTargetOrganisationFrom(cmd, orgs)
+}
+
+// resolveTargetOrganisationFrom applies resolveTargetOrganisation's precedence
+// to an organisation list the caller already fetched.
+func resolveTargetOrganisationFrom(cmd *cobra.Command, orgs []client.OrganisationSummary) (client.OrganisationSummary, string, error) {
 
 	if override := organisationOverrideValue(cmd); override != "" {
 		orgID, resolveErr := resolveOrgFlagToID(override)
@@ -632,6 +645,10 @@ func init() {
 	registerSortFlags(orgListCmd, orgSortFields)
 
 	orgCmd.AddCommand(orgListCmd)
+	setIgnoresLocalOrganisation(orgListCmd)
+	setIgnoresLocalOrganisation(orgSwitchCmd)
+	setIgnoresLocalOrganisation(orgCurrentCmd)
+
 	orgCmd.AddCommand(orgSwitchCmd)
 	orgCmd.AddCommand(orgCurrentCmd)
 	orgCmd.AddCommand(orgCreateCmd)
