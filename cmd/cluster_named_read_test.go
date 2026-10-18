@@ -50,6 +50,9 @@ func TestNamedReadItemsClassifiesEveryAnswer(t *testing.T) {
 			wantItems: true},
 		{name: "apiserver 404", item: client.ResourceResponseItem{Status: "error", NotFound: true, ErrorResponse: &notFoundText},
 			wantExitCode: exitNotFound, wantMessageHas: `Pod "web" not found in namespace default`},
+		{name: "apiserver 404 from a platform without the not_found flag",
+			item:         client.ResourceResponseItem{Status: "error", ErrorResponse: &notFoundText},
+			wantExitCode: exitNotFound, wantMessageHas: `Pod "web" not found in namespace default`},
 		{name: "deleted", item: deletedPodResponse(),
 			wantExitCode: exitNotFound, wantMessageHas: "was deleted from the cluster at 2026-10-17T10:00:00Z"},
 		{name: "failed read", item: client.ResourceResponseItem{Status: "error", ErrorResponse: &forbidden},
@@ -154,5 +157,22 @@ func TestLogsAllContainersOfADeletedPodExitsNotFound(t *testing.T) {
 	}
 	if len(mock.logOptions) != 0 {
 		t.Errorf("no log stream may be opened for a deleted pod, got %d", len(mock.logOptions))
+	}
+}
+
+func TestLogsSelectorReadThatFailedIsNotReportedAsNoMatch(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	resetCommandFlags(t, clusterLogsCmd)
+	mock := newDebugVerbsMock()
+	forbidden := "pods is forbidden: User cannot list resource"
+	mock.responses["Pod"] = client.ResourceResponseItem{Status: "error", ErrorResponse: &forbidden}
+	setMockClient(t, mock)
+
+	_, executeError := executeCommand("cluster", "logs", "-l", "app=web", "-n", "default", "--follow=false")
+	if got := exitCodeFor(executeError); got != exitError {
+		t.Fatalf("a refused selector read should exit %d, got %d (%v)", exitError, got, executeError)
+	}
+	if !strings.Contains(executeError.Error(), "is forbidden") {
+		t.Errorf("the platform's reason must reach the user, got %v", executeError)
 	}
 }

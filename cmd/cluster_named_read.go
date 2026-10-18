@@ -25,7 +25,7 @@ func namedReadItems(response *client.GetResourcesResponse, kind string, name str
 		return nil, notFound
 	}
 	item := response.ResourceResponses[0]
-	if item.NotFound {
+	if item.NotFound || isAgentNotFoundText(item) {
 		return nil, notFound
 	}
 	if item.CacheMetadata != nil && item.CacheMetadata.IsDeleted {
@@ -36,15 +36,35 @@ func namedReadItems(response *client.GetResourcesResponse, kind string, name str
 		return nil, withExitCode(exitNotFound, fmt.Errorf("%s %q%s was deleted from the cluster%s",
 			kind, name, namespaceSuffix(namespace), deletedAt))
 	}
-	if item.Status == "error" {
-		reason := "the platform gave no reason"
-		if item.ErrorResponse != nil && strings.TrimSpace(*item.ErrorResponse) != "" {
-			reason = strings.TrimSpace(*item.ErrorResponse)
-		}
-		return nil, fmt.Errorf("reading %s %q%s failed: %s", kind, name, namespaceSuffix(namespace), reason)
+	if readError := failedReadError(item, fmt.Sprintf("%s %q%s", kind, name, namespaceSuffix(namespace))); readError != nil {
+		return nil, readError
 	}
 	if len(item.Items) == 0 {
 		return nil, notFound
 	}
 	return item.Items, nil
+}
+
+// agentNotFoundText is the agent's own answer for an apiserver 404. A
+// platform that predates the not_found flag sets only this, so it is read as
+// the same absence (an exact match: any other error text is a failed read).
+const agentNotFoundText = "Resource not found"
+
+func isAgentNotFoundText(item client.ResourceResponseItem) bool {
+	return item.Status == "error" && item.ErrorResponse != nil && strings.TrimSpace(*item.ErrorResponse) == agentNotFoundText
+}
+
+// failedReadError answers the error for an item the platform could not read
+// (status "error": lost RBAC, an apiserver that did not answer), nil for any
+// other item. A listing that failed is not an empty one, so callers report
+// this instead of "nothing found".
+func failedReadError(item client.ResourceResponseItem, subject string) error {
+	if item.Status != "error" {
+		return nil
+	}
+	reason := "the platform gave no reason"
+	if item.ErrorResponse != nil && strings.TrimSpace(*item.ErrorResponse) != "" {
+		reason = strings.TrimSpace(*item.ErrorResponse)
+	}
+	return fmt.Errorf("reading %s failed: %s", subject, reason)
 }
