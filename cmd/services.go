@@ -186,8 +186,9 @@ type APIClient interface {
 	DisconnectManifest(ctx context.Context, clusterID, stackName, manifestName string) (*client.DisconnectManifestResult, error)
 
 	ListOrganisationVariables(ctx context.Context) (*client.OrganisationVariablesListResult, error)
-	CreateOrganisationVariable(ctx context.Context, name, value, description string) (*client.OrganisationVariableResult, error)
-	UpdateOrganisationVariable(ctx context.Context, name, value, description string) (*client.OrganisationVariableResult, error)
+	CreateOrganisationVariable(ctx context.Context, name, value, description string, isSecret bool) (*client.OrganisationVariableResult, error)
+	UpdateOrganisationVariable(ctx context.Context, name string, value *string, description string, isSecret *bool) (*client.OrganisationVariableResult, error)
+	RevealOrganisationVariable(ctx context.Context, name string) (*client.OrganisationVariableValue, error)
 	DeleteOrganisationVariable(ctx context.Context, name string) error
 
 	ListClusterVariables(ctx context.Context, clusterID string) (*client.ClusterVariablesListResult, error)

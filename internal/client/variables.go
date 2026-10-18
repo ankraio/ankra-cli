@@ -8,18 +8,22 @@ import (
 	"fmt"
 	"net/http"
 	neturl "net/url"
+	"strings"
 	"time"
 )
 
 // OrganisationVariable mirrors the backend response shape for org-scoped
 // variables. The id/timestamps are included for round-trip listing; the CLI
 // surfaces only name/value/description by default but keeps them for -o json.
+// The backend never returns the value of a secret variable here (it is null,
+// so Value is empty); RevealOrganisationVariable reads it back.
 type OrganisationVariable struct {
 	ID             string    `json:"id"`
 	OrganisationID string    `json:"organisation_id"`
 	Name           string    `json:"name"`
 	Value          string    `json:"value"`
 	Description    string    `json:"description,omitempty"`
+	IsSecret       bool      `json:"is_secret"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
@@ -68,6 +72,34 @@ type updateVariableRequest struct {
 	Description string `json:"description,omitempty"`
 }
 
+// createOrganisationVariableRequest is the wire shape for organisation
+// variable create POSTs. is_secret is sent only when true; the backend
+// treats an omitted flag as false.
+type createOrganisationVariableRequest struct {
+	Name        string `json:"name"`
+	Value       string `json:"value"`
+	Description string `json:"description,omitempty"`
+	IsSecret    bool   `json:"is_secret,omitempty"`
+}
+
+// updateOrganisationVariableRequest is the wire shape for organisation
+// variable update PUTs. A nil Value or IsSecret is omitted, so the backend
+// keeps the stored value or flag; it accepts a body that names only is_secret
+// or description.
+type updateOrganisationVariableRequest struct {
+	Value       *string `json:"value,omitempty"`
+	Description string  `json:"description,omitempty"`
+	IsSecret    *bool   `json:"is_secret,omitempty"`
+}
+
+// OrganisationVariableValue is the body of GET
+// /api/v1/org/variables/{name}/value: one variable's stored value, secret or
+// not.
+type OrganisationVariableValue struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
 // ErrVariableNotFound is returned when the backend reports 404 on a single
 // variable lookup or update. Callers use errors.Is to distinguish it from
 // network/auth errors.
@@ -92,9 +124,11 @@ func (c *Client) ListOrganisationVariables(ctx context.Context) (*OrganisationVa
 	return &out, nil
 }
 
-func (c *Client) CreateOrganisationVariable(ctx context.Context, name, value, description string) (*OrganisationVariableResult, error) {
+// CreateOrganisationVariable creates an organisation variable; isSecret marks
+// it secret, so listings never return its value.
+func (c *Client) CreateOrganisationVariable(ctx context.Context, name, value, description string, isSecret bool) (*OrganisationVariableResult, error) {
 	url := c.BaseURL + "/api/v1/org/variables"
-	payload, err := json.Marshal(createVariableRequest{Name: name, Value: value, Description: description})
+	payload, err := json.Marshal(createOrganisationVariableRequest{Name: name, Value: value, Description: description, IsSecret: isSecret})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
@@ -109,9 +143,11 @@ func (c *Client) CreateOrganisationVariable(ctx context.Context, name, value, de
 	return &out, nil
 }
 
-func (c *Client) UpdateOrganisationVariable(ctx context.Context, name, value, description string) (*OrganisationVariableResult, error) {
+// UpdateOrganisationVariable updates an organisation variable. A nil value
+// keeps the stored value, and a nil isSecret keeps the secret flag.
+func (c *Client) UpdateOrganisationVariable(ctx context.Context, name string, value *string, description string, isSecret *bool) (*OrganisationVariableResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/variables/%s", c.BaseURL, neturl.PathEscape(name))
-	payload, err := json.Marshal(updateVariableRequest{Value: value, Description: description})
+	payload, err := json.Marshal(updateOrganisationVariableRequest{Value: value, Description: description, IsSecret: isSecret})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
@@ -124,6 +160,22 @@ func (c *Client) UpdateOrganisationVariable(ctx context.Context, name, value, de
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 	return &out, nil
+}
+
+// RevealOrganisationVariable reads back one organisation variable's stored
+// value, secret or not. The backend requires write access to variables and
+// records every read in the audit log.
+func (c *Client) RevealOrganisationVariable(ctx context.Context, name string) (*OrganisationVariableValue, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/org/variables/%s/value", c.BaseURL, neturl.PathEscape(name))
+	body, requestError := c.doVariableRequest(ctx, http.MethodGet, endpoint, nil)
+	if requestError != nil {
+		return nil, requestError
+	}
+	var revealed OrganisationVariableValue
+	if parseError := json.Unmarshal(body, &revealed); parseError != nil {
+		return nil, fmt.Errorf("parse response: %w", parseError)
+	}
+	return &revealed, nil
 }
 
 func (c *Client) DeleteOrganisationVariable(ctx context.Context, name string) error {
@@ -234,6 +286,51 @@ func (c *Client) doVariableRequest(ctx context.Context, method, url string, body
 	case http.StatusConflict:
 		return nil, ErrVariableDuplicate
 	default:
-		return nil, newUnexpectedResponseError("variable request failed", resp.StatusCode, redactedBodyForError(respBody, 500))
+		return nil, newUnexpectedResponseError("variable request failed", resp.StatusCode,
+			truncateForError(redactVariableErrorBody(respBody), 500))
+	}
+}
+
+// variableValueKeys are the members of a variable error body that can carry
+// the value the caller sent: the request's own `value`, and the `input` a 422
+// validation error echoes back for the member it rejected.
+var variableValueKeys = map[string]bool{"value": true, "input": true}
+
+// redactVariableErrorBody masks every variableValueKeys member of an error
+// body, at any depth, before the usual sensitive-key redaction. A variable's
+// value is a credential as often as not, and a refused write must not print
+// it in the error message.
+func redactVariableErrorBody(body []byte) []byte {
+	var decoded any
+	if unmarshalError := json.Unmarshal(body, &decoded); unmarshalError != nil {
+		return redactSensitiveJSON(body)
+	}
+	masked, marshalError := json.Marshal(maskVariableValues(decoded))
+	if marshalError != nil {
+		return redactSensitiveJSON(body)
+	}
+	return redactSensitiveJSON(masked)
+}
+
+func maskVariableValues(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		masked := make(map[string]any, len(typed))
+		for key, child := range typed {
+			if variableValueKeys[strings.ToLower(key)] && child != nil {
+				masked[key] = "<redacted>"
+				continue
+			}
+			masked[key] = maskVariableValues(child)
+		}
+		return masked
+	case []any:
+		masked := make([]any, len(typed))
+		for index, child := range typed {
+			masked[index] = maskVariableValues(child)
+		}
+		return masked
+	default:
+		return value
 	}
 }

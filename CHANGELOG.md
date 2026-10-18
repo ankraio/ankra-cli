@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra org variables set --secret` stores a secret organisation
+  variable.** A credential stored through the CLI no longer has to be
+  readable by every member: `--secret` creates the variable as a secret, or
+  marks an existing one secret, and `--secret=false` makes it plain again (an
+  update without the flag keeps the current setting, and an update with it
+  says whether the variable is now secret). `ankra org variables set NAME
+  --secret` with no value marks an existing variable secret without resending
+  its value; `--description` works the same way, and naming neither is a
+  usage error. `list` and `get` show a `SECRET` column and a `Secret:` line
+  and never print a secret's value, and `-o json|yaml` carries a new
+  `is_secret` field. The new `ankra org variables reveal <name>` prints a
+  variable's stored value on its own line (`-o json|yaml` for `{name,
+  value}`); it needs permission to change variables, every reveal is recorded
+  in the audit log, and an unknown name exits 3. A refused variable write no
+  longer echoes the value in its error message.
+
 ### Changed
 
 - **`ankra security dispositions update -o json|yaml` and `revoke -o
