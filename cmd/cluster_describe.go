@@ -199,10 +199,9 @@ func redactSecretAnnotations(object map[string]interface{}, secretValues []strin
 	}
 }
 
-// fetchSingleResource reads exactly one named object. The resources/get
-// wire has no distinct not-found status, so an empty item list is the
-// not-found signal and is reported with the not-found exit code rather than
-// rendered as an empty description.
+// fetchSingleResource reads exactly one named object. A missing or deleted
+// object exits with the not-found code and a failed read is an error
+// (namedReadItems), rather than either rendering as a description.
 func fetchSingleResource(clusterID string, resolvedKind k8sKind, namespace string, name string) (map[string]interface{}, error) {
 	request := client.ResourceRequestItem{
 		Kind:     resolvedKind.kind,
@@ -220,11 +219,11 @@ func fetchSingleResource(clusterID string, resolvedKind k8sKind, namespace strin
 	if requestError != nil {
 		return nil, requestError
 	}
-	if len(response.ResourceResponses) == 0 || len(response.ResourceResponses[0].Items) == 0 {
-		return nil, withExitCode(exitNotFound, fmt.Errorf("%s %q not found%s",
-			resolvedKind.kind, name, namespaceSuffix(namespace)))
+	items, namedReadError := namedReadItems(response, resolvedKind.kind, name, namespace)
+	if namedReadError != nil {
+		return nil, namedReadError
 	}
-	object, isObject := response.ResourceResponses[0].Items[0].(map[string]interface{})
+	object, isObject := items[0].(map[string]interface{})
 	if !isObject {
 		return nil, fmt.Errorf("unexpected %s payload for %q", resolvedKind.kind, name)
 	}
