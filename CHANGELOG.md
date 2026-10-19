@@ -6,6 +6,37 @@
 
 - **`ankra cluster stacks deploy-draft` deploys the draft of a stack that is already deployed.** The draft `ankra cluster draft -f` (or the stack builder) leaves on an existing stack could previously only be deployed from the dashboard, so the fix was to force `manifests upgrade` on each member. The command now reads the draft in full and promotes it through the same write the builder's Deploy button uses. Only the members the draft changes are written, the rest of the stack keeps running, and if the draft is still open afterwards (for example, it records a member removal) the command says so. This needs a platform that serves the CLI's stack-draft read. An older platform answers with a message pointing to the stack builder.
 
+### Added
+
+- **`ankra cluster ankracloud quota <cluster>` shows how much of the Ankra
+  Cloud account is left.** Running out of account quota used to show up only
+  after the fact, as a PersistentVolumeClaim stuck Pending on
+  `ProvisioningFailed` or a node-group scale failing inside a reconcile
+  operation. The command lists each limit (servers, cores, memory, storage,
+  floating IPs, private networks, routers) with what the account already
+  holds and what is left, names the ones near or at their limit, and says how
+  to raise one. `-o json|yaml` prints the report as the platform returns it.
+
+### Fixed
+
+- **`ankra cluster apply --wait` and `ankra cluster stacks deploy-draft` print
+  the platform's warnings.** A write that needs more new claim storage than
+  the Ankra Cloud account has left now says so after it succeeds, naming the
+  limit, what the account holds, what the change asks for and where to raise
+  the limit. `deploy-draft` could not read a stack write that carried any
+  warning at all, because it expected the warnings as plain strings; it now
+  reads the objects the platform sends.
+
+### Fixed
+
+- **`ankra cluster draft` now says why a stack was refused.** A request the
+  platform rejected as invalid (for example an addon missing `registry_name`
+  or `registry_url`) used to print only the stack name and exit non-zero with
+  no reason. Every refusal is now listed with where it points - the stack,
+  the addon or manifest by name, and the field - and errors the platform
+  reports alongside an otherwise successful response fail the stack instead
+  of being dropped.
+
 ## v0.43.1 — 2026-10-19
 
 `ankra chat actions confirm` now tells a script the truth: `-o json` says

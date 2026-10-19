@@ -145,7 +145,8 @@ func TestDeployClusterStackDraftPostsTheDraftBoundSpec(t *testing.T) {
 		jsonResponse(t, w, http.StatusOK, map[string]any{
 			"stack_name": "notes", "errors": []any{}, "job_count": 4,
 			"operation_id": "22222222-2222-2222-2222-222222222222",
-			"warnings":     []string{"Manifest 'api' carries the source cluster's generated hostname."},
+			"warnings": []any{"Manifest 'api' carries the source cluster's generated hostname.",
+				map[string]any{"kind": "PersistentVolumeClaim", "name": "new claims", "message": "asks for 50 GiB", "category": "ankracloud_quota"}},
 		})
 	}
 	testClient := newTestClient(t, handler)
@@ -169,7 +170,8 @@ func TestDeployClusterStackDraftPostsTheDraftBoundSpec(t *testing.T) {
 	if !isStackMap || stack["draft_id"] != "9f1c2d3e-4a5b-6c7d-8e9f-0a1b2c3d4e5f" {
 		t.Fatalf("the stack must carry its draft_id, got %+v", stacks[0])
 	}
-	if result.JobCount != 4 || result.OperationID == nil || len(result.Warnings) != 1 {
+	if result.JobCount != 4 || result.OperationID == nil || len(result.Warnings) != 2 ||
+		result.Warnings[0].Message != "Manifest 'api' carries the source cluster's generated hostname." || result.Warnings[1].Category != "ankracloud_quota" {
 		t.Fatalf("result = %+v", result)
 	}
 }

@@ -114,6 +114,7 @@ func runAnkraCloudCommand(t *testing.T, mock APIClient, arguments ...string) (st
 			ankraCloudCmd, ankraCloudCreateCmd, ankraCloudPreflightCmd, ankraCloudDeprovisionCmd,
 			ankraCloudStopCmd, ankraCloudStartCmd, ankraCloudWorkersCmd, ankraCloudK8sVersionCmd,
 			ankraCloudZonesCmd, ankraCloudPlansCmd, ankraCloudTemplatesCmd, ankraCloudNetworksCmd, ankraCloudPricingCmd,
+			ankraCloudQuotaCmd,
 		}, append([]string{"cluster", "ankracloud"}, arguments...)...)
 	})
 	return standardOutput + cobraOutput, runError

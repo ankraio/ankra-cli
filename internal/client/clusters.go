@@ -486,6 +486,10 @@ type ImportResponse struct {
 	// waiting (wait=false): the execution that records whether it was
 	// applied or refused.
 	OperationID string `json:"operation_id,omitempty"`
+	// Warnings are the advisory findings on the state the apply stored, such
+	// as new claims that need more storage than the Ankra Cloud account has
+	// left. They never mean the apply was refused.
+	Warnings []ValidationWarning `json:"warnings,omitempty"`
 }
 
 // TriggerReconcileResult mirrors the platform's reconcile response (openapi
@@ -572,11 +576,29 @@ type ValidateClusterRequest struct {
 }
 
 type ValidationWarning struct {
-	Kind     string `json:"kind"`
-	Name     string `json:"name"`
-	Key      string `json:"key"`
-	Message  string `json:"message"`
-	Category string `json:"category"`
+	Kind     string `json:"kind" yaml:"kind"`
+	Name     string `json:"name" yaml:"name"`
+	Key      string `json:"key" yaml:"key"`
+	Message  string `json:"message" yaml:"message"`
+	Category string `json:"category" yaml:"category"`
+}
+
+// UnmarshalJSON reads a warning object, and also a bare string as a warning
+// carrying only its message, so a write lane that answers its warnings as
+// plain text still decodes.
+func (warning *ValidationWarning) UnmarshalJSON(data []byte) error {
+	var message string
+	if json.Unmarshal(data, &message) == nil {
+		*warning = ValidationWarning{Message: message}
+		return nil
+	}
+	type validationWarningFields ValidationWarning
+	var fields validationWarningFields
+	if decodeError := json.Unmarshal(data, &fields); decodeError != nil {
+		return decodeError
+	}
+	*warning = ValidationWarning(fields)
+	return nil
 }
 
 type ValidateClusterResponse struct {
@@ -647,7 +669,8 @@ type stackDraftSpec struct {
 // StackDraftResult captures the outcome of staging a single stack as a draft.
 // NoChange is true when the stack already matches the cluster's desired state
 // (the server reports no diff to save); Errors holds per-resource validation
-// failures when the draft could not be created.
+// failures, from a 422 or embedded in a 2xx response, and is never empty of
+// messages when set.
 type StackDraftResult struct {
 	DraftID  string
 	NoChange bool
@@ -693,13 +716,11 @@ func (c *Client) CreateStackDraft(ctx context.Context, clusterID string, stack S
 	case resp.StatusCode == http.StatusNotFound:
 		return &StackDraftResult{NoChange: true}, nil
 	case resp.StatusCode == http.StatusUnprocessableEntity:
-		var detail struct {
-			Detail []ImportResponseResourceError `json:"detail"`
-		}
-		if err := json.Unmarshal(body, &detail); err != nil {
+		resourceErrors := stackDraftErrorsFromBody(body, stack)
+		if len(resourceErrors) == 0 {
 			return nil, fmt.Errorf("draft failed: status 422, body: %s", redactedBodyForError(body, 500))
 		}
-		return &StackDraftResult{Errors: detail.Detail}, nil
+		return &StackDraftResult{Errors: resourceErrors}, nil
 	case resp.StatusCode < 200 || resp.StatusCode >= 300:
 		return nil, newUnexpectedResponseError("draft request failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
@@ -707,8 +728,11 @@ func (c *Client) CreateStackDraft(ctx context.Context, clusterID string, stack S
 	var parsed struct {
 		DraftID string `json:"draft_id"`
 	}
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
+	if parseError := json.Unmarshal(body, &parsed); parseError != nil {
+		return nil, fmt.Errorf("parse response: %w", parseError)
+	}
+	if resourceErrors := stackDraftEmbeddedErrors(body, stack); len(resourceErrors) > 0 {
+		return &StackDraftResult{DraftID: parsed.DraftID, Errors: resourceErrors}, nil
 	}
 	return &StackDraftResult{DraftID: parsed.DraftID}, nil
 }

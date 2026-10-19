@@ -184,7 +184,7 @@ type StackWriteResult struct {
 	JobCount          int                  `json:"job_count" yaml:"job_count"`
 	SettingsOnlyCount int                  `json:"settings_only_count" yaml:"settings_only_count"`
 	NoopCount         int                  `json:"noop_count" yaml:"noop_count"`
-	Warnings          []string             `json:"warnings,omitempty" yaml:"warnings,omitempty"`
+	Warnings          []ValidationWarning  `json:"warnings,omitempty" yaml:"warnings,omitempty"`
 }
 
 // StackResourceError is one refused member and the reasons it was refused.

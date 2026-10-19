@@ -251,7 +251,7 @@ func printStackDraftDeployResult(out io.Writer, result *client.StackWriteResult)
 	if result.CommitSHA != nil && *result.CommitSHA != "" {
 		_, _ = fmt.Fprintf(out, "  Commit:     %s\n", *result.CommitSHA)
 	}
-	printWarnings(out, result.Warnings)
+	printValidationWarnings(out, result.Warnings)
 	if result.OperationID != nil && *result.OperationID != "" {
 		_, _ = fmt.Fprintf(out, "\nFollow it with 'ankra cluster operations list %s'.\n", *result.OperationID)
 	}
