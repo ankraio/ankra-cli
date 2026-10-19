@@ -8,6 +8,17 @@
 
 ### Added
 
+- **`ankra services packages init` and `publish` turn one of your stack
+  profiles into a managed service.** `init --profile <id> --profile-version
+  <id> --name <name> --protocol <protocol>` writes a package for that profile
+  version, pinned to it, with every connection field the protocol needs
+  (postgres, redis, nats, opensearch, s3, victorialogs or victoriametrics).
+  You fill in the Service, port and credentials Secret your engine uses, then
+  `publish -f <file>` adds it to your organisation's catalogue. Applications set
+  up from it then receive the protocol's variables (for example `REDIS_URL`),
+  and the platform checks its health and probes it the way it does Ankra's own
+  services. A document the platform refuses is reported with the part that
+  failed.
 - **`ankra cluster ankracloud quota <cluster>` shows how much of the Ankra
   Cloud account is left.** Running out of account quota used to show up only
   after the fact, as a PersistentVolumeClaim stuck Pending on

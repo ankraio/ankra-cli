@@ -34,6 +34,10 @@ const (
 	fakeServiceReviewID     = "0b6f2a8e-3a1c-4b8e-9a51-2c7d4f1e9a20"
 	fakeServiceRetirementID = "7d3c1f0a-5b2e-4c9d-8e1f-0a2b3c4d5e6f"
 	fakeServiceOrganisation = "3b7dccca-0788-4470-9910-19478ae345ae"
+	// fakeMemberProfileID and its version are a stack profile this
+	// organisation owns, which init pins a package to.
+	fakeMemberProfileID        = "d1a90000-0000-4000-8000-000000000001"
+	fakeMemberProfileVersionID = "d1a90000-0000-4000-8000-000000000002"
 	// fakeServiceSecretValue is a credential value the fake platform slips
 	// into its answers where none belongs. It must never reach any output.
 	fakeServiceSecretValue = "hunter2-plaintext-credential"
@@ -408,6 +412,22 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 			return
 		}
 		fakeServiceJSON(t, writer, http.StatusOK, fakeServiceRetirement("in_progress"))
+	case request.Method == http.MethodGet && path == "/api/v1/org/service-packages/profile-pins/"+fakeMemberProfileID+"/"+fakeMemberProfileVersionID:
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"organisation_id": fakeServiceOrganisation,
+			"profile": map[string]any{"id": fakeMemberProfileID, "version_id": fakeMemberProfileVersionID, "digest": "sha256:" + strings.Repeat("9", 64)}})
+	case request.Method == http.MethodPost && path == "/api/v1/org/service-packages":
+		var document map[string]any
+		_ = json.Unmarshal(bodyBytes, &document)
+		connection, _ := document["connection"].(map[string]any)
+		if connection == nil || connection["secret_name"] == "" {
+			fakeServiceJSON(t, writer, http.StatusUnprocessableEntity,
+				map[string]any{"detail": "Invalid service package: connection.secret_name: must be a Kubernetes name"})
+			return
+		}
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"id": "a5e62beb-0000-4000-8000-000000000300",
+			"publisher_id": fakeServiceOrganisation, "name": document["name"], "version": document["version"],
+			"capability": document["capability"], "digest": "sha256:" + strings.Repeat("7", 64), "first_party": false,
+			"created_at": "2026-10-19T16:00:00Z", "contract": document})
 	default:
 		// Display-name lookups (the cluster listing) are best effort; an
 		// unknown route answers a bare 404 like an unregistered route.
@@ -468,7 +488,7 @@ func runServicesCommand(t *testing.T, platform *fakeServicesPlatform, input stri
 func TestServicesCommandsRegistered(t *testing.T) {
 	expected := map[string][]string{
 		"":            {"list", "get", "setup", "delete", "packages", "policy", "consumers", "reviews", "retirements"},
-		"packages":    {"list", "get"},
+		"packages":    {"list", "get", "init", "publish"},
 		"policy":      {"get", "set"},
 		"consumers":   {"list", "get", "bind", "unbind"},
 		"reviews":     {"list", "get", "confirm"},
