@@ -377,7 +377,7 @@ func TestStackProfilesRolloutInPlaceCarriesRecordedBindingsAndOverrides(t *testi
 		t.Fatalf("upgraded = %+v", mock.upgraded)
 	}
 	got := mock.upgraded[0].Parameters
-	want := []client.ParameterBinding{{Name: "host", Value: "web.prod-eu.example"}, {Name: "replicas", Value: "3"}}
+	want := []client.ParameterBinding{{Name: "host", Value: "web.prod-eu.example"}, {Name: "replicas", Value: "3", Explicit: true}}
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Errorf("bindings = %+v, want recorded ones with --set layered over: %+v", got, want)
 	}

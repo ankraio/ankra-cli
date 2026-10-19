@@ -349,13 +349,14 @@ type bindingPreview struct {
 // previewResolvedBindings applies the platform's resolution order - a value
 // you set, then what the selected choice sets, then the input's default - to
 // the bindings without creating anything, so the whole set can be read before
-// apply. Later choice inputs win on overlap, as on the server. Secret values
-// are never echoed.
+// apply. Later choice inputs win on overlap, as on the server. An empty value
+// you set explicitly, and an empty default, are real values: only an input
+// with neither is unset. Secret values are never echoed.
 func previewResolvedBindings(parameters []client.StackProfileParameter, bindings []client.ParameterBinding) []bindingPreview {
 	explicit := map[string]string{}
 	order := []string{}
 	for _, binding := range bindings {
-		if strings.TrimSpace(binding.Value) == "" {
+		if !binding.Explicit && strings.TrimSpace(binding.Value) == "" {
 			continue
 		}
 		if _, seen := explicit[binding.Name]; !seen {
@@ -398,12 +399,13 @@ func previewResolvedBindings(parameters []client.StackProfileParameter, bindings
 	rows := make([]bindingPreview, 0, len(parameters)+len(order))
 	for _, parameter := range parameters {
 		row := bindingPreview{Name: parameter.Name, Required: parameter.Required}
+		explicitValue, hasExplicit := explicit[parameter.Name]
 		switch {
-		case explicit[parameter.Name] != "":
-			row.Value, row.Source = explicit[parameter.Name], "--set"
+		case hasExplicit:
+			row.Value, row.Source = explicitValue, "--set"
 		case derived[parameter.Name].source != "":
 			row.Value, row.Source = derived[parameter.Name].value, derived[parameter.Name].source
-		case parameter.Default != nil && strings.TrimSpace(*parameter.Default) != "":
+		case parameter.Default != nil:
 			row.Value, row.Source = *parameter.Default, "default"
 		default:
 			row.Source = "unset"
@@ -422,10 +424,13 @@ func previewResolvedBindings(parameters []client.StackProfileParameter, bindings
 	return rows
 }
 
+// unsetRequiredInputs lists the required inputs the platform will refuse: a
+// required input needs a non-blank value, so an empty one counts as missing
+// even when it was set or defaulted.
 func unsetRequiredInputs(rows []bindingPreview) []string {
 	missing := []string{}
 	for _, row := range rows {
-		if row.Required && row.Source == "unset" {
+		if row.Required && (row.Source == "unset" || strings.TrimSpace(row.Value) == "") {
 			missing = append(missing, row.Name)
 		}
 	}

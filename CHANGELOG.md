@@ -1,5 +1,20 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Fixed
+
+- **An empty stack profile value is a value.** `ankra stack-profiles apply
+  --set name=` (and `--set-file`/`--set-env` resolving to an empty string)
+  now binds the empty string instead of falling back to the input's default
+  or a choice's derived value, and an input whose default is `""` deploys
+  with `""` instead of being reported as unresolvable. Bindings are sent
+  with `explicit: true` so the platform can tell them from inputs the portal
+  leaves blank. `apply --dry-run` shows an empty default or `--set` as `""`
+  rather than "unset", and still lists a blank required input as missing.
+  Needs the matching platform release; against an older platform the empty
+  `--set` keeps its previous behaviour.
+
 ## v0.41.0 — 2026-10-18
 
 The headline is reaching cluster-scoped kinds: `ankra cluster delete`,

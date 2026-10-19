@@ -646,13 +646,13 @@ func rolloutInPlace(cmd *cobra.Command, format outputFormat, profileID string, p
 // than once keeps its last value, so the request never carries two bindings
 // for one input and leaves the winner to the server.
 func mergeParameterBindings(recorded []client.ParameterBinding, overrides []client.ParameterBinding) []client.ParameterBinding {
-	lastOverride := map[string]string{}
+	lastOverride := map[string]client.ParameterBinding{}
 	overrideOrder := []string{}
 	for _, binding := range overrides {
 		if _, seen := lastOverride[binding.Name]; !seen {
 			overrideOrder = append(overrideOrder, binding.Name)
 		}
-		lastOverride[binding.Name] = binding.Value
+		lastOverride[binding.Name] = binding
 	}
 	merged := make([]client.ParameterBinding, 0, len(recorded)+len(overrideOrder))
 	for _, binding := range recorded {
@@ -661,7 +661,7 @@ func mergeParameterBindings(recorded []client.ParameterBinding, overrides []clie
 		}
 	}
 	for _, name := range overrideOrder {
-		merged = append(merged, client.ParameterBinding{Name: name, Value: lastOverride[name]})
+		merged = append(merged, lastOverride[name])
 	}
 	return merged
 }

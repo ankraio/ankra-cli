@@ -101,9 +101,13 @@ type StackProfileDetail struct {
 	UpdateStatus         StackProfileUpdateStatus     `json:"update_status"`
 }
 
+// ParameterBinding is one input bound at instantiation. Explicit tells the
+// platform the value was set on purpose, so an empty string binds as "" rather
+// than reading as an input left blank and falling back to its default.
 type ParameterBinding struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
+	Name     string `json:"name"`
+	Value    string `json:"value"`
+	Explicit bool   `json:"explicit,omitempty"`
 }
 
 type InstantiateStackProfileRequest struct {
