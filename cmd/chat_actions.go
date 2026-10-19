@@ -119,12 +119,15 @@ func runChatActionDecision(cmd *cobra.Command, actionID string, confirmed, force
 	if handled, renderError := renderStructured(cmd, result); renderError != nil {
 		return renderError
 	} else if handled {
-		return nil
+		return confirmNotRunError(result, actionID)
 	}
 
 	if !confirmed {
 		fmt.Printf("Action %s rejected; it will not run.\n", actionID)
 		return nil
+	}
+	if notRunError := confirmNotRunError(result, actionID); notRunError != nil {
+		return notRunError
 	}
 	fmt.Printf("Action %s confirmed.\n", actionID)
 	if result.Message != "" {
@@ -134,6 +137,23 @@ func runChatActionDecision(cmd *cobra.Command, actionID string, confirmed, force
 		fmt.Printf("Status: %s\n", result.Status)
 	}
 	return nil
+}
+
+// confirmNotRunError turns a 200 `failed` answer into an exit-1 error. The
+// platform answers 200 for an action it did not run - an execution error, or
+// the organisation's write limit refusing it with the card left pending - so
+// without this a script saw exit 0 for a write that never happened
+// (ankra-g7307k). Structured output has already been written to stdout by
+// the time this runs; the error goes to stderr.
+func confirmNotRunError(result *client.ConfirmChatActionResult, actionID string) error {
+	if !result.NotRun() {
+		return nil
+	}
+	reason := result.Message
+	if reason == "" {
+		reason = "the platform did not say why"
+	}
+	return withExitCode(exitError, fmt.Errorf("action %s was not run: %s", actionID, reason))
 }
 
 // chatActionConflictError renders a 409 as a usable next step: drift is
@@ -263,6 +283,10 @@ func resolvePendingProposals(reader *bufio.Reader, proposals []*client.ChatActio
 		}
 		if !confirmed {
 			fmt.Printf("Rejected; %s will not run.\n\n", proposal.ToolName)
+			continue
+		}
+		if notRunError := confirmNotRunError(result, proposal.ActionID); notRunError != nil {
+			fmt.Printf("Confirmed, but %v\n\n", notRunError)
 			continue
 		}
 		fmt.Printf("Confirmed; %s is running.\n", proposal.ToolName)

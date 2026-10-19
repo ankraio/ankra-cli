@@ -1,5 +1,21 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`ankra chat actions confirm -o json` reports `success: true` for an
+  action that ran.** The platform's confirm answer says what happened in
+  `status` and carries no `success` field, so the CLI printed
+  `success: false` next to `status: confirmed` and "Action executed
+  successfully", and a script checking `.success` treated every working
+  confirm as a failure. `success` is now true exactly when the status is
+  `confirmed`. A confirm the platform answers with `status: failed` (the
+  action errored, or the organisation's write limit refused it and the card
+  is still pending) no longer prints "Action ... confirmed": it exits 1 with
+  the platform's reason, after the JSON or YAML document when `-o` is set.
+  `-o yaml` now uses the same field names as `-o json`.
+
 ## v0.42.0 — 2026-10-19
 
 Signed provenance comes to the CLI: `ankra application provenance` and

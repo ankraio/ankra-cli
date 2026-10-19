@@ -201,3 +201,87 @@ func TestIsAffirmativeDefaultsToRejecting(t *testing.T) {
 		}
 	}
 }
+
+// platformConfirmResult decodes a confirm body shaped the way the platform
+// writes it (no `success` member; the outcome is `status`) through the
+// client's own decoder, so these tests exercise the mapping the CLI ships.
+func platformConfirmResult(t *testing.T, status, message string) *client.ConfirmChatActionResult {
+	t.Helper()
+	body := `{"action_id":"82908385-998d-430d-a5ff-4d1b4ca5e252","status":"` + status +
+		`","message":"` + message + `","result":null,"execution_ref":null,"live_status_hint":null,` +
+		`"model_visible_summary":"action.apply_stack_changes: ` + status + `","frontend_links":[],"chat_fix_ticket":null}`
+	var result client.ConfirmChatActionResult
+	if unmarshalError := json.Unmarshal([]byte(body), &result); unmarshalError != nil {
+		t.Fatalf("seed result: %v", unmarshalError)
+	}
+	return &result
+}
+
+func TestChatActionsConfirmJSONReportsSuccessForAnExecutedAction(t *testing.T) {
+	// ankra-g7307k: -o json printed success:false for actions that ran.
+	mock := &chatActionMock{confirmResult: platformConfirmResult(t, "confirmed", "Action executed successfully")}
+	setMockClient(t, mock)
+	t.Cleanup(func() { _ = chatActionsConfirmCmd.Flags().Set("output", "") })
+
+	output, commandError := executeCommand("chat", "actions", "confirm",
+		"82908385-998d-430d-a5ff-4d1b4ca5e252", "-o", "json")
+	if commandError != nil {
+		t.Fatalf("confirm: %v", commandError)
+	}
+	var rendered map[string]any
+	if unmarshalError := json.Unmarshal([]byte(output), &rendered); unmarshalError != nil {
+		t.Fatalf("stdout is not one JSON document: %v\n%s", unmarshalError, output)
+	}
+	if rendered["success"] != true {
+		t.Errorf("success = %v for an executed action, want true:\n%s", rendered["success"], output)
+	}
+	if rendered["status"] != "confirmed" {
+		t.Errorf("status = %v, want confirmed", rendered["status"])
+	}
+}
+
+func TestChatActionsConfirmFailsWhenThePlatformDidNotRunTheAction(t *testing.T) {
+	// The platform answers 200 `failed` when the write limit refuses the
+	// action (the card stays pending); that is not a confirmation.
+	mock := &chatActionMock{confirmResult: platformConfirmResult(t, "failed", "Organisation write limit reached")}
+	setMockClient(t, mock)
+
+	var commandError error
+	stdoutOutput := captureStdout(t, func() {
+		_, commandError = executeCommand("chat", "actions", "confirm", "action-6")
+	})
+	if commandError == nil {
+		t.Fatal("expected an error for an action the platform did not run")
+	}
+	if exitCodeFor(commandError) != exitError {
+		t.Errorf("exit code = %d, want %d", exitCodeFor(commandError), exitError)
+	}
+	if !strings.Contains(commandError.Error(), "Organisation write limit reached") {
+		t.Errorf("expected the platform's reason, got: %v", commandError)
+	}
+	if strings.Contains(stdoutOutput, "Action action-6 confirmed") {
+		t.Errorf("a refused action must not read as confirmed, got: %s", stdoutOutput)
+	}
+}
+
+func TestChatActionsConfirmJSONStillPrintsTheDocumentWhenNotRun(t *testing.T) {
+	mock := &chatActionMock{confirmResult: platformConfirmResult(t, "failed", "Organisation write limit reached")}
+	setMockClient(t, mock)
+	t.Cleanup(func() { _ = chatActionsConfirmCmd.Flags().Set("output", "") })
+
+	output, commandError := executeCommand("chat", "actions", "confirm", "action-7", "-o", "json")
+	if exitCodeFor(commandError) != exitError {
+		t.Errorf("exit code = %d, want %d", exitCodeFor(commandError), exitError)
+	}
+	jsonStart := strings.Index(output, "{")
+	if jsonStart < 0 {
+		t.Fatalf("no JSON document in output: %s", output)
+	}
+	var rendered map[string]any
+	if unmarshalError := json.NewDecoder(strings.NewReader(output[jsonStart:])).Decode(&rendered); unmarshalError != nil {
+		t.Fatalf("decode: %v\n%s", unmarshalError, output)
+	}
+	if rendered["success"] != false || rendered["status"] != "failed" {
+		t.Errorf("rendered = %v, want success false and status failed", rendered)
+	}
+}

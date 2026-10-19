@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestConfirmChatActionSendsCSRFDoubleSubmit(t *testing.T) {
@@ -163,5 +165,121 @@ func TestListPendingChatActionsRequestsTheConversation(t *testing.T) {
 	}
 	if result.Actions[0]["tool_name"] != "restart_node" {
 		t.Errorf("actions[0] = %+v", result.Actions[0])
+	}
+}
+
+// platformConfirmBody is the confirm endpoint's 200 body as the platform
+// writes it (cluster: chatturn.buildActionConfirmationResponse): the outcome
+// is `status`, and there is no `success` member at all.
+func platformConfirmBody(status, message string) map[string]any {
+	return map[string]any{
+		"action_id":             "82908385-998d-430d-a5ff-4d1b4ca5e252",
+		"status":                status,
+		"message":               message,
+		"result":                nil,
+		"execution_ref":         nil,
+		"live_status_hint":      nil,
+		"model_visible_summary": "action.apply_stack_changes: " + status,
+		"frontend_links":        []any{},
+		"chat_fix_ticket":       nil,
+	}
+}
+
+func TestConfirmChatActionSuccessFollowsThePlatformStatus(t *testing.T) {
+	// ankra-g7307k: the platform never sends `success`, so decoding it
+	// straight left Success false for every action that ran, and
+	// `-o json` printed success:false next to status:confirmed.
+	cases := []struct {
+		name        string
+		status      string
+		message     string
+		wantSuccess bool
+		wantNotRun  bool
+	}{
+		{"executed", ConfirmStatusConfirmed, "Action executed successfully", true, false},
+		{"write limit refused it", ConfirmStatusFailed, "Organisation write limit reached", false, true},
+		{"rejected", ConfirmStatusRejected, "Action rejected", false, false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			handler := func(w http.ResponseWriter, r *http.Request) {
+				jsonResponse(t, w, http.StatusOK, platformConfirmBody(testCase.status, testCase.message))
+			}
+			testClient := newTestClient(t, handler)
+
+			result, confirmError := testClient.ConfirmChatAction(ConfirmChatActionRequest{
+				ActionID: "82908385-998d-430d-a5ff-4d1b4ca5e252", Confirmed: true,
+			})
+			if confirmError != nil {
+				t.Fatalf("ConfirmChatAction: %v", confirmError)
+			}
+			if result.Success != testCase.wantSuccess {
+				t.Errorf("Success = %v for status %q, want %v", result.Success, testCase.status, testCase.wantSuccess)
+			}
+			if result.NotRun() != testCase.wantNotRun {
+				t.Errorf("NotRun() = %v for status %q, want %v", result.NotRun(), testCase.status, testCase.wantNotRun)
+			}
+
+			// `-o json` encodes the result itself, so the field a script
+			// reads must carry the same answer.
+			encoded, marshalError := json.Marshal(result)
+			if marshalError != nil {
+				t.Fatalf("marshal: %v", marshalError)
+			}
+			var rendered map[string]any
+			if unmarshalError := json.Unmarshal(encoded, &rendered); unmarshalError != nil {
+				t.Fatalf("unmarshal: %v", unmarshalError)
+			}
+			if rendered["success"] != testCase.wantSuccess {
+				t.Errorf("rendered success = %v, want %v (document %s)", rendered["success"], testCase.wantSuccess, encoded)
+			}
+			if rendered["status"] != testCase.status {
+				t.Errorf("rendered status = %v, want %q", rendered["status"], testCase.status)
+			}
+		})
+	}
+}
+
+func TestConfirmChatActionHonoursAnExplicitSuccess(t *testing.T) {
+	// A body that states `success` is taken at its word, so a platform that
+	// starts sending it cannot be overridden by the status fallback.
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		body := platformConfirmBody(ConfirmStatusConfirmed, "Action executed successfully")
+		body["success"] = false
+		jsonResponse(t, w, http.StatusOK, body)
+	}
+	testClient := newTestClient(t, handler)
+
+	result, confirmError := testClient.ConfirmChatAction(ConfirmChatActionRequest{ActionID: "a", Confirmed: true})
+	if confirmError != nil {
+		t.Fatalf("ConfirmChatAction: %v", confirmError)
+	}
+	if result.Success {
+		t.Error("an explicit success:false must not be overridden by status")
+	}
+}
+
+func TestConfirmChatActionResultYAMLUsesTheJSONFieldNames(t *testing.T) {
+	// `-o yaml` encodes the result with yaml.v3, which ignores json tags:
+	// without yaml tags it printed actionid/toolname and the whole raw
+	// document under `document`.
+	var result ConfirmChatActionResult
+	encodedBody, _ := json.Marshal(platformConfirmBody(ConfirmStatusConfirmed, "Action executed successfully"))
+	if unmarshalError := json.Unmarshal(encodedBody, &result); unmarshalError != nil {
+		t.Fatalf("decode: %v", unmarshalError)
+	}
+	encoded, marshalError := yaml.Marshal(&result)
+	if marshalError != nil {
+		t.Fatalf("yaml: %v", marshalError)
+	}
+	var rendered map[string]any
+	if unmarshalError := yaml.Unmarshal(encoded, &rendered); unmarshalError != nil {
+		t.Fatalf("yaml decode: %v", unmarshalError)
+	}
+	if rendered["success"] != true || rendered["action_id"] == nil {
+		t.Errorf("yaml = %s, want success: true and action_id", encoded)
+	}
+	if _, leaked := rendered["document"]; leaked {
+		t.Errorf("yaml leaked the raw document: %s", encoded)
 	}
 }
