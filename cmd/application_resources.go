@@ -137,6 +137,7 @@ func registerApplicationResourceCommands(applicationCommand *cobra.Command) {
 	applicationCommand.AddCommand(newApplicationPublishedAddonCommand())
 	applicationCommand.AddCommand(newApplicationEnvSecretsCommand())
 	applicationCommand.AddCommand(newApplicationAutoDeployCommand())
+	applicationCommand.AddCommand(newApplicationProvenanceCommand())
 	applicationCommand.AddCommand(newApplicationBuildCommand())
 	applicationCommand.AddCommand(newApplicationSettingsCommand())
 	applicationCommand.AddCommand(newApplicationManifestAddonCommand())

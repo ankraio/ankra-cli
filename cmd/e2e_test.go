@@ -1744,6 +1744,38 @@ func (m baseMock) SetControlPlaneHeal(context.Context, string, bool) (*client.Co
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetOrganisationProvenancePolicy(context.Context) (*client.OrganisationProvenancePolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetOrganisationProvenancePolicy(context.Context, *string) (*client.OrganisationProvenancePolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationProvenancePolicy(context.Context, string) (*client.ApplicationProvenancePolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetApplicationProvenancePolicy(context.Context, string, *string) (*client.ApplicationProvenancePolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) VerifyApplicationProvenance(context.Context, string, []string) (*client.ProvenanceVerification, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListProvenanceKeys(context.Context) (*client.ProvenanceSigningKeys, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RotateProvenanceKey(context.Context) (*client.ProvenanceSigningKey, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RevokeProvenanceKey(context.Context, string, string) (*client.ProvenanceSigningKey, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateHetznerCluster(req client.CreateHetznerClusterRequest) (*client.CreateHetznerClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
