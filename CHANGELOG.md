@@ -1,5 +1,28 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra application provenance` and `ankra org provenance` show and change
+  whether deploys verify signed provenance.** A pipeline's publish step signs
+  a statement about every image it publishes, and a deploy can refuse an image
+  that is not attested. `ankra application provenance get <app>` shows the
+  mode an application's deploys run under (`off`, `warn` or `enforce`) and
+  whether it is the application's own setting, the organisation default or
+  Ankra's default; `set <app> --mode off|warn|enforce` changes it (`--clear`
+  makes the application follow the organisation again); `verify <app> --image
+  <ref>` is a dry-run that reports what a deploy of those images would do and
+  exits 1 when it would be refused. `ankra org provenance get|set` holds the
+  organisation default, and `keys`, `rotate` and `revoke <key-id>` manage the
+  organisation's signing keys (`keys --public-keys` prints the PEM for
+  `cosign verify-attestation`). Under `enforce`, a version published before
+  the application's first attested publish cannot be deployed or rolled back
+  to: every command that shows or turns on `enforce` says so, and how to
+  switch to `warn` and back. Turning `enforce` on asks first (`--yes` skips
+  it), and so does revoking a key. Changing a mode or a key needs the
+  `security.manage` permission (exit 7 without it).
+
 ## v0.41.0 — 2026-10-18
 
 The headline is reaching cluster-scoped kinds: `ankra cluster delete`,
