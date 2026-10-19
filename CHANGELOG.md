@@ -12,6 +12,52 @@
   reports alongside an otherwise successful response fail the stack instead
   of being dropped.
 
+## v0.43.1 — 2026-10-19
+
+`ankra chat actions confirm` now tells a script the truth: `-o json` says
+`success: true` for an action that ran, and a confirmation the platform
+answered without running the action exits 1.
+
+### Fixed
+
+- **`ankra chat actions confirm -o json` reports `success: true` for an
+  action that ran.** The platform's confirm answer says what happened in
+  `status` and carries no `success` field, so the CLI printed
+  `success: false` next to `status: confirmed` and "Action executed
+  successfully", and a script checking `.success` treated every working
+  confirm as a failure. `success` is now true exactly when the status is
+  `confirmed`. A confirm the platform answers with any other status (`failed`
+  when the action errored, or when the organisation's write limit refused it
+  and the card is still pending) no longer prints "Action ... confirmed": it
+  exits 1 with the platform's reason, after the JSON or YAML document when
+  `-o` is set. A reject still exits 0.
+  `-o yaml` now uses the same field names as `-o json`.
+
+## v0.43.0 — 2026-10-19
+
+The organisation's Kubernetes access policy can now be changed from the
+CLI the only way it may be: by proposal. `ankra org access-policy set`
+records the change you want and prints a link, and an organisation owner
+or admin applies it, signed in. No token can change the policy itself.
+
+### Added
+
+- **`ankra org access-policy set` proposes a change to the organisation's
+  Kubernetes access policy, and a person applies it.** The policy stays
+  human-only: no token can change it. `set` takes only what should change
+  (`--creator-role`, `--max-role`, `--elevated-max-ttl 4h|7d|none`,
+  `--require-reason-from <role>|none`) and a required `--reason`, and prints
+  the policy before and after with the changed rows marked, the proposal id,
+  when it expires (7 days) and the link an organisation owner or admin opens,
+  signed in, to apply it. Nothing changes until they do; the CLI cannot apply
+  it. `--wait` blocks until the proposal is decided and exits 0 when it was
+  applied, 4 when it was dismissed, 1 when it expired or a newer proposal
+  replaced it, and 5 when `--timeout` (default 30m) ran out. `ankra org
+  access-policy proposals [--status pending|all]` and `proposal <id>` read
+  them, and `get` names a pending proposal and its link. Proposing needs the
+  `kube_access.manage` permission (exit 7 without it); a proposal the platform
+  refuses as invalid or identical to the live policy exits 2.
+
 ## v0.42.0 — 2026-10-19
 
 Signed provenance comes to the CLI: `ankra application provenance` and

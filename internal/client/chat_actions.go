@@ -63,19 +63,37 @@ type ConfirmChatActionRequest struct {
 	ForceReason *string `json:"force_reason,omitempty"`
 }
 
+// Statuses the confirm endpoint's 200 body reports for one action. The
+// platform answers 200 for an action it could not run too - a write the
+// organisation's hourly write limit refuses comes back `failed` with the card
+// left pending - so the status, not the HTTP code, says whether it ran.
+const (
+	ConfirmStatusConfirmed = "confirmed"
+	ConfirmStatusFailed    = "failed"
+	ConfirmStatusRejected  = "rejected"
+)
+
 // ConfirmChatActionResult is the confirm endpoint's 200 body. The envelope
-// varies by tool, so the decoded document is kept whole for `-o json` and
-// the well-known fields are lifted for the human rendering.
+// varies by tool, so the decoded document is kept whole in Document and the
+// well-known fields are lifted for the human rendering and `-o json|yaml`.
 type ConfirmChatActionResult struct {
-	Success  bool           `json:"success"`
-	Status   string         `json:"status,omitempty"`
-	Message  string         `json:"message,omitempty"`
-	ActionID string         `json:"action_id,omitempty"`
-	ToolName string         `json:"tool_name,omitempty"`
-	Document map[string]any `json:"-"`
+	// Success is true only when the action ran: the platform's body carries
+	// no `success` member (its outcome is `status`), so it is derived from
+	// the status unless a body states it explicitly.
+	Success  bool           `json:"success" yaml:"success"`
+	Status   string         `json:"status,omitempty" yaml:"status,omitempty"`
+	Message  string         `json:"message,omitempty" yaml:"message,omitempty"`
+	ActionID string         `json:"action_id,omitempty" yaml:"action_id,omitempty"`
+	ToolName string         `json:"tool_name,omitempty" yaml:"tool_name,omitempty"`
+	Document map[string]any `json:"-" yaml:"-"`
 }
 
 // UnmarshalJSON keeps the whole document alongside the lifted fields.
+//
+// The platform's ActionConfirmationResponse is {action_id, status, message,
+// result, execution_ref, ...} with no `success` member, so decoding it
+// straight into Success left it false for every action that ran, next to
+// `status: confirmed` and "Action executed successfully" (ankra-g7307k).
 func (result *ConfirmChatActionResult) UnmarshalJSON(data []byte) error {
 	type plainResult ConfirmChatActionResult
 	var lifted plainResult
@@ -83,7 +101,24 @@ func (result *ConfirmChatActionResult) UnmarshalJSON(data []byte) error {
 		return unmarshalError
 	}
 	*result = ConfirmChatActionResult(lifted)
-	return json.Unmarshal(data, &result.Document)
+	if unmarshalError := json.Unmarshal(data, &result.Document); unmarshalError != nil {
+		return unmarshalError
+	}
+	if _, stated := result.Document["success"]; !stated {
+		result.Success = result.Status == ConfirmStatusConfirmed
+	}
+	return nil
+}
+
+// NotRun reports, for a confirmation (confirmed=true), whether the platform
+// answered without running the action: anything but success, which covers
+// the 200 `failed` status (an execution error, or the write limit refusing it
+// before it started) and any status this CLI does not know. A missing answer
+// (nil) is not an observation that it ran, so it counts as not run too. A
+// reject answers `rejected`, which is not a confirmation, so callers ask this
+// only when they confirmed.
+func (result *ConfirmChatActionResult) NotRun() bool {
+	return result == nil || !result.Success
 }
 
 // ConfirmChatAction confirms or rejects a pending AI action.
