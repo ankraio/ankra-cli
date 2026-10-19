@@ -26,6 +26,7 @@ type accessPolicyProposalMock struct {
 	reads     int
 	listed    []string
 	listing   []client.ClusterAccessPolicyProposal
+	listError error
 	readError error
 }
 
@@ -102,6 +103,9 @@ func (m *accessPolicyProposalMock) GetClusterAccessPolicyProposal(ctx context.Co
 
 func (m *accessPolicyProposalMock) ListClusterAccessPolicyProposals(ctx context.Context, status string) (*client.ClusterAccessPolicyProposalList, error) {
 	m.listed = append(m.listed, status)
+	if m.listError != nil {
+		return nil, m.listError
+	}
 	return &client.ClusterAccessPolicyProposalList{Proposals: m.listing}, nil
 }
 
@@ -423,5 +427,43 @@ func TestOrgAccessPolicyGetNamesThePendingProposal(t *testing.T) {
 	}
 	if decoded["max_grant_role"] != "cluster-admin" || decoded["pending_proposal"] == nil {
 		t.Fatalf("get -o json must keep the policy keys and add pending_proposal, got: %v", decoded)
+	}
+}
+
+// A proposals read that fails is said out loud on stderr, so "could not
+// check" never reads as "no proposal"; a platform without the route (404)
+// is simply "no proposal".
+func TestOrgAccessPolicyGetWarnsWhenItCannotCheckForAProposal(t *testing.T) {
+	for _, testCase := range []struct {
+		name     string
+		err      error
+		wantWarn bool
+	}{
+		{"older platform", client.ClusterAccessPolicyProposalResponseError("list", 404, []byte(`{"detail":"Not Found"}`)), false},
+		{"refused", client.ClusterAccessPolicyProposalResponseError("list", 403,
+			[]byte(`{"detail":"Only organisation admins can view cluster access"}`)), true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			resetAccessPolicyFlags(t)
+			mock := &accessPolicyProposalMock{policy: defaultLivePolicy(), listError: testCase.err}
+			setMockClient(t, mock)
+			var stdout, stderr strings.Builder
+			rootCmd.SetOut(&stdout)
+			rootCmd.SetErr(&stderr)
+			rootCmd.SetArgs([]string{"org", "access-policy", "get"})
+			t.Cleanup(func() {
+				rootCmd.SetOut(nil)
+				rootCmd.SetErr(nil)
+			})
+			if err := rootCmd.Execute(); err != nil {
+				t.Fatalf("get must not fail on the proposals read: %v", err)
+			}
+			if !strings.Contains(stdout.String(), "Ceiling:") {
+				t.Fatalf("the policy must still print, got: %s", stdout.String())
+			}
+			if warned := strings.Contains(stderr.String(), "could not check for a pending proposal"); warned != testCase.wantWarn {
+				t.Fatalf("warned=%v, want %v; stderr: %s", warned, testCase.wantWarn, stderr.String())
+			}
+		})
 	}
 }

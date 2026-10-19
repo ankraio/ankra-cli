@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -71,7 +72,11 @@ for an owner or admin, the last line names it and its apply link
 		if err != nil {
 			return fmt.Errorf("get the cluster access policy: %w", err)
 		}
-		pending := pendingPolicyProposal(ctx)
+		pending, pendingError := pendingPolicyProposal(ctx)
+		if pendingError != nil {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+				"Warning: could not check for a pending proposal (%v); 'ankra org access-policy proposals' lists them.\n", pendingError)
+		}
 		view := clusterAccessPolicyView{ClusterAccessPolicy: *policy, PendingProposal: pending}
 		if rendered, renderError := renderStructured(cmd, view); rendered || renderError != nil {
 			return renderError
@@ -93,20 +98,29 @@ type clusterAccessPolicyView struct {
 	PendingProposal            *client.ClusterAccessPolicyProposal `json:"pending_proposal,omitempty" yaml:"pending_proposal,omitempty"`
 }
 
-// pendingPolicyProposal returns the organisation's pending proposal, or nil
-// when there is none or it cannot be read: 'get' is about the policy, and a
-// platform that predates proposals must not make it fail.
-func pendingPolicyProposal(ctx context.Context) *client.ClusterAccessPolicyProposal {
+// pendingPolicyProposal returns the organisation's pending proposal, nil
+// when there is none. A platform that predates proposals answers 404, which
+// is the same as none: 'get' is about the policy and must not fail on it.
+// Any other failure is returned so 'get' can say it could not check, rather
+// than presenting an unread answer as "no proposal".
+func pendingPolicyProposal(ctx context.Context) (*client.ClusterAccessPolicyProposal, error) {
 	list, err := apiClient.ListClusterAccessPolicyProposals(ctx, client.ProposalStatusPending)
-	if err != nil || list == nil {
-		return nil
+	if err != nil {
+		var unexpected *client.UnexpectedResponseError
+		if errors.As(err, &unexpected) && unexpected.StatusCode == http.StatusNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if list == nil {
+		return nil, nil
 	}
 	for index := range list.Proposals {
 		if list.Proposals[index].Status == client.ProposalStatusPending {
-			return &list.Proposals[index]
+			return &list.Proposals[index], nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // renderClusterAccessPolicy prints the policy in plain words.
