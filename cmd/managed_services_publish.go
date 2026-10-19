@@ -207,22 +207,32 @@ not make Ankra operate it or qualify it.`,
 	return publishCommand
 }
 
+// maxServicePackageDocumentBytes is the largest package document the
+// platform accepts.
+const maxServicePackageDocumentBytes = 256 * 1024
+
 // readServicePackageDocument reads a package document from a file, or from
-// standard input for "-", and checks only that it is one JSON object: what it
-// says is the platform's to judge.
+// standard input for "-", and checks only that it is one JSON object no
+// larger than the platform accepts: what it says is the platform's to judge.
 func readServicePackageDocument(stdin io.Reader, documentPath string) (json.RawMessage, error) {
-	var raw []byte
-	var readError error
-	if documentPath == "-" {
-		raw, readError = io.ReadAll(io.LimitReader(stdin, 256*1024+1))
-	} else {
-		raw, readError = os.ReadFile(documentPath)
+	source := stdin
+	if documentPath != "-" {
+		file, openError := os.Open(documentPath)
+		if openError != nil {
+			return nil, fmt.Errorf("reading the package document: %w", openError)
+		}
+		defer func() { _ = file.Close() }()
+		source = file
 	}
+	raw, readError := io.ReadAll(io.LimitReader(source, maxServicePackageDocumentBytes+1))
 	if readError != nil {
 		return nil, fmt.Errorf("reading the package document: %w", readError)
 	}
+	if len(raw) > maxServicePackageDocumentBytes {
+		return nil, fmt.Errorf("the package document is larger than the %d KiB the platform accepts", maxServicePackageDocumentBytes/1024)
+	}
 	var object map[string]json.RawMessage
-	if decodeError := json.Unmarshal(raw, &object); decodeError != nil {
+	if decodeError := json.Unmarshal(raw, &object); decodeError != nil || object == nil {
 		return nil, errors.New("the package document is not a JSON object")
 	}
 	return json.RawMessage(raw), nil

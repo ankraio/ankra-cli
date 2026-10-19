@@ -106,3 +106,25 @@ func TestServicesPackagesPublishSendsTheDocumentAsWrittenAndReportsARefusal(t *t
 		t.Fatalf("a document that is not a JSON object is refused before publishing: %v", runError)
 	}
 }
+
+func TestReadServicePackageDocumentRefusesWhatThePlatformWouldNotRead(t *testing.T) {
+	for name, input := range map[string]string{
+		"null":      "null",
+		"an array":  "[]",
+		"too large": `{"padding":"` + strings.Repeat("x", maxServicePackageDocumentBytes) + `"}`,
+	} {
+		if _, readError := readServicePackageDocument(strings.NewReader(input), "-"); readError == nil {
+			t.Fatalf("%s must be refused", name)
+		}
+	}
+	oversized := filepath.Join(t.TempDir(), "large.json")
+	if writeError := os.WriteFile(oversized, []byte(`{"padding":"`+strings.Repeat("x", maxServicePackageDocumentBytes)+`"}`), 0o600); writeError != nil {
+		t.Fatal(writeError)
+	}
+	if _, readError := readServicePackageDocument(nil, oversized); readError == nil || !strings.Contains(readError.Error(), "256 KiB") {
+		t.Fatalf("an oversized file is refused with the limit: %v", readError)
+	}
+	if document, readError := readServicePackageDocument(strings.NewReader(`{"name":"x"}`), "-"); readError != nil || string(document) != `{"name":"x"}` {
+		t.Fatalf("%s %v", document, readError)
+	}
+}
