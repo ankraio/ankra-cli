@@ -11,6 +11,7 @@ import (
 	"io"
 	"strings"
 	"text/tabwriter"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -100,7 +101,7 @@ skips the question).`,
 				prompt := "Turn enforce on as the organisation default? Every application that follows it then refuses " +
 					"unattested images, including rollbacks to versions published before its first attested publish " +
 					"(switch to warn to lift that). [y/N]: "
-				if confirmError := confirmPrompt(command.InOrStdin(), command.OutOrStdout(), prompt, yes); confirmError != nil {
+				if confirmError := confirmPrompt(command.InOrStdin(), command.ErrOrStderr(), prompt, yes); confirmError != nil {
 					return confirmError
 				}
 			}
@@ -140,15 +141,16 @@ func newOrgProvenanceKeysCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "keys",
 		Short: "List the organisation's provenance signing keys",
-		Long: `List the organisation's provenance signing keys, newest first. Only public keys
-are shown.
+		Long: `List the organisation's provenance signing keys, oldest generation first. Only
+public keys are shown.
 
   active    signs new attestations and verifies
   trusted   an earlier generation: verifies, no longer signs
   revoked   nothing it signed verifies any more
 
---public-keys prints the PEM of every key that is not revoked, ready to save as
-a file for 'cosign verify-attestation --key'.`,
+--public-keys prints the PEM of every key that is not revoked, one block per
+key. 'cosign verify-attestation --key' takes one key per check, so with more than
+one trusted key save each block to its own file and try them in turn.`,
 		Example: `  ankra org provenance keys
   ankra org provenance keys --public-keys > provenance.pub`,
 		Args: cobra.NoArgs,
@@ -252,13 +254,13 @@ Needs the security.manage permission. Use 'ankra org provenance keys' for key id
 				return withExitCode(exitUsage, errors.New("a key id is required"))
 			}
 			reason, _ := command.Flags().GetString("reason")
-			if len(reason) > 500 {
+			if utf8.RuneCountInString(reason) > 500 {
 				return withExitCode(exitUsage, errors.New("--reason is at most 500 characters"))
 			}
 			yes, _ := command.Flags().GetBool("yes")
 			prompt := fmt.Sprintf("Revoke key %s? Nothing it signed will verify any more, so applications under enforce "+
 				"refuse those images until they are published again. [y/N]: ", keyID)
-			if confirmError := confirmPrompt(command.InOrStdin(), command.OutOrStdout(), prompt, yes); confirmError != nil {
+			if confirmError := confirmPrompt(command.InOrStdin(), command.ErrOrStderr(), prompt, yes); confirmError != nil {
 				return confirmError
 			}
 			requestContext, cancel := context.WithTimeout(command.Context(), provenanceRequestTimeout)

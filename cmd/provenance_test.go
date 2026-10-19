@@ -28,14 +28,14 @@ type provenanceRequest struct {
 }
 
 type provenanceServer struct {
-	mutex       sync.Mutex
-	requests    []provenanceRequest
-	orgMode     *string
-	appMode     *string
-	verifyBody  string
-	keysBody    string
-	status      int
-	statusBody  string
+	mutex      sync.Mutex
+	requests   []provenanceRequest
+	orgMode    *string
+	appMode    *string
+	verifyBody string
+	keysBody   string
+	status     int
+	statusBody string
 }
 
 func newProvenanceServer(t *testing.T) *provenanceServer {
@@ -214,15 +214,52 @@ func TestApplicationProvenanceSetEnforceAsksFirst(t *testing.T) {
 	if len(recorder.seen()) != 0 {
 		t.Errorf("a declined enforce must send nothing: %+v", recorder.seen())
 	}
-	stdout, _, runError := runProvenance(t, "y\n", "application", "provenance", "set", testProvenanceApplicationID, "--mode", "enforce")
+	_, stderr, runError := runProvenance(t, "y\n", "application", "provenance", "set", testProvenanceApplicationID, "--mode", "enforce")
 	if runError != nil {
 		t.Fatalf("confirmed enforce failed: %v", runError)
 	}
-	if !strings.Contains(stdout, "cannot be deployed or rolled back to") && !strings.Contains(stdout, "rolled back to") {
-		t.Errorf("the prompt must name the rollback cost:\n%s", stdout)
+	if !strings.Contains(stderr, "cannot be deployed or rolled back to") {
+		t.Errorf("the prompt must name the rollback cost:\n%s", stderr)
 	}
 	if recorder.seen()[0].body["mode"] != "enforce" {
 		t.Errorf("unexpected request: %+v", recorder.seen())
+	}
+}
+
+// A script that pipes nothing in and forgets --yes must not turn enforce on
+// or revoke a key: an empty stdin is a declined prompt, never a yes.
+func TestProvenanceConfirmationWithNoInputSendsNothing(t *testing.T) {
+	recorder := newProvenanceServer(t)
+	for _, arguments := range [][]string{
+		{"application", "provenance", "set", testProvenanceApplicationID, "--mode", "enforce"},
+		{"org", "provenance", "set", "--mode", "enforce"},
+		{"org", "provenance", "revoke", "k1"},
+	} {
+		_, _, runError := runProvenance(t, "", arguments...)
+		if exitCodeFor(runError) != exitCancelled {
+			t.Errorf("%v with no input must exit %d, got %v", arguments, exitCancelled, runError)
+		}
+	}
+	if len(recorder.seen()) != 0 {
+		t.Errorf("an unanswered prompt must send nothing: %+v", recorder.seen())
+	}
+}
+
+// The prompt goes to stderr, so a confirmed write under -o json still leaves
+// only the JSON answer on stdout.
+func TestApplicationProvenanceSetEnforceConfirmedJSONKeepsStdoutClean(t *testing.T) {
+	newProvenanceServer(t)
+	stdout, stderr, runError := runProvenance(t, "y\n", "application", "provenance", "set", testProvenanceApplicationID,
+		"--mode", "enforce", "-o", "json")
+	if runError != nil {
+		t.Fatalf("set failed: %v", runError)
+	}
+	var decoded map[string]any
+	if jsonError := json.Unmarshal([]byte(stdout), &decoded); jsonError != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", jsonError, stdout)
+	}
+	if decoded["application_mode"] != "enforce" || !strings.Contains(stderr, "Turn enforce on") {
+		t.Errorf("unexpected answer %v or prompt %q", decoded, stderr)
 	}
 }
 
@@ -352,12 +389,12 @@ func TestOrgProvenanceGetSetClear(t *testing.T) {
 
 func TestOrgProvenanceSetEnforceAsksFirstAndSaysWhy(t *testing.T) {
 	recorder := newProvenanceServer(t)
-	stdout, _, runError := runProvenance(t, "n\n", "org", "provenance", "set", "--mode", "enforce")
+	_, stderr, runError := runProvenance(t, "n\n", "org", "provenance", "set", "--mode", "enforce")
 	if exitCodeFor(runError) != exitCancelled || len(recorder.seen()) != 0 {
 		t.Fatalf("declining must send nothing and exit %d: %v %+v", exitCancelled, runError, recorder.seen())
 	}
-	if !strings.Contains(stdout, "rollbacks to versions published before") || !strings.Contains(stdout, "warn") {
-		t.Errorf("the prompt must name the rollback cost and the way out:\n%s", stdout)
+	if !strings.Contains(stderr, "rollbacks to versions published before") || !strings.Contains(stderr, "warn") {
+		t.Errorf("the prompt must name the rollback cost and the way out:\n%s", stderr)
 	}
 }
 

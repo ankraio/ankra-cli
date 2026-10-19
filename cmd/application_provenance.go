@@ -132,7 +132,7 @@ func runApplicationProvenanceSet(command *cobra.Command, arguments []string) err
 		prompt := fmt.Sprintf("Turn enforce on for %q? Deploys are then refused unless every image is attested, and "+
 			"versions published before the first attested publish cannot be deployed or rolled back to "+
 			"(switch to warn to lift that). [y/N]: ", arguments[0])
-		if confirmError := confirmPrompt(command.InOrStdin(), command.OutOrStdout(), prompt, yes); confirmError != nil {
+		if confirmError := confirmPrompt(command.InOrStdin(), command.ErrOrStderr(), prompt, yes); confirmError != nil {
 			return confirmError
 		}
 	}
