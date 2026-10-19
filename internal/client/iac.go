@@ -236,6 +236,12 @@ func (c *Client) GetClusterIaC(ctx context.Context, clusterID string) (string, e
 // partial_stack=true. On non-2xx it returns *PatchStackError so callers can
 // inspect StatusCode and Body without re-parsing.
 func (c *Client) PatchClusterStackPartial(ctx context.Context, clusterID, stackName string, body PatchStackRequest) (*PatchStackResult, error) {
+	return c.patchClusterStack(ctx, clusterID, stackName, body)
+}
+
+// patchClusterStack sends one PATCH /stacks/{stack_name} body - a partial
+// update or a draft promotion - and maps the answer the same way for both.
+func (c *Client) patchClusterStack(ctx context.Context, clusterID, stackName string, body any) (*PatchStackResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/%s",
 		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(stackName))
 

@@ -28,7 +28,9 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	neturl "net/url"
 	"strings"
 )
@@ -251,4 +253,158 @@ func (c *Client) DeployClusterStackDraft(ctx context.Context, clusterID string, 
 		return nil, requestError
 	}
 	return &result, nil
+}
+
+// Deploying the draft of a stack that is already deployed (bead
+// ankra-bjkszh.10).
+//
+// `ankra cluster draft -f` on an existing stack, and the stack builder, both
+// leave a draft bound to a live stack. The create-stack write above refuses
+// it - the stack exists - so it could only be deployed from the builder,
+// which promotes it through PATCH /stacks/{stack_name} with the draft's id.
+// This is that write. Two things differ from the draft-only deploy:
+//
+//   - The content comes from the draft read, not the listing. The listing
+//     elides manifest bodies and add-on values, and the update write - unlike
+//     the create write - does not reload the draft's rows, so an elided body
+//     would deploy the LIVE body under the draft's name and then close the
+//     draft as if its change had shipped.
+//   - The write is partial. A draft of a deployed stack holds only the
+//     members it changes; a full write deletes every member a request omits,
+//     so promoting the draft whole would delete the stack's untouched members.
+//     The partial promote writes the draft's members, removes them from the
+//     draft, and closes the draft once nothing is left in it.
+
+// stackDraftReadCodeUnknown and stackDraftReadCodeTombstoned are the codes the
+// draft read answers for a draft that never existed and for one that ended.
+const (
+	stackDraftReadCodeUnknown    = "DRAFT_UNKNOWN"
+	stackDraftReadCodeTombstoned = "DRAFT_TOMBSTONED"
+)
+
+// StackDraftReadError is a draft read the platform did not answer with the
+// draft. Code is the platform's code when it sent one; a 404 without a code
+// is a platform that does not serve the read at all.
+type StackDraftReadError struct {
+	StatusCode int
+	Code       string
+	Message    string
+}
+
+func (readError *StackDraftReadError) Error() string {
+	switch {
+	case readError.Code == stackDraftReadCodeTombstoned:
+		return "the draft has ended: it was discarded or deployed since the stack was listed"
+	case readError.Code == stackDraftReadCodeUnknown:
+		return "the draft no longer exists on the cluster"
+	case readError.StatusCode == http.StatusNotFound && readError.Message == "":
+		return "this Ankra platform does not serve stack draft reads to the CLI yet; deploy the draft from the stack builder"
+	case readError.Message != "":
+		return fmt.Sprintf("reading the draft failed: status %d: %s", readError.StatusCode, readError.Message)
+	default:
+		return fmt.Sprintf("reading the draft failed: status %d", readError.StatusCode)
+	}
+}
+
+// IsGone reports a draft that no longer exists - never created, discarded,
+// or already deployed - as opposed to a read that could not be made.
+func (readError *StackDraftReadError) IsGone() bool {
+	return readError.Code == stackDraftReadCodeUnknown || readError.Code == stackDraftReadCodeTombstoned
+}
+
+// stackDraftReadErrorFromResponse decodes the draft read's refusal. Its
+// detail is an object ({code, message}) for the draft's own answers and a
+// string for the gates in front of it (an unknown cluster).
+func stackDraftReadErrorFromResponse(statusCode int, body []byte) *StackDraftReadError {
+	readError := &StackDraftReadError{StatusCode: statusCode}
+	var envelope struct {
+		Detail json.RawMessage `json:"detail"`
+	}
+	if json.Unmarshal(body, &envelope) != nil || len(envelope.Detail) == 0 {
+		return readError
+	}
+	var structured struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(envelope.Detail, &structured) == nil {
+		readError.Code = structured.Code
+		readError.Message = structured.Message
+		return readError
+	}
+	var sentence string
+	if json.Unmarshal(envelope.Detail, &sentence) == nil {
+		readError.Message = sentence
+	}
+	return readError
+}
+
+// GetClusterStackDraft reads one stack draft with the full content of the
+// members it holds: GET /api/v1/org/clusters/imported/{cluster_id}/drafts/stacks/{draft_id}.
+// The stack is kept as the raw object the API rendered, for the same reason
+// the listing's is.
+func (c *Client) GetClusterStackDraft(ctx context.Context, clusterID string, draftID string) (ClusterStackDocument, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/drafts/stacks/%s",
+		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(draftID))
+	request, requestError := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if requestError != nil {
+		return nil, fmt.Errorf("create request: %w", requestError)
+	}
+	request.Header.Set("Authorization", "Bearer "+c.Token)
+	response, doError := c.HTTP.Do(request)
+	if doError != nil {
+		return nil, fmt.Errorf("request failed: %w", doError)
+	}
+	defer closeBody(response)
+	body, readError := readResponseBody(response)
+	if readError != nil {
+		return nil, fmt.Errorf("read response: %w", readError)
+	}
+	if response.StatusCode == http.StatusUnauthorized {
+		return nil, ErrUnauthorized
+	}
+	if response.StatusCode != http.StatusOK {
+		if denied := PermissionDeniedFromResponse(response.StatusCode, body); denied != nil {
+			return nil, denied
+		}
+		return nil, stackDraftReadErrorFromResponse(response.StatusCode, body)
+	}
+	var draftRead struct {
+		Stack ClusterStackDocument `json:"stack"`
+	}
+	if unmarshalError := json.Unmarshal(body, &draftRead); unmarshalError != nil {
+		return nil, fmt.Errorf("parse response: %w", unmarshalError)
+	}
+	if draftRead.Stack == nil {
+		return nil, errors.New("the draft read carried no stack")
+	}
+	return draftRead.Stack, nil
+}
+
+// promoteStackDraftRequest is the builder's promote body, as a partial write.
+type promoteStackDraftRequest struct {
+	Spec         map[string]any `json:"spec"`
+	PartialStack bool           `json:"partial_stack"`
+	DraftID      string         `json:"draft_id"`
+}
+
+// PromoteClusterStackDraft promotes the draft of an already-deployed stack
+// through PATCH /stacks/{stack_name} with its draft_id, carrying exactly the
+// members the draft holds. document is the draft read's stack, never the
+// listing's: see the comment above StackDraftReadError.
+func (c *Client) PromoteClusterStackDraft(ctx context.Context, clusterID string, document ClusterStackDocument) (*PatchStackResult, error) {
+	stackName := document.Name()
+	draftID := document.DraftID()
+	if stackName == "" || draftID == "" {
+		return nil, errors.New("the draft read must name the stack and its draft")
+	}
+	specification, specificationError := document.asDeployableSpec()
+	if specificationError != nil {
+		return nil, specificationError
+	}
+	return c.patchClusterStack(ctx, clusterID, stackName, promoteStackDraftRequest{
+		Spec:         map[string]any{"stacks": []map[string]json.RawMessage{specification}},
+		PartialStack: true,
+		DraftID:      draftID,
+	})
 }
