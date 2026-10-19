@@ -50,16 +50,16 @@ func TestSelectDeployableDraftRefusesAStackWithNothingToDeploy(t *testing.T) {
 	}
 }
 
-func TestSelectDeployableDraftSendsADirtyDeployedStackToTheBuilder(t *testing.T) {
-	// Promoting a draft over a live stack is the update write, not the
-	// create write this verb runs; the create write's own refusal names an
-	// API function ("use update_cluster_stack") no CLI user has.
-	_, selectError := selectDeployableDraft(deployDraftFixtures(t), "edited")
-	if selectError == nil {
-		t.Fatal("a deployed stack holding a draft of edits must be refused here")
+func TestSelectDeployableDraftSelectsTheDraftOfADeployedStack(t *testing.T) {
+	// ankra-bjkszh.10: the draft `ankra cluster draft -f` leaves on a
+	// deployed stack used to be refused here and was deployable only from
+	// the stack builder.
+	document, selectError := selectDeployableDraft(deployDraftFixtures(t), "edited")
+	if selectError != nil {
+		t.Fatalf("a deployed stack holding a draft must be deployable: %v", selectError)
 	}
-	if !strings.Contains(selectError.Error(), "stack builder") {
-		t.Fatalf("the refusal must point somewhere that works: %v", selectError)
+	if document.Name() != "edited" || document.DraftID() != "7a7a7a7a-7a7a-7a7a-7a7a-7a7a7a7a7a7a" || document.IsDraftOnly() {
+		t.Fatalf("selected %+v", document)
 	}
 }
 

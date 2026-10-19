@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -359,5 +360,149 @@ func TestListClusterStackDocumentsFollowsTotalPagesWhenTheServerCapsThePageSize(
 	}
 	if !found {
 		t.Fatal("the draft on the last capped page was lost")
+	}
+}
+
+const deployedStackDraftRead = `{
+  "stack": {
+    "name": "edited",
+    "draft_id": "7a7a7a7a-7a7a-7a7a-7a7a-7a7a7a7a7a7a",
+    "state": "creating",
+    "variables": {"replicas": "3"},
+    "manifests": [
+      {"name": "api", "manifest_base64": "a2luZDogQ29uZmlnTWFw", "encrypted_paths": ["data.PASSWORD"], "state": "creating"}
+    ],
+    "addons": [],
+    "applications": []
+  },
+  "resource_version": null,
+  "version": 2,
+  "errors": [],
+  "engine": "crdt"
+}`
+
+func TestGetClusterStackDraftReadsTheDraftWithItsBodies(t *testing.T) {
+	var receivedPath string
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(deployedStackDraftRead))
+	}
+	testClient := newTestClient(t, handler)
+
+	document, readError := testClient.GetClusterStackDraft(context.Background(), "cluster-1", "7a7a7a7a-7a7a-7a7a-7a7a-7a7a7a7a7a7a")
+	if readError != nil {
+		t.Fatalf("GetClusterStackDraft: %v", readError)
+	}
+	if receivedPath != "/api/v1/org/clusters/imported/cluster-1/drafts/stacks/7a7a7a7a-7a7a-7a7a-7a7a-7a7a7a7a7a7a" {
+		t.Fatalf("path = %s", receivedPath)
+	}
+	if document.Name() != "edited" || document.DraftID() != "7a7a7a7a-7a7a-7a7a-7a7a-7a7a7a7a7a7a" {
+		t.Fatalf("document = %v", document)
+	}
+	if !strings.Contains(string(document["manifests"]), "a2luZDogQ29uZmlnTWFw") {
+		t.Fatalf("the draft read must keep the bodies the listing elides: %s", document["manifests"])
+	}
+}
+
+func TestGetClusterStackDraftClassifiesTheRefusals(t *testing.T) {
+	testCases := map[string]struct {
+		status     int
+		body       string
+		wantGone   bool
+		wantPhrase string
+	}{
+		"unknown draft":   {http.StatusNotFound, `{"detail":{"code":"DRAFT_UNKNOWN","message":"The requested cluster stack draft could not be found, it has never existed in this cluster."}}`, true, "no longer exists"},
+		"ended draft":     {http.StatusGone, `{"detail":{"code":"DRAFT_TOMBSTONED","message":"The requested cluster stack draft has been discarded.","reason":"DEPLOYED","deleted_at":null}}`, true, "has ended"},
+		"unknown cluster": {http.StatusNotFound, `{"detail":"Cluster not found"}`, false, "Cluster not found"},
+		"older platform":  {http.StatusNotFound, `404 page not found`, false, "does not serve stack draft reads"},
+		"server failure":  {http.StatusInternalServerError, `Internal Server Error`, false, "status 500"},
+	}
+	for name, testCase := range testCases {
+		handler := func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(testCase.status)
+			_, _ = w.Write([]byte(testCase.body))
+		}
+		testClient := newTestClient(t, handler)
+		_, readError := testClient.GetClusterStackDraft(context.Background(), "cluster-1", "draft-1")
+		var draftReadError *StackDraftReadError
+		if !errors.As(readError, &draftReadError) {
+			t.Fatalf("%s: want a StackDraftReadError, got %v", name, readError)
+		}
+		if draftReadError.IsGone() != testCase.wantGone {
+			t.Fatalf("%s: IsGone() = %v, want %v", name, draftReadError.IsGone(), testCase.wantGone)
+		}
+		if !strings.Contains(readError.Error(), testCase.wantPhrase) {
+			t.Fatalf("%s: error %q must say %q", name, readError.Error(), testCase.wantPhrase)
+		}
+	}
+}
+
+func TestPromoteClusterStackDraftPatchesThePartialDraftBoundWrite(t *testing.T) {
+	var receivedPath string
+	var receivedMethod string
+	var receivedBody map[string]any
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		receivedMethod = r.Method
+		if decodeError := json.NewDecoder(r.Body).Decode(&receivedBody); decodeError != nil {
+			t.Fatalf("decode request body: %v", decodeError)
+		}
+		jsonResponse(t, w, http.StatusOK, map[string]any{
+			"stack_name": "edited", "errors": []any{}, "job_count": 1,
+			"operation_id": "33333333-3333-3333-3333-333333333333",
+		})
+	}
+	testClient := newTestClient(t, handler)
+
+	var draftRead struct {
+		Stack ClusterStackDocument `json:"stack"`
+	}
+	if unmarshalError := json.Unmarshal([]byte(deployedStackDraftRead), &draftRead); unmarshalError != nil {
+		t.Fatal(unmarshalError)
+	}
+	result, promoteError := testClient.PromoteClusterStackDraft(context.Background(), "cluster-1", draftRead.Stack)
+	if promoteError != nil {
+		t.Fatalf("PromoteClusterStackDraft: %v", promoteError)
+	}
+	if receivedMethod != http.MethodPatch || receivedPath != "/api/v1/org/clusters/imported/cluster-1/stacks/edited" {
+		t.Fatalf("request = %s %s", receivedMethod, receivedPath)
+	}
+	if receivedBody["partial_stack"] != true {
+		t.Fatalf("the promote must be partial so the stack's other members survive: %+v", receivedBody)
+	}
+	if receivedBody["draft_id"] != "7a7a7a7a-7a7a-7a7a-7a7a-7a7a7a7a7a7a" {
+		t.Fatalf("the promote must carry the draft id: %+v", receivedBody)
+	}
+	stacks := receivedBody["spec"].(map[string]any)["stacks"].([]any)
+	stack := stacks[0].(map[string]any)
+	if _, hasState := stack["state"]; hasState {
+		t.Fatalf("the render-only state must be stripped from the stack: %+v", stack)
+	}
+	manifest := stack["manifests"].([]any)[0].(map[string]any)
+	if _, hasState := manifest["state"]; hasState || manifest["manifest_base64"] != "a2luZDogQ29uZmlnTWFw" {
+		t.Fatalf("the member must keep its body and lose its state: %+v", manifest)
+	}
+	if encryptedPaths, isList := manifest["encrypted_paths"].([]any); !isList || len(encryptedPaths) != 1 {
+		t.Fatalf("encrypted_paths must survive the round trip: %+v", manifest)
+	}
+	if result.OperationID != "33333333-3333-3333-3333-333333333333" || result.JobCount != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestPromoteClusterStackDraftRefusesADocumentWithoutItsDraft(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("nothing may be sent for a document that names no draft")
+	})
+	var document ClusterStackDocument
+	if unmarshalError := json.Unmarshal([]byte(`{"name":"edited","draft_id":null}`), &document); unmarshalError != nil {
+		t.Fatal(unmarshalError)
+	}
+	if _, promoteError := testClient.PromoteClusterStackDraft(context.Background(), "cluster-1", document); promoteError == nil {
+		t.Fatal("a document without a draft id must be refused")
 	}
 }

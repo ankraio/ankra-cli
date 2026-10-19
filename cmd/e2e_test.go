@@ -1150,6 +1150,14 @@ func (m baseMock) DeployClusterStackDraft(ctx context.Context, clusterID string,
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetClusterStackDraft(ctx context.Context, clusterID string, draftID string) (client.ClusterStackDocument, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PromoteClusterStackDraft(ctx context.Context, clusterID string, document client.ClusterStackDocument) (*client.PatchStackResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) DeleteStack(ctx context.Context, clusterID, stackName string) (*client.DeleteStackResult, error) {
 	return nil, errors.New("not implemented")
 }
