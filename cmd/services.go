@@ -777,6 +777,7 @@ type APIClient interface {
 	GetAnkraCloudWorkerCount(clusterID string) (*client.WorkerCountResult, error)
 	ScaleAnkraCloudWorkers(clusterID string, workerCount int, drainOptions client.DrainOptions) (*client.ScaleWorkersResult, error)
 	GetAnkraCloudK8sVersion(clusterID string) (*client.K8sVersionInfo, error)
+	GetAnkraCloudQuotas(clusterID string) (*client.ClusterQuotaReport, error)
 	UpgradeAnkraCloudK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error)
 	ListAnkraCloudNodeGroups(clusterID string) (*client.NodeGroupListResult, error)
 	AddAnkraCloudNodeGroup(ctx context.Context, clusterID string, request client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error)

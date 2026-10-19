@@ -86,7 +86,8 @@ func TestPrintStackDraftDeployResultReportsTheAcceptedDeploy(t *testing.T) {
 	output := &bytes.Buffer{}
 	printError := printStackDraftDeployResult(output, &client.StackWriteResult{
 		StackName: "notes", JobCount: 4, OperationID: &operationID,
-		Warnings: []string{"Manifest 'api' carries the source cluster's generated hostname."},
+		Warnings: []client.ValidationWarning{{Kind: "Manifest", Name: "api", Category: "hostname",
+			Message: "Manifest 'api' carries the source cluster's generated hostname."}},
 	})
 	if printError != nil {
 		t.Fatalf("an accepted deploy must not error: %v", printError)

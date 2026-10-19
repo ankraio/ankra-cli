@@ -486,6 +486,10 @@ type ImportResponse struct {
 	// waiting (wait=false): the execution that records whether it was
 	// applied or refused.
 	OperationID string `json:"operation_id,omitempty"`
+	// Warnings are the advisory findings on the state the apply stored, such
+	// as new claims that need more storage than the Ankra Cloud account has
+	// left. They never mean the apply was refused.
+	Warnings []ValidationWarning `json:"warnings,omitempty"`
 }
 
 // TriggerReconcileResult mirrors the platform's reconcile response (openapi
@@ -572,11 +576,29 @@ type ValidateClusterRequest struct {
 }
 
 type ValidationWarning struct {
-	Kind     string `json:"kind"`
-	Name     string `json:"name"`
-	Key      string `json:"key"`
-	Message  string `json:"message"`
-	Category string `json:"category"`
+	Kind     string `json:"kind" yaml:"kind"`
+	Name     string `json:"name" yaml:"name"`
+	Key      string `json:"key" yaml:"key"`
+	Message  string `json:"message" yaml:"message"`
+	Category string `json:"category" yaml:"category"`
+}
+
+// UnmarshalJSON reads a warning object, and also a bare string as a warning
+// carrying only its message, so a write lane that answers its warnings as
+// plain text still decodes.
+func (warning *ValidationWarning) UnmarshalJSON(data []byte) error {
+	var message string
+	if json.Unmarshal(data, &message) == nil {
+		*warning = ValidationWarning{Message: message}
+		return nil
+	}
+	type validationWarningFields ValidationWarning
+	var fields validationWarningFields
+	if decodeError := json.Unmarshal(data, &fields); decodeError != nil {
+		return decodeError
+	}
+	*warning = ValidationWarning(fields)
+	return nil
 }
 
 type ValidateClusterResponse struct {
