@@ -88,8 +88,9 @@ func runClusterDraft(cmd *cobra.Command, _ []string) error {
 			errorParts := make([]string, 0, len(result.Errors))
 			for _, resourceError := range result.Errors {
 				for _, detail := range resourceError.Errors {
-					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "    • %s %q: %s - %s\n", resourceError.Kind, resourceError.Name, detail.Key, detail.Message)
-					errorParts = append(errorParts, fmt.Sprintf("%s %q: %s - %s", resourceError.Kind, resourceError.Name, detail.Key, detail.Message))
+					line := describeDraftResourceError(resourceError, detail)
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "    • %s\n", line)
+					errorParts = append(errorParts, line)
 				}
 			}
 			stackOutputs = append(stackOutputs, stackDraftOutput{StackName: stack.Name, Error: strings.Join(errorParts, "; ")})
@@ -128,6 +129,17 @@ func runClusterDraft(cmd *cobra.Command, _ []string) error {
 			strings.TrimRight(baseURL, "/"), clusterID)
 	}
 	return nil
+}
+
+// describeDraftResourceError renders one draft refusal as
+// `<kind> "<name>": <field> - <message>`, dropping the field when the
+// platform named none.
+func describeDraftResourceError(resourceError client.ImportResponseResourceError, detail client.ImportResponseErrorItem) string {
+	location := fmt.Sprintf("%s %q", resourceError.Kind, resourceError.Name)
+	if detail.Key == "" {
+		return fmt.Sprintf("%s: %s", location, detail.Message)
+	}
+	return fmt.Sprintf("%s: %s - %s", location, detail.Key, detail.Message)
 }
 
 // resolveClusterForDraft returns the cluster ID to attach drafts to. If the

@@ -149,3 +149,47 @@ func TestDraftExistingClusterSkipsImport(t *testing.T) {
 		}
 	}
 }
+
+type draftRefusalMock struct {
+	draftBootstrapMock
+}
+
+func (m *draftRefusalMock) CreateStackDraft(ctx context.Context, clusterID string, stack client.Stack) (*client.StackDraftResult, error) {
+	if stack.Name != "monitoring" {
+		return &client.StackDraftResult{DraftID: "draft-" + stack.Name}, nil
+	}
+	return &client.StackDraftResult{Errors: []client.ImportResponseResourceError{
+		{Kind: "addon", Name: "grafana", Errors: []client.ImportResponseErrorItem{
+			{Key: "registry_name", Message: "Field required"},
+			{Key: "registry_url", Message: "Field required"},
+		}},
+		{Kind: "stack", Name: "monitoring", Errors: []client.ImportResponseErrorItem{{Message: "stack is locked"}}},
+	}}, nil
+}
+
+func TestDraftPrintsEveryRefusalWithItsLocation(t *testing.T) {
+	mock := &draftRefusalMock{draftBootstrapMock{
+		existingCluster: &client.ClusterListItem{ID: "existing-cluster-id", Name: "draft-cluster"},
+	}}
+	setMockClient(t, mock)
+	yamlPath := writeDraftImportClusterYAML(t)
+
+	var output string
+	var commandError error
+	_ = captureStdout(t, func() {
+		output, commandError = executeCommand("cluster", "draft", "-f", yamlPath)
+	})
+	if commandError == nil {
+		t.Fatalf("cluster draft succeeded, want a failure\noutput: %s", output)
+	}
+	for _, want := range []string{
+		`- stack "monitoring":`,
+		`addon "grafana": registry_name - Field required`,
+		`addon "grafana": registry_url - Field required`,
+		`stack "monitoring": stack is locked`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("expected output to contain %q, got: %s", want, output)
+		}
+	}
+}
