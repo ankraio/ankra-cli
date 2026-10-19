@@ -144,10 +144,7 @@ Publication refuses the package until these are filled in.`,
 				_, writeError := command.OutOrStdout().Write(encoded)
 				return writeError
 			}
-			if _, statError := os.Stat(outputPath); statError == nil {
-				return fmt.Errorf("%s already exists; choose another file or remove it first", outputPath)
-			}
-			if writeError := os.WriteFile(outputPath, encoded, 0o600); writeError != nil {
+			if writeError := writeNewFile(outputPath, encoded); writeError != nil {
 				return writeError
 			}
 			_, _ = fmt.Fprintf(command.ErrOrStderr(), "Wrote %s. Fill in the connection's Service, port and Secret, then run:\n  ankra services packages publish -f %s\n", outputPath, outputPath)
@@ -210,6 +207,24 @@ not make Ankra operate it or qualify it.`,
 // maxServicePackageDocumentBytes is the largest package document the
 // platform accepts.
 const maxServicePackageDocumentBytes = 256 * 1024
+
+// writeNewFile writes a file that must not exist yet. The create is
+// exclusive, so an existing file - or one that appears between any check and
+// the write - is never overwritten.
+func writeNewFile(path string, content []byte) error {
+	file, openError := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(openError, os.ErrExist) {
+		return fmt.Errorf("%s already exists; choose another file or remove it first", path)
+	}
+	if openError != nil {
+		return openError
+	}
+	if _, writeError := file.Write(content); writeError != nil {
+		_ = file.Close()
+		return writeError
+	}
+	return file.Close()
+}
 
 // readServicePackageDocument reads a package document from a file, or from
 // standard input for "-", and checks only that it is one JSON object no
