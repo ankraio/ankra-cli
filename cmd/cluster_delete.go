@@ -18,7 +18,10 @@ var clusterDeleteCmd = &cobra.Command{
 The kind takes the kubectl spellings - pod, pods, po, deployment, deploy,
 statefulset, sts, configmap, cm, namespace, node, pvc, ... - and a custom
 resource is reachable with --group and --api-version, exactly like
-'cluster get resources' and 'cluster describe'.
+'cluster get resources' and 'cluster describe'. Cluster-scoped built-in
+kinds (namespace, node, storageclass, crd, priorityclass, the webhook
+configurations, ...) need no namespace; a cluster-scoped custom kind such as
+a ClusterIssuer or a ClusterPolicy takes --cluster-scoped instead.
 
 A pod owned by a controller (Deployment, StatefulSet, DaemonSet, Job) is
 recreated by that controller, so deleting it is how you restart a single
@@ -36,23 +39,23 @@ Examples:
   ankra cluster delete pod stuck-pod -n default --grace-period 0
   ankra cluster delete deployment web -n prod --dry-run
   ankra cluster delete namespace scratch
-  ankra cluster delete Certificate web-tls -n prod --group cert-manager.io --api-version v1`,
+  ankra cluster delete Certificate web-tls -n prod --group cert-manager.io --api-version v1
+  ankra cluster delete crd kafkas.kafka.strimzi.io kafkatopics.kafka.strimzi.io
+  ankra cluster delete ClusterIssuer letsencrypt-staging --group cert-manager.io --api-version v1 --cluster-scoped`,
 	Args:        cobra.MinimumNArgs(2),
 	Annotations: map[string]string{"group": "kubernetes"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		namespace, _ := cmd.Flags().GetString("namespace")
 		yes, _ := cmd.Flags().GetBool("yes")
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
-		apiGroup, _ := cmd.Flags().GetString("group")
-		apiVersion, _ := cmd.Flags().GetString("api-version")
 
-		resolvedKind, kindError := resolveK8sKind(args[0], apiGroup, apiVersion)
+		resolvedKind, kindError := resolveK8sKindFromFlags(cmd, args[0])
 		if kindError != nil {
 			return kindError
 		}
 		names := args[1:]
 		if !resolvedKind.clusterScoped && namespace == "" {
-			return withExitCode(exitUsage, fmt.Errorf("--namespace (-n) is required to delete a %s", resolvedKind.kind))
+			return namespaceRequiredError("delete", resolvedKind)
 		}
 		if resolvedKind.clusterScoped {
 			namespace = ""
@@ -203,8 +206,7 @@ func init() {
 	clusterDeleteCmd.Flags().Bool("dry-run", false, "Report what would be deleted without deleting anything")
 	clusterDeleteCmd.Flags().Int("grace-period", -1,
 		"Seconds the object gets to shut down cleanly; 0 deletes it immediately, -1 keeps the object's own grace period")
-	clusterDeleteCmd.Flags().String("group", "", "API group for a kind outside the built-in set (e.g. cert-manager.io)")
-	clusterDeleteCmd.Flags().String("api-version", "", "API version for a kind outside the built-in set (e.g. v1, v1beta1)")
+	registerK8sKindFlags(clusterDeleteCmd)
 
 	clusterCmd.AddCommand(clusterDeleteCmd)
 }

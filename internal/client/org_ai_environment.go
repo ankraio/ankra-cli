@@ -21,6 +21,22 @@ type OrganisationPreviewSettings struct {
 	DemoTLSSecretName    string `json:"demo_tls_secret_name" yaml:"demo_tls_secret_name"`
 	DemoCertIssuerName   string `json:"demo_cert_issuer_name" yaml:"demo_cert_issuer_name"`
 
+	// StagingClusterID is the cluster AI workspace pods and PR demos run on;
+	// nil when none is chosen. StagingClusterName is nil when the id no
+	// longer names a cluster.
+	StagingClusterID     *string `json:"staging_cluster_id" yaml:"staging_cluster_id"`
+	StagingClusterName   *string `json:"staging_cluster_name" yaml:"staging_cluster_name"`
+	StagingClusterOnline bool    `json:"staging_cluster_online" yaml:"staging_cluster_online"`
+	// WorkspaceTTLHours and DemoTTLHours are how long an AI workspace and a
+	// PR demo live by default; DemoTTLRoleCaps is the longest demo a member
+	// of each role (admin, operator, member) may ask for.
+	WorkspaceTTLHours int            `json:"workspace_ttl_hours" yaml:"workspace_ttl_hours"`
+	DemoTTLHours      int            `json:"demo_ttl_hours" yaml:"demo_ttl_hours"`
+	DemoTTLRoleCaps   map[string]int `json:"demo_ttl_role_caps,omitempty" yaml:"demo_ttl_role_caps,omitempty"`
+	// DefaultGatewayMode is the organisation-wide AI gateway mode new
+	// connections start in: ask or agent.
+	DefaultGatewayMode string `json:"default_gateway_mode" yaml:"default_gateway_mode"`
+
 	// PreviewTLSWarning is the backend's own verdict on whether these
 	// settings publish demos over plain http. It depends on what the
 	// staging cluster carries, so it cannot be worked out from the fields
@@ -54,6 +70,14 @@ type organisationPreviewSettingsBody struct {
 	DemoCertIssuerName   *string `json:"demo_cert_issuer_name"`
 	PreviewTLSWarning    *string `json:"demo_preview_tls_warning"`
 
+	StagingClusterID     *string        `json:"staging_cluster_id"`
+	StagingClusterName   *string        `json:"staging_cluster_name"`
+	StagingClusterOnline bool           `json:"staging_cluster_online"`
+	WorkspaceTTLHours    int            `json:"workspace_ttl_hours"`
+	DemoTTLHours         int            `json:"demo_ttl_hours"`
+	DemoTTLRoleCaps      map[string]int `json:"demo_ttl_role_caps"`
+	DefaultGatewayMode   string         `json:"default_gateway_mode"`
+
 	// Decoded as raw JSON, not *string, because those two answer different
 	// questions here. The platform sends this field without omitempty, so a
 	// healthy organisation gets an explicit null - and *string cannot tell an
@@ -78,16 +102,8 @@ func (c *Client) GetOrganisationPreviewSettings(ctx context.Context) (*Organisat
 // clears that field, and a key left out of the map is not touched - so
 // setting one field never silently clears its neighbours.
 func (c *Client) UpdateOrganisationPreviewSettings(ctx context.Context,
-	changes map[string]*string) (*OrganisationPreviewSettings, error) {
-	payload := make(map[string]any, len(changes))
-	for field, value := range changes {
-		if value == nil {
-			payload[field] = nil
-			continue
-		}
-		payload[field] = *value
-	}
-	encoded, marshalError := json.Marshal(payload)
+	changes map[string]any) (*OrganisationPreviewSettings, error) {
+	encoded, marshalError := json.Marshal(changes)
 	if marshalError != nil {
 		return nil, fmt.Errorf("encode request: %w", marshalError)
 	}
@@ -103,7 +119,15 @@ func decodeOrganisationPreviewSettings(body []byte) (*OrganisationPreviewSetting
 	if unmarshalError := json.Unmarshal(body, &decoded); unmarshalError != nil {
 		return nil, fmt.Errorf("parse response: %w", unmarshalError)
 	}
-	settings := OrganisationPreviewSettings{}
+	settings := OrganisationPreviewSettings{
+		StagingClusterID:     decoded.StagingClusterID,
+		StagingClusterName:   decoded.StagingClusterName,
+		StagingClusterOnline: decoded.StagingClusterOnline,
+		WorkspaceTTLHours:    decoded.WorkspaceTTLHours,
+		DemoTTLHours:         decoded.DemoTTLHours,
+		DemoTTLRoleCaps:      decoded.DemoTTLRoleCaps,
+		DefaultGatewayMode:   decoded.DefaultGatewayMode,
+	}
 	if decoded.DemoBaseDomain != nil {
 		settings.DemoBaseDomain = *decoded.DemoBaseDomain
 	}

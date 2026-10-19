@@ -68,8 +68,8 @@ type APIClient interface {
 	ListSecurityDispositions(options client.SecurityDispositionsOptions) (*client.SecurityDispositionList, error)
 	PreviewSecurityDisposition(request client.SecurityDispositionPreviewRequest) (*client.SecurityDispositionPreview, error)
 	CreateSecurityDisposition(request client.SecurityDispositionCreateRequest) (*client.SecurityDispositionMutation, error)
-	UpdateSecurityDisposition(policyID string, request client.SecurityDispositionUpdateRequest) (*client.SecurityDispositionMutation, error)
-	RevokeSecurityDisposition(policyID string, request client.SecurityDispositionRevokeRequest) (*client.SecurityDispositionMutation, error)
+	UpdateSecurityDisposition(policyID string, request client.SecurityDispositionUpdateRequest) (*client.SecurityDisposition, error)
+	RevokeSecurityDisposition(policyID string, request client.SecurityDispositionRevokeRequest) (*client.SecurityDisposition, error)
 	GetSecurityComplianceOverview() (*client.SecurityComplianceOverview, error)
 	ListSecurityComplianceFrameworks() (*client.SecurityComplianceFrameworkList, error)
 	SetSecurityComplianceFrameworkEnabled(frameworkKey string, enabled bool) (*client.SecurityComplianceFramework, error)
@@ -186,8 +186,9 @@ type APIClient interface {
 	DisconnectManifest(ctx context.Context, clusterID, stackName, manifestName string) (*client.DisconnectManifestResult, error)
 
 	ListOrganisationVariables(ctx context.Context) (*client.OrganisationVariablesListResult, error)
-	CreateOrganisationVariable(ctx context.Context, name, value, description string) (*client.OrganisationVariableResult, error)
-	UpdateOrganisationVariable(ctx context.Context, name, value, description string) (*client.OrganisationVariableResult, error)
+	CreateOrganisationVariable(ctx context.Context, name, value, description string, isSecret bool) (*client.OrganisationVariableResult, error)
+	UpdateOrganisationVariable(ctx context.Context, name string, value *string, description string, isSecret *bool) (*client.OrganisationVariableResult, error)
+	RevealOrganisationVariable(ctx context.Context, name string) (*client.OrganisationVariableValue, error)
 	DeleteOrganisationVariable(ctx context.Context, name string) error
 
 	ListClusterVariables(ctx context.Context, clusterID string) (*client.ClusterVariablesListResult, error)
@@ -217,13 +218,16 @@ type APIClient interface {
 	GetOrganisationDomain(ctx context.Context) (*client.OrganisationDomain, error)
 	GetOrganisationPreviewSettings(ctx context.Context) (*client.OrganisationPreviewSettings, error)
 	UpdateOrganisationPreviewSettings(ctx context.Context,
-		changes map[string]*string) (*client.OrganisationPreviewSettings, error)
+		changes map[string]any) (*client.OrganisationPreviewSettings, error)
 	SetOrganisationDomain(ctx context.Context, rootDomain string) (*client.OrganisationDomain, error)
 	GetOrganisationCISettings(ctx context.Context) (*client.OrganisationCISettings, error)
 	UpdateOrganisationCISettings(ctx context.Context,
 		changes map[string]any) (*client.OrganisationCISettings, error)
 	GetOrganisationCICapacity(ctx context.Context) (*client.OrganisationCICapacity, error)
 	GetOrganisationCIPool(ctx context.Context) (*client.OrganisationCIPool, error)
+	ListOIDCTrustPolicies(ctx context.Context) ([]client.OIDCTrustPolicy, error)
+	CreateOIDCTrustPolicy(ctx context.Context, request client.OIDCTrustPolicyRequest) (*client.OIDCTrustPolicy, error)
+	DeleteOIDCTrustPolicy(ctx context.Context, policyID string) error
 	SetOrganisationCIPoolMember(ctx context.Context, clusterID string, weight *int) (*client.OrganisationCIPool, error)
 	RemoveOrganisationCIPoolMember(ctx context.Context, clusterID string) (*client.OrganisationCIPool, error)
 
@@ -414,6 +418,10 @@ type APIClient interface {
 	CreateAPIToken(name string, expiresAt *string, scopes []string) (*client.CreateAPITokenResponse, error)
 	RevokeAPIToken(tokenID string) (*client.RevokeAPITokenResponse, error)
 	DeleteAPIToken(tokenID string) (*client.DeleteAPITokenResponse, error)
+	RotateAPIToken(tokenID string, overlapHours *int) (*client.RotateTokenResponse, error)
+	RotateServiceToken(tokenID string, overlapHours *int) (*client.RotateTokenResponse, error)
+	ListServiceTokens() ([]client.ServiceToken, error)
+	CreateServiceToken(request client.CreateServiceTokenRequest) (*client.CreateServiceTokenResponse, error)
 
 	StreamChat(clusterID *string, chatReq client.ChatRequest) (<-chan client.ChatStreamEvent, error)
 	CreateChatSession(request client.CreateChatSessionRequest) (*client.ChatSession, error)
@@ -441,6 +449,8 @@ type APIClient interface {
 	GetAIAutonomyState() (*client.AIAutonomyState, error)
 	SetAIAutonomyPause(paused bool, reason string) (*client.AIAutonomyOutcome, error)
 	GetAIRemediationPolicy() (*client.AIRemediationPolicy, error)
+	ListAIMemories(limit int) ([]client.AIMemory, error)
+	ClearAIMemories() (int, error)
 
 	ListTickets(filter client.TicketListFilter) (*client.TicketListResponse, error)
 	GetTicket(ticketID string) (*client.Ticket, error)
@@ -532,6 +542,8 @@ type APIClient interface {
 	UpdateAgentResources(ctx context.Context, clusterID string, update client.AgentResourcesUpdate) (*client.AgentResources, error)
 	GetClusterHostedLogs(ctx context.Context, clusterID string) (*client.ClusterHostedLogs, error)
 	SetClusterHostedLogShipping(ctx context.Context, clusterID string, enabled bool) (*client.ClusterHostedLogs, error)
+	GetControlPlaneHeal(ctx context.Context, clusterID string) (*client.ControlPlaneHeal, error)
+	SetControlPlaneHeal(ctx context.Context, clusterID string, enabled bool) (*client.ControlPlaneHeal, error)
 
 	CreateHetznerCluster(req client.CreateHetznerClusterRequest) (*client.CreateHetznerClusterResponse, error)
 	DeprovisionHetznerCluster(clusterID string, options client.DeprovisionOptions) (*client.DeprovisionHetznerClusterResponse, error)
@@ -569,6 +581,8 @@ type APIClient interface {
 	CreateHetznerCredential(req client.CreateHetznerCredentialRequest) (*client.CreateHetznerCredentialResponse, error)
 	ListSSHKeyCredentials() ([]client.HetznerCredentialListItem, error)
 	CreateSSHKeyCredential(req client.CreateSSHKeyCredentialRequest) (*client.CreateSSHKeyCredentialResponse, error)
+	ListOrgSSHKeyCredentials() ([]client.SSHKeyCredentialListItem, error)
+	CreateOrgSSHKeyCredential(request client.CreateSSHKeyCredentialRequest) (*client.CreatedSSHKeyCredential, error)
 
 	CreateOvhCluster(req client.CreateOvhClusterRequest) (*client.CreateOvhClusterResponse, error)
 	DeprovisionOvhCluster(clusterID string, options client.DeprovisionOptions) (*client.DeprovisionOvhClusterResponse, error)
@@ -946,8 +960,10 @@ type APIClient interface {
 	ListPipelineBranches(ctx context.Context, selector client.PipelineSelector, options client.ListPipelineBranchesOptions) (*client.PipelineBranchList, error)
 	CreatePipelineRun(ctx context.Context, selector client.PipelineSelector, request client.CreatePipelineRunRequest) (*client.CreatePipelineRunResult, error)
 	GetPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRunDetail, error)
-	RerunPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, failedOnly bool) (*client.CreatePipelineRunResult, error)
-	CancelPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRun, error)
+	GetPipelineRunTimeSaved(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRunTimeSaved, error)
+	GetPipelineTimeSavedSummary(ctx context.Context, selector client.PipelineSelector, window string) (*client.PipelineTimeSavedSummary, error)
+	RerunPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, failedOnly bool, fullRun bool) (*client.CreatePipelineRunResult, error)
+	CancelPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, force bool) (*client.PipelineRun, error)
 	StreamPipelineStepLogs(ctx context.Context, selector client.PipelineSelector, runID string, stepID string, options client.StepLogStreamOptions) (<-chan client.PipelineLogEvent, error)
 	ListPipelineArtifacts(ctx context.Context, selector client.PipelineSelector, runID string, options client.ListPipelineArtifactsOptions) (*client.PipelineArtifactList, error)
 	DownloadPipelineArtifact(ctx context.Context, selector client.PipelineSelector, artifactID string, destination io.Writer) error
@@ -955,6 +971,11 @@ type APIClient interface {
 	GetPipelineRunTests(ctx context.Context, selector client.PipelineSelector, runID string, slowest int) (*client.PipelineRunTests, error)
 	GetPipelineTestHistory(ctx context.Context, selector client.PipelineSelector, testKey string, options client.PipelineTestHistoryOptions) (*client.PipelineTestHistory, error)
 	GetPipelineTestTimings(ctx context.Context, selector client.PipelineSelector, stage string, options client.PipelineTestTimingsOptions) (*client.PipelineTestTimings, error)
+	GetPipelineTestQuarantine(ctx context.Context, selector client.PipelineSelector) (*client.PipelineTestQuarantineView, error)
+	SetPipelineTestQuarantineSettings(ctx context.Context, selector client.PipelineSelector, update client.PipelineTestQuarantineSettingsUpdate) (*client.PipelineTestQuarantineSettings, error)
+	ListPipelineTestQuarantineCandidates(ctx context.Context, selector client.PipelineSelector, limit int) (*client.PipelineTestQuarantineCandidates, error)
+	QuarantinePipelineTest(ctx context.Context, selector client.PipelineSelector, request client.QuarantinePipelineTestRequest) (*client.PipelineTestQuarantine, error)
+	ReleasePipelineTestQuarantine(ctx context.Context, selector client.PipelineSelector, quarantineID string, reason string) (*client.PipelineTestQuarantine, error)
 	GetPipelineDefinition(ctx context.Context, selector client.PipelineSelector) (*client.PipelineDefinition, error)
 	PutPipelineDefinition(ctx context.Context, selector client.PipelineSelector, specYAML string) (*client.PipelineDefinition, error)
 	ValidatePipelineDefinition(ctx context.Context, selector client.PipelineSelector, specYAML string, changedFiles []string) (*client.PipelineValidation, error)

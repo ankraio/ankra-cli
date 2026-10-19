@@ -104,7 +104,7 @@ and the outputs it publishes. The package is a name, name@version or id.`,
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
-			versionID, resolveError := resolveServicePackageID(command.Context(), arguments[0])
+			versionID, resolveError := resolveServicePackageID(command.Context(), command.ErrOrStderr(), arguments[0])
 			if resolveError != nil {
 				return resolveError
 			}
@@ -165,9 +165,12 @@ func printServicePackage(out io.Writer, detail client.ServicePackageDetail) {
 }
 
 // resolveServicePackageID turns a package reference into a version id: an
-// id as given, or a name / name@version matched against the catalogue. A
-// name with several matching versions is refused rather than guessed.
-func resolveServicePackageID(ctx context.Context, reference string) (string, error) {
+// id as given, or a name / name@version matched against the catalogue. A bare
+// name resolves to the newest version of that name when one publisher
+// publishes it, and says which version it picked on notes (stderr, so -o
+// output stays parseable). A name several publishers share is refused rather
+// than guessed.
+func resolveServicePackageID(ctx context.Context, notes io.Writer, reference string) (string, error) {
 	reference = strings.TrimSpace(reference)
 	if reference == "" {
 		return "", withExitCode(exitUsage, errors.New("a package name, name@version or id is required"))
@@ -186,6 +189,17 @@ func resolveServicePackageID(ctx context.Context, reference string) (string, err
 			matches = append(matches, servicePackage)
 		}
 	}
+	if !hasVersion && len(matches) > 1 && singlePublisher(matches) {
+		newest := matches[0]
+		for _, servicePackage := range matches[1:] {
+			if compareVersions(servicePackage.Version, newest.Version) > 0 {
+				newest = servicePackage
+			}
+		}
+		_, _ = fmt.Fprintf(notes, "Using %s %s, the newest version; pass %s@<version> to pick another.\n",
+			newest.Name, newest.Version, newest.Name)
+		return newest.ID, nil
+	}
 	switch len(matches) {
 	case 1:
 		return matches[0].ID, nil
@@ -201,6 +215,17 @@ func resolveServicePackageID(ctx context.Context, reference string) (string, err
 		return "", withExitCode(exitUsage, fmt.Errorf("%d packages match %q - pass name@version or the id instead: %s",
 			len(matches), reference, strings.Join(candidates, "; ")))
 	}
+}
+
+// singlePublisher reports whether every package in matches comes from the same
+// publisher, which is when "the newest version" of a name is well defined.
+func singlePublisher(matches []client.ServicePackageSummary) bool {
+	for _, servicePackage := range matches[1:] {
+		if servicePackage.PublisherID != matches[0].PublisherID {
+			return false
+		}
+	}
+	return true
 }
 
 func newServicesPolicyCommand() *cobra.Command {

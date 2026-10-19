@@ -543,3 +543,26 @@ func TestStackProfilesApplyDryRunPreviewsWithoutCreating(t *testing.T) {
 		}
 	}
 }
+
+// TestDraftsAnnotateEmptyDefaultSendsAnEmptyDefault pins `--default ""` as a
+// clear the platform can see. The platform re-detects a draft's inputs on
+// every save and fills a missing default from the stack's variables, so
+// dropping the key handed the variable's value straight back and validate
+// kept reporting a required input that carries a default.
+func TestDraftsAnnotateEmptyDefaultSendsAnEmptyDefault(t *testing.T) {
+	resetStackProfileDraftAuthoringFlags(t)
+	mock := &stackProfileDraftMock{draft: gpuChatDraft()}
+	setMockClient(t, mock)
+
+	_, _ = executeCommand("stack-profiles", "drafts", "annotate", "draft-1",
+		"--parameter", "max_model_len", "--default", "", "--required")
+
+	parameter := parameterFromRequest(t, mock.updateRequest, "max_model_len")
+	defaultValue, present := parameter["default"]
+	if !present || defaultValue != "" {
+		t.Errorf("expected an explicit empty default, got %v (present %v)", defaultValue, present)
+	}
+	if required, _ := parameter["required"].(bool); !required {
+		t.Errorf("expected required=true, got %v", parameter["required"])
+	}
+}

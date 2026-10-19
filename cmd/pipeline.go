@@ -75,6 +75,7 @@ stored definition directly by its own id and take neither flag - see
 		newPipelineSchedulesCommand(),
 		newPipelineRepositoriesCommand(),
 		newPipelineTrainCommand(),
+		newPipelineTimeSavedCommand(),
 	)
 	return pipelineCommand
 }
@@ -396,6 +397,10 @@ func renderPipelineState(status string, outcome *string) string {
 // "superseded", not "cancelled". The glyph and the colour stay the ones
 // every stopped run carries - it was stopped, and nothing about it needs a
 // person's attention - so the word is the only difference.
+// pipelineRunStateCancelling is the state label of a run that was cancelled
+// and is running its finally stages before it concludes cancelled.
+const pipelineRunStateCancelling = "cancelling"
+
 func renderPipelineRunState(run client.PipelineRun) string {
 	return renderPipelineStateAs(run.Status, run.Outcome, pipelineRunStateLabel(run))
 }
@@ -403,8 +408,13 @@ func renderPipelineRunState(run client.PipelineRun) string {
 // pipelineRunStateLabel is the word a run's state cell carries:
 // pipelineOutcomeLabel's, except that a run cancelled because a newer run
 // took its concurrency group reads "superseded". Nobody stopped that run,
-// and "cancelled" sends its author looking for who did.
+// and "cancelled" sends its author looking for who did. A run that was
+// cancelled and is running its finally stages reads "cancelling": its
+// status is still running, and "running" would hide that it was stopped.
 func pipelineRunStateLabel(run client.PipelineRun) string {
+	if run.Cancelling {
+		return pipelineRunStateCancelling
+	}
 	label := pipelineOutcomeLabel(run.Status, run.Outcome)
 	if label == pipelineOutcomeCancelled && pipelineRunErrorClass(run) == pipelineErrorClassSuperseded {
 		return pipelineErrorClassSuperseded

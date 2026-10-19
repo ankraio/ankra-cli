@@ -1,8 +1,8 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/spf13/cobra"
@@ -165,8 +165,22 @@ func runControlPlaneSetCount(cmd *cobra.Command, opsFn func() controlPlaneOps, c
 	} else if handled {
 		return nil
 	}
-	fmt.Printf("Control plane count changed from %d to %d. Start the cluster to apply.\n",
-		res.PreviousCount, res.NewCount)
+	if res.PreviousCount == res.NewCount {
+		fmt.Printf("The control plane already has %d controller(s). Nothing to apply.\n", res.NewCount)
+		return nil
+	}
+	fmt.Printf("Control plane count changed from %d to %d.\n", res.PreviousCount, res.NewCount)
+	// Only the offline lane leaves work for the next start. A rolling change
+	// joins the new controllers to the running cluster now, and telling the
+	// operator to start it would be an instruction to stop it first.
+	if res.Mode == client.ControlPlaneChangeModeRolling {
+		fmt.Println("The cluster is running, so the new controllers are joining it now.")
+		if res.OperationID != nil && *res.OperationID != "" {
+			fmt.Printf("Operation: %s\n", *res.OperationID)
+		}
+		return nil
+	}
+	fmt.Println("Start the cluster to apply.")
 	return nil
 }
 
@@ -211,6 +225,20 @@ func runControlPlaneSetInstanceType(cmd *cobra.Command, opsFn func() controlPlan
 	return nil
 }
 
+// proxmoxControlPlaneProvider is the display name newControlPlaneCmd gets for
+// Proxmox VE, the one provider whose host-spread scaling also allows five
+// controllers.
+const proxmoxControlPlaneProvider = "Proxmox VE"
+
+// controlPlaneSupportedCounts is the controller counts the platform accepts
+// for a provider, and how to say them.
+func controlPlaneSupportedCounts(provider string) ([]int, string) {
+	if provider == proxmoxControlPlaneProvider {
+		return []int{1, 3, 5}, "1, 3 or 5"
+	}
+	return []int{1, 3}, "1 or 3"
+}
+
 // setInstanceTypeLong says where an instance type that does not exist is
 // actually caught. The platform stores the name as given and does not check it
 // against the provider's catalog, so the provider is the first thing to reject
@@ -236,14 +264,21 @@ success.`, provider, provider, provider)
 }
 
 func newControlPlaneCmd(opsFn func() controlPlaneOps, provider, catalogCommand string) *cobra.Command {
+	supportedCounts, supportedCountsText := controlPlaneSupportedCounts(provider)
 	cmd := &cobra.Command{
 		Use:   "control-plane",
 		Short: fmt.Sprintf("Manage the control plane for a %s cluster", provider),
-		Long: `Inspect and change the control plane configuration. Only 1 or 3 controllers
-are allowed (etcd needs an odd number of voting members for quorum).
+		Long: `Inspect and change the control plane configuration. The controller count
+is 1 or 3 (1, 3 or 5 on Proxmox VE): etcd needs an odd number of voting
+members for quorum.
 
-The controller count can only be changed while the cluster is stopped, and
-applies the next time the cluster is started.
+Growing the control plane may happen live on a running cluster: the new
+controllers join it one at a time, keeping the Kubernetes API up. The platform
+can refuse a live change (an operation already in flight, controllers still
+reconciling, a configuration that pins the API to one controller), and says
+why. Reducing it is applied offline: stop the cluster (its state is
+preserved), change the count, then start it. On a stopped cluster either
+change applies at the next start.
 
 The instance type can also be changed on a running cluster that has three
 controllers: they are then resized one at a time, keeping the Kubernetes API
@@ -268,15 +303,26 @@ Run "control-plane get" to see which of the two is available right now.`,
 
 	setCountCmd := &cobra.Command{
 		Use:   "set-count <cluster_id|name> <count>",
-		Short: "Change the controller count (1 or 3)",
-		Args:  cobra.ExactArgs(2),
+		Short: fmt.Sprintf("Change the controller count (%s)", supportedCountsText),
+		Long: fmt.Sprintf(`Change the number of controllers (%s; etcd needs an odd number of
+voting members for quorum).
+
+On a running cluster growing the count may happen live: the new controllers
+join one at a time and the command prints the operation to follow, unless the
+platform refuses the live change and says why. Reducing it is
+refused on a running cluster; stop the cluster (its state is preserved),
+change the count, then start it. On a stopped cluster the change applies at
+the next start.
+
+Run "control-plane get" to see whether a count change is possible right now.`, supportedCountsText),
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			count, err := strconv.Atoi(args[1])
 			if err != nil {
-				return fmt.Errorf("invalid count: %w", err)
+				return withExitCode(exitUsage, fmt.Errorf("invalid count: %w", err))
 			}
-			if count != 1 && count != 3 {
-				return errors.New("count must be 1 or 3 (etcd quorum)")
+			if !slices.Contains(supportedCounts, count) {
+				return withExitCode(exitUsage, fmt.Errorf("count must be %s (etcd quorum)", supportedCountsText))
 			}
 			clusterID, resolveError := resolveClusterArg(args[0])
 			if resolveError != nil {
@@ -314,6 +360,6 @@ func init() {
 	ovhCmd.AddCommand(newControlPlaneCmd(ovhControlPlaneOps, "OVH", ""))
 	upcloudCmd.AddCommand(newControlPlaneCmd(upcloudControlPlaneOps, "UpCloud", ""))
 	digitaloceanCmd.AddCommand(newControlPlaneCmd(digitaloceanControlPlaneOps, "DigitalOcean", "digitalocean sizes"))
-	proxmoxCmd.AddCommand(newControlPlaneCmd(proxmoxControlPlaneOps, "Proxmox VE", "proxmox sizes"))
+	proxmoxCmd.AddCommand(newControlPlaneCmd(proxmoxControlPlaneOps, proxmoxControlPlaneProvider, "proxmox sizes"))
 	morpheusCmd.AddCommand(newControlPlaneCmd(morpheusControlPlaneOps, "HPE Morpheus", "morpheus plans"))
 }

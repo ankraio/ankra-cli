@@ -96,6 +96,31 @@ func TestRunOrgDnsZone(t *testing.T) {
 	}
 }
 
+func TestRunOrgDnsAdd_SendsAAAARecordWithIPv6Content(t *testing.T) {
+	mock := &dnsMock{}
+	setMockClient(t, mock)
+	resetOrgDnsFlags(t)
+
+	cmd := rootCmd
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"org", "dns", "add", "tunnel-relay", "aaaa", "2a01:4f8:1c1a:292b::1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
+	}
+	if len(mock.createCalls) != 1 {
+		t.Fatalf("expected one create call, got %d", len(mock.createCalls))
+	}
+	got := mock.createCalls[0]
+	if got.Name != "tunnel-relay" || got.RecordType != "AAAA" || got.Content != "2a01:4f8:1c1a:292b::1" {
+		t.Errorf("create call = %+v", got)
+	}
+	if !strings.Contains(out.String(), "AAAA tunnel-relay.org1234.ankra.cc -> 2a01:4f8:1c1a:292b::1") {
+		t.Errorf("expected the created AAAA record, got: %s", out.String())
+	}
+}
+
 func TestRunOrgDnsAdd_SendsLabelTypeContentAndTTL(t *testing.T) {
 	mock := &dnsMock{}
 	setMockClient(t, mock)

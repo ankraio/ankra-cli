@@ -432,7 +432,7 @@ var clusterOperationsCancelStepCmd = &cobra.Command{
 
 var clusterOperationsRetryCmd = &cobra.Command{
 	Use:   "retry <execution_id>",
-	Short: "Retry a terminal execution (failed/cancelled/timeout)",
+	Short: "Retry a failed, cancelled or critical execution",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), executionRequestTimeout)

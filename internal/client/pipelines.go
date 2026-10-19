@@ -122,9 +122,12 @@ type PipelineRun struct {
 	// why (ankra-57z1w). CancelledBy is the actor in the same "<kind>:<id>"
 	// vocabulary RequestedBy uses - "user:<id>" for the cancel route,
 	// "github:<login>" for the Cancel action on a check run,
-	// "concurrency:<run id>" for a supersession - and CancelReason one of
-	// "user_requested", "source_control", "superseded", "pull_request_closed"
-	// (the run's pull request merged or closed, which names no actor).
+	// "concurrency:<run id>" for a supersession, "merge_train:<entry id>" for
+	// the merge train - and CancelReason one of "user_requested",
+	// "source_control", "superseded", "queued_replaced", "merge_train",
+	// "pull_request_closed" (the run's pull request merged or closed, which
+	// names no actor) or "step_cancelled" (nobody cancelled the run: a step
+	// was stopped where it ran, and it names no actor either).
 	//
 	// All three are null for a run that was not cancelled, for one cancelled
 	// before the platform recorded any of this, AND against a server too old
@@ -134,6 +137,11 @@ type PipelineRun struct {
 	CancelledBy  *string `json:"cancelled_by"`
 	CancelReason *string `json:"cancel_reason"`
 	CancelledAt  *string `json:"cancelled_at"`
+	// Cancelling is true while a run that was cancelled with work in flight
+	// runs its finally stages: Status still reads "running", the fields
+	// above already say who cancelled it, and it will conclude "cancelled".
+	// A server too old to report it answers nothing, which reads as false.
+	Cancelling bool `json:"cancelling"`
 	// AuthorityState, AuthorityHash and AuthorityDefinitionID are the
 	// authority the run was planned under (ankra-vn0bd.10.8): whose
 	// protected sections it executes, their digest, and the stored
@@ -170,6 +178,22 @@ type PipelineRun struct {
 	PromotionMessage  *string `json:"promotion_message"`
 	PromotedFromRunID *string `json:"promoted_from_run_id"`
 	HeadTreeSHA       *string `json:"head_tree_sha"`
+	// Reservation is the run's capacity reservation (ankra-q573dh.3): the
+	// mode its cluster ran it under and the room estimated for it, beside the
+	// peak its steps were observed to use. Nil on a server older than the
+	// field and on a run its cluster never estimated.
+	Reservation *PipelineRunReservation `json:"reservation,omitempty"`
+	// FullRunSource says why the run set every path filter aside
+	// (ankra-efrnzf.17): "dispatch" or "rerun" (asked for with --full),
+	// "label" (the pull request carries ankra:full-run),
+	// "organisation_policy" (the organisation runs every push to the default
+	// branch in full) or "pipeline" (the definition's full_run block).
+	// FullRunRequestedBy is who asked and FullRunMessage the platform's
+	// sentence. All three are absent for a run that applied its filters, and
+	// from servers older than the fields.
+	FullRunSource      string `json:"full_run_source,omitempty"`
+	FullRunRequestedBy string `json:"full_run_requested_by,omitempty"`
+	FullRunMessage     string `json:"full_run_message,omitempty"`
 }
 
 // PipelineStep is the wire shape of a `pipeline_run_steps` row.
@@ -233,19 +257,25 @@ type PipelineStep struct {
 	// limit, and how long the script ran. Each is nil when not recorded - an
 	// older platform or agent, a step the platform runs itself - which is not
 	// a step that used nothing.
-	CPURequestMillicores     *int64  `json:"cpu_request_millicores,omitempty"`
-	CPULimitMillicores       *int64  `json:"cpu_limit_millicores,omitempty"`
-	MemoryRequestBytes       *int64  `json:"memory_request_bytes,omitempty"`
-	MemoryLimitBytes         *int64  `json:"memory_limit_bytes,omitempty"`
-	MemoryPeakBytes          *int64  `json:"memory_peak_bytes,omitempty"`
-	MemoryLimitHits          *int64  `json:"memory_limit_hits,omitempty"`
-	MemoryOOMKills           *int64  `json:"memory_oom_kills,omitempty"`
-	CPUUsageMicroseconds     *int64  `json:"cpu_usage_usec,omitempty"`
-	CPUThrottledMicroseconds *int64  `json:"cpu_throttled_usec,omitempty"`
-	UsageElapsedMicroseconds *int64  `json:"usage_elapsed_usec,omitempty"`
-	FinishedAt               *string `json:"finished_at"`
-	CreatedAt                string  `json:"created_at"`
-	UpdatedAt                string  `json:"updated_at"`
+	CPURequestMillicores     *int64 `json:"cpu_request_millicores,omitempty"`
+	CPULimitMillicores       *int64 `json:"cpu_limit_millicores,omitempty"`
+	MemoryRequestBytes       *int64 `json:"memory_request_bytes,omitempty"`
+	MemoryLimitBytes         *int64 `json:"memory_limit_bytes,omitempty"`
+	MemoryPeakBytes          *int64 `json:"memory_peak_bytes,omitempty"`
+	MemoryLimitHits          *int64 `json:"memory_limit_hits,omitempty"`
+	MemoryOOMKills           *int64 `json:"memory_oom_kills,omitempty"`
+	CPUUsageMicroseconds     *int64 `json:"cpu_usage_usec,omitempty"`
+	CPUThrottledMicroseconds *int64 `json:"cpu_throttled_usec,omitempty"`
+	UsageElapsedMicroseconds *int64 `json:"usage_elapsed_usec,omitempty"`
+	// QuarantinedTestFailures is how many failed tests the repository's test
+	// quarantine forgave this step, which is why it reads success
+	// (ankra-q573dh.9.10). Nil for every step the quarantine did not rescue,
+	// and on platforms older than the quarantine; the run's test summary
+	// lists the tests.
+	QuarantinedTestFailures *int    `json:"quarantined_test_failures,omitempty"`
+	FinishedAt              *string `json:"finished_at"`
+	CreatedAt               string  `json:"created_at"`
+	UpdatedAt               string  `json:"updated_at"`
 }
 
 // PipelineRunList is the GET …/pipeline-runs body.
@@ -282,6 +312,40 @@ type PipelineRunDetail struct {
 	// empty when it did. An empty QueueReason alone is not "nothing is
 	// blocking this run" while this is set.
 	QueueReasonUnavailable string `json:"queue_reason_unavailable"`
+	// ReservationWait says a RUNNING run's first step is waiting for a node
+	// with room for the run's reservation (ankra-q573dh.3.4), or was handed
+	// back to the queue while it waited. Nil when it is not waiting, and on
+	// servers older than the field.
+	ReservationWait *PipelineRunReservationWait `json:"reservation_wait,omitempty"`
+	// ReservationWaitUnavailable is why the server could not tell whether the
+	// run is waiting on its reservation. A nil ReservationWait is not "not
+	// waiting" while this is set.
+	ReservationWaitUnavailable string `json:"reservation_wait_unavailable,omitempty"`
+}
+
+// PipelineRunReservation is a run's capacity reservation: Mode is "off",
+// "shadow" (estimated and recorded, never held) or "on" (held on the run's
+// node), and each figure is nil when it is not known.
+type PipelineRunReservation struct {
+	Mode                  string `json:"mode"`
+	CPUMillicores         *int64 `json:"cpu_millicores"`
+	MemoryBytes           *int64 `json:"memory_bytes"`
+	ObservedCPUMillicores *int64 `json:"observed_cpu_millicores"`
+	ObservedMemoryBytes   *int64 `json:"observed_memory_bytes"`
+}
+
+// PipelineRunReservationWait is the run detail's account of a run whose
+// first step waits for a node with room for its reservation. State is
+// "waiting" or "returned_to_queue"; Message is the platform's sentence, shown
+// as written.
+type PipelineRunReservationWait struct {
+	State                string `json:"state"`
+	Since                string `json:"since"`
+	WaitedSeconds        int64  `json:"waited_seconds"`
+	CPUMillicores        *int64 `json:"cpu_millicores"`
+	MemoryBytes          *int64 `json:"memory_bytes"`
+	ReturnedToQueueCount int64  `json:"returned_to_queue_count"`
+	Message              string `json:"message"`
 }
 
 // ListPipelineRunsOptions is the GET …/pipeline-runs query.
@@ -313,6 +377,10 @@ type CreatePipelineRunRequest struct {
 	Reason   string            `json:"reason,omitempty"`
 	SpecYAML string            `json:"spec_yaml,omitempty"`
 	Event    string            `json:"event,omitempty"`
+	// FullRun asks for a run of every stage whatever the pipeline's path
+	// filters say (ankra-efrnzf.17). A platform from before the field ignores
+	// it, and the run then reads back without full_run_source.
+	FullRun bool `json:"full_run,omitempty"`
 }
 
 // PipelineDispatchEventPush is the CreatePipelineRunRequest.Event that runs
@@ -537,6 +605,26 @@ type PipelinePlannedStep struct {
 	DependsOn      []string `json:"depends_on"`
 	RunCondition   string   `json:"run_condition"`
 	TimeoutSeconds int      `json:"timeout_seconds"`
+	// AffectedByGraph marks a step the run's checkout decides from the
+	// dependency graph (the stage declares affected:): planned, and skipped
+	// as not affected when no changed file reaches it.
+	AffectedByGraph bool `json:"affected_by_graph,omitempty"`
+}
+
+// PipelineAffectedAnalysis is the dependency-graph request the run's checkout
+// would answer for one event: the change, each affected: stage's resolved
+// targets, and the digest of the platform's analysis program.
+type PipelineAffectedAnalysis struct {
+	ChangedFiles  []string                 `json:"changed_files"`
+	Targets       []PipelineAffectedTarget `json:"targets"`
+	ProgramDigest string                   `json:"program_sha256"`
+}
+
+// PipelineAffectedTarget is one stage's resolved affected: targets.
+type PipelineAffectedTarget struct {
+	Stage string   `json:"stage"`
+	Go    []string `json:"go"`
+	Pnpm  []string `json:"pnpm"`
 }
 
 // PipelineSkippedStage is one stage a dry run would not execute.
@@ -557,6 +645,14 @@ type PipelineEventPlan struct {
 	Steps          []PipelinePlannedStep  `json:"steps"`
 	Skipped        []PipelineSkippedStage `json:"skipped"`
 	Diagnostics    []string               `json:"diagnostics"`
+	// AffectedAnalysis is the dependency-graph request, nil when no stage's
+	// answer is left to the run's checkout.
+	AffectedAnalysis *PipelineAffectedAnalysis `json:"affected_analysis,omitempty"`
+	// LocalAffected is filled by `ankra pipeline validate`, not the API: the
+	// answer the same analysis gave against the local checkout, per stage
+	// (true: a changed file reaches it). A stage it gave no answer for is
+	// absent, and the run's checkout decides it.
+	LocalAffected map[string]bool `json:"local_affected,omitempty"`
 }
 
 // PipelineValidation is the POST …/pipeline/validate body: a dry run that
@@ -565,6 +661,20 @@ type PipelineValidation struct {
 	Severity   string              `json:"severity"`
 	Violations []string            `json:"violations"`
 	Events     []PipelineEventPlan `json:"events"`
+	// PathSets is every named path set the definition declares (path_sets:),
+	// expanded. Omitted when the definition declares none, or when the
+	// platform is older than the field.
+	PathSets []PipelinePathSet `json:"path_sets,omitempty"`
+}
+
+// PipelinePathSet is one named path set in a dry run: its patterns with every
+// set it includes expanded, the sets it includes directly, and each list that
+// references it ("on.push.paths", `stage "test" paths`, `path set "backend"`).
+type PipelinePathSet struct {
+	Name     string   `json:"name"`
+	Patterns []string `json:"patterns"`
+	Includes []string `json:"includes"`
+	UsedBy   []string `json:"used_by"`
 }
 
 // PipelineSchedule is the wire shape of a `pipeline_schedules` row.
@@ -1031,16 +1141,24 @@ func (c *Client) GetPipelineRun(ctx context.Context, selector PipelineSelector,
 // …/pipeline-runs/{run_id}/rerun). failedOnly restricts the new run to the
 // steps that did not succeed, whatever depends on them, and the upstream
 // steps they consume, the checkout included; the platform refuses one that
-// could not run a step that failed.
+// could not run a step that failed. fullRun (?full_run=true) sets every path
+// filter aside for the new run (ankra-efrnzf.17).
 func (c *Client) RerunPipelineRun(ctx context.Context, selector PipelineSelector,
-	runID string, failedOnly bool) (*CreatePipelineRunResult, error) {
+	runID string, failedOnly bool, fullRun bool) (*CreatePipelineRunResult, error) {
 	base, selectorError := selector.basePath()
 	if selectorError != nil {
 		return nil, selectorError
 	}
 	endpoint := fmt.Sprintf("%s%s/pipeline-runs/%s/rerun", c.BaseURL, base, neturl.PathEscape(runID))
+	query := neturl.Values{}
 	if failedOnly {
-		endpoint += "?failed_only=true"
+		query.Set("failed_only", "true")
+	}
+	if fullRun {
+		query.Set("full_run", "true")
+	}
+	if len(query) > 0 {
+		endpoint += "?" + query.Encode()
 	}
 	var result CreatePipelineRunResult
 	if requestError := c.doPipelineRequest(ctx, http.MethodPost, endpoint, nil, &result); requestError != nil {
@@ -1050,17 +1168,25 @@ func (c *Client) RerunPipelineRun(ctx context.Context, selector PipelineSelector
 }
 
 // CancelPipelineRun stops a run that has not concluded (POST
-// …/pipeline-runs/{run_id}/cancel) and returns the settled run.
+// …/pipeline-runs/{run_id}/cancel) and returns the run as the cancel left it.
+//
+// A run that had started and declares finally stages runs them before it
+// concludes, so the answer can still read "running" with Cancelling true.
+// force (?force=true) skips them: the run concludes at once, and a run already
+// cancelling has its finally stages stopped. Without force, cancelling a run
+// that is already cancelling answers the server's 409.
 func (c *Client) CancelPipelineRun(ctx context.Context, selector PipelineSelector,
-	runID string) (*PipelineRun, error) {
+	runID string, force bool) (*PipelineRun, error) {
 	base, selectorError := selector.basePath()
 	if selectorError != nil {
 		return nil, selectorError
 	}
+	endpoint := fmt.Sprintf("%s%s/pipeline-runs/%s/cancel", c.BaseURL, base, neturl.PathEscape(runID))
+	if force {
+		endpoint += "?force=true"
+	}
 	var result PipelineRun
-	if requestError := c.doPipelineRequest(ctx, http.MethodPost,
-		fmt.Sprintf("%s%s/pipeline-runs/%s/cancel", c.BaseURL, base, neturl.PathEscape(runID)),
-		nil, &result); requestError != nil {
+	if requestError := c.doPipelineRequest(ctx, http.MethodPost, endpoint, nil, &result); requestError != nil {
 		return nil, requestError
 	}
 	return &result, nil

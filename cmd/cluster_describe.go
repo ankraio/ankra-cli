@@ -51,17 +51,14 @@ Examples:
 			return err
 		}
 		namespace, _ := cmd.Flags().GetString("namespace")
-		apiGroup, _ := cmd.Flags().GetString("group")
-		apiVersion, _ := cmd.Flags().GetString("api-version")
 
-		resolvedKind, kindError := resolveK8sKind(args[0], apiGroup, apiVersion)
+		resolvedKind, kindError := resolveK8sKindFromFlags(cmd, args[0])
 		if kindError != nil {
 			return kindError
 		}
 		name := args[1]
 		if !resolvedKind.clusterScoped && namespace == "" {
-			return withExitCode(exitUsage, fmt.Errorf(
-				"--namespace (-n) is required to describe a %s", resolvedKind.kind))
+			return namespaceRequiredError("describe", resolvedKind)
 		}
 		if resolvedKind.clusterScoped {
 			namespace = ""
@@ -199,10 +196,9 @@ func redactSecretAnnotations(object map[string]interface{}, secretValues []strin
 	}
 }
 
-// fetchSingleResource reads exactly one named object. The resources/get
-// wire has no distinct not-found status, so an empty item list is the
-// not-found signal and is reported with the not-found exit code rather than
-// rendered as an empty description.
+// fetchSingleResource reads exactly one named object. A missing or deleted
+// object exits with the not-found code and a failed read is an error
+// (namedReadItems), rather than either rendering as a description.
 func fetchSingleResource(clusterID string, resolvedKind k8sKind, namespace string, name string) (map[string]interface{}, error) {
 	request := client.ResourceRequestItem{
 		Kind:     resolvedKind.kind,
@@ -220,11 +216,11 @@ func fetchSingleResource(clusterID string, resolvedKind k8sKind, namespace strin
 	if requestError != nil {
 		return nil, requestError
 	}
-	if len(response.ResourceResponses) == 0 || len(response.ResourceResponses[0].Items) == 0 {
-		return nil, withExitCode(exitNotFound, fmt.Errorf("%s %q not found%s",
-			resolvedKind.kind, name, namespaceSuffix(namespace)))
+	items, namedReadError := namedReadItems(response, resolvedKind.kind, name, namespace)
+	if namedReadError != nil {
+		return nil, namedReadError
 	}
-	object, isObject := response.ResourceResponses[0].Items[0].(map[string]interface{})
+	object, isObject := items[0].(map[string]interface{})
 	if !isObject {
 		return nil, fmt.Errorf("unexpected %s payload for %q", resolvedKind.kind, name)
 	}
@@ -467,8 +463,7 @@ func renderObjectEvents(events []map[string]interface{}) {
 func init() {
 	clusterDescribeCmd.Flags().StringP("namespace", "n", "", "Kubernetes namespace")
 	clusterDescribeCmd.Flags().StringP("output", "o", "table", "Output format: table, json, yaml")
-	clusterDescribeCmd.Flags().String("group", "", "API group override (e.g. apps, networking.k8s.io)")
-	clusterDescribeCmd.Flags().String("api-version", "", "API version override (e.g. v1, v1beta1)")
+	registerK8sKindFlags(clusterDescribeCmd)
 
 	clusterCmd.AddCommand(clusterDescribeCmd)
 }

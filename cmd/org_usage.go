@@ -674,6 +674,14 @@ func usagePriceBasisReason(basis string) string {
 		return "priced on the organisation total"
 	case "other_currency":
 		return "price not in EUR"
+	case "invoice":
+		// An invoiced month whose total is below the playground and storage charges
+		// it carries: the invoice does not say what vCPU cost.
+		return "invoice does not price it"
+	case "no_invoice":
+		return "no invoice for this month, so unknown"
+	case "month_total":
+		return "priced on the whole month's invoice; view by month"
 	case "":
 		return "unpriced"
 	default:

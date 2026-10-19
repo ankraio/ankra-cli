@@ -244,8 +244,10 @@ stages:
 
 `registry_auth` and `source_token` are reserved bindings Ankra adds from the application's push
 robot — never declare them. `publish` copies the exact digest the gate judged into the application's
-registry as `sha-<7>`; push-to-deploy rolls that tag out (`ankra-ship` §7). A `rerun` does not
-publish (`when.events` excludes it) — push a commit.
+registry as `sha-<7>`; push-to-deploy rolls that tag out (`ankra-ship` §7). A re-run of a push
+publishes again but never becomes the push-to-deploy candidate; a re-run of a pull request does
+not publish. A push whose tree matches a passed pull request run re-tags that digest instead of
+building, when `publish` declares `promote_from: pull_request` (SKILL.md §7b).
 
 What the two stages hand downstream, as `${{ needs.<stage>.outputs.<key> }}`:
 
@@ -375,16 +377,25 @@ Top level: `apiVersion: ankra.io/v1` · `kind: Pipeline` · `metadata.name` (req
 `defaults {image, timeout, resources, cache, working_directory, network, env, secrets}` ·
 `permissions {<scope>: none|read|write}` · `secrets [{name, from, key}]` ·
 `credentials [{name, from: cloud|git|registry|object_storage, as}]` ·
-`services {<name>: {image, env, ports, ready {tcp|http}}}` · `stages` · `on_failure` · `finally`
-(accepted, not yet honoured) · `environments` (pipeline half of a binding; deploy kinds do not
-execute yet).
+`services {<name>: {image, env, ports, ready {tcp|http}}}` · `stages` · `on_failure` (runs only if
+a main stage failed, timed out or hit an infra error; skips are not failures) · `finally` (runs
+whatever the outcome, and after a started run is cancelled: the cancel stops the main and
+`on_failure` stages, runs `finally` within a 15-minute budget, then concludes `cancelled`;
+`ankra pipeline cancel --force` skips or stops it) · `full_run {events, branches}` (those runs set
+every path filter aside; empty lists mean all) · `environments` (pipeline half of a binding; deploy kinds do not execute yet).
+
+Path sets: top-level `path_sets: {<name>: [<pattern> | {set: <name>}, ...]}`; every path filter
+(`on.push|pull_request.paths`, stage `paths`, `when.paths`, `when.push|pull_request.paths`) takes
+`{set: <name>}` in place of a pattern. Expanded in place at parse; unknown set / cycle fatal
+(`pipeline_path_sets:`), unused set a warning.
 
 Triggers: `push {branches, paths}` · `pull_request {branches, paths, fork_policy: none|read_only|trusted}`
 · `tag {patterns}` (glob) · `schedule [{cron, branch, stages}]` · `manual {inputs [{name, type:
 string|boolean|number|choice, default, enum, required, description}]}` · `webhook {}`.
 
-Stage (common): `name` · `kind` · `image` · `run` · `with` · `needs` · `if` · `when {branches,
-paths, events}` · `matrix {<axis>: [...], include, exclude}` (max 64 legs) · `services` · `env` ·
+Stage (common): `name` · `kind` · `image` · `run` · `with` · `needs` · `skippable_needs` · `if` ·
+`when {branches, paths, events, push {…}, pull_request {…}}` · `paths` (affected-only) ·
+`affected {go, pnpm}` · `matrix {<axis>: [...], include, exclude}` (max 64 legs) · `services` · `env` ·
 `secrets` · `cache [{key, paths, size, restore_keys, fallback}]` · `artifacts [{name, paths,
 retention_days}]` · `test_results [{format: junit|go-test|pytest|playwright, path}]` · `outputs`
 · `timeout` · `resources {cpu, memory, gpu}` · `runs_on {cluster, node_selector, tolerations,
@@ -393,7 +404,8 @@ runtime_class, arch}` · `network: none|egress-https|services` · `shm_size` · 
 on: [failure, timeout, infra_error]}`.
 
 Kind blocks: `build {component, dockerfile, context, target, platforms, build_args, provenance,
-sbom, cache_to, bundle {path, manifest}}` · `scan {scanners, fail_on}` · `gate {approval_roles, require_stages}` · `preview`,
+sbom, cache_to, bundle {path, manifest}}` · `scan {scanners, fail_on}` · `gate {approval_roles, require_stages}` · `publish {tags,
+promote_from: pull_request}` · `preview`,
 `verify`, `agent`, `approval`, `webhook`, `external` (validate, not yet executed).
 
 Build attribution (application-bound repositories): `build.component: <name>` names the component
@@ -412,7 +424,7 @@ Resolution order: stage `network` → `defaults.network` → kind default.
 Protected sections (the hash a human approves): `permissions`, `secrets`, `credentials`,
 `on.pull_request.fork_policy`, `defaults.network` above `egress-https`, the `services` catalog, and
 per stage: `network` above `egress-https`, `runs_on.*`, `resources.*`, `timeout`, `cache`, `with`,
-`gate.approval_roles`/`require_stages`, `approval.roles`/`min_approvals`, `agent.mode: agent` and
+`gate.approval_roles`/`require_stages`, `publish.promote_from`, `approval.roles`/`min_approvals`, `agent.mode: agent` and
 its tool profile, `kind: external`. Everything else is logic and runs as the head says.
 
 Expression roots in `${{ … }}`: `ankra.ref`, `ankra.sha`, `ankra.repository.{provider,owner,name}`,

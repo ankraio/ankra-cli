@@ -608,6 +608,23 @@ func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, ou
 	if err != nil {
 		return err
 	}
+	if nameFilter != "" {
+		// A named read must not render a deleted object's last body, or
+		// a failed read as "No X found." (namedReadItems).
+		if _, namedReadError := namedReadItems(response, cfg.kind, nameFilter, reqItem.Namespace); namedReadError != nil {
+			return namedReadError
+		}
+	} else {
+		// A listing that failed, or that the reply never answered, is not an
+		// empty one.
+		subject := cfg.commandName + namespaceSuffix(reqItem.Namespace)
+		if len(response.ResourceResponses) == 0 {
+			return noItemInReplyError(subject)
+		}
+		if readError := failedReadError(response.ResourceResponses[0], subject); readError != nil {
+			return readError
+		}
+	}
 
 	var items []interface{}
 	if len(response.ResourceResponses) > 0 {

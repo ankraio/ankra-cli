@@ -264,6 +264,81 @@ func TestSetInstanceTypeHelpOmitsTheCatalogLineWhenThereIsNoCommand(t *testing.T
 	}
 }
 
+func stubControlPlaneCountOps(changed *client.ChangeControlPlaneCountResult) func() controlPlaneOps {
+	return func() controlPlaneOps {
+		return controlPlaneOps{
+			provider: "digitalocean",
+			setCount: func(string, int) (*client.ChangeControlPlaneCountResult, error) {
+				return changed, nil
+			},
+		}
+	}
+}
+
+func TestSetCountRollingReportsTheOperationAndNoStart(t *testing.T) {
+	changed := &client.ChangeControlPlaneCountResult{
+		PreviousCount: 1, NewCount: 3, Mode: client.ControlPlaneChangeModeRolling, OperationID: stringPointer("op-7"),
+	}
+	stdoutOutput := captureStdout(t, func() {
+		if err := runControlPlaneSetCount(&cobra.Command{}, stubControlPlaneCountOps(changed), testClusterID, 3); err != nil {
+			t.Fatalf("runControlPlaneSetCount returned an error: %v", err)
+		}
+	})
+	for _, want := range []string{"changed from 1 to 3", "joining it now", "Operation: op-7"} {
+		if !strings.Contains(stdoutOutput, want) {
+			t.Errorf("expected %q, got: %s", want, stdoutOutput)
+		}
+	}
+	if strings.Contains(stdoutOutput, "Start the cluster") {
+		t.Errorf("a running cluster must not be told to start, got: %s", stdoutOutput)
+	}
+}
+
+func TestSetCountOfflineSaysStartTheCluster(t *testing.T) {
+	changed := &client.ChangeControlPlaneCountResult{PreviousCount: 3, NewCount: 1, Mode: client.ControlPlaneChangeModeOffline}
+	stdoutOutput := captureStdout(t, func() {
+		if err := runControlPlaneSetCount(&cobra.Command{}, stubControlPlaneCountOps(changed), testClusterID, 1); err != nil {
+			t.Fatalf("runControlPlaneSetCount returned an error: %v", err)
+		}
+	})
+	if !strings.Contains(stdoutOutput, "Start the cluster to apply.") || strings.Contains(stdoutOutput, "Operation:") {
+		t.Errorf("expected the offline wording and no operation, got: %s", stdoutOutput)
+	}
+}
+
+func TestSetCountNoOpSaysNothingChanged(t *testing.T) {
+	changed := &client.ChangeControlPlaneCountResult{PreviousCount: 3, NewCount: 3, Mode: client.ControlPlaneChangeModeRolling}
+	stdoutOutput := captureStdout(t, func() {
+		if err := runControlPlaneSetCount(&cobra.Command{}, stubControlPlaneCountOps(changed), testClusterID, 3); err != nil {
+			t.Fatalf("runControlPlaneSetCount returned an error: %v", err)
+		}
+	})
+	if !strings.Contains(stdoutOutput, "Nothing to apply") || strings.Contains(stdoutOutput, "changed from") {
+		t.Errorf("expected a no-op report, got: %s", stdoutOutput)
+	}
+}
+
+func TestControlPlaneSupportedCountsAllowFiveOnlyOnProxmox(t *testing.T) {
+	proxmoxCounts, proxmoxText := controlPlaneSupportedCounts(proxmoxControlPlaneProvider)
+	if len(proxmoxCounts) != 3 || proxmoxCounts[2] != 5 || proxmoxText != "1, 3 or 5" {
+		t.Errorf("Proxmox counts = %v %q", proxmoxCounts, proxmoxText)
+	}
+	hetznerCounts, hetznerText := controlPlaneSupportedCounts("Hetzner")
+	if len(hetznerCounts) != 2 || hetznerText != "1 or 3" {
+		t.Errorf("Hetzner counts = %v %q", hetznerCounts, hetznerText)
+	}
+}
+
+func TestControlPlaneHelpSaysGrowthIsLive(t *testing.T) {
+	command := newControlPlaneCmd(stubControlPlaneCountOps(nil), "Hetzner", "")
+	if !strings.Contains(command.Long, "Growing the control plane may happen live") {
+		t.Errorf("expected the help to say growth is live, got: %s", command.Long)
+	}
+	if strings.Contains(command.Long, "can only be changed while the cluster is stopped") {
+		t.Errorf("the help must not claim every count change needs a stopped cluster, got: %s", command.Long)
+	}
+}
+
 func lineContaining(t *testing.T, output, needle string) string {
 	t.Helper()
 	for _, line := range strings.Split(output, "\n") {

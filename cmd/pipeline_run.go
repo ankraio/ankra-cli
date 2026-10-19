@@ -12,7 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,7 +45,11 @@ Without --sha, the commit is:
 
 A checkout of any other repository never supplies the commit, so
 'ankra pipeline run --application other-app' from the wrong directory runs
-other-app's default branch, not your local HEAD.`,
+other-app's default branch, not your local HEAD.
+
+--full runs every stage: the pipeline's path filters (on.<event>.paths,
+when.paths and paths:) are set aside for this run, and the run records that
+you asked. A stage's if: still decides.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			target, targetError := resolvePipelineTarget(command)
@@ -67,6 +73,7 @@ func registerPipelineRunDispatchFlags(command *cobra.Command) {
 	command.Flags().StringArray("input", nil, "Dispatch input as key=value (repeatable)")
 	command.Flags().String("reason", "", "Human note recorded on the run")
 	command.Flags().String("spec-file", "", "Run this pipeline definition instead of the stored one (requires pipelines.manage)")
+	command.Flags().Bool("full", false, "Run every stage: set the pipeline's path filters aside for this run")
 	command.Flags().Bool("wait", false, "Wait for the run to conclude before returning")
 	registerPipelineWaitTimeoutFlag(command)
 }
@@ -145,6 +152,7 @@ func runPipelineDispatch(command *cobra.Command, target pipelineTarget) error {
 	reason, _ := command.Flags().GetString("reason")
 	specFile, _ := command.Flags().GetString("spec-file")
 	rawInputs, _ := command.Flags().GetStringArray("input")
+	isFullRun, _ := command.Flags().GetBool("full")
 	wait, _ := command.Flags().GetBool("wait")
 	timeout, timeoutError := pipelineWaitTimeoutFromFlags(command, wait, "--wait")
 	if timeoutError != nil {
@@ -205,6 +213,7 @@ func runPipelineDispatch(command *cobra.Command, target pipelineTarget) error {
 		Inputs:   inputs,
 		Reason:   strings.TrimSpace(reason),
 		SpecYAML: specYAML,
+		FullRun:  isFullRun,
 	})
 	if createError != nil {
 		return createError
@@ -467,11 +476,27 @@ Cancelled runs (-o json 'cancelled_by', 'cancel_reason', 'cancelled_at';
 the Cancelled line): who stopped a run, why and when. 'cancelled_by' is the actor
 in the same form 'requested_by' uses - "user:<id>" for a cancel pressed in
 the portal, the CLI or the API, "github:<login>" for the Cancel action on a
-pull request's check run, "concurrency:<run id>" for a supersession - and
-'cancel_reason' is one of "user_requested", "source_control", "superseded",
-"pull_request_closed" (the run's pull request merged or closed; no actor).
-All three are null for a run nobody cancelled and for one cancelled before
-Ankra recorded this, which is "not recorded", never "the platform did it".
+pull request's check run, "concurrency:<run id>" for a supersession,
+"merge_train:<entry id>" for the merge train - and 'cancel_reason' is one of:
+  user_requested       somebody cancelled it in the portal, the CLI or the API
+  source_control       the Cancel action on its check run
+  superseded           a newer run took its concurrency group
+  queued_replaced      a newer commit replaced it before it started
+  merge_train          the merge train no longer needed this change tested
+  pull_request_closed  its pull request merged or closed (no actor)
+  step_cancelled       nobody cancelled it: a step was stopped where it ran,
+                       for example when the cluster's agent shut down, and
+                       the Error line carries that step's sentence (no actor)
+superseded, queued_replaced and merge_train runs read 'superseded' (above).
+A reason this list does not name yet is printed as it is.
+All three fields are null for a run nobody cancelled and for one cancelled
+before Ankra recorded this, which is "not recorded", never "the platform
+did it".
+
+Steps that never started (error_class "never_scheduled"): a step whose time
+ran out while no node had room for what it requests concludes timed_out,
+and so does its run, but nothing ran. The Class line says so; free capacity
+on the cluster, add a node, or lower the stage's resources, then rerun.
 
 Authority (-o json 'authority_state', the Authority line): the protected
 authority the run executed under. 'approved' - the default branch's
@@ -592,19 +617,22 @@ func runPipelineGet(command *cobra.Command, selector client.PipelineSelector, ru
 		if waitError != nil {
 			return waitError
 		}
-		return renderConcludedPipelineRun(command, format, detail, selector)
+		timeSaved := readPipelineRunTimeSaved(command, selector, runID)
+		if renderError := renderPipelineGet(command, format, detail, timeSaved, selector); renderError != nil {
+			return renderError
+		}
+		return pipelineRunConclusionError(detail.PipelineRun)
 	}
 
 	detail, getError := apiClient.GetPipelineRun(command.Context(), selector, runID)
 	if getError != nil {
 		return getError
 	}
-	if format != outputDefault {
-		if encodeError := encodeStructured(command.OutOrStdout(), format, detail); encodeError != nil {
-			return encodeError
-		}
-	} else {
-		printPipelineRunDetail(command.OutOrStdout(), *detail, selector)
+	timeSaved := readPipelineRunTimeSaved(command, selector, runID)
+	if renderError := renderPipelineGet(command, format, detail, timeSaved, selector); renderError != nil {
+		return renderError
+	}
+	if format == outputDefault {
 		if stepKey, _ := command.Flags().GetString("step"); strings.TrimSpace(stepKey) != "" {
 			if stepError := printPipelineStepCaches(command.OutOrStdout(), *detail, strings.TrimSpace(stepKey)); stepError != nil {
 				return stepError
@@ -625,14 +653,95 @@ func runPipelineGet(command *cobra.Command, selector client.PipelineSelector, ru
 // already see. A server that could not derive a reason says so rather than
 // printing nothing: no line at all reads as "nothing is blocking this run",
 // which is the answer a failed read must never give.
+//
+// A running run whose first step waits for a node with room for its
+// reservation (ankra-q573dh.3.4) says so the same way: the platform's own
+// sentence, then the room it is holding out for and how long it has waited.
 func printPipelineRunWaiting(out io.Writer, detail client.PipelineRunDetail) {
+	// A queue reason is derived only for a queued run and a reservation wait
+	// only for a running one, so the two never describe the same run; the
+	// queue sentence is the whole answer whenever it is present.
 	if message := strings.TrimSpace(detail.QueueReasonMessage); message != "" {
 		_, _ = fmt.Fprintf(out, "  Waiting:   %s\n", message)
 		return
 	}
+	if wait := detail.ReservationWait; wait != nil {
+		if message := strings.TrimSpace(wait.Message); message != "" {
+			_, _ = fmt.Fprintf(out, "  Waiting:   %s\n", message)
+		}
+		var state string
+		switch wait.State {
+		case "waiting":
+			state = "waiting for a node with room for this run"
+		case "returned_to_queue":
+			state = "returned to the queue while waiting for room"
+			if wait.ReturnedToQueueCount > 0 {
+				state = fmt.Sprintf("returned to the queue %s while waiting for room", pluralTimes(int(wait.ReturnedToQueueCount)))
+			}
+		default:
+			state = fmt.Sprintf("reservation wait %q", wait.State)
+		}
+		line := fmt.Sprintf("%s for %s", state, time.Duration(max(wait.WaitedSeconds, 0))*time.Second)
+		if room := describeReservationRoom(wait.CPUMillicores, wait.MemoryBytes); room != "" {
+			line += " (" + room + ")"
+		}
+		_, _ = fmt.Fprintf(out, "  Reserving: %s\n", line)
+	} else if unavailable := strings.TrimSpace(detail.ReservationWaitUnavailable); unavailable != "" {
+		_, _ = fmt.Fprintf(out, "  Waiting:   %s\n", unavailable)
+	}
 	if unavailable := strings.TrimSpace(detail.QueueReasonUnavailable); unavailable != "" {
 		_, _ = fmt.Fprintf(out, "  Waiting:   %s\n", unavailable)
 	}
+}
+
+// printPipelineRunReservation prints a run's capacity reservation: the mode
+// its cluster ran it under, the room estimated for it and the peak its steps
+// were observed to use, each only when known. A run its cluster ran with the
+// reservation off, or a server older than the field, prints nothing.
+func printPipelineRunReservation(out io.Writer, run client.PipelineRun) {
+	reservation := run.Reservation
+	if reservation == nil || reservation.Mode == "" || reservation.Mode == "off" {
+		return
+	}
+	mode := reservation.Mode
+	switch reservation.Mode {
+	case "on":
+		mode = "on (held on the run's node)"
+	case "shadow":
+		mode = "shadow (estimated, not held)"
+	}
+	line := mode
+	if estimated := describeReservationRoom(reservation.CPUMillicores, reservation.MemoryBytes); estimated != "" {
+		line += ", estimated " + estimated
+	}
+	if observed := describeReservationRoom(reservation.ObservedCPUMillicores, reservation.ObservedMemoryBytes); observed != "" {
+		line += ", observed peak " + observed
+	}
+	_, _ = fmt.Fprintf(out, "  Reservation: %s\n", line)
+}
+
+// describeReservationRoom states a reservation's room as "6.25 CPU and
+// 12.8Gi memory", naming only the axes that are known.
+func describeReservationRoom(cpuMillicores *int64, memoryBytes *int64) string {
+	var parts []string
+	if cpuMillicores != nil && *cpuMillicores > 0 {
+		parts = append(parts, strconv.FormatFloat(float64(*cpuMillicores)/1000, 'f', -1, 64)+" CPU")
+	}
+	if memoryBytes != nil && *memoryBytes > 0 {
+		parts = append(parts, describeReservationMemory(*memoryBytes)+" memory")
+	}
+	return strings.Join(parts, " and ")
+}
+
+// describeReservationMemory states bytes in Gi or Mi to at most one decimal,
+// the unit a step's memory request is written in.
+func describeReservationMemory(bytes int64) string {
+	const mebibyte = 1 << 20
+	const gibibyte = 1 << 30
+	if bytes >= gibibyte {
+		return strconv.FormatFloat(math.Round(float64(bytes)/gibibyte*10)/10, 'f', -1, 64) + "Gi"
+	}
+	return strconv.FormatFloat(math.Round(float64(bytes)/mebibyte*10)/10, 'f', -1, 64) + "Mi"
 }
 
 // printPipelineRunPromotion prints what a push run did about promotion
@@ -656,18 +765,35 @@ func printPipelineRunPromotion(out io.Writer, detail client.PipelineRunDetail) {
 	_, _ = fmt.Fprintf(out, "  Promotion: %s\n", line)
 }
 
+// printPipelineRunFullRun says why a run set its path filters aside
+// (ankra-efrnzf.17), in the platform's own sentence, or names the source when
+// the server sent none. A run that applied its filters prints nothing.
+func printPipelineRunFullRun(out io.Writer, run client.PipelineRun) {
+	source := strings.TrimSpace(run.FullRunSource)
+	if source == "" {
+		return
+	}
+	line := strings.TrimSpace(run.FullRunMessage)
+	if line == "" {
+		line = "path filters set aside (" + source + ")"
+	}
+	_, _ = fmt.Fprintf(out, "  Full run:  %s\n", line)
+}
+
 func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail, selector client.PipelineSelector) {
 	_, _ = fmt.Fprintf(out, "Run #%d (%s)\n", detail.RunNumber, detail.ID)
 	_, _ = fmt.Fprintf(out, "  Status:    %s\n", renderPipelineRunState(detail.PipelineRun))
 	printPipelineRunSupersession(out, detail.PipelineRun)
 	printPipelineRunCancellation(out, detail.PipelineRun)
 	_, _ = fmt.Fprintf(out, "  Trigger:   %s (%s)\n", detail.Trigger, detail.TriggerRef)
+	printPipelineRunFullRun(out, detail.PipelineRun)
 	_, _ = fmt.Fprintf(out, "  Commit:    %s\n", detail.HeadSHA)
 	printPipelineRunPromotion(out, detail)
 	printPipelineRunAuthority(out, detail)
 	printPipelineRunFailure(out, detail.PipelineRun)
 	_, _ = fmt.Fprintf(out, "  Queued:    %s\n", formatTimeAgo(detail.QueuedAt))
 	printPipelineRunWaiting(out, detail)
+	printPipelineRunReservation(out, detail.PipelineRun)
 	if detail.StartedAt != nil {
 		_, _ = fmt.Fprintf(out, "  Started:   %s\n", formatTimeAgo(*detail.StartedAt))
 	}
@@ -703,6 +829,7 @@ func printPipelineRunDetail(out io.Writer, detail client.PipelineRunDetail, sele
 	writer.Render()
 	printPipelineStepQueueing(out, detail)
 	printPipelineStepResourceUse(out, detail)
+	printPipelineStepQuarantinedTests(out, detail)
 	printPipelinePlatformBuilderSteps(out, detail)
 	printPipelineSupersededAttempts(out, detail, selector)
 }
@@ -864,6 +991,36 @@ func printPipelineStepResourceUse(out io.Writer, detail client.PipelineRunDetail
 	for _, line := range lines {
 		_, _ = fmt.Fprintln(out, line)
 	}
+}
+
+// printPipelineStepQuarantinedTests says, under the table, which steps read
+// success only because the repository's test quarantine forgave their failed
+// tests (ankra-q573dh.9.10): every test the step failed was quarantined. The
+// tests themselves are listed by 'ankra pipeline tests <run>'. Nothing is
+// printed when no step was forgiven, which is every run on a platform older
+// than the quarantine.
+func printPipelineStepQuarantinedTests(out io.Writer, detail client.PipelineRunDetail) {
+	lines := []string{}
+	for _, step := range detail.Steps {
+		if step.QuarantinedTestFailures == nil || *step.QuarantinedTestFailures <= 0 {
+			continue
+		}
+		count := *step.QuarantinedTestFailures
+		noun, pronoun := "tests", "them"
+		if count == 1 {
+			noun, pronoun = "test", "it"
+		}
+		lines = append(lines, fmt.Sprintf("  %s: %s (%d quarantined %s failed; the quarantine forgave %s)",
+			step.StepKey, pipelineOutcomeLabel(step.Status, step.Outcome), count, noun, pronoun))
+	}
+	if len(lines) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(out, "\nTest quarantine:")
+	for _, line := range lines {
+		_, _ = fmt.Fprintln(out, line)
+	}
+	_, _ = fmt.Fprintf(out, "  'ankra pipeline tests %s' lists the quarantined failures.\n", detail.ID)
 }
 
 // pipelineStepResourceUseLine is one step's line of the resources section.
@@ -1122,7 +1279,7 @@ func printPipelineSupersededAttempts(out io.Writer, detail client.PipelineRunDet
 		_, _ = fmt.Fprintf(out, "  %s attempt %d: %s\n", step.StepKey, step.Attempt,
 			renderPipelineState(step.Status, step.Outcome))
 		if errorClass := pipelineStepErrorClass(step); errorClass != "" {
-			_, _ = fmt.Fprintf(out, "    Class: %s\n", errorClass)
+			_, _ = fmt.Fprintf(out, "    Class: %s\n", pipelineErrorClassLine(errorClass))
 		}
 		if step.ErrorMessage != nil && strings.TrimSpace(*step.ErrorMessage) != "" {
 			_, _ = fmt.Fprintf(out, "    Error: %s\n", strings.TrimSpace(*step.ErrorMessage))
@@ -1222,6 +1379,8 @@ func printPipelineRunCancellation(out io.Writer, run client.PipelineRun) {
 		line = fmt.Sprintf("by %s (%s)", actor, reason)
 	case actor != "":
 		line = "by " + actor
+	case pipelineCancelReasonWithoutActor[reason] != "":
+		line = fmt.Sprintf("%s (%s)", pipelineCancelReasonWithoutActor[reason], reason)
 	default:
 		line = reason
 	}
@@ -1229,6 +1388,17 @@ func printPipelineRunCancellation(out io.Writer, run client.PipelineRun) {
 		line += " at " + cancelledAt
 	}
 	_, _ = fmt.Fprintf(out, "  Cancelled: %s\n", line)
+}
+
+// pipelineCancelReasonWithoutActor says what stopped a run for the cancel
+// reasons that name no actor, so the Cancelled line is not a bare token.
+// step_cancelled matters most: printed alone under a "cancelled" status it
+// read as somebody having cancelled the run, and nobody did (ankra-lzesf6).
+// The reason token stays on the line in parentheses, as it does after an
+// actor: it is what -o json and the API spell, so it is the search term.
+var pipelineCancelReasonWithoutActor = map[string]string{
+	"pull_request_closed": "its pull request merged or closed",
+	"step_cancelled":      "nobody, a step was stopped where it ran",
 }
 
 // optionalPipelineRunField is a nullable run string as a plain one: "" for a
@@ -1278,11 +1448,36 @@ func printPipelineRunFailure(out io.Writer, run client.PipelineRun) {
 		return
 	}
 	if errorClass := pipelineRunErrorClass(run); errorClass != "" {
-		_, _ = fmt.Fprintf(out, "  Class:     %s\n", errorClass)
+		_, _ = fmt.Fprintf(out, "  Class:     %s\n", pipelineErrorClassLine(errorClass))
 	}
 	if run.ErrorMessage != nil && *run.ErrorMessage != "" {
 		_, _ = fmt.Fprintf(out, "  Error:     %s\n", *run.ErrorMessage)
 	}
+}
+
+// pipelineErrorClassNeverScheduled is a step whose time ran out while no node
+// had room for what it requests (cluster ankra-lzesf6). It concludes
+// timed_out, and so does its run, but nothing ran.
+const pipelineErrorClassNeverScheduled = "never_scheduled"
+
+// pipelineErrorClassSkipMarker is a pushed run the platform skipped because
+// the head commit's message carried a skip marker such as [skip ci]
+// (cluster ankra-efrnzf.17). The run's error message names the marker.
+const pipelineErrorClassSkipMarker = "skip_marker"
+
+// pipelineErrorClassLine is the Class line's text: the class verbatim, and
+// for a class whose outcome word says something untrue, what it means beside
+// it. never_scheduled sits under a timed_out Status line that reads as the
+// work having run too long, when it never started. Every other class prints
+// alone, for the reasons printPipelineRunFailure gives.
+func pipelineErrorClassLine(errorClass string) string {
+	if errorClass == pipelineErrorClassNeverScheduled {
+		return errorClass + " (never started: no node had room for what the step requests)"
+	}
+	if errorClass == pipelineErrorClassSkipMarker {
+		return errorClass + " (skipped by a skip marker such as [skip ci] in the pushed commit's message)"
+	}
+	return errorClass
 }
 
 // pipelineRunErrorClass is the run's recorded error class, or "" when the
@@ -1342,32 +1537,54 @@ func printPipelineRunAuthority(out io.Writer, detail client.PipelineRunDetail) {
 		"current definition is already approved or cannot be approved, or the server predates reporting it")
 }
 
+// pipelineCancelLong is the help of `pipeline cancel`: what a cancel stops,
+// the finally stages it still runs, and the force that skips them.
+const pipelineCancelLong = `Cancel a pipeline run that has not concluded.
+
+A run that had started stops its main and on_failure stages, then runs its
+finally stages before it concludes cancelled. While they run the run reads
+"running" and "cancelling". A run that never started concludes at once.
+
+--force skips the finally stages: the run concludes cancelled at once. On a
+run that is already cancelling it stops the finally stages still running.
+Cancelling such a run again without --force is refused.`
+
 func newPipelineCancelCommand() *cobra.Command {
+	var isForced bool
 	cancelCommand := &cobra.Command{
 		Use:     "cancel <run>",
 		Aliases: []string{"stop"},
 		Short:   "Cancel a pipeline run that has not concluded",
+		Long:    pipelineCancelLong,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineSelector(command)
 			if selectorError != nil {
 				return selectorError
 			}
-			return runPipelineCancel(command, selector, arguments[0])
+			return runPipelineCancel(command, selector, arguments[0], isForced)
 		},
 	}
+	cancelCommand.Flags().BoolVar(&isForced, "force", false,
+		"Skip the run's finally stages, or stop them if the run is already cancelling")
 	registerPipelineSelectorFlags(cancelCommand)
 	registerStructuredOutputFlags(cancelCommand)
 	return cancelCommand
 }
 
-func runPipelineCancel(command *cobra.Command, selector client.PipelineSelector, runID string) error {
-	run, cancelError := apiClient.CancelPipelineRun(command.Context(), selector, strings.TrimSpace(runID))
+func runPipelineCancel(command *cobra.Command, selector client.PipelineSelector, runID string, isForced bool) error {
+	run, cancelError := apiClient.CancelPipelineRun(command.Context(), selector, strings.TrimSpace(runID), isForced)
 	if cancelError != nil {
 		return cancelError
 	}
 	if rendered, renderError := renderStructured(command, run); rendered || renderError != nil {
 		return renderError
+	}
+	if run.Cancelling {
+		_, _ = fmt.Fprintf(command.OutOrStdout(),
+			"Run #%d cancelled; running its finally stages before it concludes (use --force to skip them)\n",
+			run.RunNumber)
+		return nil
 	}
 	_, _ = fmt.Fprintf(command.OutOrStdout(), "Run #%d cancelled (status: %s)\n", run.RunNumber, run.Status)
 	return nil
@@ -1398,7 +1615,11 @@ every upstream step whose output a repeated step reads run again with it;
 steps that succeeded and that nothing repeated needs do not. A failed-only
 re-run that would still skip one of those steps (for example a tag-only
 release behind a failed build, on a re-run of a tag run) is refused with the
-reason rather than passing without it.`
+reason rather than passing without it.
+
+--full sets the pipeline's path filters aside for the new run, so every stage
+whose filters left it out runs, and the run records that you asked. A re-run
+of a run that was already a full run is one again without the flag.`
 
 func newPipelineRerunCommand() *cobra.Command {
 	rerunCommand := &cobra.Command{
@@ -1424,6 +1645,7 @@ func newPipelineRerunCommand() *cobra.Command {
 // `application pipeline rerun`.
 func registerPipelineRerunFlags(command *cobra.Command) {
 	command.Flags().Bool("failed-only", false, "Re-run only the steps that did not succeed, whatever depends on them, and the steps they build on (checkout included)")
+	command.Flags().Bool("full", false, "Run every stage: set the pipeline's path filters aside for the new run")
 	command.Flags().Bool("wait", false, "Wait for the new run to conclude before returning")
 	registerPipelineWaitTimeoutFlag(command)
 }
@@ -1434,13 +1656,15 @@ func runPipelineRerun(command *cobra.Command, selector client.PipelineSelector, 
 		return formatError
 	}
 	failedOnly, _ := command.Flags().GetBool("failed-only")
+	isFullRun, _ := command.Flags().GetBool("full")
 	wait, _ := command.Flags().GetBool("wait")
 	timeout, timeoutError := pipelineWaitTimeoutFromFlags(command, wait, "--wait")
 	if timeoutError != nil {
 		return timeoutError
 	}
 
-	result, rerunError := apiClient.RerunPipelineRun(command.Context(), selector, strings.TrimSpace(runID), failedOnly)
+	result, rerunError := apiClient.RerunPipelineRun(command.Context(), selector, strings.TrimSpace(runID), failedOnly,
+		isFullRun)
 	if rerunError != nil {
 		return rerunError
 	}

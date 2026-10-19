@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"ankra/internal/client"
 
@@ -341,12 +342,28 @@ var aiEndpointsCreateCmd = &cobra.Command{
 	Short: "Add an OpenAI-compatible endpoint",
 	Long: `Add a named OpenAI-API-standard endpoint (OpenRouter, vLLM, LiteLLM,
 Ollama, ...). The server validates and probes the endpoint before saving; the
-API key is stored server-side and never returned.`,
+API key is stored server-side and never returned.
+
+Pipe the API key on stdin, or run interactively to be prompted for it (the
+prompt masks the input):
+
+  ankra ai endpoints create --name vllm --base-url https://vllm.example.com/v1 < key.txt
+
+--api-key still works but is deprecated: a key on the command line lands in
+the shell history and the process list.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if cmd.Flags().Changed("api-key") {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
+				"Warning: --api-key is deprecated because the key lands in shell history; pipe it on stdin or omit it to be prompted.")
+		}
+		apiKey, secretError := resolveSecretInput(cmd, "api-key", "Endpoint API key")
+		if secretError != nil {
+			return secretError
+		}
 		endpoint, err := apiClient.CreateAIEndpoint(
 			mustFlagString(cmd, "name"),
 			mustFlagString(cmd, "base-url"),
-			mustFlagString(cmd, "api-key"),
+			apiKey,
 		)
 		if err != nil {
 			return fmt.Errorf("creating AI endpoint: %w", err)
@@ -538,12 +555,24 @@ active provider the organisation falls back to the Ankra-managed default.`,
 	},
 }
 
-// resolveSecretInput returns the secret from the named flag when set, and
-// otherwise reads it from stdin: piped or redirected input is read as a
-// single line, while an interactive terminal gets a masked prompt. The
-// secret value itself is never printed back in either path.
+// secretStdinWait is how long resolveSecretInput waits for the first line of
+// a non-terminal stdin before giving up. A stdin that is neither a terminal
+// nor carrying data (ssh with a command, `docker run -i` without -t, a parent
+// that holds the pipe open) would otherwise block the read forever.
+var secretStdinWait = 3 * time.Second
+
+// resolveSecretInput returns the secret from the named flag when it was
+// passed, and otherwise reads it from stdin: piped or redirected input is read
+// as a single line, while an interactive terminal gets a masked prompt. A
+// flag passed empty is a usage error rather than a fall-through to stdin, and
+// a non-terminal stdin that sends nothing within secretStdinWait fails fast.
+// The secret value itself is never printed back in any path.
 func resolveSecretInput(cmd *cobra.Command, flagName, label string) (string, error) {
-	if value := mustFlagString(cmd, flagName); value != "" {
+	if cmd.Flags().Changed(flagName) {
+		value := strings.TrimSpace(mustFlagString(cmd, flagName))
+		if value == "" {
+			return "", withExitCode(exitUsage, fmt.Errorf("--%s is empty: pass the %s, or leave the flag out to pipe it on stdin", flagName, label))
+		}
 		return value, nil
 	}
 	in := cmd.InOrStdin()
@@ -562,7 +591,12 @@ func resolveSecretInput(cmd *cobra.Command, flagName, label string) (string, err
 		}
 		return value, nil
 	}
-	line, readError := bufio.NewReader(in).ReadString('\n')
+	line, readError := readLineWithin(in, secretStdinWait)
+	if errors.Is(readError, errStdinSilent) {
+		return "", withExitCode(exitUsage, fmt.Errorf(
+			"%s is required: stdin is not a terminal and sent nothing within %s; pipe it on stdin or pass --%s",
+			label, secretStdinWait, flagName))
+	}
 	if readError != nil && !errors.Is(readError, io.EOF) {
 		return "", fmt.Errorf("reading %s from stdin: %w", label, readError)
 	}
@@ -572,6 +606,30 @@ func resolveSecretInput(cmd *cobra.Command, flagName, label string) (string, err
 			fmt.Errorf("%s is required: pass --%s, pipe it on stdin, or run interactively to be prompted", label, flagName))
 	}
 	return value, nil
+}
+
+// errStdinSilent reports a stdin that sent no line before the deadline.
+var errStdinSilent = errors.New("stdin sent nothing")
+
+// readLineWithin reads one line from in, giving up with errStdinSilent when
+// nothing arrives within wait. The abandoned read stays blocked on a stdin
+// that never sends; the command returns its error and the process exits.
+func readLineWithin(in io.Reader, wait time.Duration) (string, error) {
+	type readResult struct {
+		line      string
+		readError error
+	}
+	results := make(chan readResult, 1)
+	go func() {
+		line, readError := bufio.NewReader(in).ReadString('\n')
+		results <- readResult{line: line, readError: readError}
+	}()
+	select {
+	case result := <-results:
+		return result.line, result.readError
+	case <-time.After(wait):
+		return "", errStdinSilent
+	}
 }
 
 // --- openai-compatible (legacy single endpoint) credentials ---
@@ -719,10 +777,9 @@ func init() {
 
 	aiEndpointsCreateCmd.Flags().String("name", "", "Endpoint name")
 	aiEndpointsCreateCmd.Flags().String("base-url", "", "OpenAI-compatible base URL (e.g. https://openrouter.ai/api/v1)")
-	aiEndpointsCreateCmd.Flags().String("api-key", "", "API key for the endpoint")
+	aiEndpointsCreateCmd.Flags().String("api-key", "", "API key for the endpoint (deprecated: lands in shell history; omit to read stdin or be prompted)")
 	_ = aiEndpointsCreateCmd.MarkFlagRequired("name")
 	_ = aiEndpointsCreateCmd.MarkFlagRequired("base-url")
-	_ = aiEndpointsCreateCmd.MarkFlagRequired("api-key")
 	aiEndpointsUpdateCmd.Flags().String("name", "", "Endpoint name")
 	aiEndpointsUpdateCmd.Flags().String("base-url", "", "OpenAI-compatible base URL")
 	aiEndpointsUpdateCmd.Flags().String("api-key", "", "New API key (omit to keep the stored key)")

@@ -441,6 +441,29 @@ sops:
 		}
 	})
 
+	t.Run("a sealed list is named by the key that holds it", func(t *testing.T) {
+		content := `stringData:
+  hosts:
+    - ENC[AES256_GCM,data:a]
+    - ENC[AES256_GCM,data:b]
+  users:
+    - name: admin
+      password: ENC[AES256_GCM,data:c]
+sops:
+  version: 3.13.3
+`
+		paths, isSops, err := deriveSopsEncryptedPaths([]byte(content))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !isSops {
+			t.Error("expected isSopsDocument=true")
+		}
+		if len(paths) != 2 || paths[0] != "hosts" || paths[1] != "password" {
+			t.Errorf("paths = %v, want [hosts password]", paths)
+		}
+	})
+
 	t.Run("invalid yaml errors", func(t *testing.T) {
 		if _, _, err := deriveSopsEncryptedPaths([]byte(":\n  - ][")); err == nil {
 			t.Error("expected a parse error")
@@ -589,5 +612,39 @@ func TestDescribeEncryptKeysRendersGlobEntries(t *testing.T) {
 		if actual := describeEncryptKeys(entries); actual != expected {
 			t.Errorf("describeEncryptKeys(%v) = %q, want %q", entries, actual, expected)
 		}
+	}
+}
+
+func TestKeysPresentInManifestKeepsAList(t *testing.T) {
+	manifest := []byte(`stringData:
+  hosts:
+    - db.internal
+  users:
+    - name: admin
+      password: secret
+`)
+	kept, err := keysPresentInManifest(manifest, []string{"hosts", "password", "users", "removed"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(kept) != 2 || kept[0] != "hosts" || kept[1] != "password" {
+		t.Errorf("kept = %v, want [hosts password]", kept)
+	}
+}
+
+func TestVerifyKeyEncryptedAcceptsASealedList(t *testing.T) {
+	sealed := `stringData:
+  hosts:
+    - ENC[AES256_GCM,data:a]
+    - ENC[AES256_GCM,data:b]
+sops:
+  version: 3.13.3
+`
+	if err := verifyKeyEncrypted(sealed, "hosts"); err != nil {
+		t.Errorf("a list whose items are all ciphertext must verify, got: %v", err)
+	}
+	partlyPlain := strings.Replace(sealed, "- ENC[AES256_GCM,data:b]", "- db.internal", 1)
+	if err := verifyKeyEncrypted(partlyPlain, "hosts"); err == nil {
+		t.Error("a list holding a plaintext item must be refused")
 	}
 }

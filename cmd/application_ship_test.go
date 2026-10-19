@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -61,10 +62,20 @@ type applicationShipMock struct {
 
 	deploymentsPayload json.RawMessage
 
-	ingressItems           []interface{}
-	eventItems             []interface{}
+	ingressItems       []interface{}
+	eventItems         []interface{}
+	serviceItems       []interface{}
+	endpointSliceItems []interface{}
+	// endpointSliceByRead, when set, scripts successive EndpointSlice reads
+	// (the last entry repeats); endpointSliceReads counts them.
+	endpointSliceByRead    [][]interface{}
+	endpointSliceReads     int
 	resourceKindsRequested []string
-	podsResponse           *client.ListPodsResponse
+	resourceRequests       []client.ResourceRequestItem
+	// failedResourceKinds answers a read of these kinds with the platform's
+	// "error" status, the shape of lost RBAC or a downed apiserver.
+	failedResourceKinds map[string]bool
+	podsResponse        *client.ListPodsResponse
 }
 
 func (mock *applicationShipMock) ListOrganisations() ([]client.OrganisationSummary, error) {
@@ -159,12 +170,33 @@ func (mock *applicationShipMock) GetResources(clusterID string,
 	request client.GetResourcesRequest) (*client.GetResourcesResponse, error) {
 	items := mock.ingressItems
 	if len(request.ResourceRequests) == 1 {
-		mock.resourceKindsRequested = append(mock.resourceKindsRequested, request.ResourceRequests[0].Kind)
-		if request.ResourceRequests[0].Kind == "Event" {
+		kind := request.ResourceRequests[0].Kind
+		mock.resourceKindsRequested = append(mock.resourceKindsRequested, kind)
+		mock.resourceRequests = append(mock.resourceRequests, request.ResourceRequests[0])
+		if mock.failedResourceKinds[kind] {
+			reason := "forbidden: cannot list " + kind
+			return &client.GetResourcesResponse{ResourceResponses: []client.ResourceResponseItem{{
+				Status: "error", ErrorResponse: &reason,
+			}}}, nil
+		}
+		switch kind {
+		case "Event":
 			items = mock.eventItems
+		case "Service":
+			items = mock.serviceItems
+		case "EndpointSlice":
+			items = mock.endpointSliceItems
+			if len(mock.endpointSliceByRead) > 0 {
+				index := mock.endpointSliceReads
+				if index >= len(mock.endpointSliceByRead) {
+					index = len(mock.endpointSliceByRead) - 1
+				}
+				items = mock.endpointSliceByRead[index]
+			}
+			mock.endpointSliceReads++
 		}
 	}
-	return &client.GetResourcesResponse{ResourceResponses: []client.ResourceResponseItem{{Items: items}}}, nil
+	return &client.GetResourcesResponse{ResourceResponses: []client.ResourceResponseItem{{Status: "success", Items: items}}}, nil
 }
 
 func (mock *applicationShipMock) ListPods(clusterID string,
@@ -214,14 +246,57 @@ func newApplicationShipMock() *applicationShipMock {
 			},
 			TotalPages: 1,
 		},
-		ingressItems: []interface{}{
-			map[string]interface{}{
-				"spec": map[string]interface{}{
-					"rules": []interface{}{
-						map[string]interface{}{"host": "shop.acme.ankra.cc"},
+		ingressItems:       []interface{}{shipTestIngress("shop", "shop.acme.ankra.cc", "shop", 80)},
+		serviceItems:       []interface{}{shipTestService("shop", 80)},
+		endpointSliceItems: []interface{}{shipTestEndpointSlice("shop", true)},
+	}
+}
+
+// shipTestIngress is an Ingress whose one rule sends host to a Service port.
+func shipTestIngress(name string, host string, serviceName string, port int) map[string]interface{} {
+	return map[string]interface{}{
+		"metadata": map[string]interface{}{"name": name},
+		"spec": map[string]interface{}{
+			"rules": []interface{}{
+				map[string]interface{}{
+					"host": host,
+					"http": map[string]interface{}{
+						"paths": []interface{}{
+							map[string]interface{}{
+								"path": "/",
+								"backend": map[string]interface{}{
+									"service": map[string]interface{}{
+										"name": serviceName,
+										"port": map[string]interface{}{"number": float64(port)},
+									},
+								},
+							},
+						},
 					},
 				},
 			},
+		},
+	}
+}
+
+func shipTestService(name string, port int) map[string]interface{} {
+	return map[string]interface{}{
+		"metadata": map[string]interface{}{"name": name},
+		"spec": map[string]interface{}{
+			"type":  "ClusterIP",
+			"ports": []interface{}{map[string]interface{}{"name": "http", "port": float64(port)}},
+		},
+	}
+}
+
+func shipTestEndpointSlice(serviceName string, ready bool) map[string]interface{} {
+	return map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"name":   serviceName + "-abcde",
+			"labels": map[string]interface{}{"kubernetes.io/service-name": serviceName},
+		},
+		"endpoints": []interface{}{
+			map[string]interface{}{"conditions": map[string]interface{}{"ready": ready}},
 		},
 	}
 }
@@ -236,7 +311,10 @@ func fastShipPolling(t *testing.T) {
 	shipPollInterval = time.Millisecond
 	shipMergePollInterval = time.Millisecond
 	buildPollInterval = time.Millisecond
+	previousSettleSleep := shipEndpointSettleSleep
+	shipEndpointSettleSleep = func(context.Context, time.Duration) bool { return true }
 	t.Cleanup(func() {
+		shipEndpointSettleSleep = previousSettleSleep
 		shipPollInterval = previousPoll
 		shipMergePollInterval = previousMerge
 		buildPollInterval = previousBuild
@@ -790,10 +868,11 @@ func TestApplicationShipReadsTheURLFromTheDeploymentsRow(t *testing.T) {
 	if !strings.Contains(output, "Live: https://shop.wma9ydel20.ankra.cc") {
 		t.Errorf("stdout must carry the deployment row's ingress_host: %q", output)
 	}
-	for _, kind := range mockClient.resourceKindsRequested {
-		if kind == "Ingress" {
-			t.Errorf("the namespace Ingress read is the fallback and must not run when the deployments row answers")
-		}
+	// The namespace's Ingresses are still read, but only to check the row's
+	// host routes: no Ingress carries it here, so the check says it could
+	// not verify the backend rather than refusing the URL.
+	if !strings.Contains(progress, "No Ingress in namespace \"shop\" carries host shop.wma9ydel20.ankra.cc") {
+		t.Errorf("an unverifiable route must be said out loud:\n%s", progress)
 	}
 }
 
@@ -849,5 +928,205 @@ func TestDefaultShipNamespace(t *testing.T) {
 			t.Errorf("defaultShipNamespace(%q) = %q, want %q",
 				testCase.applicationName, derived, testCase.expected)
 		}
+	}
+}
+
+// shipListing renders an applications listing page for acme/shop with one
+// application per name=branch pair, ids derived from the position.
+func shipListing(namesToBranches ...[2]string) []byte {
+	rows := make([]string, 0, len(namesToBranches))
+	for index, pair := range namesToBranches {
+		rows = append(rows, fmt.Sprintf(
+			`{"id":"00000000-0000-4000-8000-%012d","name":%q,"state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":%q}`,
+			index+1, pair[0], pair[1]))
+	}
+	return []byte(`{"result":[` + strings.Join(rows, ",") + `],"pagination":{"total_pages":1}}`)
+}
+
+// The bake-off failure (ankra-ab5fog.30): the repository's only application
+// tracks another branch. Ship must refuse, naming that application and its
+// branch, instead of deploying the other branch's build.
+func TestApplicationShipRefusesTheRepositorysApplicationOnAnotherBranch(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.listApplicationsPayloads = [][]byte{shipListing([2]string{"conductor-hub", "scenario-01"})}
+	_, progress, executeError := runApplicationShipCommand(t, mockClient,
+		"--cluster", "production", "--branch", "main", "--namespace", "bakeoff-app")
+	if executeError == nil {
+		t.Fatalf("an application on another branch must not be shipped\nprogress: %s", progress)
+	}
+	if exitCodeFor(executeError) != exitUsage {
+		t.Errorf("exit code = %d, want %d (usage)", exitCodeFor(executeError), exitUsage)
+	}
+	for _, want := range []string{`"conductor-hub"`, `"scenario-01"`, `"main"`, "--name conductor-hub --branch scenario-01", "--name <new-name>"} {
+		if !strings.Contains(executeError.Error(), want) {
+			t.Errorf("the refusal must contain %s: %v", want, executeError)
+		}
+	}
+	if mockClient.createCalls != 0 || mockClient.deployCalls != 0 || mockClient.workflowRunsCalls != 0 {
+		t.Errorf("nothing may be registered, built or deployed on a refusal; create=%d workflow=%d deploy=%d",
+			mockClient.createCalls, mockClient.workflowRunsCalls, mockClient.deployCalls)
+	}
+	if strings.Contains(progress, "Using existing application") {
+		t.Errorf("the other branch's application must not be adopted: %s", progress)
+	}
+}
+
+// Several applications, none on the requested branch: the refusal lists
+// every one with its branch.
+func TestApplicationShipRefusesWhenNoApplicationTracksTheBranch(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.listApplicationsPayloads = [][]byte{
+		shipListing([2]string{"shop-staging", "staging"}, [2]string{"shop-preview", "preview"}),
+	}
+	_, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError == nil {
+		t.Fatalf("no application tracks main, so ship must refuse\nprogress: %s", progress)
+	}
+	for _, want := range []string{"shop-staging (branch staging)", "shop-preview (branch preview)", `none tracks branch "main"`} {
+		if !strings.Contains(executeError.Error(), want) {
+			t.Errorf("the refusal must contain %q: %v", want, executeError)
+		}
+	}
+	if mockClient.createCalls != 0 || mockClient.deployCalls != 0 {
+		t.Errorf("nothing may be registered or deployed on a refusal; create=%d deploy=%d",
+			mockClient.createCalls, mockClient.deployCalls)
+	}
+}
+
+// --name naming an application on another branch is refused too: the name
+// picks the application, it never retargets which branch is deployed.
+func TestApplicationShipRefusesANamedApplicationOnAnotherBranch(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.listApplicationsPayloads = [][]byte{shipListing([2]string{"shop", "scenario-01"})}
+	_, progress, executeError := runApplicationShipCommand(t, mockClient,
+		"--cluster", "production", "--name", "shop")
+	if executeError == nil {
+		t.Fatalf("a named application on another branch must not be shipped\nprogress: %s", progress)
+	}
+	if exitCodeFor(executeError) != exitUsage {
+		t.Errorf("exit code = %d, want %d (usage)", exitCodeFor(executeError), exitUsage)
+	}
+	if !strings.Contains(executeError.Error(), "--name shop --branch scenario-01") {
+		t.Errorf("the refusal must say how to target the application explicitly: %v", executeError)
+	}
+	if mockClient.createCalls != 0 || mockClient.deployCalls != 0 {
+		t.Errorf("create=%d deploy=%d, want 0 and 0", mockClient.createCalls, mockClient.deployCalls)
+	}
+}
+
+// Same repository, same branch: the application on the requested branch is
+// adopted even when the repository also has applications on other branches.
+func TestApplicationShipAdoptsTheApplicationOnTheRequestedBranch(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.listApplicationsPayloads = [][]byte{
+		shipListing([2]string{"shop-preview", "scenario-01"}, [2]string{"shop", "main"}),
+	}
+	mockClient.applicationDetailPayloads = [][]byte{
+		[]byte(`{"id":"00000000-0000-4000-8000-000000000002","name":"shop","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main","pull_request_url":"https://github.com/acme/shop/pull/1","pull_request_merged_at":"2026-09-01T10:00:00Z"}`),
+	}
+	output, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError != nil {
+		t.Fatalf("ship error = %v\nprogress: %s", executeError, progress)
+	}
+	if mockClient.createCalls != 0 {
+		t.Errorf("the application on main must be adopted; create calls = %d", mockClient.createCalls)
+	}
+	if !strings.Contains(progress, `Using existing application "shop"`) {
+		t.Errorf("the main-branch application must be the one adopted: %s", progress)
+	}
+	if !strings.Contains(output, "Live:") {
+		t.Errorf("stdout = %q", output)
+	}
+}
+
+// Explicit targeting: --name with --branch equal to the application's
+// tracked branch ships exactly that application and that branch.
+func TestApplicationShipExplicitNameAndBranchShipsThatApplication(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.listApplicationsPayloads = [][]byte{
+		shipListing([2]string{"shop", "scenario-01"}, [2]string{"shop-main", "main"}),
+	}
+	mockClient.applicationDetailPayloads = [][]byte{
+		[]byte(`{"id":"00000000-0000-4000-8000-000000000001","name":"shop","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"scenario-01","pull_request_url":"https://github.com/acme/shop/pull/1","pull_request_merged_at":"2026-09-01T10:00:00Z"}`),
+	}
+	mockClient.workflowRunsPayloads = [][]byte{
+		[]byte(`{"runs":[{"id":9,"status":"completed","conclusion":"success","branch":"scenario-01","html_url":"https://github.com/acme/shop/actions/runs/9"}]}`),
+	}
+	output, progress, executeError := runApplicationShipCommand(t, mockClient,
+		"--cluster", "production", "--name", "shop", "--branch", "scenario-01", "-o", "json")
+	if executeError != nil {
+		t.Fatalf("ship error = %v\nprogress: %s", executeError, progress)
+	}
+	if mockClient.createCalls != 0 {
+		t.Errorf("the named application must be adopted; create calls = %d", mockClient.createCalls)
+	}
+	var result shipResult
+	if unmarshalError := json.Unmarshal([]byte(output), &result); unmarshalError != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", unmarshalError, output)
+	}
+	if result.ApplicationName != "shop" || result.Branch != "scenario-01" {
+		t.Errorf("shipped %s@%s, want shop@scenario-01", result.ApplicationName, result.Branch)
+	}
+}
+
+// A different branch with a new --name registers a separate application
+// tracking the requested branch.
+func TestApplicationShipRegistersANewApplicationForAnotherBranch(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.listApplicationsPayloads = [][]byte{shipListing([2]string{"conductor-hub", "scenario-01"})}
+	_, progress, executeError := runApplicationShipCommand(t, mockClient,
+		"--cluster", "production", "--name", "shop", "--branch", "main")
+	if executeError != nil {
+		t.Fatalf("ship error = %v\nprogress: %s", executeError, progress)
+	}
+	if mockClient.createCalls != 1 {
+		t.Fatalf("a new application must be registered; create calls = %d", mockClient.createCalls)
+	}
+	if mockClient.createRequest.Name != "shop" || mockClient.createRequest.RepositoryBranch != "main" {
+		t.Errorf("registered %s@%s, want shop@main",
+			mockClient.createRequest.Name, mockClient.createRequest.RepositoryBranch)
+	}
+}
+
+// The setup read is re-checked: an application whose listing row named no
+// branch but whose settled record tracks another one is still refused before
+// anything is built or deployed.
+func TestApplicationShipRechecksTheBranchAfterSetup(t *testing.T) {
+	fastShipPolling(t)
+	mockClient := newApplicationShipMock()
+	mockClient.listApplicationsPayloads = [][]byte{shipListing([2]string{"shop", ""})}
+	mockClient.applicationDetailPayloads = [][]byte{
+		[]byte(`{"id":"00000000-0000-4000-8000-000000000001","name":"shop","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"scenario-01","pull_request_url":"https://github.com/acme/shop/pull/1","pull_request_merged_at":"2026-09-01T10:00:00Z"}`),
+	}
+	_, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+	if executeError == nil {
+		t.Fatalf("the settled record tracks scenario-01, so ship must refuse\nprogress: %s", progress)
+	}
+	if !strings.Contains(executeError.Error(), `tracks branch "scenario-01", not "main"`) {
+		t.Errorf("refusal = %v", executeError)
+	}
+	if mockClient.workflowRunsCalls != 0 || mockClient.deployCalls != 0 {
+		t.Errorf("nothing may be built or deployed; workflow=%d deploy=%d",
+			mockClient.workflowRunsCalls, mockClient.deployCalls)
+	}
+}
+
+// Git branch names are case-sensitive: an application tracking "Main" is not
+// the "main" the caller asked for.
+func TestSelectShipApplicationComparesBranchesExactly(t *testing.T) {
+	repository := localApplicationRepository{Owner: "acme", Name: "shop", Branch: "main"}
+	matches := []shipApplicationView{{ID: "a", Name: "shop", AppRepoOwner: "acme", AppRepoName: "shop", AppRepoBranch: "Main"}}
+	selected, selectError := selectShipApplication(matches, repository, "")
+	if selectError == nil || selected != nil {
+		t.Fatalf("an application tracking Main must not be shipped for main; selected=%v error=%v", selected, selectError)
+	}
+	if !strings.Contains(selectError.Error(), `tracks branch "Main", not "main"`) {
+		t.Errorf("refusal = %v", selectError)
 	}
 }

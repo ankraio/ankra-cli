@@ -42,11 +42,14 @@ type serviceReviewPlanView struct {
 	Consumers        []struct {
 		ID            string `json:"id"`
 		ApplicationID string `json:"application_id"`
-		ClusterID     string `json:"cluster_id"`
-		Namespace     string `json:"namespace"`
-		BindingKind   string `json:"binding_kind"`
-		Region        string `json:"region"`
-		DataBoundary  string `json:"data_boundary"`
+		// ApplicationName is the application's name when the plan carries
+		// one; the listing names it otherwise.
+		ApplicationName *string `json:"application_name"`
+		ClusterID       string  `json:"cluster_id"`
+		Namespace       string  `json:"namespace"`
+		BindingKind     string  `json:"binding_kind"`
+		Region          string  `json:"region"`
+		DataBoundary    string  `json:"data_boundary"`
 	} `json:"consumers"`
 }
 
@@ -115,7 +118,7 @@ func printServiceReviewPlan(out io.Writer, names *serviceNames, packageLabel str
 				binding = "binding"
 			}
 			_, _ = fmt.Fprintf(out, "    %s  application %s, cluster %s, namespace %s (%s)\n", consumer.ID,
-				consumer.ApplicationID, names.cluster(consumer.ClusterID), consumer.Namespace, binding)
+				names.consumerApplication(consumer.ApplicationID, consumer.ApplicationName), names.cluster(consumer.ClusterID), consumer.Namespace, binding)
 		}
 		if plan.ExpiresAt != "" {
 			_, _ = fmt.Fprintf(out, "  Expires:        %s\n", plan.ExpiresAt)
@@ -166,7 +169,7 @@ func printServiceReviewSummary(out io.Writer, names *serviceNames, review client
 	_, _ = fmt.Fprintln(out, "  Destinations:")
 	for _, destination := range review.Destinations {
 		_, _ = fmt.Fprintf(out, "    application %s, cluster %s, namespace %s\n",
-			destination.ApplicationID, names.cluster(destination.ClusterID), destination.Namespace)
+			names.application(destination.ApplicationID), names.cluster(destination.ClusterID), destination.Namespace)
 	}
 	_, _ = fmt.Fprintf(out, "  Created:        %s\n", review.CreatedAt)
 	_, _ = fmt.Fprintf(out, "  Digest:         %s\n", review.Digest)
@@ -350,7 +353,7 @@ func runServicesSetup(command *cobra.Command, arguments []string) error {
 	}
 
 	packageReference, _ := command.Flags().GetString("package")
-	versionID, packageError := resolveServicePackageID(ctx, packageReference)
+	versionID, packageError := resolveServicePackageID(ctx, command.ErrOrStderr(), packageReference)
 	if packageError != nil {
 		return packageError
 	}

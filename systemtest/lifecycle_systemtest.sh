@@ -132,11 +132,13 @@ if [ ! -x "$ANKRA_BIN" ]; then
 fi
 
 # Ankra-managed (self-managed VMs) providers. Set to "" to skip the family.
-ANKRA_SYSTEMTEST_PROVIDERS="${ANKRA_SYSTEMTEST_PROVIDERS-hetzner ovh upcloud digitalocean}"
+# upcloud and uks are opt-in only: UpCloud is too costly to test on routinely,
+# so neither runs unless a caller names it.
+ANKRA_SYSTEMTEST_PROVIDERS="${ANKRA_SYSTEMTEST_PROVIDERS-hetzner ovh digitalocean}"
 
 # Cloud-managed (provider-native managed Kubernetes) providers, driven through
 # `ankra cluster managed`. Set to "" to skip the family.
-ANKRA_SYSTEMTEST_MANAGED_PROVIDERS="${ANKRA_SYSTEMTEST_MANAGED_PROVIDERS-doks uks gke ovh_mks aks eks}"
+ANKRA_SYSTEMTEST_MANAGED_PROVIDERS="${ANKRA_SYSTEMTEST_MANAGED_PROVIDERS-doks gke ovh_mks aks eks}"
 
 # Kubernetes distributions to exercise per Ankra-managed provider. Each
 # (provider, distribution) pair becomes its own cluster with the distribution
@@ -189,7 +191,13 @@ GITOPS_REPOSITORY="${GITOPS_REPOSITORY:-}"
 GITOPS_BRANCH="${GITOPS_BRANCH:-master}"
 
 # Regions / zones / locations.
-HETZNER_LOCATION="${HETZNER_LOCATION:-nbg1}"
+# Hetzner's shared-vCPU stock moves by the minute: on 2026-10-14 cpx32 left
+# nbg1, then fsn1, then came back to nbg1 within the hour, and a create in a
+# location without it is refused (ankra-ews9qk). So the lane picks its
+# location at run time: the first of HETZNER_LOCATION_CANDIDATES that offers
+# every server type the lane uses right now. Setting HETZNER_LOCATION pins it.
+HETZNER_LOCATION="${HETZNER_LOCATION:-}"
+HETZNER_LOCATION_CANDIDATES="${HETZNER_LOCATION_CANDIDATES:-fsn1 nbg1 hel1}"
 OVH_REGION="${OVH_REGION:-GRA9}"
 UPCLOUD_ZONE="${UPCLOUD_ZONE:-de-fra1}"
 
@@ -390,6 +398,13 @@ record() {
 pass() { log "PASS: $1"; record "PASS  $1"; }
 fail() { log "FAIL: $1"; record "FAIL  $1"; FAILURES=$((FAILURES + 1)); }
 skip() { log "SKIP: $1"; record "SKIP  $1"; }
+# A requested assertion the run could not make. Not a SKIP - a SKIP is a step
+# the run was not asked for or cannot run here (a lane without credentials,
+# an opt-in step left off), which is fine to pass over - and never a PASS:
+# its outcome is unknown. Counted apart in the summary and failing the run,
+# so a run that never made an assertion it was asked for cannot read the
+# same as one in which it passed (ankra-t5jf5.34.8.3.2).
+unasserted() { log "NOT ASSERTED: $1"; record "UNASSERTED  $1"; }
 
 # Remember a created cluster for cleanup. Entries are "name=id=managed_provider"
 # where the third field is empty for Ankra-managed (self-managed) clusters and
@@ -427,6 +442,110 @@ ank_out() {
     "$ANKRA_BIN" --config "$ANK_CONFIG" "$@" 2>/dev/null
   else
     "$ANKRA_BIN" "$@" 2>/dev/null
+  fi
+}
+
+# hetzner_available_types prints the server types Hetzner can provision in a
+# location right now, one per line, read from the CLI's server-types table
+# (NAME CORES MEMORY GB DISK GB ARCH PRICE AVAILABLE; the last column is yes).
+hetzner_available_types() {
+  local table
+  table="$(ank_out cluster hetzner server-types --credential-id "$HETZNER_CREDENTIAL_ID" \
+    --location "$1" --available-only)" || return 1
+  printf '%s\n' "$table" | hetzner_types_from_table
+}
+
+# hetzner_types_from_table reads a server-types table on stdin and prints the
+# names whose AVAILABLE column says yes. It matches the row's shape (a
+# type-like name first, "yes" last) rather than skipping a fixed number of
+# preamble lines, so a missing banner or an extra header cannot shift it.
+hetzner_types_from_table() {
+  awk '$1 ~ /^[a-z]+[0-9]+[a-z]*$/ && $NF == "yes" { print $1 }'
+}
+
+# pick_hetzner_location prints the first candidate location that offers every
+# type the lane uses and succeeds; otherwise it prints why and fails. A
+# location whose types could not be read (the CLI failed, or answered no rows)
+# is never read as a location that lacks them: the reason names it apart, and
+# when no candidate could be read at all it says so (a credential or API
+# problem, not Hetzner's stock). It reads each candidate through
+# hetzner_available_types, so a test can stub it.
+pick_hetzner_location() {
+  local location needed available is_complete
+  local unread="" lacking=""
+  for needed in "$HETZNER_CP_TYPE" "$HETZNER_WORKER_TYPE" "$HETZNER_BASTION_TYPE" "$HETZNER_BIGGER_TYPE"; do
+    if [ -z "$needed" ]; then
+      echo "configuration error: HETZNER_CP_TYPE, HETZNER_WORKER_TYPE, HETZNER_BASTION_TYPE and HETZNER_BIGGER_TYPE must all be set"
+      return 1
+    fi
+  done
+  for location in $HETZNER_LOCATION_CANDIDATES; do
+    if ! available="$(hetzner_available_types "$location")" || [ -z "$available" ]; then
+      unread="${unread:+$unread }$location"
+      continue
+    fi
+    is_complete=1
+    for needed in "$HETZNER_CP_TYPE" "$HETZNER_WORKER_TYPE" "$HETZNER_BASTION_TYPE" "$HETZNER_BIGGER_TYPE"; do
+      if ! printf '%s\n' "$available" | grep -qx "$needed"; then
+        is_complete=0
+        break
+      fi
+    done
+    if [ "$is_complete" = 1 ]; then
+      echo "$location"
+      return 0
+    fi
+    lacking="${lacking:+$lacking }$location"
+  done
+  if [ -z "$lacking" ]; then
+    echo "could not list Hetzner server types for any of '$HETZNER_LOCATION_CANDIDATES' (a credential or API problem, not Hetzner's stock)"
+  elif [ -n "$unread" ]; then
+    echo "no readable Hetzner location offers $HETZNER_CP_TYPE, $HETZNER_WORKER_TYPE, $HETZNER_BASTION_TYPE and $HETZNER_BIGGER_TYPE right now (lacking: $lacking; could not read: $unread)"
+  else
+    echo "no Hetzner location in '$HETZNER_LOCATION_CANDIDATES' offers $HETZNER_CP_TYPE, $HETZNER_WORKER_TYPE, $HETZNER_BASTION_TYPE and $HETZNER_BIGGER_TYPE right now"
+  fi
+  return 1
+}
+
+# hetzner_resize_stock_gap re-reads a location's stock before the resize step
+# (pick_hetzner_location reads it only at create time, and cpx32 left fsn1
+# hours into a run on 2026-10-14, ankra-mw9qji). When the stock list was read
+# and no longer holds the type it prints why and succeeds: the resize would be
+# refused by the provider, which is a stock gap, not a platform failure. A
+# stock read that failed or came back empty is not a gap - it returns failure
+# so the step runs and a genuine refusal or timeout stays a FAIL.
+hetzner_resize_stock_gap() {
+  local type="$1" location="$2" available
+  if ! available="$(hetzner_available_types "$location")" || [ -z "$available" ]; then
+    return 1
+  fi
+  if printf '%s\n' "$available" | grep -qx "$type"; then
+    return 1
+  fi
+  echo "server type $type not available in $location right now"
+}
+
+# create_failure_reason says why a create printed no "Cluster ID:" line. The
+# platform refuses a create it cannot run with a 400 whose "detail" names the
+# cause (a server type the location no longer offers, a provider account with
+# no credits); ank() merges that "Error:" line into the output, and reporting
+# it is the difference between a run that says what to fix and one that says
+# "could not resolve cluster id" (ankra-ews9qk). The detail is cut at 300
+# characters; the full line is in the log above the FAIL.
+create_failure_reason() {
+  local out="$1" error_line status detail
+  error_line="$(printf '%s\n' "$out" | grep -m1 -E '^Error: ' || true)"
+  if [ -z "$error_line" ]; then
+    echo "the create printed neither a Cluster ID nor an error"
+    return
+  fi
+  status="$(printf '%s' "$error_line" | grep -oE 'status [0-9]{3}' | head -1 || true)"
+  detail="$(printf '%s' "$error_line" | sed -nE 's/.*"detail":"(([^"\\]|\\.)*)".*/\1/p' | head -1)"
+  if [ -n "$detail" ]; then
+    echo "refused by the platform${status:+, $status}: ${detail:0:300}"
+  else
+    error_line="${error_line#Error: }"
+    echo "${error_line:0:300}"
   fi
 }
 
@@ -533,6 +652,25 @@ ready_nodes() { select_cluster "$1"; ank cluster get nodes | grep -cE "Ready"; }
 
 # Count of running cluster operations.
 running_ops() { select_cluster "$1"; ank cluster operations list | grep -cE "running"; }
+
+# The operations still running on a cluster, one per line, for the failure
+# message of a write that stayed refused: the step names what blocked it.
+busy_operations() { select_cluster "$1"; ank cluster operations list | grep -E "running" | head -5; }
+
+# write_refused_busy reports whether a day-2 write was refused because the
+# cluster is busy: the CLI exited non-zero AND said so, in the platform's own
+# words or as an HTTP 409 status. Matching a bare "409" anywhere in the output
+# read a cluster id such as 00a01a40-0124-4097-... as a refusal, so writes that
+# had succeeded were retried until the step failed (ankra-nz8f8: aws/k3s stop,
+# aws and hetzner k8s upgrade on 2026-10-14, ovh k8s upgrade on 2026-07-19).
+write_refused_busy() {
+  local rc="$1" out="$2"
+  [ "$rc" -ne 0 ] || return 1
+  printf '%s' "$out" | grep -qiE 'operations (are )?(still )?in progress|already in progress|is still running|not in a state|status 409([^0-9]|$)|\(409\)'
+}
+
+# The last non-empty line of a command's output, for a one-line log.
+last_line() { printf '%s\n' "$1" | grep -v '^[[:space:]]*$' | tail -1 | cut -c1-200; }
 
 # Whether a failed reconcile is retried (nudge_reconcile) or fails the wait at
 # once because the step was refused outright (a provider 4xx, a validation
@@ -655,19 +793,25 @@ wait_for_removed() {
 daytwo() {
   local desc="$1"; shift
   local name="$1"; shift
-  local attempt out
+  local attempt out rc
   wait_idle "$name" "$IDLE_TIMEOUT" || log "  ($name still busy; attempting $desc anyway)"
   for attempt in $(seq 1 8); do
-    out="$(ank cluster "$@" 2>&1)"
-    if printf '%s' "$out" | grep -qiE "operations in progress|409|not in a state"; then
-      log "  $desc rejected (ops in progress), retry $attempt"
+    out="$(ank_rc cluster "$@")"; rc=$?
+    if write_refused_busy "$rc" "$out"; then
+      log "  $desc refused while busy, retry $attempt: $(last_line "$out")"
       sleep 20
       wait_idle "$name" "$IDLE_TIMEOUT" || log "  ($name still busy before retry of $desc)"
       continue
     fi
     printf '%s\n' "$out" | tail -2
+    if [ "$rc" -ne 0 ]; then
+      log "  $desc failed (exit $rc): $(last_line "$out")"
+      return 1
+    fi
     return 0
   done
+  log "  $desc stayed refused after 8 attempts; still running on $name:"
+  busy_operations "$name" | while IFS= read -r operation; do log "    $operation"; done
   return 1
 }
 
@@ -1103,7 +1247,7 @@ run_aws_provider() {
   out="$(ank cluster aws create "${create_args[@]}")"
   printf '%s\n' "$out"
   id="$(printf '%s' "$out" | awk -F'Cluster ID:' '/Cluster ID:/{gsub(/[ \t]/,"",$2); print $2; exit}')"
-  if [ -z "$id" ]; then fail "$label create (could not resolve cluster id)"; return; fi
+  if [ -z "$id" ]; then fail "$label create ($(create_failure_reason "$out"))"; return; fi
   register_cluster "$name" "$id"
   pass "$label create submitted (id=$id)"
 
@@ -1413,13 +1557,17 @@ as_write() {
     if [ "$remaining" -gt "$IDLE_TIMEOUT" ]; then remaining="$IDLE_TIMEOUT"; fi
     wait_idle "$name" "$remaining" || log "  ($name still busy; attempting $desc anyway)"
     out="$(ank_rc "$@")"; rc=$?
-    if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qiE "operations in progress|409|not in a state"; then
-      log "  $desc rejected (ops in progress), retry $attempt"
+    if write_refused_busy "$rc" "$out"; then
+      log "  $desc refused while busy, retry $attempt: $(last_line "$out")"
       sleep 20
       continue
     fi
     break
   done
+  if write_refused_busy "$rc" "$out"; then
+    log "  $desc stayed refused; still running on $name:"
+    busy_operations "$name" | while IFS= read -r operation; do log "    $operation"; done
+  fi
   printf '%s\n' "$out" | tail -n 4
   return "$rc"
 }
@@ -1460,14 +1608,22 @@ as_wait_ca_ready() {
 }
 
 # Step 3. The autoscaler's newest complete main loop - the lines between the
-# last two "Starting main loop" markers (klog v4, the chart default) - must
-# not report a registered worker as unregistered. It logs "<N> unregistered
-# nodes present" only when N > 0. Tolerated, and named rather than failed:
-# nodes of the group with no spec.providerID, which the platform serves
-# under a fallback instance id the autoscaler cannot match to a node (the
-# documented fallback of cluster#3557). Polled for AUTOSCALING_IDENTITY_GRACE,
-# since a node that has just joined can read as unregistered until the next
-# snapshot. A log the CLI cannot read skips this assertion only.
+# last two "Starting main loop" markers - must not report a registered worker
+# as unregistered. It logs "<N> unregistered nodes present" (klog v1) only
+# when N > 0, so only a bounded loop proves N = 0. The marker is klog v4
+# (static_autoscaler.go RunOnce, cluster-autoscaler v1.34.3), and v4 is what
+# the platform runs: the cluster-autoscaler chart 9.58.0 the platform profile
+# pins defaults extraArgs.v to 4, and the profile's own extraArgs do not set
+# v (checked 2026-10-15). Tolerated, and named rather than failed: nodes of
+# the group with no spec.providerID, which the platform serves under a
+# fallback instance id the autoscaler cannot match to a node (the documented
+# fallback of cluster#3557). Polled for AUTOSCALING_IDENTITY_GRACE, since a
+# node that has just joined can read as unregistered until the next snapshot,
+# and a log read the CLI fails is retried inside the same window. When the
+# window ends with no bounded loop to judge - the log never readable, or no
+# two markers in it - the assertion is recorded NOT ASSERTED, which fails the
+# run: this is the only systemtest assertion covering cluster#3557's identity
+# contract, so a run that never made it must not read as all-PASS.
 as_assert_ca_identity() {
   local id="$1" group="$2" tag="$3"
   local deadline pod logs="" rc loop unregistered nil_count noid="" noid_count=0 state evidence
@@ -1479,27 +1635,27 @@ as_assert_ca_identity() {
     else
       logs="$(ank_rc cluster logs "$pod" -n "$AS_CA_NAMESPACE" --all-containers --since "$AS_LOG_WINDOW" --follow=false --cluster "$id")"; rc=$?
       if [ "$rc" -ne 0 ]; then
-        skip "$tag: autoscaler registers every worker NOT ASSERTED - the CLI could not read the $AS_CA_NAME log (ankra cluster logs exit $rc: $(printf '%s\n' "$logs" | tail -n 1))"
-        return 0
-      fi
-      noid="$(as_nodes_json "$id" | jq -r --arg g "$group" "$AS_JQ_LIB [group_nodes(\$g) | select(.provider_id == \"\") | .name] | join(\" \")" 2>/dev/null)"
-      noid_count="$(printf '%s\n' "$noid" | wc -w | tr -d ' ')"
-      if loop="$(printf '%s\n' "$logs" | awk '/Starting main loop/ { prev = cur; cur = ""; n++; next } { cur = cur $0 "\n" } END { if (n < 2) exit 1; printf "%s", prev }')"; then
-        unregistered="$(printf '%s\n' "$loop" | grep -oE '[0-9]+ unregistered nodes present' | tail -n 1 | awk '{print $1}')"
-        unregistered="${unregistered:-0}"
-        if [ "$unregistered" -le "$noid_count" ]; then
-          if [ "$unregistered" -gt 0 ]; then
-            pass "$tag: autoscaler registers every worker ($unregistered unregistered = the nodes with no spec.providerID, the documented fallback: $noid)"
-          else
-            pass "$tag: autoscaler registers every worker (newest loop: none unregistered)"
-          fi
-          return 0
-        fi
-        nil_count="$(printf '%s\n' "$loop" | grep -c 'Nodegroup is nil')"
-        state="unregistered"
-        evidence="newest loop: $unregistered unregistered nodes present, $nil_count 'Nodegroup is nil' lines; nodes without a providerID: ${noid:-none}"
+        state="nolog"; evidence="the CLI could not read the log of $pod (ankra cluster logs exit $rc: $(printf '%s\n' "$logs" | tail -n 1))"
       else
-        state="noloop"; evidence="no complete main loop in the last ${AS_LOG_WINDOW}s of $pod"
+        noid="$(as_nodes_json "$id" | jq -r --arg g "$group" "$AS_JQ_LIB [group_nodes(\$g) | select(.provider_id == \"\") | .name] | join(\" \")" 2>/dev/null)"
+        noid_count="$(printf '%s\n' "$noid" | wc -w | tr -d ' ')"
+        if loop="$(printf '%s\n' "$logs" | awk '/Starting main loop/ { prev = cur; cur = ""; n++; next } { cur = cur $0 "\n" } END { if (n < 2) exit 1; printf "%s", prev }')"; then
+          unregistered="$(printf '%s\n' "$loop" | grep -oE '[0-9]+ unregistered nodes present' | tail -n 1 | awk '{print $1}')"
+          unregistered="${unregistered:-0}"
+          if [ "$unregistered" -le "$noid_count" ]; then
+            if [ "$unregistered" -gt 0 ]; then
+              pass "$tag: autoscaler registers every worker ($unregistered unregistered = the nodes with no spec.providerID, the documented fallback: $noid)"
+            else
+              pass "$tag: autoscaler registers every worker (newest loop: none unregistered)"
+            fi
+            return 0
+          fi
+          nil_count="$(printf '%s\n' "$loop" | grep -c 'Nodegroup is nil')"
+          state="unregistered"
+          evidence="newest loop: $unregistered unregistered nodes present, $nil_count 'Nodegroup is nil' lines; nodes without a providerID: ${noid:-none}"
+        else
+          state="noloop"; evidence="fewer than two 'Starting main loop' markers in the last ${AS_LOG_WINDOW}s of $pod"
+        fi
       fi
     fi
     log "  $tag: $evidence"
@@ -1512,15 +1668,21 @@ as_assert_ca_identity() {
       fail "$tag: autoscaler still reports registered workers as unregistered ${AUTOSCALING_IDENTITY_GRACE}s after every worker was Ready ($evidence)"
       printf '%s\n' "$logs" | grep -E 'unregistered nodes present|Nodegroup is nil' | tail -n 10 | sed 's/^/    /'
       ;;
+    nolog)
+      unasserted "$tag: autoscaler registers every worker - the $AS_CA_NAME log stayed unreadable for ${AUTOSCALING_IDENTITY_GRACE}s ($evidence)"
+      ;;
     noloop)
-      # No loop markers (log verbosity below 4?): fall back to the newest
-      # count anywhere in the window. Only a count past the tolerance is
-      # evidence; its absence proves nothing without a loop to bound it.
+      # No loop to bound the newest count. A count past the tolerance
+      # anywhere in the window is still evidence of the defect; its absence
+      # proves nothing, so the assertion was not made. At the chart's v4 the
+      # markers come every scan interval (10s), so a 60s window without two
+      # of them means a restarted autoscaler, a stalled main loop, or a
+      # verbosity lowered in the add-on's values.
       unregistered="$(printf '%s\n' "$logs" | grep -oE '[0-9]+ unregistered nodes present' | tail -n 1 | awk '{print $1}')"
       if [ -n "$unregistered" ] && [ "$unregistered" -gt "$noid_count" ]; then
         fail "$tag: autoscaler reports $unregistered unregistered nodes with ${noid_count} node(s) lacking a providerID (${noid:-none})"
       else
-        skip "$tag: autoscaler registers every worker NOT ASSERTED - $evidence (log verbosity below 4?)"
+        unasserted "$tag: autoscaler registers every worker - $evidence for ${AUTOSCALING_IDENTITY_GRACE}s, so no complete main loop to judge (a restarted or stalled autoscaler, or a klog verbosity below the chart's default v4 in the add-on's values)"
       fi
       ;;
     *)
@@ -1835,12 +1997,22 @@ run_provider() {
 
   section "$label :: $name"
 
+  if [ "$provider" = hetzner ] && [ -z "$HETZNER_LOCATION" ]; then
+    local picked
+    if ! picked="$(pick_hetzner_location)"; then
+      fail "$label create ($picked)"
+      return
+    fi
+    HETZNER_LOCATION="$picked"
+    log "hetzner location: $HETZNER_LOCATION (offers every type this lane uses right now)"
+  fi
+
   # 1. Create (capture the printed "Cluster ID: <uuid>")
   log "creating $name (distribution=$distribution) ..."
   out="$(create_cluster "$provider" "$name" "$distribution")"
   printf '%s\n' "$out"
   id="$(printf '%s' "$out" | awk -F'Cluster ID:' '/Cluster ID:/{gsub(/[ \t]/,"",$2); print $2; exit}')"
-  if [ -z "$id" ]; then fail "$label create (could not resolve cluster id)"; return; fi
+  if [ -z "$id" ]; then fail "$label create ($(create_failure_reason "$out"))"; return; fi
   register_cluster "$name" "$id"
   pass "$label create submitted (id=$id)"
 
@@ -1874,7 +2046,11 @@ run_provider() {
 
   # 7. Instance resize
   plan="$(bigger_plan "$provider")"
-  if daytwo "resize" "$name" node-group upgrade "$id" default "$plan" \
+  local reason=""
+  if [ "$provider" = hetzner ] && reason="$(hetzner_resize_stock_gap "$plan" "$HETZNER_LOCATION")"; then
+    # Stock left the location since create: a provider gap, not the platform's.
+    skip "$label instance resize default -> $plan (${reason}; a provider stock gap, not a platform failure)"
+  elif daytwo "resize" "$name" node-group upgrade "$id" default "$plan" \
      && wait_until_ng_plan "$name" "$id" default "$plan" "$DAYTWO_TIMEOUT"; then
     pass "$label instance resize default -> $plan"; else fail "$label instance resize"; fi
 
@@ -1936,7 +2112,7 @@ run_managed_provider() {
     "${version_args[@]}" "${gitops_args[@]}")"
   printf '%s\n' "$out"
   id="$(printf '%s' "$out" | awk -F'Cluster ID:' '/Cluster ID:/{gsub(/[ \t]/,"",$2); print $2; exit}')"
-  if [ -z "$id" ]; then fail "$label create (could not resolve cluster id)"; return; fi
+  if [ -z "$id" ]; then fail "$label create ($(create_failure_reason "$out"))"; return; fi
   register_cluster "$name" "$id" "$provider"
   pass "$label create submitted (id=$id)"
 
@@ -2010,7 +2186,26 @@ wait_until_ng_plan() {
     [ "$cur" = "$want" ] && return 0
     sleep "$POLL_INTERVAL"
   done
+  dump_node_group_state "$name" "$id" "$group"
   return 1
+}
+
+# dump_node_group_state logs what the platform recorded when a node-group plan
+# never changed: the node groups and the cluster's latest operations, failed
+# ones included. A resize the provider refused after the CLI's 202 shows as a
+# failed node_group_write operation with the provider's reason; a timeout with
+# neither a failed nor a running operation means the platform recorded nothing
+# (ankra-mw9qji: a cpx32 resize in fsn1 was accepted, refused for stock, and
+# the 15-minute poll showed no trace of why).
+dump_node_group_state() {
+  local name="$1" id="$2" group="$3"
+  log "  $name $group plan never changed; node groups:"
+  select_cluster "$name"
+  ank cluster node-group list "$id" 2>&1 | while IFS= read -r line; do log "    $line"; done
+  log "  $name latest operations (newest first):"
+  ank cluster operations list --limit 8 2>&1 | while IFS= read -r line; do log "    $line"; done
+  log "  $name failed operations:"
+  ank cluster operations list --failed --limit 5 2>&1 | while IFS= read -r line; do log "    $line"; done
 }
 
 # ---------------------------------------------------------------------------
@@ -2345,6 +2540,65 @@ run_provider_bg() {
   run_target "$provider" "$distribution" 2>&1 | sed -u "s/^/[$slug] /" | tee "$WORKDIR/log.$slug"
 }
 
+# Aggregate the result lines - the lanes the plan skipped for missing
+# configuration, then each results file given (works for both modes) - print
+# them with the summary line, append both to the GitHub job summary, and
+# succeed only when no step FAILED and no requested assertion was NOT
+# ASSERTED. A SKIP never fails the run; an UNASSERTED always does, and is
+# listed apart so a run that left one unmade cannot read as all-PASS.
+report_results() {
+  local -a all_results=() unasserted_results=()
+  local total_failures=0 total_unasserted=0 total_skips=0 line file saved_ifs="$IFS"
+  IFS="$NL"
+  for line in $LANE_SKIP_RESULTS; do
+    [ -z "$line" ] && continue
+    all_results+=("$line")
+    total_skips=$((total_skips + 1))
+  done
+  IFS="$saved_ifs"
+  for file in "$@"; do
+    [ -f "$file" ] || continue
+    while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      all_results+=("$line")
+      case "$line" in
+        FAIL*) total_failures=$((total_failures + 1));;
+        UNASSERTED*) total_unasserted=$((total_unasserted + 1)); unasserted_results+=("$line");;
+        SKIP*) total_skips=$((total_skips + 1));;
+      esac
+    done < "$file"
+  done
+
+  local summary
+  summary="$(( ${#all_results[@]} - total_failures - total_unasserted - total_skips )) passed, $total_failures failed, $total_unasserted not asserted, $total_skips skipped"
+  section "RESULTS"
+  if [ "${#all_results[@]}" -gt 0 ]; then printf '%s\n' "${all_results[@]}"; fi
+  section "SUMMARY"
+  log "$summary ($(lane_headline))"
+  if [ "$total_unasserted" -gt 0 ]; then
+    log "the run fails: $total_unasserted requested assertion(s) NOT ASSERTED, so their outcome is unknown:"
+    printf '  %s\n' "${unasserted_results[@]}"
+  fi
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    {
+      echo "### Lifecycle system test: results"
+      echo
+      echo "**$summary** ($(lane_headline))"
+      echo
+      if [ "$total_unasserted" -gt 0 ]; then
+        echo "**$total_unasserted requested assertion(s) NOT ASSERTED - outcome unknown, so the run fails:**"
+        echo
+        printf -- '- %s\n' "${unasserted_results[@]}"
+        echo
+      fi
+      echo '```'
+      if [ "${#all_results[@]}" -gt 0 ]; then printf '%s\n' "${all_results[@]}"; fi
+      echo '```'
+    } >> "$GITHUB_STEP_SUMMARY"
+  fi
+  [ "$total_failures" -eq 0 ] && [ "$total_unasserted" -eq 0 ]
+}
+
 main() {
   preflight
   section "Ankra cloud lifecycle system test (run $RUN_ID)"
@@ -2396,48 +2650,11 @@ main() {
     done
   fi
 
-  # Aggregate results from every worker's file (works for both modes),
-  # after the lanes the plan skipped for missing configuration.
-  local -a all_results=()
-  local total_failures=0 total_skips=0 line slug saved_ifs="$IFS"
-  IFS="$NL"
-  for line in $LANE_SKIP_RESULTS; do
-    [ -z "$line" ] && continue
-    all_results+=("$line")
-    total_skips=$((total_skips + 1))
-  done
-  IFS="$saved_ifs"
+  local -a result_files=()
   for t in "${targets[@]}"; do
-    slug="${t%%:*}-${t#*:}"
-    [ -f "$WORKDIR/results.$slug" ] || continue
-    while IFS= read -r line; do
-      [ -z "$line" ] && continue
-      all_results+=("$line")
-      case "$line" in
-        FAIL*) total_failures=$((total_failures + 1));;
-        SKIP*) total_skips=$((total_skips + 1));;
-      esac
-    done < "$WORKDIR/results.$slug"
+    result_files+=("$WORKDIR/results.${t%%:*}-${t#*:}")
   done
-
-  local summary
-  summary="$(( ${#all_results[@]} - total_failures - total_skips )) passed, $total_failures failed, $total_skips skipped"
-  section "RESULTS"
-  if [ "${#all_results[@]}" -gt 0 ]; then printf '%s\n' "${all_results[@]}"; fi
-  section "SUMMARY"
-  log "$summary ($(lane_headline))"
-  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-    {
-      echo "### Lifecycle system test: results"
-      echo
-      echo "**$summary** ($(lane_headline))"
-      echo
-      echo '```'
-      if [ "${#all_results[@]}" -gt 0 ]; then printf '%s\n' "${all_results[@]}"; fi
-      echo '```'
-    } >> "$GITHUB_STEP_SUMMARY"
-  fi
-  [ "$total_failures" -eq 0 ]
+  report_results ${result_files[@]+"${result_files[@]}"}
 }
 
 main "$@"

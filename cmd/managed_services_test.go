@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -80,6 +81,12 @@ type fakeServicesPlatform struct {
 	// ignoreInstanceFilters answers the instance inventory unfiltered, as a
 	// platform from before cluster#4053 that ignores the filter keys would.
 	ignoreInstanceFilters bool
+	// olderPackageVersion adds postgresql 0.9.0 from the same publisher, so a
+	// bare "postgresql" matches two versions.
+	olderPackageVersion bool
+	// foreignPackagePublisher adds a postgresql package from another
+	// publisher, so a bare "postgresql" names two different packages.
+	foreignPackagePublisher bool
 }
 
 // fakeServiceOrphanConsumerID is a binding whose application was removed:
@@ -244,11 +251,24 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 	case request.Method == http.MethodGet && path == "/api/v1/org/organisation":
 		fakeServiceJSON(t, writer, http.StatusOK, []any{map[string]any{"organisation_id": fakeServiceOrganisation, "name": "Ankra AB"}})
 	case request.Method == http.MethodGet && path == "/api/v1/org/service-packages":
-		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"next_cursor": nil, "items": []any{
+		packages := []any{
 			map[string]any{"id": fakeServicePackageID, "publisher_id": "a11b7a00-0000-4000-a000-000000000001", "name": "postgresql",
 				"version": "1.0.0", "capability": "database", "digest": "sha256:" + strings.Repeat("c", 64), "first_party": true,
 				"created_at": "2026-09-30T14:56:09Z"},
-		}})
+		}
+		if platform.olderPackageVersion {
+			packages = append(packages, map[string]any{"id": "a5e62beb-0000-4000-8000-000000000090",
+				"publisher_id": "a11b7a00-0000-4000-a000-000000000001", "name": "postgresql", "version": "0.9.0",
+				"capability": "database", "digest": "sha256:" + strings.Repeat("d", 64), "first_party": true,
+				"created_at": "2026-09-01T10:00:00Z"})
+		}
+		if platform.foreignPackagePublisher {
+			packages = append(packages, map[string]any{"id": "a5e62beb-0000-4000-8000-000000000200",
+				"publisher_id": "b22c8b00-0000-4000-a000-000000000002", "name": "postgresql", "version": "2.0.0",
+				"capability": "database", "digest": "sha256:" + strings.Repeat("f", 64), "first_party": false,
+				"created_at": "2026-10-01T10:00:00Z"})
+		}
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"next_cursor": nil, "items": packages})
 	case request.Method == http.MethodGet && path == "/api/v1/org/service-packages/"+fakeServicePackageID:
 		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"id": fakeServicePackageID, "publisher_id": "a11b7a00-0000-4000-a000-000000000001",
 			"name": "postgresql", "version": "1.0.0", "capability": "database", "digest": "sha256:" + strings.Repeat("c", 64),
@@ -596,6 +616,104 @@ func TestServicesSetupStructuredOutputStaysParseable(t *testing.T) {
 	}
 }
 
+// runServicesThroughRoot runs `ankra services ...` through the real root
+// command - its persistent flags, its pre-run, and the setup command's flag
+// parsing as a person types it - with no terminal on stdin. It mutates the
+// package-global rootCmd (output, input, arguments and flag state), so a test
+// that uses it must not call t.Parallel().
+func runServicesThroughRoot(t *testing.T, platform *fakeServicesPlatform, arguments ...string) (string, string, error) {
+	t.Helper()
+	withTempHome(t)
+	setMockClient(t, platform.client())
+	setupCommand, _, findError := rootCmd.Find([]string{"services", "setup"})
+	if findError != nil || setupCommand.Name() != "setup" {
+		t.Fatalf("services setup is not registered on the root command: %v", findError)
+	}
+	resetTreeFlags(t, setupCommand)
+	t.Cleanup(func() { resetTreeFlags(t, setupCommand) })
+	var stdout, stderr bytes.Buffer
+	rootCmd.SetOut(&stdout)
+	rootCmd.SetErr(&stderr)
+	rootCmd.SetIn(strings.NewReader(""))
+	rootCmd.SetArgs(append([]string{"services"}, arguments...))
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetIn(nil)
+		rootCmd.SetArgs(nil)
+	})
+	runError := rootCmd.Execute()
+	return stdout.String(), stderr.String(), runError
+}
+
+// ankra-hw4ccr: a live canary reported that `ankra services setup <name> ...
+// --yes -o json` (v0.33.0) prepared its review and left it pending, while the
+// same command without -o json confirmed. Every spelling of that invocation,
+// typed through the root command with no terminal attached, must confirm the
+// reviewed digest exactly once and print the confirmed review - and a
+// confirm the platform refuses must exit non-zero with nothing on stdout, so
+// a caller piping the JSON can never read an unconfirmed review as success.
+func TestServicesSetupYesWithJSONConfirmsThroughTheRootCommand(t *testing.T) {
+	base := []string{"setup", "orders-db", "--package", "postgresql", "--cluster", fakeServiceClusterID, "--consumer", fakeServiceConsumerID}
+	spellings := map[string][]string{
+		"--yes -o json":         {"--yes", "-o", "json"},
+		"-o json --yes":         {"-o", "json", "--yes"},
+		"-y --output=json":      {"-y", "--output=json"},
+		"-o=json -y":            {"-o=json", "-y"},
+		"--output yaml --yes":   {"--output", "yaml", "--yes"},
+		"--yes=true -ojson":     {"--yes=true", "-ojson"},
+		"flags before the name": nil,
+	}
+	for name, flags := range spellings {
+		t.Run(name, func(t *testing.T) {
+			platform := newFakeServicesPlatform(t)
+			arguments := append(append([]string{}, base...), flags...)
+			if flags == nil {
+				arguments = []string{"setup", "--yes", "-o", "json", "--package", "postgresql", "--cluster", fakeServiceClusterID,
+					"--consumer", fakeServiceConsumerID, "orders-db"}
+			}
+			stdout, stderr, runError := runServicesThroughRoot(t, platform, arguments...)
+			if runError != nil {
+				t.Fatalf("setup %v: %v\nstderr:\n%s", arguments, runError, stderr)
+			}
+			confirms := platform.requests(http.MethodPost, "/reviews/"+fakeServiceReviewID+"/confirm")
+			if len(confirms) != 1 || confirms[0].body != `{"digest":"`+fakeServiceReviewDigest+`"}` {
+				t.Fatalf("setup %v must confirm the reviewed digest exactly once, got %+v", arguments, confirms)
+			}
+			if strings.Contains(stderr, "[y/N]") {
+				t.Errorf("--yes must not prompt:\n%s", stderr)
+			}
+			if strings.Contains(stdout, "Setup review") || strings.Contains(stdout, "is being set up") {
+				t.Errorf("stdout must hold only the structured document:\n%s", stdout)
+			}
+			if !strings.Contains(stdout, "e0000000-0000-4000-8000-000000000012") {
+				t.Errorf("stdout must carry the confirmed review's execution id:\n%s", stdout)
+			}
+		})
+	}
+
+	t.Run("a refused confirm exits non-zero with nothing on stdout", func(t *testing.T) {
+		platform := newFakeServicesPlatform(t)
+		platform.reviewChanged = true
+		stdout, stderr, runError := runServicesThroughRoot(t, platform, append(append([]string{}, base...), "--yes", "-o", "json")...)
+		if runError == nil || exitCodeFor(runError) == 0 {
+			t.Fatalf("a refused confirm must fail the command, got %v", runError)
+		}
+		if !strings.Contains(runError.Error(), "nothing was set up") {
+			t.Errorf("the error must say nothing was set up, got %v", runError)
+		}
+		if confirms := platform.requests(http.MethodPost, "/reviews/"+fakeServiceReviewID+"/confirm"); len(confirms) != 1 {
+			t.Errorf("expected the one confirm attempt, got %d", len(confirms))
+		}
+		if strings.TrimSpace(stdout) != "" {
+			t.Errorf("a refused confirm must print no document a pipe could read as the setup:\n%s", stdout)
+		}
+		if !strings.Contains(stderr, "Setup review "+fakeServiceReviewID) {
+			t.Errorf("the plan still goes to stderr:\n%s", stderr)
+		}
+	})
+}
+
 // Contract checks refuse before a review is stored, and a cluster without a
 // placement policy is named as such.
 func TestServicesSetupRefusesBeforePreparing(t *testing.T) {
@@ -716,7 +834,8 @@ func TestServicesGetShowsConnectionButNeverSecretValues(t *testing.T) {
 	if runError != nil {
 		t.Fatal(runError)
 	}
-	for _, expected := range []string{"verification_pending", "Health:      serving", "Readiness:   ready - canary logged in",
+	for _, expected := range []string{"Deployment:  deployed - the deployment finished and a readiness check connected",
+		"Health:      serving", "Readiness:   ready - canary logged in", "application storefront, cluster prod, namespace orders",
 		"postgresql-rw.orders-db.svc:5432", "Secret:    postgresql-app (keys: username, password, fqdn-uri)",
 		"ankra cluster get secrets postgresql-app -n orders-db", fakeServiceConsumerID} {
 		if !strings.Contains(stdout, expected) {
@@ -1543,5 +1662,236 @@ func TestServicesSetupShowsTheCapacityVerdict(t *testing.T) {
 	printServiceReviewPlan(&out, &serviceNames{clustersLoaded: true, clusters: map[string]string{}}, "postgresql 1.1.0", review)
 	if strings.Contains(out.String(), "Capacity:") {
 		t.Errorf("a platform that sends no verdict must not be shown one:\n%s", out.String())
+	}
+}
+
+// The deployment column reads the way the portal reads it (ankra-frontend's
+// deploymentView): verification_pending is "deployed" once a readiness check
+// passed and "running" while the workload is observed serving and no check
+// found it failing or unreachable; anything else is the platform's own state.
+func TestServiceDeploymentViewMirrorsThePortal(t *testing.T) {
+	serving := &client.ServiceHealth{State: "serving"}
+	progressing := &client.ServiceHealth{State: "progressing"}
+	cases := []struct {
+		name      string
+		state     string
+		readiness string
+		health    *client.ServiceHealth
+		expected  string
+	}{
+		{"ready check passed", "verification_pending", "ready", progressing, "deployed"},
+		{"ready check passed and serving", "verification_pending", "ready", serving, "deployed"},
+		{"serving, no check covers it", "verification_pending", "unverified", serving, "running"},
+		{"serving, check still verifying", "verification_pending", "verifying", serving, "running"},
+		{"serving but the check failed", "verification_pending", "degraded", serving, "verification_pending"},
+		{"serving but the check is stale", "verification_pending", "stale", serving, "verification_pending"},
+		{"not serving yet", "verification_pending", "unverified", progressing, "verification_pending"},
+		{"health never observed", "verification_pending", "unverified", nil, "verification_pending"},
+		{"still deploying", "deploying", "verifying", serving, "deploying"},
+		{"failed", "deployment_failed", "unverified", serving, "deployment_failed"},
+	}
+	for _, testCase := range cases {
+		instance := client.ServiceInstance{DeploymentState: testCase.state, Readiness: testCase.readiness, Health: testCase.health}
+		if view := serviceDeploymentView(instance); view != testCase.expected {
+			t.Errorf("%s: view = %q, want %q", testCase.name, view, testCase.expected)
+		}
+	}
+}
+
+type serviceFailureStepsMock struct {
+	baseMock
+	status         string
+	executionError *string
+	steps          []client.ExecutionStep
+	stepsErr       error
+	requested      string
+}
+
+func (m *serviceFailureStepsMock) GetExecution(executionID string) (client.ExecutionDetail, error) {
+	m.requested = executionID
+	status := m.status
+	if status == "" {
+		status = "failed"
+	}
+	return client.ExecutionDetail{
+		Execution: client.ExecutionSummary{ID: executionID, Status: status, ErrorExcerpt: m.executionError},
+		Steps:     m.steps,
+	}, m.stepsErr
+}
+
+// A failed deployment says why and what to do next: the failing step's own
+// error, then the commands that show every step, retry, or retire. A step
+// listing that cannot be read is said to be unreadable, never left out.
+func TestServicesGetExplainsAFailedDeployment(t *testing.T) {
+	operationID := "e0000000-0000-4000-8000-000000000010"
+	excerpt := "Install Helm release opensearch: StatefulSet/audit-search/opensearch not ready:\n context deadline exceeded"
+	instance := client.ServiceInstance{Name: "audit-search", DeploymentState: "deployment_failed", DeploymentOperationID: &operationID}
+
+	mock := &serviceFailureStepsMock{steps: []client.ExecutionStep{
+		{Name: "render", Status: "completed"},
+		{Name: "install", Status: "failed", ErrorExcerpt: &excerpt},
+	}}
+	previousClient := apiClient
+	apiClient = mock
+	t.Cleanup(func() { apiClient = previousClient })
+
+	var out bytes.Buffer
+	printServiceDeploymentFailure(&out, instance)
+	if mock.requested != operationID {
+		t.Fatalf("read steps of %q, want the deployment operation %q", mock.requested, operationID)
+	}
+	for _, expected := range []string{
+		"Failure:     step install (failed): Install Helm release opensearch: StatefulSet/audit-search/opensearch not ready: context deadline exceeded",
+		"ankra cluster operations steps " + operationID,
+		"ankra cluster operations retry " + operationID,
+		"ankra services delete audit-search",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Errorf("failure output lacks %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "step render") {
+		t.Errorf("a step without an error must not be printed as a failure:\n%s", out.String())
+	}
+
+	mock.steps, mock.stepsErr = nil, errors.New("503 service unavailable")
+	out.Reset()
+	printServiceDeploymentFailure(&out, instance)
+	if !strings.Contains(out.String(), "the failing step could not be read (503 service unavailable)") ||
+		!strings.Contains(out.String(), "ankra cluster operations steps "+operationID) {
+		t.Errorf("an unreadable step listing must be named and still offer the next command:\n%s", out.String())
+	}
+}
+
+// A bare package name picks the newest version when one publisher publishes
+// it, and says so on stderr so -o output stays parseable; a name two
+// publishers share is still refused rather than guessed.
+func TestServicesPackageBareNameResolvesTheNewestVersion(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.olderPackageVersion = true
+	stdout, stderr, runError := runServicesCommand(t, platform, "", "packages", "get", "postgresql", "-o", "json")
+	if runError != nil {
+		t.Fatal(runError)
+	}
+	var detail client.ServicePackageDetail
+	if decodeError := json.Unmarshal([]byte(stdout), &detail); decodeError != nil || detail.Version != "1.0.0" {
+		t.Fatalf("packages get postgresql = %v %+v, want 1.0.0 as parseable JSON", decodeError, detail)
+	}
+	if !strings.Contains(stderr, "Using postgresql 1.0.0, the newest version") {
+		t.Errorf("the picked version must be named on stderr:\n%s", stderr)
+	}
+
+	platform.foreignPackagePublisher = true
+	_, _, runError = runServicesCommand(t, platform, "", "packages", "get", "postgresql")
+	if runError == nil || !strings.Contains(runError.Error(), "packages match") {
+		t.Fatalf("a name two publishers share must be refused, got %v", runError)
+	}
+}
+
+// The setup review names the consumer's application, not only its id.
+func TestServicesSetupReviewNamesTheApplication(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	stdout, _, runError := runServicesCommand(t, platform, "", "setup", "orders-db", "--package", "postgresql",
+		"--cluster", fakeServiceClusterID, "--consumer", fakeServiceConsumerID, "--review-only")
+	if runError != nil {
+		t.Fatal(runError)
+	}
+	if !strings.Contains(stdout, "application storefront") {
+		t.Errorf("the review must name the consumer's application:\n%s", stdout)
+	}
+}
+
+// A long failure excerpt is cut on a character boundary, never inside a
+// multi-byte character.
+func TestServicesFailureExcerptKeepsValidUTF8(t *testing.T) {
+	operationID := "e0000000-0000-4000-8000-000000000011"
+	excerpt := strings.Repeat("é", serviceDeploymentFailureExcerptLimit+50)
+	instance := client.ServiceInstance{Name: "svc", DeploymentState: "deployment_failed", DeploymentOperationID: &operationID}
+	previousClient := apiClient
+	apiClient = &serviceFailureStepsMock{steps: []client.ExecutionStep{{Name: "install", Status: "failed", ErrorExcerpt: &excerpt}}}
+	t.Cleanup(func() { apiClient = previousClient })
+
+	var out bytes.Buffer
+	printServiceDeploymentFailure(&out, instance)
+	if !utf8.ValidString(out.String()) {
+		t.Fatalf("the truncated excerpt is not valid UTF-8:\n%q", out.String())
+	}
+	if !strings.Contains(out.String(), strings.Repeat("é", serviceDeploymentFailureExcerptLimit)+"...") {
+		t.Errorf("the excerpt must keep %d characters and mark the cut", serviceDeploymentFailureExcerptLimit)
+	}
+}
+
+// A timed-out deployment is not retryable on the platform (only failed,
+// cancelled and critical executions are), so the CLI must not suggest a retry
+// that answers 409; it says to retire and set up again. With no step error,
+// the operation's own error is shown, and with no operation at all the next
+// step is still named.
+func TestServicesFailureSuggestsOnlyARetryThePlatformAccepts(t *testing.T) {
+	operationID := "e0000000-0000-4000-8000-000000000012"
+	executionError := "Execution timed out after 600s"
+	instance := client.ServiceInstance{Name: "audit-search", DeploymentState: "deployment_failed", DeploymentOperationID: &operationID}
+	mock := &serviceFailureStepsMock{status: "timeout", executionError: &executionError,
+		steps: []client.ExecutionStep{{Name: "install", Status: "timeout"}}}
+	previousClient := apiClient
+	apiClient = mock
+	t.Cleanup(func() { apiClient = previousClient })
+
+	var out bytes.Buffer
+	printServiceDeploymentFailure(&out, instance)
+	if strings.Contains(out.String(), "operations retry") {
+		t.Errorf("a timed-out operation must not be offered a retry the platform refuses:\n%s", out.String())
+	}
+	for _, expected := range []string{"Failure:     operation timeout: Execution timed out after 600s",
+		"a timeout operation cannot be retried", "ankra services delete audit-search"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Errorf("output lacks %q:\n%s", expected, out.String())
+		}
+	}
+
+	mock.status, mock.executionError = "cancelled", nil
+	out.Reset()
+	printServiceDeploymentFailure(&out, instance)
+	if !strings.Contains(out.String(), "the operation ended cancelled and recorded no error message") ||
+		!strings.Contains(out.String(), "ankra cluster operations retry "+operationID) {
+		t.Errorf("a cancelled operation with no error must say so and offer the retry:\n%s", out.String())
+	}
+
+	out.Reset()
+	printServiceDeploymentFailure(&out, client.ServiceInstance{Name: "orphan", DeploymentState: "deployment_failed"})
+	if !strings.Contains(out.String(), "recorded no deployment operation") || !strings.Contains(out.String(), "ankra services delete orphan") {
+		t.Errorf("a failure without an operation must still name the next step:\n%s", out.String())
+	}
+}
+
+// A retirement of a service whose cluster was deleted removes nothing: the
+// review says so in one line instead of an empty "Removes:" heading, and the
+// service read marks the cluster deleted and names the way out.
+func TestServicesOnADeletedClusterSayWhatRetirementDoes(t *testing.T) {
+	names := &serviceNames{clustersLoaded: true, clusters: map[string]string{}, packagesLoaded: true, packages: map[string]string{},
+		applicationsLoaded: true, applications: map[string]string{}}
+	var out bytes.Buffer
+	printServiceRetirementPlan(&out, names, client.ServiceRetirement{ID: "r1", State: "pending", ExpiresAt: "2026-10-14T08:00:00Z",
+		Plan: client.ServiceRetirementPlan{Name: "canary-pg", ClusterID: fakeServiceClusterID, Generation: 1, ClusterDeleted: true}})
+	if !strings.Contains(out.String(), "Removes:   nothing - the service cluster was deleted") {
+		t.Errorf("a deleted-cluster review must say it removes nothing:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "Removes:\n") {
+		t.Errorf("an empty Removes heading must never print:\n%s", out.String())
+	}
+
+	out.Reset()
+	printServiceInstance(&out, names, client.ServiceInstance{ID: fakeServiceInstanceID, Name: "canary-pg", ClusterID: fakeServiceClusterID,
+		ClusterDeleted: true, DeploymentState: "verification_pending", Readiness: "stale"})
+	if !strings.Contains(out.String(), fakeServiceClusterID+", deleted; retire the service with 'ankra services delete canary-pg'") {
+		t.Errorf("get must mark the cluster deleted and name the way out:\n%s", out.String())
+	}
+	if name := serviceClusterName(names, client.ServiceInstance{ClusterID: fakeServiceClusterID, ClusterName: "playground", ClusterDeleted: true}); name != "playground (deleted)" {
+		t.Errorf("list cluster column = %q, want %q", name, "playground (deleted)")
+	}
+	out.Reset()
+	printServiceInstance(&out, names, client.ServiceInstance{ID: fakeServiceInstanceID, Name: "canary-pg", ClusterID: fakeServiceClusterID,
+		ClusterName: "playground", ClusterDeleted: true, DeploymentState: "verification_pending", Readiness: "stale"})
+	if !strings.Contains(out.String(), "Cluster:     playground ("+fakeServiceClusterID+"), deleted;") {
+		t.Errorf("get must name a deleted cluster it still knows the name of:\n%s", out.String())
 	}
 }

@@ -235,6 +235,16 @@ pipeline cluster with an empty value:
   ankra org ci-settings set --egress-allowed-cidr 10.0.0.0/8 --egress-allowed-cidr 192.168.10.0/24
   ankra org ci-settings set --run-retention-days 180
   ankra org ci-settings set --ignore-unfixed=false
+  ankra org ci-settings set --always-run-stage security-scan --always-run-stage lint
+  ankra org ci-settings set --full-run-on-default-branch --skip-markers never
+
+--always-run-stage, --full-run-on-default-branch and --skip-markers are the
+safety net around path filters. An always-run stage (and every stage it
+needs) runs whatever its path filters say; a full run on the default branch
+sets the filters aside for every push there; --skip-markers decides where a
+[skip ci] marker in a pushed commit skips the run: everywhere,
+except_default_branch (Ankra's default) or never. A merge train car and a tag
+push never honour a marker.
 
 --allowed-image-prefix and --egress-allowed-cidr replace their whole list
 rather than adding to it, because a list you can only grow is one you cannot
@@ -266,7 +276,8 @@ Requires organisation admin. A member's attempt is refused with exit code 7.`,
 				"pass at least one setting to change: --cluster, --build-fallback, "+
 					"--max-parallel-runs, --max-parallel-steps, --allowed-image-prefix, "+
 					"--egress-allowed-cidr, --artifact-retention-days, --cache-retention-days, "+
-					"--run-retention-days, --image-gate or --ignore-unfixed"))
+					"--run-retention-days, --image-gate, --ignore-unfixed, --always-run-stage, "+
+					"--full-run-on-default-branch or --skip-markers"))
 		}
 
 		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
@@ -380,6 +391,37 @@ func organisationCISettingsChanges(cmd *cobra.Command) (map[string]any, error) {
 		changes["ci_ignore_unfixed"] = ignoreUnfixed
 	}
 
+	if cmd.Flags().Changed("always-run-stage") {
+		raw, _ := cmd.Flags().GetStringArray("always-run-stage")
+		stages := make([]string, 0, len(raw))
+		for _, stage := range raw {
+			if trimmed := strings.TrimSpace(stage); trimmed != "" {
+				stages = append(stages, trimmed)
+			}
+		}
+		// [] keeps every path filter as the definitions wrote them; the
+		// platform owns the stage-name rules and the bound on the list.
+		changes["ci_always_run_stages"] = stages
+	}
+
+	if cmd.Flags().Changed("full-run-on-default-branch") {
+		fullRunOnDefaultBranch, _ := cmd.Flags().GetBool("full-run-on-default-branch")
+		changes["ci_full_run_on_default_branch"] = fullRunOnDefaultBranch
+	}
+
+	if cmd.Flags().Changed("skip-markers") {
+		skipMarkers, _ := cmd.Flags().GetString("skip-markers")
+		skipMarkers = strings.TrimSpace(skipMarkers)
+		switch skipMarkers {
+		case client.CISkipMarkersEverywhere, client.CISkipMarkersExceptDefaultBranch, client.CISkipMarkersNever:
+			changes["ci_skip_markers"] = skipMarkers
+		default:
+			return nil, withExitCode(exitUsage, fmt.Errorf("--skip-markers must be %s, %s or %s",
+				client.CISkipMarkersEverywhere, client.CISkipMarkersExceptDefaultBranch,
+				client.CISkipMarkersNever))
+		}
+	}
+
 	return changes, nil
 }
 
@@ -442,6 +484,17 @@ func renderOrganisationCISettings(cmd *cobra.Command, settings *client.Organisat
 	_, _ = fmt.Fprintf(out, "Run retention:           %d days\n", settings.RunRetentionDays)
 	_, _ = fmt.Fprintf(out, "Image gate:              %s\n", settings.ImageGate)
 	_, _ = fmt.Fprintf(out, "Ignore unfixed findings: %s\n", yesNo(settings.IgnoreUnfixed))
+	if len(settings.AlwaysRunStages) > 0 {
+		_, _ = fmt.Fprintf(out, "Always-run stages:       %s\n", strings.Join(settings.AlwaysRunStages, ", "))
+	} else if settings.FullRunOnDefaultBranch != nil {
+		_, _ = fmt.Fprintln(out, "Always-run stages:       (none - path filters apply as written)")
+	}
+	if settings.FullRunOnDefaultBranch != nil {
+		_, _ = fmt.Fprintf(out, "Full run on default:     %s\n", yesNo(*settings.FullRunOnDefaultBranch))
+	}
+	if settings.SkipMarkers != "" {
+		_, _ = fmt.Fprintf(out, "Skip markers honoured:   %s\n", settings.SkipMarkers)
+	}
 	if settings.PlatformBuildsEnabled != nil {
 		_, _ = fmt.Fprintf(out, "Platform builds enabled: %s\n", yesNo(*settings.PlatformBuildsEnabled))
 	}
@@ -516,6 +569,12 @@ func init() {
 		"Private CIDR pipeline steps may reach (repeatable); replaces the list, empty clears it")
 	orgCISettingsSetCmd.Flags().Bool("ignore-unfixed", true,
 		"Let a gate stage leave findings with no available fix out of its verdict; =false makes every unfixed finding block")
+	orgCISettingsSetCmd.Flags().StringArray("always-run-stage", nil,
+		"Stage that runs whatever its path filters say, with every stage it needs (repeatable); replaces the list, empty clears it")
+	orgCISettingsSetCmd.Flags().Bool("full-run-on-default-branch", false,
+		"Run every stage on a push to a repository's default branch, setting path filters aside; =false applies them")
+	orgCISettingsSetCmd.Flags().String("skip-markers", "",
+		"Where a [skip ci] marker in a pushed commit skips the run: everywhere, except_default_branch (default) or never")
 	// Both directions of drift are fatal: walking the field map catches a
 	// field with no usage string, the count check catches a usage string
 	// naming a flag that writes nothing.

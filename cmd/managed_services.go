@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -237,17 +238,19 @@ func resolveServiceInstance(command *cobra.Command, reference string) (*client.S
 // so an id shown for want of a name is not mistaken for a resource that is
 // gone.
 type serviceNames struct {
-	ctx            context.Context
-	notes          io.Writer
-	clusters       map[string]string
-	packages       map[string]string
-	clustersLoaded bool
-	packagesLoaded bool
+	ctx                context.Context
+	notes              io.Writer
+	clusters           map[string]string
+	packages           map[string]string
+	applications       map[string]string
+	clustersLoaded     bool
+	packagesLoaded     bool
+	applicationsLoaded bool
 }
 
 func newServiceNames(command *cobra.Command) *serviceNames {
 	return &serviceNames{ctx: command.Context(), notes: command.ErrOrStderr(),
-		clusters: map[string]string{}, packages: map[string]string{}}
+		clusters: map[string]string{}, packages: map[string]string{}, applications: map[string]string{}}
 }
 
 func (names *serviceNames) cluster(clusterID string) string {
@@ -282,6 +285,60 @@ func (names *serviceNames) cluster(clusterID string) string {
 		return name
 	}
 	return clusterID
+}
+
+// application is the name of an application, read once from the
+// organisation's application listing. A record that already carries the name
+// (an instance consumer) goes through consumerApplication instead.
+func (names *serviceNames) application(applicationID string) string {
+	if names.applications == nil {
+		names.applications = map[string]string{}
+	}
+	if !names.applicationsLoaded && apiClient != nil {
+		names.applicationsLoaded = true
+		readAll, failed := false, false
+		for page := 1; page <= maxApplicationLookupPages; page++ {
+			payload, listError := apiClient.ListApplicationsRaw(names.ctx, page, maxApplicationLookupPageSize, "")
+			if listError != nil {
+				names.lookupFailed("application", listError)
+				failed = true
+				break
+			}
+			var listing applicationListingPage
+			if unmarshalError := json.Unmarshal(payload, &listing); unmarshalError != nil {
+				names.lookupFailed("application", unmarshalError)
+				failed = true
+				break
+			}
+			for _, application := range listing.Result {
+				names.applications[application.ID] = application.Name
+			}
+			// A full page means there may be more even when the total is not
+			// reported; a short one is the end.
+			if len(listing.Result) < maxApplicationLookupPageSize ||
+				(listing.Pagination.TotalPages > 0 && listing.Pagination.TotalPages <= page) {
+				readAll = true
+				break
+			}
+		}
+		if !readAll && !failed {
+			_, _ = fmt.Fprintf(names.notes, "Note: only the first %d applications were read for names; others are shown by id.\n",
+				maxApplicationLookupPages*maxApplicationLookupPageSize)
+		}
+	}
+	if name := names.applications[applicationID]; name != "" {
+		return name
+	}
+	return applicationID
+}
+
+// consumerApplication names a consumer's application: the name the record
+// carries, else the listing's, else the id.
+func (names *serviceNames) consumerApplication(applicationID string, applicationName *string) string {
+	if applicationName != nil && *applicationName != "" {
+		return *applicationName
+	}
+	return names.application(applicationID)
 }
 
 func (names *serviceNames) lookupFailed(kind string, lookupError error) {
@@ -319,10 +376,17 @@ func (names *serviceNames) packageVersion(versionID string) string {
 // serviceClusterName is the name of the cluster a service runs on: the one
 // the instance read carries, or the cluster listing's when it carries none.
 func serviceClusterName(names *serviceNames, instance client.ServiceInstance) string {
-	if instance.ClusterName != "" {
-		return instance.ClusterName
+	name := instance.ClusterName
+	if name == "" {
+		name = names.cluster(instance.ClusterID)
 	}
-	return names.cluster(instance.ClusterID)
+	if name == "" {
+		name = instance.ClusterID
+	}
+	if instance.ClusterDeleted {
+		name += " (deleted)"
+	}
+	return name
 }
 
 // serviceServes reports whether a service's reviewed plan names a consumer
@@ -465,7 +529,7 @@ Retired services keep their record; --include-released lists them too.`,
 				instanceTable.AppendHeader(append(header, "ID"))
 				for _, instance := range shown {
 					row := table.Row{instance.Name, serviceClusterName(names, instance),
-						names.packageVersion(instance.PackageVersionID), instance.DeploymentState,
+						names.packageVersion(instance.PackageVersionID), serviceDeploymentView(instance),
 						serviceHealthSummary(instance), instance.Readiness}
 					if filter.ApplicationID != "" {
 						row = append(row, serviceUsedBy(instance, filter.ApplicationID))
@@ -526,7 +590,16 @@ func printServiceInstance(out io.Writer, names *serviceNames, instance client.Se
 	_, _ = fmt.Fprintf(out, "Service %q\n", instance.Name)
 	_, _ = fmt.Fprintf(out, "  ID:          %s\n", instance.ID)
 	_, _ = fmt.Fprintf(out, "  Package:     %s\n", names.packageVersion(instance.PackageVersionID))
-	_, _ = fmt.Fprintf(out, "  Cluster:     %s\n", names.clusterWithID(instance.ClusterID))
+	if instance.ClusterDeleted {
+		deletedCluster := instance.ClusterID
+		if instance.ClusterName != "" {
+			deletedCluster = fmt.Sprintf("%s (%s)", instance.ClusterName, instance.ClusterID)
+		}
+		_, _ = fmt.Fprintf(out, "  Cluster:     %s, deleted; retire the service with 'ankra services delete %s' to release its name\n",
+			deletedCluster, instance.Name)
+	} else {
+		_, _ = fmt.Fprintf(out, "  Cluster:     %s\n", names.clusterWithID(instance.ClusterID))
+	}
 	_, _ = fmt.Fprintf(out, "  Mode:        %s\n", instance.Mode)
 	_, _ = fmt.Fprintf(out, "  Location:    region %s, data boundary %s\n", instance.Region, instance.DataBoundary)
 	_, _ = fmt.Fprintf(out, "  Generation:  %d\n", instance.Generation)
@@ -535,11 +608,17 @@ func printServiceInstance(out io.Writer, names *serviceNames, instance client.Se
 		_, _ = fmt.Fprintf(out, "  Released:    %s (retired; the name is free again)\n", *instance.ReleasedAt)
 	}
 
-	deployment := instance.DeploymentState
+	deployment := serviceDeploymentView(instance)
+	if deployment != instance.DeploymentState {
+		deployment += " - " + serviceDeploymentViewReason(deployment)
+	}
 	if instance.EvidenceUpdatedAt != nil {
 		deployment += " (recorded " + *instance.EvidenceUpdatedAt + ")"
 	}
 	_, _ = fmt.Fprintf(out, "  Deployment:  %s\n", deployment)
+	if instance.DeploymentState == "deployment_failed" {
+		printServiceDeploymentFailure(out, instance)
+	}
 
 	if instance.Health == nil {
 		_, _ = fmt.Fprintln(out, "  Health:      not observed yet")
@@ -580,8 +659,12 @@ func printServiceInstance(out io.Writer, names *serviceNames, instance client.Se
 	} else {
 		_, _ = fmt.Fprintln(out, "  Consumers:")
 		for _, consumer := range instance.Consumers {
-			_, _ = fmt.Fprintf(out, "    %s  application %s, cluster %s, namespace %s\n",
-				consumer.ID, consumer.ApplicationID, names.cluster(consumer.ClusterID), consumer.Namespace)
+			clusterName := consumer.ClusterName
+			if clusterName == "" {
+				clusterName = names.cluster(consumer.ClusterID)
+			}
+			_, _ = fmt.Fprintf(out, "    %s  application %s, cluster %s, namespace %s\n", consumer.ID,
+				names.consumerApplication(consumer.ApplicationID, consumer.ApplicationName), clusterName, consumer.Namespace)
 		}
 	}
 
@@ -603,4 +686,102 @@ func printServiceInstance(out io.Writer, names *serviceNames, instance client.Se
 
 func init() {
 	rootCmd.AddCommand(newServicesCommand())
+}
+
+// serviceDeploymentView is the deployment state as a person reads it, the
+// same rule as ankra-frontend's deploymentView: a deployment the platform
+// still records as verification_pending reads "deployed" once a readiness
+// check has passed, and "running" when the platform observes the workload
+// serving and no check found it failing or could not reach it. Every other
+// state reads as the platform sent it, and -o json/yaml keep the platform's
+// value untouched.
+func serviceDeploymentView(instance client.ServiceInstance) string {
+	if instance.DeploymentState != "verification_pending" {
+		return instance.DeploymentState
+	}
+	if instance.Readiness == "ready" {
+		return "deployed"
+	}
+	if instance.Health != nil && instance.Health.State == "serving" &&
+		instance.Readiness != "degraded" && instance.Readiness != "stale" {
+		return "running"
+	}
+	return instance.DeploymentState
+}
+
+// serviceDeploymentViewReason says why a deployment reads as view.
+func serviceDeploymentViewReason(view string) string {
+	switch view {
+	case "deployed":
+		return "the deployment finished and a readiness check connected to the service"
+	case "running":
+		return "the deployment finished and Ankra observes the service serving in its cluster"
+	default:
+		return ""
+	}
+}
+
+// serviceDeploymentFailureExcerptLimit bounds how many characters of a failing
+// step's error the summary prints; the full text is one command away.
+const serviceDeploymentFailureExcerptLimit = 400
+
+// serviceRetryableOperationStatuses are the execution states the platform
+// retries (cluster usecase/executions retryableStatuses); any other state
+// answers 409, so the CLI does not suggest a retry for it.
+var serviceRetryableOperationStatuses = map[string]bool{"failed": true, "cancelled": true, "critical": true}
+
+// printServiceDeploymentFailure prints why a deployment failed and what to do
+// next: the error of each failed step of the deployment operation, or the
+// operation's own error when no step carries one, then the commands that show
+// every step, retry it when the platform can, and retire the service. A
+// failure that cannot be read is said to be unreadable, never left out.
+func printServiceDeploymentFailure(out io.Writer, instance client.ServiceInstance) {
+	if instance.DeploymentOperationID == nil || *instance.DeploymentOperationID == "" {
+		_, _ = fmt.Fprintln(out, "  Failure:     the platform recorded no deployment operation for this service")
+		_, _ = fmt.Fprintf(out, "  Next:        retire the service with 'ankra services delete %s' and set it up again\n", instance.Name)
+		return
+	}
+	operationID := *instance.DeploymentOperationID
+	detail, readError := apiClient.GetExecution(operationID)
+	if readError != nil {
+		_, _ = fmt.Fprintf(out, "  Failure:     the failing step could not be read (%s)\n", readError)
+		_, _ = fmt.Fprintf(out, "  Next:        see every step with 'ankra cluster operations steps %s'\n", operationID)
+		_, _ = fmt.Fprintf(out, "               or retire the service with 'ankra services delete %s'\n", instance.Name)
+		return
+	}
+	printed := false
+	for _, step := range detail.Steps {
+		if excerpt := serviceFailureExcerpt(step.ErrorExcerpt); excerpt != "" {
+			_, _ = fmt.Fprintf(out, "  Failure:     step %s (%s): %s\n", step.Name, step.Status, excerpt)
+			printed = true
+		}
+	}
+	if !printed {
+		if excerpt := serviceFailureExcerpt(detail.Execution.ErrorExcerpt); excerpt != "" {
+			_, _ = fmt.Fprintf(out, "  Failure:     operation %s: %s\n", detail.Execution.Status, excerpt)
+		} else {
+			_, _ = fmt.Fprintf(out, "  Failure:     the operation ended %s and recorded no error message\n", detail.Execution.Status)
+		}
+	}
+	_, _ = fmt.Fprintf(out, "  Next:        see every step with 'ankra cluster operations steps %s'\n", operationID)
+	if serviceRetryableOperationStatuses[detail.Execution.Status] {
+		_, _ = fmt.Fprintf(out, "               retry it with 'ankra cluster operations retry %s', or retire the service with 'ankra services delete %s'\n",
+			operationID, instance.Name)
+	} else {
+		_, _ = fmt.Fprintf(out, "               a %s operation cannot be retried: retire the service with 'ankra services delete %s' and set it up again\n",
+			detail.Execution.Status, instance.Name)
+	}
+}
+
+// serviceFailureExcerpt is an error excerpt on one line, cut on a character
+// boundary at serviceDeploymentFailureExcerptLimit; empty when there is none.
+func serviceFailureExcerpt(errorExcerpt *string) string {
+	if errorExcerpt == nil {
+		return ""
+	}
+	excerpt := strings.Join(strings.Fields(*errorExcerpt), " ")
+	if runes := []rune(excerpt); len(runes) > serviceDeploymentFailureExcerptLimit {
+		excerpt = string(runes[:serviceDeploymentFailureExcerptLimit]) + "..."
+	}
+	return excerpt
 }
