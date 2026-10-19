@@ -138,11 +138,7 @@ func renderOrganisationCICapacity(cmd *cobra.Command, capacity *client.Organisat
 	_, _ = fmt.Fprintln(out,
 		"\nA CI slot is one pipeline step the cluster's agent watches at a time, not a node;\n"+
 			"nodes come from the cluster's node group autoscaler.")
-	if capacity.OrganisationStepsWaitingOnSlots > 0 && clusterName != "" {
-		_, _ = fmt.Fprintf(out,
-			"Every slot is taken, so steps wait for one to free. To run more steps at once:\n"+
-				"  ankra cluster agent ci set --workers N --cluster %s\n", clusterName)
-	}
+	renderOrganisationCICapacityHints(out, capacity, clusterName)
 }
 
 // renderOrganisationCIPoolCapacity prints one line per CI pool member: how
