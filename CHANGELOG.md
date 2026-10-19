@@ -1,5 +1,17 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`ankra cluster draft` now says why a stack was refused.** A request the
+  platform rejected as invalid (for example an addon missing `registry_name`
+  or `registry_url`) used to print only the stack name and exit non-zero with
+  no reason. Every refusal is now listed with where it points - the stack,
+  the addon or manifest by name, and the field - and errors the platform
+  reports alongside an otherwise successful response fail the stack instead
+  of being dropped.
+
 ## v0.43.1 — 2026-10-19
 
 `ankra chat actions confirm` now tells a script the truth: `-o json` says
