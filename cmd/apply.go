@@ -83,18 +83,18 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	if dryRun {
+		fmt.Printf("Validation succeeded for %q; no changes applied (--dry-run).\n", filePath)
+		if override := clusterFlagOverride(cmd); override != "" {
+			fmt.Printf("--cluster %q is resolved when the file is applied; --dry-run validates it offline.\n", override)
+		}
+		return nil
+	}
 	targetNote, err := applyClusterOverride(cmd, &importRequest)
 	if err != nil {
 		return err
 	}
 
-	if dryRun {
-		fmt.Printf("Validation succeeded for %q; no changes applied (--dry-run).\n", filePath)
-		if targetNote != "" {
-			fmt.Println(targetNote)
-		}
-		return nil
-	}
 	if targetNote != "" {
 		fmt.Println(targetNote)
 	}

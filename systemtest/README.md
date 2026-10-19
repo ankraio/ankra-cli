@@ -56,9 +56,15 @@ before its deprovision:
    Those are the documented fallback of #3557 - served under an id the
    autoscaler cannot match - and are named in the result rather than
    failed. Polled for `AUTOSCALING_IDENTITY_GRACE` after every worker is
-   Ready; checked at 1 worker and again at 2. When the CLI cannot read the
-   log (e.g. the token lacks log access) only this assertion is recorded as
-   `SKIP`, with the CLI's error
+   Ready; checked at 1 worker and again at 2. A log read the CLI fails is
+   retried inside that window. When the window ends with nothing to judge -
+   the log never readable (e.g. the token lacks log access), or fewer than
+   two `Starting main loop` markers in it - the assertion is recorded as
+   **`UNASSERTED`** with the reason, and the run **fails**: it is the only
+   assertion covering #3557's identity contract, so a run that never made
+   it must not read as all-PASS. The markers are klog v4, which is what the
+   platform runs: the cluster-autoscaler chart (9.58.0) defaults `v: 4` and
+   the platform profile does not override it
 4. **scale-up under pending pods**: a `systest-ca-load` stack holding one
    Deployment of two `pause` pods, pinned to the group and one per node
    (required pod anti-affinity), each requesting 90% of the CPU the worker
@@ -230,8 +236,8 @@ Common optional (defaults in parentheses):
 
 | Variable | Default |
 |---|---|
-| `ANKRA_SYSTEMTEST_PROVIDERS` | `hetzner ovh upcloud digitalocean` (set to `""` to skip the Ankra-managed family; add `aws` for the opt-in AWS lane) |
-| `ANKRA_SYSTEMTEST_MANAGED_PROVIDERS` | `doks uks gke ovh_mks aks eks` (set to `""` to skip the cloud-managed family) |
+| `ANKRA_SYSTEMTEST_PROVIDERS` | `hetzner ovh digitalocean` (set to `""` to skip the Ankra-managed family; `upcloud` is opt-in only, as UpCloud is too costly to test on routinely; add `aws` for the opt-in AWS lane) |
+| `ANKRA_SYSTEMTEST_MANAGED_PROVIDERS` | `doks gke ovh_mks aks eks` (set to `""` to skip the cloud-managed family; `uks` is opt-in only, for the same cost reason as `upcloud`) |
 | `ANKRA_SYSTEMTEST_DISTRIBUTIONS` | `k3s` (Ankra-managed only; set `"k3s kubeadm"` to matrix-test both) |
 | `ANKRA_SYSTEMTEST_PARALLEL` | `1` (run selected targets concurrently; set `0` for one-at-a-time) |
 | `ANKRA_SYSTEMTEST_PLAN_ONLY` | `0` (`1`: print which lanes would run and what each skipped lane is missing, then stop; under GitHub Actions also writes the job summary and the `requested_lanes`/`skipped_lanes`/`runnable_lanes` step outputs) |
@@ -391,9 +397,15 @@ from 2026-09-14).
 
 ## Output
 
-The script prints a per-step `PASS`/`FAIL`/`SKIP` (tagged with the target in
-parallel mode), ends with a results list and a summary line - skipped lanes
-included, with what they were missing - and exits non-zero if any step failed.
+The script prints a per-step `PASS`/`FAIL`/`SKIP`/`UNASSERTED` (tagged with
+the target in parallel mode), ends with a results list and a summary line
+(`N passed, N failed, N not asserted, N skipped`) - skipped lanes included,
+with what they were missing - and exits non-zero if any step failed or any
+requested assertion was not asserted. A `SKIP` is a step the run was not
+asked for or cannot run here (an opt-in step left off, a lane without its
+settings) and never fails the run; an `UNASSERTED` is an assertion the run
+was asked for but could not make, so its outcome is unknown: it fails the
+run and is listed apart in the job summary.
 Under GitHub Actions the results also go to the job summary. Per-target logs are also saved under the run's work
 directory.
 

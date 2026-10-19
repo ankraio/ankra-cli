@@ -49,6 +49,13 @@ type ChangeControlPlaneCountRequest struct {
 type ChangeControlPlaneCountResult struct {
 	PreviousCount int `json:"previous_count"`
 	NewCount      int `json:"new_count"`
+	// Mode is offline (a stopped cluster: applied at the next start) or
+	// rolling (a running cluster: the new controllers join now). Empty from a
+	// platform that predates it.
+	Mode string `json:"mode,omitempty"`
+	// OperationID follows a rolling change's provisioning; nil offline or
+	// when nothing changed.
+	OperationID *string `json:"operation_id,omitempty"`
 }
 
 // ChangeControlPlaneInstanceTypeRequest is the PUT .../control-plane/

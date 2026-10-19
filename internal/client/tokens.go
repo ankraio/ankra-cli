@@ -8,9 +8,13 @@ import (
 )
 
 type APIToken struct {
-	ID         string  `json:"id"`
-	Name       string  `json:"name"`
-	ExpiresAt  string  `json:"expires_at"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	ExpiresAt string `json:"expires_at"`
+	// DaysLeft is the platform's whole days before expiry, rounded down: 0
+	// inside the last day, negative once expired. Nil from a platform that
+	// predates the field; ExpiresAt is read instead.
+	DaysLeft   *int    `json:"days_left,omitempty"`
 	CreatedAt  string  `json:"created_at"`
 	RevokedAt  *string `json:"revoked_at,omitempty"`
 	LastUsedAt *string `json:"last_used_at,omitempty"`

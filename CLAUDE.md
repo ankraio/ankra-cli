@@ -18,10 +18,18 @@ The pre-commit gate is opt-in per clone: git ignores `.githooks/` until
 `core.hooksPath` points at it, and nothing sets that automatically, so a clone
 that never ran `make hooks` commits with no gate and says nothing. Check with
 `git config core.hooksPath` — empty output means the gate is not installed.
+Keep the value relative (`.githooks`, which is what `make hooks` writes): git
+resolves a relative `core.hooksPath` against each worktree, so every worktree
+runs its own branch's hook. An absolute path pins every worktree of the clone
+to one checkout's copy of the hook, whatever branch that checkout is on.
 
-Once installed, the hook runs `go test ./...` and `golangci-lint run` on every
-commit, so commits take ~30s and a red test blocks the commit. Do not bypass
-it with `--no-verify` unless explicitly asked.
+Once installed, the hook runs `go test` for the packages the commit changes
+(every package on a `go.mod`/`go.sum` change) and lints those same packages,
+and a red test blocks the commit. Do not bypass it with `--no-verify`
+unless explicitly asked. `ankra/cmd` is tested and linted only in CI's
+`lint-test-build`: building it needs more than 12 GiB, which neither an Ankra
+Workspace on a default node nor most laptops have (ankra-klaw40).
+`ANKRA_PRECOMMIT_FULL=1` runs the whole suite and linter locally.
 
 The version string is injected at build time via `-X main.version` →
 `cmd.SetVersion`. The `version = "0.3.0"` constant in `cmd/root.go` is only

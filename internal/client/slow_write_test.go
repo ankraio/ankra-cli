@@ -36,9 +36,13 @@ func TestSlowWriteOutlivesTheSharedResponseHeaderDeadline(t *testing.T) {
 	if !isTransport {
 		t.Fatalf("shared transport = %T, want *orgOverrideTransport", sharedTransport)
 	}
-	retrying, isRetrying := sharedTransport.base.(*retryTransport)
+	warning, isWarning := sharedTransport.base.(*tokenExpiryTransport)
+	if !isWarning {
+		t.Fatalf("shared base = %T, want *tokenExpiryTransport", sharedTransport.base)
+	}
+	retrying, isRetrying := warning.base.(*retryTransport)
 	if !isRetrying {
-		t.Fatalf("shared base = %T, want *retryTransport", sharedTransport.base)
+		t.Fatalf("shared warning base = %T, want *retryTransport", warning.base)
 	}
 	sharedBase, isHTTPTransport := retrying.base.(*http.Transport)
 	if !isHTTPTransport {
@@ -54,9 +58,13 @@ func TestSlowWriteOutlivesTheSharedResponseHeaderDeadline(t *testing.T) {
 	if !isSlowTransport {
 		t.Fatalf("slow-write transport = %T", slowClient.Transport)
 	}
-	slowBase, isSlowHTTP := slowTransport.base.(*http.Transport)
+	slowWarning, isSlowWarning := slowTransport.base.(*tokenExpiryTransport)
+	if !isSlowWarning {
+		t.Fatalf("slow-write base = %T, want *tokenExpiryTransport", slowTransport.base)
+	}
+	slowBase, isSlowHTTP := slowWarning.base.(*http.Transport)
 	if !isSlowHTTP {
-		t.Fatalf("slow-write base = %T, want *http.Transport", slowTransport.base)
+		t.Fatalf("slow-write inner = %T, want *http.Transport", slowWarning.base)
 	}
 	if slowBase.ResponseHeaderTimeout != 0 {
 		t.Fatalf("slow-write ResponseHeaderTimeout = %v, want 0 (bounded by the client timeout instead)",

@@ -10,6 +10,14 @@ application at the thing that already runs, with the credential that already exi
 wrongly is how admin tokens end up in application environments and how a value gets configured in
 a live pod and lost at the next roll.
 
+## Recommended path
+
+Part of golden path 1, **Ship code** (`ankra-ship`; the canonical list is in
+`ankra-platform-principles`): the application is registered and shipped there, and this skill
+wires it to what already runs. Reuse a scoped credential, put each value where it belongs (§3),
+and prove it with the provider's logs. Anti-pattern: copying an admin token or a plaintext secret
+into an application, a manifest or Git.
+
 ## The four questions, in order
 
 1. **Where does the service run?** In this cluster, in another cluster, or outside entirely.
@@ -41,7 +49,7 @@ ankra credentials list                             # cloud, Git, registry creden
 ankra credentials get <name>
 ankra credentials repositories <name>              # what a Git credential can actually reach
 ankra helm credentials list                        # Helm registry credentials
-ankra cluster decrypt addon <addon>                # SOPS-encrypted addon values, when you must
+ankra cluster decrypt addon --name <addon>         # SOPS-encrypted addon values, when you must
 ```
 
 Rules that matter more than convenience:
@@ -57,7 +65,8 @@ Rules that matter more than convenience:
 
 | Kind of value | Where it goes | Command |
 |---------------|---------------|---------|
-| Secret only this application needs | Application environment secret | `ankra application env-secrets set` |
+| Secret only this application needs, same in every environment | Application environment secret (sealed into **every** deployment of the application) | `ankra application env-secrets set` |
+| Secret that differs per environment (a test and a live payment key) | SOPS-encrypted Secret manifest in each cluster's Stack | `ankra cluster encrypt manifest` |
 | Secret a stack deploys (a Secret manifest, an addon value) | SOPS-encrypted in the GitOps repo, with `encrypted_paths` | `ankra cluster encrypt manifest` / `... addon` |
 | Non-secret, differs per cluster (base URLs, sizes, model names) | Cluster variable | `ankra cluster variables set` |
 | Non-secret, same across the organisation | Organisation variable | `ankra org variables set` |
@@ -119,10 +128,10 @@ ankra cluster logs -l app=litellm -n ai --follow=false --tail 50
 
 ```bash
 ankra ai status
-ankra ai endpoints create --name litellm --base-url https://llm.example.com/v1 --api-key <key>
-ankra ai endpoints discover litellm                # the model ids it advertises
+ankra ai endpoints create --name litellm --base-url https://llm.example.com/v1 --api-key "$GATEWAY_KEY"
+ankra ai endpoints discover <endpoint-id>                # the model ids it advertises
 ankra ai models create --name <model-id> ...       # what the chat picker offers
-ankra ai provider set openai_compatible
+ankra ai provider openai_compatible
 ```
 
 Ankra probes `GET <base-url>/models` on save; a wrong model id only surfaces at the first call.
@@ -133,7 +142,7 @@ See `ankra-ai-agents` for the provider and catalogue surface.
 An application publishing to a registry you operate needs three distinct things, and they are
 frequently conflated:
 
-1. **A push credential for CI** — the build workflow logs in with it.
+1. **A push credential for CI** — Ankra Pipelines receive it per build as `registry_auth`.
 2. **A read credential for Ankra** — so Ankra can verify builds and pull demo images
    (`--credential`). Without it, builds report as never published.
 3. **A pull secret for the cluster** — a `dockerconfigjson` Secret the generated manifests
@@ -149,11 +158,14 @@ ankra application registry set <app-id> \
 
 Given `--admin-credential` (a credential with **project administrator** rights — for Harbor, a
 Harbor *user* with Project Admin on that project, not a robot), Ankra mints, rotates and revokes a
-per-application push robot and stores it in the repository's Actions secrets. That is the pattern
-to prefer: the admin credential stays with the platform, the application gets a narrow robot.
+per-application push robot, hands it to each pipeline build as `registry_auth` (a legacy generated
+workflow reads it from Actions secrets), and creates a missing project or refuses the declaration.
+That is the pattern to prefer: the admin credential stays with the platform, the application gets
+a narrow robot. For a project kept apart inside Ankra's own registry, `ankra registry projects
+create` and a robot bound to it with `ankra registry robots create --project`.
 
-Declare the registry at `ankra application add` time. Adding it afterwards leaves a build workflow
-that logs in with the wrong registry — see `ankra-applications`.
+Declare the registry at `ankra application add` time. Adding it afterwards leaves a build
+pipeline that logs in with the wrong registry — see `ankra-applications`.
 
 For **charts** rather than images, the equivalent surface is `ankra helm registries` /
 `ankra helm credentials` — see `ankra-helm-registries`.
@@ -162,7 +174,8 @@ For **charts** rather than images, the equivalent surface is `ankra helm registr
 
 ```bash
 ankra cluster get services -n data                  # the operator's service, often -rw / -ro pairs
-ankra cluster get secrets -n data                   # the operator-generated credential Secret
+ankra cluster get secrets -n data                   # keys only; values come back as sha256 digests
+ankra cluster get secrets <name> -n data --reveal   # one Secret's values: kubernetes.secrets_reveal, audited
 ```
 
 Database operators (CloudNativePG, the Redis and MySQL operators) already generate a credential
@@ -171,8 +184,18 @@ rotation then happens without you. Point the application at the read-write servi
 the read-only service for reads where the operator provides both.
 
 Cross-namespace: replicate the Secret into the consumer's namespace with a stack manifest (and a
-`parents` edge on the namespace), or deploy the consumer into the data namespace. Do not assume a
-pod can read a Secret from elsewhere.
+`parents` edge on the namespace, SOPS-encrypted in Git), or deploy the consumer into the data
+namespace. Do not assume a pod can read a Secret from elsewhere.
+
+**Ankra managed services** (closed beta, per organisation: PostgreSQL, Valkey, NATS, OpenSearch,
+SeaweedFS S3, VictoriaLogs, VictoriaMetrics) answer only inside their cluster, at
+`<name>.<service>.svc.cluster.local` with credentials in a Secret in the service's namespace
+(`postgresql-app` with `fqdn-uri` for PostgreSQL). `ankra services list|get <service>` shows them,
+`ankra services consumers bind --application <app> --cluster <cluster> --namespace <ns>` records
+the consumer (it deploys nothing and delivers no credential). Ankra does not deliver the
+credentials into the application yet: read the value with `--reveal` above and set it as an
+env-secret (the service page's **Use it in <application>** opens that form), then `apply`. Use the
+`fqdn-` keys from another namespace; wait for the service's **Readiness: Ready** before relying on it.
 
 ## Pattern: an internal API or third-party SaaS
 

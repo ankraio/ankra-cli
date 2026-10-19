@@ -57,6 +57,7 @@ type pipelineLaneMock struct {
 	getErrorsOnCall map[int]error
 
 	cancelRunID  string
+	cancelForce  bool
 	cancelResult *client.PipelineRun
 	cancelError  error
 
@@ -74,6 +75,7 @@ type pipelineLaneMock struct {
 
 	rerunRunID      string
 	rerunFailedOnly bool
+	rerunFullRun    bool
 	rerunResult     *client.CreatePipelineRunResult
 	rerunError      error
 
@@ -213,19 +215,21 @@ func (mock *pipelineLaneMock) GetPipelineRun(ctx context.Context, selector clien
 	return mock.getResult, nil
 }
 
-func (mock *pipelineLaneMock) RerunPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, failedOnly bool) (*client.CreatePipelineRunResult, error) {
+func (mock *pipelineLaneMock) RerunPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, failedOnly bool, fullRun bool) (*client.CreatePipelineRunResult, error) {
 	mock.lastSelector = selector
 	mock.rerunRunID = runID
 	mock.rerunFailedOnly = failedOnly
+	mock.rerunFullRun = fullRun
 	if mock.rerunError != nil {
 		return nil, mock.rerunError
 	}
 	return mock.rerunResult, nil
 }
 
-func (mock *pipelineLaneMock) CancelPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRun, error) {
+func (mock *pipelineLaneMock) CancelPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, force bool) (*client.PipelineRun, error) {
 	mock.lastSelector = selector
 	mock.cancelRunID = runID
+	mock.cancelForce = force
 	if mock.cancelError != nil {
 		return nil, mock.cancelError
 	}
@@ -840,6 +844,34 @@ func TestPipelineCancelRendersOutcome(t *testing.T) {
 	}
 }
 
+func TestPipelineCancelSaysTheFinallyStagesRunAndPassesForce(t *testing.T) {
+	mockClient := &pipelineLaneMock{cancelResult: &client.PipelineRun{ID: "run-1", RunNumber: 9, Status: "running",
+		Cancelling: true}}
+	output, executeError := runPipelineCommand(t, mockClient, "cancel", "run-1", "--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("cancel error = %v", executeError)
+	}
+	if mockClient.cancelForce {
+		t.Error("an ordinary cancel must not force")
+	}
+	if !strings.Contains(output, "Run #9 cancelled; running its finally stages") {
+		t.Errorf("output = %q", output)
+	}
+	if _, executeError := runPipelineCommand(t, mockClient, "cancel", "run-1", "--application", testApplicationID,
+		"--force"); executeError != nil {
+		t.Fatalf("forced cancel error = %v", executeError)
+	}
+	if !mockClient.cancelForce {
+		t.Error("--force was not passed through")
+	}
+}
+
+func TestPipelineRunStateLabelReadsCancellingWhileFinallyRuns(t *testing.T) {
+	if label := pipelineRunStateLabel(client.PipelineRun{Status: "running", Cancelling: true}); label != "cancelling" {
+		t.Errorf("label = %q, want cancelling", label)
+	}
+}
+
 func TestPipelineCancelAlreadyConcluded(t *testing.T) {
 	mockClient := &pipelineLaneMock{cancelError: errors.New("This pipeline run has already concluded")}
 	_, executeError := runPipelineCommand(t, mockClient, "cancel", "run-1", "--application", testApplicationID)
@@ -859,6 +891,54 @@ func TestPipelineRerunPassesFailedOnly(t *testing.T) {
 	}
 	if mockClient.rerunRunID != "run-1" {
 		t.Errorf("rerun run id = %q", mockClient.rerunRunID)
+	}
+}
+
+func TestPipelineRunAndRerunPassFull(t *testing.T) {
+	mockClient := &pipelineLaneMock{
+		createResult: &client.CreatePipelineRunResult{PipelineRunID: "run-1", RunNumber: 7},
+		rerunResult:  &client.CreatePipelineRunResult{PipelineRunID: "run-2", RunNumber: 8},
+	}
+	if _, executeError := runPipelineCommand(t, mockClient, "run", "--application", testApplicationID,
+		"--sha", strings.Repeat("c", 40), "--full"); executeError != nil {
+		t.Fatalf("run error = %v", executeError)
+	}
+	if !mockClient.createRequest.FullRun {
+		t.Error("--full was not passed through on a dispatch")
+	}
+	if _, executeError := runPipelineCommand(t, mockClient, "rerun", "run-1", "--application", testApplicationID,
+		"--full"); executeError != nil {
+		t.Fatalf("rerun error = %v", executeError)
+	}
+	if !mockClient.rerunFullRun || mockClient.rerunFailedOnly {
+		t.Errorf("rerun full = %v failed-only = %v, want only --full", mockClient.rerunFullRun, mockClient.rerunFailedOnly)
+	}
+}
+
+func TestPipelineRunDetailSaysWhyItRanInFull(t *testing.T) {
+	var output strings.Builder
+	printPipelineRunDetail(&output, client.PipelineRunDetail{PipelineRun: client.PipelineRun{
+		ID: "run-1", RunNumber: 3, Status: "running", Trigger: "pull_request", TriggerRef: "refs/heads/main",
+		FullRunSource:  "label",
+		FullRunMessage: "Path filters were set aside: the pull request carries the ankra:full-run label.",
+	}}, client.PipelineSelector{ApplicationID: testApplicationID})
+	if !strings.Contains(output.String(),
+		"  Full run:  Path filters were set aside: the pull request carries the ankra:full-run label.\n") {
+		t.Fatalf("detail = %q", output.String())
+	}
+	output.Reset()
+	printPipelineRunDetail(&output, client.PipelineRunDetail{PipelineRun: client.PipelineRun{
+		ID: "run-2", RunNumber: 4, Status: "running", Trigger: "push", TriggerRef: "refs/heads/main",
+	}}, client.PipelineSelector{ApplicationID: testApplicationID})
+	if strings.Contains(output.String(), "Full run") {
+		t.Fatalf("a run that applied its filters must not claim a full run: %q", output.String())
+	}
+}
+
+func TestPipelineErrorClassLineExplainsASkipMarker(t *testing.T) {
+	if line := pipelineErrorClassLine("skip_marker"); line !=
+		"skip_marker (skipped by a skip marker such as [skip ci] in the pushed commit's message)" {
+		t.Fatalf("line = %q", line)
 	}
 }
 
@@ -1210,6 +1290,31 @@ func TestPipelineRunConclusionErrorNamesAnAbsentOutcomeAsAbsent(t *testing.T) {
 	succeeded := "success"
 	if ok := pipelineRunConclusionError(client.PipelineRun{RunNumber: 9, Outcome: &succeeded}); ok != nil {
 		t.Fatalf("a successful run is not an error, got %v", ok)
+	}
+}
+
+// TestPipelineRunDetailSaysANeverScheduledStepNeverStarted pins
+// ankra-76mvg6: a step whose time ran out while no node had room for it
+// concludes timed_out, and so does its run, so the Status line reads as work
+// that ran too long. The Class line keeps the token and says it never started.
+func TestPipelineRunDetailSaysANeverScheduledStepNeverStarted(t *testing.T) {
+	neverScheduled := "never_scheduled"
+	message := "This step's pod was never placed on a node before the step's time budget ran out, so the step never started."
+	outcome := "timed_out"
+	var output bytes.Buffer
+	printPipelineRunDetail(&output, client.PipelineRunDetail{
+		PipelineRun: client.PipelineRun{
+			RunNumber: 24, ID: "run-24", Status: "concluded", Outcome: &outcome,
+			ErrorClass: &neverScheduled, ErrorMessage: &message,
+		},
+	}, client.PipelineSelector{})
+	rendered := output.String()
+	want := "Class:     never_scheduled (never started: no node had room for what the step requests)"
+	if !strings.Contains(rendered, want) {
+		t.Fatalf("want %q, got:\n%s", want, rendered)
+	}
+	if got := pipelineErrorClassLine("timeout"); got != "timeout" {
+		t.Fatalf("every other class prints verbatim, got %q", got)
 	}
 }
 
@@ -1806,6 +1911,53 @@ func TestPipelineGetOfACancelledRunSaysNothingTheServerDidNotRecord(t *testing.T
 	}
 }
 
+// TestPipelineGetSaysNobodyCancelledARunAStepStopped pins ankra-76mvg6: a
+// run the platform concluded cancelled because a step was stopped where it ran
+// records cancel_reason step_cancelled and no actor. The bare token under a
+// "cancelled" status read as somebody having cancelled it, and nobody did.
+func TestPipelineGetSaysNobodyCancelledARunAStepStopped(t *testing.T) {
+	mockClient := &pipelineLaneMock{getResult: &client.PipelineRunDetail{PipelineRun: client.PipelineRun{
+		ID: "run-22", RunNumber: 22, Status: "concluded", Outcome: strPipelinePtr("cancelled"),
+		Trigger: "push", TriggerRef: "refs/heads/main", HeadSHA: strings.Repeat("c", 40),
+		QueuedAt:     "2026-10-13T00:00:00Z",
+		CancelReason: strPipelinePtr("step_cancelled"),
+		CancelledAt:  strPipelinePtr("2026-10-13T00:30:00Z"),
+		ErrorMessage: strPipelinePtr("The step was stopped because the agent shut down."),
+	}}}
+	output, executeError := runPipelineCommand(t, mockClient, "get", "run-22",
+		"--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("get error = %v", executeError)
+	}
+	want := "Cancelled: nobody, a step was stopped where it ran (step_cancelled) at 2026-10-13T00:30:00Z"
+	if !strings.Contains(output, want) {
+		t.Errorf("output = %q, want %q", output, want)
+	}
+	if !strings.Contains(output, "The step was stopped because the agent shut down.") {
+		t.Errorf("output = %q, want the step's own sentence on the Error line", output)
+	}
+}
+
+// TestPipelineGetCancelReasonsWithoutAnActor pins the Cancelled line for
+// every reason that names no actor: the known ones say what stopped the run
+// beside the token, and one this CLI has not been taught is printed as it is
+// rather than dropped.
+func TestPipelineGetCancelReasonsWithoutAnActor(t *testing.T) {
+	for reason, want := range map[string]string{
+		"pull_request_closed": "Cancelled: its pull request merged or closed (pull_request_closed)",
+		"step_cancelled":      "Cancelled: nobody, a step was stopped where it ran (step_cancelled)",
+		"a_reason_from_later": "Cancelled: a_reason_from_later",
+	} {
+		var output bytes.Buffer
+		printPipelineRunCancellation(&output, client.PipelineRun{
+			Status: "concluded", Outcome: strPipelinePtr("cancelled"), CancelReason: strPipelinePtr(reason),
+		})
+		if strings.TrimSpace(output.String()) != want {
+			t.Errorf("reason %q printed %q, want %q", reason, strings.TrimSpace(output.String()), want)
+		}
+	}
+}
+
 // TestPipelineGetOfASupersededRunSaysTheSupersessionOnce pins that the
 // supersession keeps its own line and does not also print as a cancellation:
 // a supersession records concurrency:<run id> as its actor, and the Superseded
@@ -2224,5 +2376,74 @@ func TestSkipCellNeverLeavesADanglingLabel(t *testing.T) {
 	}
 	if cell := skipCell("path\nfilter"); cell != "skip: path filter" {
 		t.Errorf("a reason with a line break renders as %q, want it on one line", cell)
+	}
+}
+
+// TestPipelineValidatePrintsEachPathSetWithItsExpansionAndUsers covers the
+// path_sets the platform's dry run returns (ankra-efrnzf.18): the plan reads
+// the expanded lists, so the names the author wrote are shown beside what
+// they stand for and where they are used.
+func TestPipelineValidatePrintsEachPathSetWithItsExpansionAndUsers(t *testing.T) {
+	mockClient := &pipelineLaneMock{validateResult: &client.PipelineValidation{
+		Severity: "warn",
+		PathSets: []client.PipelinePathSet{
+			{
+				Name:     "backend",
+				Patterns: []string{"backend/**", ".ankra/**"},
+				Includes: []string{"pipeline"},
+				UsedBy:   []string{`stage "test-backend" paths`, "on.pull_request.paths"},
+			},
+			{Name: "orphan", Patterns: []string{"docs/**"}, UsedBy: []string{}},
+			{Name: "unreported", Patterns: []string{"web/**"}},
+		},
+	}}
+	output, executeError := runPipelineCommand(t, mockClient, "validate", writePipelineFixture(t),
+		"--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	want := "Path sets:\n" +
+		"  backend: backend/**, .ankra/**\n" +
+		"    includes: pipeline\n" +
+		"    used by: stage \"test-backend\" paths, on.pull_request.paths\n" +
+		"  orphan: docs/**\n" +
+		"    used by: nothing\n" +
+		"  unreported: web/**\n"
+	if !strings.Contains(output, want) {
+		t.Fatalf("output = %q, want it to contain %q", output, want)
+	}
+	if strings.Count(output, "used by: nothing") != 1 {
+		t.Fatalf("a set whose users the platform did not report must not read as unused, got %q", output)
+	}
+
+	none, executeError := runPipelineCommand(t, &pipelineLaneMock{validateResult: &client.PipelineValidation{Severity: "ok"}},
+		"validate", writePipelineFixture(t), "--application", testApplicationID)
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	if strings.Contains(none, "Path sets:") {
+		t.Fatalf("a definition with no path set prints no section, got %q", none)
+	}
+}
+
+func TestPipelineValidateJSONCarriesPathSetsOnlyWhenDeclared(t *testing.T) {
+	withSets, executeError := runPipelineCommand(t, &pipelineLaneMock{validateResult: &client.PipelineValidation{
+		Severity: "ok",
+		PathSets: []client.PipelinePathSet{{Name: "web", Patterns: []string{"web/**"}, Includes: []string{},
+			UsedBy: []string{`stage "test" paths`}}},
+	}}, "validate", writePipelineFixture(t), "--application", testApplicationID, "-o", "json")
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	if !strings.Contains(withSets, `"path_sets"`) || !strings.Contains(withSets, `"used_by"`) {
+		t.Fatalf("output = %q, want the wire field names kept for scripts", withSets)
+	}
+	without, executeError := runPipelineCommand(t, &pipelineLaneMock{validateResult: &client.PipelineValidation{Severity: "ok"}},
+		"validate", writePipelineFixture(t), "--application", testApplicationID, "-o", "json")
+	if executeError != nil {
+		t.Fatalf("validate error = %v", executeError)
+	}
+	if strings.Contains(without, `"path_sets"`) {
+		t.Fatalf("output = %q, want no path_sets key when none is declared", without)
 	}
 }

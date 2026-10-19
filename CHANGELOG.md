@@ -22,6 +22,476 @@
   switch to `warn` and back. Turning `enforce` on asks first (`--yes` skips
   it), and so does revoking a key. Changing a mode or a key needs the
   `security.manage` permission (exit 7 without it).
+
+## v0.41.0 — 2026-10-18
+
+The headline is reaching cluster-scoped kinds: `ankra cluster delete`,
+`patch` and `describe` now handle CustomResourceDefinitions and the other
+built-in cluster-scoped kinds without a namespace, and take `--cluster-scoped`
+for custom kinds such as ClusterIssuer, so a chart install blocked by leftover
+CRDs can be cleared without kubectl. Secrets move out of argv and prompts:
+`ankra org variables set --secret`, `ankra helm credentials --password-stdin`
+and an API key that no longer has to be passed on the command line.
+
+### Added
+
+- **`ankra cluster delete`, `patch` and `describe` reach cluster-scoped
+  kinds outside the built-in set.** A CustomResourceDefinition no longer
+  answers "--namespace (-n) is required": `crd`, `crds` and
+  `CustomResourceDefinition` resolve to `apiextensions.k8s.io/v1` and are
+  cluster-scoped, so `ankra cluster delete crd kafkas.kafka.strimzi.io` clears
+  a leftover CRD that blocks a chart install. APIService,
+  Validating/MutatingWebhookConfiguration, PriorityClass (`pc`),
+  RuntimeClass, CSIDriver, CSINode and VolumeAttachment join the table the
+  same way. A cluster-scoped custom kind (ClusterIssuer, ClusterPolicy, ...)
+  takes the new `--cluster-scoped` flag alongside `--group` and
+  `--api-version`, and the usage error for a custom kind without a namespace
+  now points at it.
+
+- **`ankra helm credentials create` and `update` take `--password-stdin`.**
+  The password can be piped in for scripted and agent use instead of only an
+  interactive prompt; the trailing newline is dropped and an empty stdin is a
+  usage error.
+
+- **`ankra org variables set --secret` stores a secret organisation
+  variable.** A credential stored through the CLI no longer has to be
+  readable by every member: `--secret` creates the variable as a secret, or
+  marks an existing one secret, and `--secret=false` makes it plain again (an
+  update without the flag keeps the current setting, and an update with it
+  says whether the variable is now secret). `ankra org variables set NAME
+  --secret` with no value marks an existing variable secret without resending
+  its value; `--description` works the same way, and naming neither is a
+  usage error. `list` and `get` show a `SECRET` column and a `Secret:` line
+  and never print a secret's value, and `-o json|yaml` carries a new
+  `is_secret` field. The new `ankra org variables reveal <name>` prints a
+  variable's stored value on its own line (`-o json|yaml` for `{name,
+  value}`); it needs permission to change variables, every reveal is recorded
+  in the audit log, and an unknown name exits 3. A refused variable write no
+  longer echoes the value in its error message.
+
+- **`ankra org ci-settings set` covers the path-filter safety net.** It gains
+  `--always-run-stage` (repeatable; replaces the list, empty clears it),
+  `--full-run-on-default-branch` and `--skip-markers everywhere|
+  except_default_branch|never`, which were settable only in the portal and
+  the API. `get` shows them, and `-o json|yaml` carries
+  `ci_always_run_stages`, `ci_full_run_on_default_branch` and
+  `ci_skip_markers` when the platform reports them.
+
+- **`ankra org ai-environment set` sets where AI workspaces run and how long
+  they live.** New flags: `--staging-cluster` (name or id; empty clears it),
+  `--workspace-ttl-hours`, `--demo-ttl-hours`, `--demo-ttl-role-cap
+  <role>=<hours>` (repeatable) and `--default-gateway-mode ask|agent`. `get`
+  shows them, and `-o json|yaml` gains `staging_cluster_id`,
+  `staging_cluster_name`, `staging_cluster_online`, `workspace_ttl_hours`,
+  `demo_ttl_hours`, `demo_ttl_role_caps` and `default_gateway_mode`.
+
+### Changed
+
+- **`ankra ai endpoints create` reads the API key from stdin or a masked
+  prompt.** `--api-key` is no longer required and is deprecated, because a key
+  on the command line lands in shell history; it still works and prints a
+  warning. `--api-key ""` is a usage error rather than a fall-through to
+  stdin, and a stdin that is not a terminal and sends nothing within three
+  seconds (ssh with a command, `docker run -i` without `-t`) fails with a
+  usage error instead of waiting. `ankra ai openrouter set` reads its key the
+  same way.
+
+- **An invalid control-plane `set-count` exits 2.** A count that is not a
+  number, or not one the provider accepts, is a usage error (exit 2); it
+  exited 1 before.
+
+- **`ankra security dispositions update -o json|yaml` and `revoke -o
+  json|yaml` print the bare policy.** The output is the policy object itself
+  (`id`, `disposition`, `status`, `selector`, ...), not the
+  `{policy, preview}` envelope `record` prints. A script that read
+  `.policy.<field>` from update or revoke output reads `.<field>` instead; it
+  was getting empty values before, because the platform never sent that
+  envelope for these two.
+
+### Fixed
+
+- **`ankra stack-profiles drafts annotate --default ""` clears the default.**
+  It used to drop the default from the input, and the platform, which
+  re-detects a draft's inputs on every save, filled it straight back in from
+  the stack's variables, so `drafts validate` kept reporting "is required
+  and also carries the default". The CLI now sends the empty default, which
+  the platform keeps, and a required input without a default validates.
+
+- **`ankra cluster apply --dry-run --cluster <name|id>` no longer crashes.**
+  A dry-run validates the file offline, without credentials, but it still
+  tried to resolve `--cluster` through the API and panicked. It now validates
+  the file and says that `--cluster` is resolved when the file is applied.
+
+- **Commands run in the organisation `ankra org current` shows.** With no
+  `--org` or `ANKRA_ORG`, requests ran in the platform's current
+  organisation, which also changes when you switch organisation in the portal
+  or another session, so a command could silently act on a different
+  organisation from the one `ankra org switch` selected (for example `ankra
+  pipeline get` answering "Pipeline repository not found"). The CLI now sends
+  the selected organisation with every request made with your `ankra login`.
+  `--org` and `ANKRA_ORG` still win, and a token passed with `--token` or
+  `ANKRA_API_TOKEN` keeps its own organisation. `ankra org current` warns when
+  the portal's current organisation differs from the CLI's selection, or when
+  the selection names an organisation you no longer belong to, and a refusal
+  caused by such a selection now tells you to run `ankra org switch` or set
+  `ANKRA_ORG`.
+- **A deleted resource no longer reads as live.** `ankra cluster describe`,
+  `ankra cluster get <kind> <name>`, `ankra cluster logs <pod>
+  --all-containers` and `ankra cluster terminal` printed or used the
+  platform's last record of an object the cluster had already deleted, so a
+  pod removed while the agent was offline still showed as running. They now
+  say `<kind> "<name>" was deleted from the cluster at <time>` and exit 3
+  (not found), as they already did for an object that never existed. A named
+  read the platform could not complete (lost RBAC, an apiserver that did not
+  answer) is now reported with the platform's reason and exit 1, instead of
+  as a missing object; `get <kind> <name>` of a missing object exits 3 rather
+  than printing `No <kind> found.`
+
+- **`ankra application pipeline validate` takes `--no-local-graph`.** It
+  reads the local dependency graph for `affected:` stages the same way
+  `ankra pipeline validate` does, but had no way to turn that off: the flag
+  was registered only on `pipeline validate`, so the application variant
+  always read the graph. `--no-local-graph` now shows those stages as decided
+  at run time on both commands, and both register their flags from one place.
+
+- **`ankra security dispositions update` and `revoke` print the policy they
+  changed.** Both printed an empty summary because they expected the
+  policy-and-preview shape `record` returns, while an edit or revoke returns
+  the policy alone. They now show the stored policy.
+
+- **Control-plane `set-count` says what actually happens.** The help said a
+  count change needs a stopped cluster; growing the control plane may happen
+  live on a running cluster (the platform says why when it refuses), and only
+  a reduction needs a stop. After a live change the command now names the
+  operation to follow instead of telling you to start a running cluster.
+  Proxmox VE also accepts 5 controllers, which the CLI used to refuse before
+  asking the platform.
+
+## v0.40.0 — 2026-10-17
+
+The headline is faster CI you can see and preview: `ankra pipeline get` and
+the new `ankra pipeline time-saved` show the CI time path filters, the
+dependency graph and promoted publishes saved; `ankra pipeline validate`
+lists named path sets and, inside a checkout, answers `affected:` stages from
+the same dependency graph the run reads; and `--full` on `pipeline run` and
+`rerun` sets the path filters aside when you need everything. Every `-o json`
+change is an added field; no existing key changes.
+
+### Added
+
+- **The agent skills steer assistants onto Ankra's recommended paths.**
+  `ankra skills install` ships all 25 skills reviewed against the current
+  CLI and documentation. `ankra-platform-principles` names seven golden paths
+  (ship code, GitOps as the source of truth, the estate, day 2, agent-driven
+  work, fast CI, infrastructure as code) and routes every request to the skill
+  that owns it. Every other skill opens with a short recommended path saying
+  what to do first, which skill takes over next and what to avoid. Commands,
+  flags and fields that had drifted are corrected: for example
+  `registry_url` instead of the legacy `repository_url`, the teardown and
+  preflight rules per provider, and backups being available to every
+  organisation. Capabilities the skills did not cover are added: fast CI with
+  `promote_from` and the merge train, hub-and-spoke observability, GitOps
+  conflicts and repointing, Ankra Cloud Kubernetes, AI review repositories,
+  service tokens and GitHub OIDC trust.
+
+- **The `ankra-terraform` skill covers Terraform provider 0.3.0.** The
+  provider now manages what the CLI can create, change or delete (97
+  resources and 42 data sources: every cluster lane, managed Kubernetes,
+  node groups, credentials, Helm registries, variables, cluster settings,
+  alerts and DNS, applications and pipelines, stack profiles, backups, the
+  image registry, members, tokens, and AI, cost and security settings), and
+  `ankra skills install` now teaches assistants those resources, the
+  `project_id` the provider needs in organisations with projects, and which
+  changes replace, re-mint or refuse. On provider 0.2.x only the cluster
+  resources exist, and the skill says so. It also says the provider's
+  organisation override falls back to `ANKRA_ORG`, the CLI's variable, not
+  the `ANKRA_ORGANISATION_ID` that Ankra Pipelines sets in every step.
+
+- **`ankra pipeline validate` lists the definition's named path sets.** A
+  definition that declares `path_sets:` (ankraio/cluster#4862) gets a `Path
+  sets` block after the violations: each set with every set it includes
+  expanded, the sets it includes, and every path list and set that uses it.
+  `-o json|yaml` carries them as a new `path_sets` field, absent when the
+  definition declares none. The ankra-ship and ankra-cicd skills document
+  `path_sets:`.
+
+- **`ankra pipeline run --full` and `ankra pipeline rerun --full` run every
+  stage.** The pipeline's path filters (`on.<event>.paths`, `when.paths` and
+  `paths:`) are set aside for that one run, and the run records who asked; a
+  stage's `if:` still decides. The same flag is on `ankra application
+  pipeline run` and `rerun`. `pipeline get` now prints a `Full run:` line
+  saying why a run set its filters aside (a `--full` dispatch or re-run, the
+  `ankra:full-run` pull request label, the organisation's default-branch
+  policy or the definition's `full_run:` block), and `-o json|yaml` carries
+  `full_run_source`, `full_run_requested_by` and `full_run_message`, absent
+  for a run that applied its filters. A run skipped because its pushed commit
+  carried a skip marker shows its `skip_marker` error class with what it
+  means.
+
+- **The ankra-ship and ankra-cicd skills teach `affected:`.** They say when
+  to name the Go or pnpm workspace packages a stage tests instead of listing
+  globs, that `affected:` beside a `when` path filter is refused as `paths:`
+  is, and how a not-affected skip meets CI slots and promotion: it is settled
+  without waiting for a slot, and a promoted push counts it when the push
+  changes nothing the pull request run's graph was not asked about.
+
+- **`ankra pipeline validate --changed-file` reads the dependency graph for
+  `affected:` stages.** A stage that declares `affected:` (Go packages or pnpm
+  workspace packages) is decided at run time by the run's checkout, from the
+  dependency graph of the commit it checks out (ankraio/cluster#4866).
+  Inside a git checkout, `validate --changed-file` now runs the same analysis
+  against the working tree and shows, per stage, whether the change reaches it
+  (`graph: affected`) or not (`skip: not affected (graph)`, satisfied for the
+  stages that need it). `--no-local-graph` leaves them to the run. The CLI
+  carries its own copy of the analysis and says so when it differs from the
+  platform's; it never runs a script the API sends. Needs `sh`, `git`, `awk`
+  and `grep` (not on Windows). `--changed-file` names are now cleaned to the
+  repository-relative form (`./api/x.go` is `api/x.go`), and one outside the
+  repository is a usage error.
+
+- **`ankra ai memories list` and `ankra ai memories clear` show and delete
+  what the assistant remembers about you.** Ankra's chat stores short facts
+  from your conversations and recalls them into later ones; until now they
+  were only visible in the portal. `list` prints your memories newest first
+  (`--limit` up to 200, and it says when there may be more), and `clear`
+  deletes all of yours in the current organisation after a confirmation
+  (`--yes` to skip it). Both act on your own memories only and take `-o
+  json|yaml`. A platform without the token routes (ankraio/cluster#4859) is
+  named as such instead of reading as "no memories".
+
+- **`ankra pipeline get` shows how much CI time a run saved, and `ankra
+  pipeline time-saved` totals it.** Under the run's steps, a `Time saved`
+  line gives the platform's estimate of the CI time path filters and a
+  promoted publish kept the run from spending, with one line per skipped
+  stage saying why and what the estimate is based on. A stage with no
+  history is shown as unknown and never counted. A stage the dependency
+  graph skipped is named as such ("not affected: no changed file is in its
+  dependency graph", reason `not_affected`, ankraio/cluster#4888), and
+  `time-saved` totals it on its own line. `-o json|yaml` adds the
+  record as a new `time_saved` field and leaves every existing field as it
+  was. `ankra pipeline time-saved` totals the organisation, or one pipeline
+  with `--application` or `--repository`, over the last 30 days (`--window
+  7d` for 7). A platform without the routes (ankraio/cluster#4863)
+  prints nothing extra, and `time_saved` is null.
+
+## v0.39.0 — 2026-10-17
+
+### Added
+
+- **`ankra pipeline cancel --force` and `ankra application pipeline cancel
+  --force` skip a cancelled run's finally stages.** The platform now runs a
+  started run's `finally:` stages after a cancel, before the run concludes
+  cancelled (ankraio/cluster#4856). `--force` (`?force=true`) skips them, so
+  the run concludes at once; on a run that is already cancelling it stops the
+  finally stages still running. Cancelling a cancelling run again without
+  `--force` is refused by the platform. The cancel help says all of this.
+
+### Changed
+
+- **A cancelled run running its finally stages reads "cancelling".** Its
+  status is still `running`, which hid that it had been stopped; `pipeline
+  list`, `pipeline get` and the cancel message now say "cancelling", and the
+  cancel prints `Run #N cancelled; running its finally stages before it
+  concludes (use --force to skip them)`. In `-o json` / `-o yaml` every
+  pipeline run gains a `cancelling` boolean; no other key changes, and a
+  platform too old to send it reads as `false`.
+- **The ankra-ship and ankra-cicd skills say `finally` runs after a cancel**,
+  within a 15-minute budget, and that `ankra pipeline cancel --force` skips
+  it. They used to say a cancelled run runs neither `on_failure` nor
+  `finally`. Run `ankra skills install` to pick up the new text.
+
+## v0.38.0 — 2026-10-17
+
+### Added
+
+- **`ankra tokens list --service` and `ankra tokens create <account> --service
+  --role <role>` manage the organisation's service tokens.** Until now only
+  `tokens rotate --service` existed, so finding a service token's id meant the
+  portal, and the token expiry warning pointed at a `tokens list --service`
+  that was an unknown flag. The listing shows each token's service account,
+  label, role (none when the account was stood down), status and expiry;
+  `create` mints a token for the named service account, creating the account
+  with `--role` when there is none of that name, and shows the value once.
+  Both need `members.manage` and exit 7 without it.
+
+### Fixed
+
+- **Revoking a grant that comes from an organisation role says it was not
+  revoked, and exits 2.** Since the platform refuses that revoke (HTTP 409:
+  change the member's role, or the role's Kubernetes access), v0.37.0's
+  `cluster access --help`, `revoke --help` and the `list` footer still said
+  the revoke worked and the role sync undid it, and the command exited 1 like
+  a transient failure. The help and footer now say a role grant cannot be
+  revoked here; `revoke <email>` revokes the member's other grants, then
+  names the kept role grants and exits 2, so a script never reads the
+  member's access as gone while a role grant remains.
+- **`cluster access list` and `security access` name a service account.** A
+  grant held by a service account has no email, so it showed as a bare user
+  id; it now reads "service account <name>", from the organisation's member
+  list. A grantee the member list cannot name keeps its id.
+- **kubectl's "no access grant" hint fits a service account.** With no grant,
+  the kubeconfig credential plugin told everyone to `grant <your-email>`,
+  which a service account cannot use. It now points a service account at
+  `ankra cluster access elevate`, a person at `grant`, and names both when it
+  cannot tell which the token belongs to.
+- **`cluster kubeconfig add --help` says whose access kubectl gets.** The
+  credential plugin runs `ankra cluster kube-token`, which uses the saved
+  `ankra login` in `~/.ankra.yaml` first and `ANKRA_API_TOKEN` from kubectl's
+  environment only when nothing is logged in. Automation that should act as a
+  service account must run where no one is logged in and export the service
+  token as `ANKRA_API_TOKEN`; the help now says so, with an example.
+
+## v0.37.0 — 2026-10-17
+
+### Fixed
+
+- **`ankra cluster access grant|elevate|revoke|list` exit with the code
+  that says what to do.** Every refusal from the platform exited 6, the
+  "run `ankra login`" code, though logging in again never helps. A refusal
+  by the organisation access policy (a role above the ceiling, a missing or
+  too long `--expires`, a missing `--reason`) now exits 2, because changing
+  the flags is the fix whatever your role; a refusal because your role lacks
+  the permission (`elevate` without `kube_access.elevate`, `grant` without
+  managing kubectl access) exits 7; only rejected credentials exit 6.
+  `elevate` without `--expires` or `--reason`, an unknown `--role` and an
+  unreadable `--expires` exit 2 instead of 1. The messages are unchanged and
+  `ankra cluster access --help` lists the codes.
+- **`ankra cluster access list` shows where each grant came from and whether
+  the policy would refuse it today.** The platform sends both, but the CLI
+  dropped them. A Source column reads manual, creator, role or elevated, and
+  an Over policy column reads yes or no; either reads unknown when the
+  platform could not tell, never "manual" or "no", and `-o json` keeps them
+  as `null`. A grant from the member's organisation role comes back after a
+  revoke (the role sync re-creates it), so the list and `revoke` now say to
+  change the member's role instead.
+- **`ankra cluster access elevate` says when the access works.** The binding
+  reaches the cluster within about 30 to 60 seconds, and kubectl answers 403
+  Forbidden until then; the success message now shows the grant's status and
+  says to retry kubectl until it is applied.
+- **`ankra org access-policy get -o yaml` uses the API's key names**
+  (`creator_grant_role`, `is_configured`, ...) instead of `creatorgrantrole`
+  and `isconfigured`, as `ankra cluster access list -o yaml` now does for
+  grants. The table's first line says plainly whether the organisation has
+  set a policy (`Configured: yes` or `no`), so support can tell you what to
+  look for.
+
+## v0.36.0 — 2026-10-16
+
+### Changed
+
+- **`ankra exec` and the `ankra dev` shims forward `GOMEMLIMIT`.** A Go build
+  that CI holds to a soft memory ceiling (ankra-cli's own workflow sets
+  `GOMEMLIMIT=5GiB` for the 105k-line `ankra/cmd` compile) can now be held to
+  the same one in the Ankra Workspace: set it here and the remote command
+  sees it. Unset, the workspace's own default applies (five eighths of a run
+  slot, 5GiB in a workspace of 8 GiB or more). Platforms older than the
+  allowlist change refuse the variable with "This environment variable
+  cannot be forwarded"; unset it for one command to run there.
+- **A node-group write submitted without `--wait` now says where a late
+  refusal is recorded.** The platform can accept a node-group change (an
+  instance-type resize, scale, add, delete, labels, taints or autoscaling) and
+  then have the provider refuse it, for example when the requested server type
+  has no stock in the cluster's location. That refusal is recorded as a failed
+  `node_group_write` operation carrying the provider's reason, and the
+  "submitted" output (and the `hint` in `-o json`) now names
+  `ankra cluster operations list --failed --cluster <id>` to read it. With
+  `--wait` the refusal still fails the command with the provider's reason.
+- **`ankra org usage` says why a closed month's vCPU line has no amount.** A
+  closed month with no invoice reads "no invoice for this month, so unknown"
+  (never zero), a day or part of a closed month reads "priced on the whole
+  month's invoice; view by month", and an invoice that does not price the line
+  reads "invoice does not price it", instead of `unpriced (<basis>)`.
+
+## v0.35.0 — 2026-10-16
+
+### Added
+
+- **`ankra login --github-oidc` signs a GitHub Actions job in to Ankra with no
+  stored token, and `ankra org oidc-trust create|list|delete` manage who may.**
+  Inside a job that has `permissions: id-token: write`, the command requests
+  the job's OIDC ID token for the Ankra audience, exchanges it at the platform
+  for a token that lasts 15 minutes by default (a policy may set 1 minute to 1
+  hour) and saves it for the rest of the job. Both tokens are masked in the
+  Actions log. An organisation admin creates a trust policy first, naming one
+  repository exactly (owner/name plus the numeric repository and owner ids,
+  so a renamed or re-created repository cannot inherit it) and optionally a
+  ref, an environment and a workflow. Pull request runs are refused unless the
+  policy opts in. It needs the organisation id (`--organisation-id`, or
+  `ANKRA_ORG` set to the id). Workflow snippet in `docs/github-actions-oidc.md`.
+- **`ankra tokens rotate <token_id>` renews a token before it expires.** It
+  issues a new token with the same name and scopes and keeps the old one
+  working for an overlap window (`--overlap-hours`, 0 to 168, default 24),
+  so you can update every place the old token is used before it stops by
+  itself. `--service` rotates an organisation service token. When stdout is
+  not a terminal the command prints only the new token value, so
+  `TOKEN=$(ankra tokens rotate <id>)` works; the explanation goes to stderr,
+  and `-o json` prints the whole response. It needs a platform that serves
+  the rotate endpoints.
+- **The token expiry warning now says how to fix it.** The stderr line points
+  at `ankra tokens rotate <id>` instead of asking for a new token by hand.
+
+## v0.34.0 — 2026-10-15
+
+### Added
+
+- **`ankra pipeline get` says when a run waits for room for its reservation,
+  and prints the reservation.** A running run whose first step is waiting
+  for a node with room for the run's capacity reservation now shows a
+  `Waiting` line with the platform's sentence and a `Reserving` line with
+  how long it has waited and the CPU and memory it is holding out for. Every
+  run also prints a `Reservation` line (mode, estimated room and observed
+  peak) when its cluster reserves capacity, and `-o json` carries the same
+  as `reservation` and `reservation_wait`. Runs on clusters with the
+  reservation off, and platforms older than the field, print nothing new.
+
+- **The CLI warns, once per run, when the API token it uses expires within
+  seven days.** On 2026-10-13 a CI deploy token reached the end of its 90-day
+  lifetime with nothing said beforehand, and every deploy after it failed on
+  `unauthorized`. The platform now says on every response when the token
+  expires, and the CLI prints one stderr line when that is a week or less
+  away: `Warning: the Ankra API token in use expires in 3 days (2026-10-18
+  13:00 UTC). Create a replacement ...`. It goes to stderr, so `-o json`
+  output stays parseable, and it never prints the token. A platform that does
+  not send the expiry yet produces no warning.
+- **`ankra tokens list` shows when each token expires and flags the ones
+  about to.** The Expires column reads the date and how far off it is
+  (`2026-10-18 (in 3 days)`, `(expired)`), where it used to show the raw
+  zone-less timestamp. A live token inside seven days reads `Expiring` in the
+  Status column, an expired one `Expired`, and a stderr hint says to create a
+  replacement before revoking the old one. `-o json` carries the platform's
+  `days_left`.
+- **`ankra org dns add <name> AAAA <ipv6>` publishes an IPv6 record in the
+  organisation's zone.** The platform refused AAAA with "record_type must be
+  one of CNAME, A, or TXT", so no IPv6-only origin could be named under the
+  org's ankra.cc zone. The platform now accepts AAAA with an IPv6 address
+  (an IPv4 address is refused) for a zone on Ankra Cloud; the help and the
+  `--type` flag of `update`/`delete` list it.
+- **`ankra credentials ssh-key create|list` manage the organisation's SSH key
+  credentials without picking a provider.** An SSH key credential belongs to
+  the whole organisation and attaches to any cloud cluster, but creating one
+  from the CLI meant going through a provider group (`credentials hetzner
+  ssh-key create`) or a raw API call. `create --name <n>` takes the key with
+  `--public-key "<key>"`, `--public-key-file ~/.ssh/id_ed25519.pub`, or
+  `--generate --private-key-file <path>`, which writes the platform-generated
+  private key there with mode 0600 (the file must not exist yet and is claimed
+  before the platform is asked, so the one-time key cannot be lost to an
+  unwritable path; it never appears in `-o json`). A private key passed by
+  mistake is refused before anything is sent. The platform's refusals print
+  as sentences, so a duplicate reads "ssh_public_key: An SSH key with the
+  same public key already exists ('maas')" instead of a JSON body. `list`
+  shows the credentials; it gains a Fingerprint column once the platform's
+  list returns one (it does not yet).
+- **`ankra credentials get` shows which key an SSH key credential holds**:
+  its type, SHA256 fingerprint (the same value `ssh-keygen -l` prints),
+  comment and the public key line, so you can tell which credential holds a
+  given key.
+- **`ankra cluster ankracloud create` and `preflight` take `--network-mode
+  ipv4_nat|ipv6_only`.** A zone with no public IPv4 left for the bastion
+  used to be a dead end from the CLI: the preflight answered "create the
+  cluster with network_mode ipv6_only" and no flag could pass it. The flag
+  now goes through on both commands; omit it for the server default
+  (`ipv4_nat`), and a value outside the two the platform knows is refused
+  before anything is sent.
 - **`ankra cluster agent ci set --build-apparmor-profile <name>` runs the
   rootless image builder under a Localhost AppArmor profile installed on the
   cluster's nodes.** On nodes whose container runtime confines the builder
@@ -94,6 +564,11 @@
 
 ### Changed
 
+- **`ankra cluster ssh-keys get` (and `cluster ovh ssh-keys get`) name the
+  attached keys.** The attached section printed bare credential ids while the
+  names sat in the same response; each attached id now prints with its name,
+  and an id the organisation's SSH key credentials do not name says so.
+  `-o json` is unchanged.
 - **A service whose cluster was deleted says so.** `ankra services list`
   and `get` mark its cluster `(deleted)`, and `get` names `ankra services
   delete <name>` as the way to release the name. The retirement review says
@@ -154,6 +629,68 @@
 
 ### Fixed
 
+- **The lifecycle systemtest no longer passes with its autoscaler identity
+  check unmade.** With `ANKRA_SYSTEMTEST_AUTOSCALING=1`, the check that the
+  cluster autoscaler registers every worker (the only one covering
+  cluster#3557) used to be recorded as a SKIP on the first failed log read,
+  or when the log held no complete main loop, and a SKIP never changed the
+  exit code, so such a run read as all-PASS. A failed log read is now
+  retried within `AUTOSCALING_IDENTITY_GRACE`; a check still unmade at the
+  end of it is recorded as `UNASSERTED` with the reason, counted on the
+  summary line (`N passed, N failed, N not asserted, N skipped`), listed in
+  the job summary, and fails the run. Other SKIPs (an opt-in step left off,
+  a lane without its settings) still never fail it.
+- **`ankra application ship` prints `Live:` only for a URL that routes to the
+  workload.** Ship took the first Ingress hostname as the live URL without
+  looking at where the Ingress sends traffic, so it printed
+  `Live: https://bakeoff-conductor-hub...` for an Ingress whose backend named
+  Service `bakeoff-conductor-hub` while the release's Service was
+  `conductor-hub`, and every request to it failed. Ship now reads the Ingress
+  rules for the host and checks each backend Service exists, exposes the
+  port the Ingress asks for and has a ready endpoint. When one does not, ship
+  exits non-zero and says exactly what is wrong (for example `Ingress
+  "bakeoff-conductor-hub" sends it to Service "bakeoff-conductor-hub", which
+  does not exist in namespace "shop" (the namespace has conductor-hub)`);
+  `-o json` reports `state: unroutable` with `url_problem` and leaves `url`
+  out. When the route cannot be read, ship keeps the URL and says it is
+  unverified. A backend with no ready endpoints is re-read for up to 30
+  seconds (every 2 s, within `--timeout`) before ship reports it, because
+  Kubernetes updates EndpointSlices a moment after a pod turns Ready and a
+  healthy deploy would otherwise fail; a missing Service or port still fails
+  at once.
+- **`ankra application ship` explains a pipeline run that was skipped
+  instead of pointing at its logs.** On a freshly registered Ankra Pipelines
+  application the branch's push run concludes skipped ("No trigger this
+  pipeline declares matches this event") while the setup pull request that
+  adds `.ankra/pipeline.yaml` is still open, and ship failed with "run #28
+  concluded skipped" plus a `pipeline logs` and `pipeline rerun` hint: a run
+  that planned nothing has no logs, and a re-run plans the same nothing. Ship
+  now says the run was skipped and will never publish an image, and what to
+  do: merge the setup pull request (its URL is in the message) and run ship
+  again, reopen it if it was closed, or re-run with `--ankra-build`. With the
+  setup merged it names the trigger the branch needs
+  (`on: push: branches: [<branch>]`) and how to read the pipeline.
+- **`ankra pipeline get` says when a run was stopped by nobody, and when a
+  step never started.** The platform now records `cancel_reason`
+  `step_cancelled` for a run no one cancelled (a step was stopped where it
+  ran, for example when the cluster's agent shut down) and `error_class`
+  `never_scheduled` for a step whose time ran out before any node had room for
+  it. The Cancelled line printed the bare token under a "cancelled" status,
+  which read as somebody having cancelled the run; it now reads "nobody, a
+  step was stopped where it ran (step_cancelled)". The Class line keeps
+  `never_scheduled` and says the step never started, since the run's status
+  reads timed_out. The help lists every cancel reason, adding
+  `queued_replaced`, `merge_train` and `step_cancelled`, and says what to do
+  about a step no node had room for.
+
+- **`ankra cluster operations cancel`, `cancel-step` and `retry` say which
+  permission is missing when the platform refuses them.** Since the platform
+  checks `executions.operate` at the execution's cluster, a token or role
+  without it was shown `execution endpoint returned status 403:` followed by
+  the raw JSON body. The refusal now reads like every other permission error
+  (`permission denied: this action requires the "executions.operate"
+  permission...`) and exits 7, so scripts can tell it from a failed request.
+
 - **`ankra application ship` no longer deploys a branch you did not ask
   for.** It reused any application already registered for the repository, so
   `ship . --branch main` on a repository whose application tracked
@@ -175,6 +712,19 @@
   application's own manifests). Parents may name applications, and an
   application may depend on manifests and add-ons, checked for undeclared
   parents and cycles like every other member.
+
+## v0.33.1 — 2026-10-14
+
+### Fixed
+
+- **`ankra cluster encrypt manifest --set` can rotate a value that is
+  already sealed.** Setting a new value on a sealed key (for example a
+  registry robot's `.dockerconfigjson`) failed with `encryption failed:
+  Failed to encrypt content`, so the only way to rotate a secret was to
+  decrypt it into Git first or create a new manifest. The CLI now unseals
+  the manifest in memory, applies the `--set` edits, and seals the result
+  again, keeping every key the previous seal covered sealed. The plaintext
+  never reaches Git.
 
 ## v0.33.0 — 2026-10-11
 

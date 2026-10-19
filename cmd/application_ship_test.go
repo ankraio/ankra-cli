@@ -62,10 +62,20 @@ type applicationShipMock struct {
 
 	deploymentsPayload json.RawMessage
 
-	ingressItems           []interface{}
-	eventItems             []interface{}
+	ingressItems       []interface{}
+	eventItems         []interface{}
+	serviceItems       []interface{}
+	endpointSliceItems []interface{}
+	// endpointSliceByRead, when set, scripts successive EndpointSlice reads
+	// (the last entry repeats); endpointSliceReads counts them.
+	endpointSliceByRead    [][]interface{}
+	endpointSliceReads     int
 	resourceKindsRequested []string
-	podsResponse           *client.ListPodsResponse
+	resourceRequests       []client.ResourceRequestItem
+	// failedResourceKinds answers a read of these kinds with the platform's
+	// "error" status, the shape of lost RBAC or a downed apiserver.
+	failedResourceKinds map[string]bool
+	podsResponse        *client.ListPodsResponse
 }
 
 func (mock *applicationShipMock) ListOrganisations() ([]client.OrganisationSummary, error) {
@@ -160,12 +170,33 @@ func (mock *applicationShipMock) GetResources(clusterID string,
 	request client.GetResourcesRequest) (*client.GetResourcesResponse, error) {
 	items := mock.ingressItems
 	if len(request.ResourceRequests) == 1 {
-		mock.resourceKindsRequested = append(mock.resourceKindsRequested, request.ResourceRequests[0].Kind)
-		if request.ResourceRequests[0].Kind == "Event" {
+		kind := request.ResourceRequests[0].Kind
+		mock.resourceKindsRequested = append(mock.resourceKindsRequested, kind)
+		mock.resourceRequests = append(mock.resourceRequests, request.ResourceRequests[0])
+		if mock.failedResourceKinds[kind] {
+			reason := "forbidden: cannot list " + kind
+			return &client.GetResourcesResponse{ResourceResponses: []client.ResourceResponseItem{{
+				Status: "error", ErrorResponse: &reason,
+			}}}, nil
+		}
+		switch kind {
+		case "Event":
 			items = mock.eventItems
+		case "Service":
+			items = mock.serviceItems
+		case "EndpointSlice":
+			items = mock.endpointSliceItems
+			if len(mock.endpointSliceByRead) > 0 {
+				index := mock.endpointSliceReads
+				if index >= len(mock.endpointSliceByRead) {
+					index = len(mock.endpointSliceByRead) - 1
+				}
+				items = mock.endpointSliceByRead[index]
+			}
+			mock.endpointSliceReads++
 		}
 	}
-	return &client.GetResourcesResponse{ResourceResponses: []client.ResourceResponseItem{{Items: items}}}, nil
+	return &client.GetResourcesResponse{ResourceResponses: []client.ResourceResponseItem{{Status: "success", Items: items}}}, nil
 }
 
 func (mock *applicationShipMock) ListPods(clusterID string,
@@ -215,14 +246,57 @@ func newApplicationShipMock() *applicationShipMock {
 			},
 			TotalPages: 1,
 		},
-		ingressItems: []interface{}{
-			map[string]interface{}{
-				"spec": map[string]interface{}{
-					"rules": []interface{}{
-						map[string]interface{}{"host": "shop.acme.ankra.cc"},
+		ingressItems:       []interface{}{shipTestIngress("shop", "shop.acme.ankra.cc", "shop", 80)},
+		serviceItems:       []interface{}{shipTestService("shop", 80)},
+		endpointSliceItems: []interface{}{shipTestEndpointSlice("shop", true)},
+	}
+}
+
+// shipTestIngress is an Ingress whose one rule sends host to a Service port.
+func shipTestIngress(name string, host string, serviceName string, port int) map[string]interface{} {
+	return map[string]interface{}{
+		"metadata": map[string]interface{}{"name": name},
+		"spec": map[string]interface{}{
+			"rules": []interface{}{
+				map[string]interface{}{
+					"host": host,
+					"http": map[string]interface{}{
+						"paths": []interface{}{
+							map[string]interface{}{
+								"path": "/",
+								"backend": map[string]interface{}{
+									"service": map[string]interface{}{
+										"name": serviceName,
+										"port": map[string]interface{}{"number": float64(port)},
+									},
+								},
+							},
+						},
 					},
 				},
 			},
+		},
+	}
+}
+
+func shipTestService(name string, port int) map[string]interface{} {
+	return map[string]interface{}{
+		"metadata": map[string]interface{}{"name": name},
+		"spec": map[string]interface{}{
+			"type":  "ClusterIP",
+			"ports": []interface{}{map[string]interface{}{"name": "http", "port": float64(port)}},
+		},
+	}
+}
+
+func shipTestEndpointSlice(serviceName string, ready bool) map[string]interface{} {
+	return map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"name":   serviceName + "-abcde",
+			"labels": map[string]interface{}{"kubernetes.io/service-name": serviceName},
+		},
+		"endpoints": []interface{}{
+			map[string]interface{}{"conditions": map[string]interface{}{"ready": ready}},
 		},
 	}
 }
@@ -237,7 +311,10 @@ func fastShipPolling(t *testing.T) {
 	shipPollInterval = time.Millisecond
 	shipMergePollInterval = time.Millisecond
 	buildPollInterval = time.Millisecond
+	previousSettleSleep := shipEndpointSettleSleep
+	shipEndpointSettleSleep = func(context.Context, time.Duration) bool { return true }
 	t.Cleanup(func() {
+		shipEndpointSettleSleep = previousSettleSleep
 		shipPollInterval = previousPoll
 		shipMergePollInterval = previousMerge
 		buildPollInterval = previousBuild
@@ -791,10 +868,11 @@ func TestApplicationShipReadsTheURLFromTheDeploymentsRow(t *testing.T) {
 	if !strings.Contains(output, "Live: https://shop.wma9ydel20.ankra.cc") {
 		t.Errorf("stdout must carry the deployment row's ingress_host: %q", output)
 	}
-	for _, kind := range mockClient.resourceKindsRequested {
-		if kind == "Ingress" {
-			t.Errorf("the namespace Ingress read is the fallback and must not run when the deployments row answers")
-		}
+	// The namespace's Ingresses are still read, but only to check the row's
+	// host routes: no Ingress carries it here, so the check says it could
+	// not verify the backend rather than refusing the URL.
+	if !strings.Contains(progress, "No Ingress in namespace \"shop\" carries host shop.wma9ydel20.ankra.cc") {
+		t.Errorf("an unverifiable route must be said out loud:\n%s", progress)
 	}
 }
 

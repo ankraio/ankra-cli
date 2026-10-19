@@ -813,11 +813,15 @@ func (m baseMock) ListOrganisationVariables(ctx context.Context) (*client.Organi
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) CreateOrganisationVariable(ctx context.Context, name, value, description string) (*client.OrganisationVariableResult, error) {
+func (m baseMock) CreateOrganisationVariable(ctx context.Context, name, value, description string, isSecret bool) (*client.OrganisationVariableResult, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) UpdateOrganisationVariable(ctx context.Context, name, value, description string) (*client.OrganisationVariableResult, error) {
+func (m baseMock) UpdateOrganisationVariable(ctx context.Context, name string, value *string, description string, isSecret *bool) (*client.OrganisationVariableResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RevealOrganisationVariable(ctx context.Context, name string) (*client.OrganisationVariableValue, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -922,7 +926,7 @@ func (m baseMock) GetOrganisationPreviewSettings(ctx context.Context) (*client.O
 }
 
 func (m baseMock) UpdateOrganisationPreviewSettings(ctx context.Context,
-	changes map[string]*string) (*client.OrganisationPreviewSettings, error) {
+	changes map[string]any) (*client.OrganisationPreviewSettings, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -972,6 +976,18 @@ func (m baseMock) UpdateOrganisationCISettings(ctx context.Context,
 // read, so a test that does not stub it sees the settings alone.
 func (m baseMock) GetOrganisationCICapacity(ctx context.Context) (*client.OrganisationCICapacity, error) {
 	return nil, client.ErrCICapacityUnavailable
+}
+
+func (m baseMock) ListOIDCTrustPolicies(context.Context) ([]client.OIDCTrustPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateOIDCTrustPolicy(context.Context, client.OIDCTrustPolicyRequest) (*client.OIDCTrustPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteOIDCTrustPolicy(context.Context, string) error {
+	return errors.New("not implemented")
 }
 
 // The CI pool reads answer as a platform that predates the pool routes, so a
@@ -1326,11 +1342,11 @@ func (m baseMock) CreateSecurityDisposition(client.SecurityDispositionCreateRequ
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) UpdateSecurityDisposition(string, client.SecurityDispositionUpdateRequest) (*client.SecurityDispositionMutation, error) {
+func (m baseMock) UpdateSecurityDisposition(string, client.SecurityDispositionUpdateRequest) (*client.SecurityDisposition, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) RevokeSecurityDisposition(string, client.SecurityDispositionRevokeRequest) (*client.SecurityDispositionMutation, error) {
+func (m baseMock) RevokeSecurityDisposition(string, client.SecurityDispositionRevokeRequest) (*client.SecurityDisposition, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1411,6 +1427,22 @@ func (m baseMock) RevokeAPIToken(tokenID string) (*client.RevokeAPITokenResponse
 }
 
 func (m baseMock) DeleteAPIToken(tokenID string) (*client.DeleteAPITokenResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RotateAPIToken(tokenID string, overlapHours *int) (*client.RotateTokenResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RotateServiceToken(tokenID string, overlapHours *int) (*client.RotateTokenResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListServiceTokens() ([]client.ServiceToken, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateServiceToken(client.CreateServiceTokenRequest) (*client.CreateServiceTokenResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1897,6 +1929,14 @@ func (m baseMock) ListSSHKeyCredentials() ([]client.HetznerCredentialListItem, e
 }
 
 func (m baseMock) CreateSSHKeyCredential(req client.CreateSSHKeyCredentialRequest) (*client.CreateSSHKeyCredentialResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListOrgSSHKeyCredentials() ([]client.SSHKeyCredentialListItem, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateOrgSSHKeyCredential(request client.CreateSSHKeyCredentialRequest) (*client.CreatedSSHKeyCredential, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -3276,11 +3316,21 @@ func (m baseMock) GetPipelineRun(ctx context.Context, selector client.PipelineSe
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) RerunPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, failedOnly bool) (*client.CreatePipelineRunResult, error) {
+// GetPipelineRunTimeSaved answers as a platform older than the route does, so
+// every mock-driven `pipeline get` prints what it printed before the read.
+func (m baseMock) GetPipelineRunTimeSaved(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRunTimeSaved, error) {
+	return nil, client.ErrPipelineTimeSavedUnavailable
+}
+
+func (m baseMock) GetPipelineTimeSavedSummary(ctx context.Context, selector client.PipelineSelector, window string) (*client.PipelineTimeSavedSummary, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) CancelPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRun, error) {
+func (m baseMock) RerunPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, failedOnly bool, fullRun bool) (*client.CreatePipelineRunResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CancelPipelineRun(ctx context.Context, selector client.PipelineSelector, runID string, force bool) (*client.PipelineRun, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -5109,6 +5159,14 @@ func (m baseMock) SetAIAutonomyPause(paused bool, reason string) (*client.AIAuto
 
 func (m baseMock) GetAIRemediationPolicy() (*client.AIRemediationPolicy, error) {
 	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAIMemories(limit int) ([]client.AIMemory, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ClearAIMemories() (int, error) {
+	return 0, errors.New("not implemented")
 }
 
 func (baseMock) ListAzureCredentials() ([]client.AzureCredentialListItem, error) {

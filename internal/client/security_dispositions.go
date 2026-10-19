@@ -296,8 +296,9 @@ type SecurityDispositionCreateRequest struct {
 	AllowUnmatched         bool       `json:"allow_unmatched"`
 }
 
-// SecurityDispositionMutation is what every disposition write returns: the
-// policy as stored and the preview of what it now covers.
+// SecurityDispositionMutation is what creating a disposition returns: the
+// policy as stored and the preview of what it now covers. Edits and revokes
+// return the bare policy.
 type SecurityDispositionMutation struct {
 	Policy  SecurityDisposition        `json:"policy" yaml:"policy"`
 	Preview SecurityDispositionPreview `json:"preview" yaml:"preview"`
@@ -322,14 +323,16 @@ type SecurityDispositionUpdateRequest struct {
 	ExpireWhenFixAvailable *bool      `json:"expire_when_fix_available,omitempty"`
 }
 
-// UpdateSecurityDisposition edits one policy.
-func (c *Client) UpdateSecurityDisposition(policyID string, request SecurityDispositionUpdateRequest) (*SecurityDispositionMutation, error) {
-	var mutation SecurityDispositionMutation
+// UpdateSecurityDisposition edits one policy and returns it as stored. Unlike
+// create, the platform answers an edit with the bare policy, not a
+// policy-and-preview envelope.
+func (c *Client) UpdateSecurityDisposition(policyID string, request SecurityDispositionUpdateRequest) (*SecurityDisposition, error) {
+	var policy SecurityDisposition
 	requestURL := securityURL(c.BaseURL, "/vulnerability-dispositions/"+neturl.PathEscape(strings.TrimSpace(policyID)), neturl.Values{})
-	if err := c.sendJSON(http.MethodPatch, requestURL, request, &mutation); err != nil {
+	if err := c.sendJSON(http.MethodPatch, requestURL, request, &policy); err != nil {
 		return nil, fmt.Errorf("security disposition update request failed: %w", err)
 	}
-	return &mutation, nil
+	return &policy, nil
 }
 
 // SecurityDispositionRevokeRequest names why a policy is withdrawn.
@@ -338,12 +341,12 @@ type SecurityDispositionRevokeRequest struct {
 }
 
 // RevokeSecurityDisposition withdraws one policy; the occurrences it covered
-// become actionable again.
-func (c *Client) RevokeSecurityDisposition(policyID string, request SecurityDispositionRevokeRequest) (*SecurityDispositionMutation, error) {
-	var mutation SecurityDispositionMutation
+// become actionable again. The platform answers with the bare revoked policy.
+func (c *Client) RevokeSecurityDisposition(policyID string, request SecurityDispositionRevokeRequest) (*SecurityDisposition, error) {
+	var policy SecurityDisposition
 	requestURL := securityURL(c.BaseURL, "/vulnerability-dispositions/"+neturl.PathEscape(strings.TrimSpace(policyID))+"/revoke", neturl.Values{})
-	if err := c.sendJSON(http.MethodPost, requestURL, request, &mutation); err != nil {
+	if err := c.sendJSON(http.MethodPost, requestURL, request, &policy); err != nil {
 		return nil, fmt.Errorf("security disposition revoke request failed: %w", err)
 	}
-	return &mutation, nil
+	return &policy, nil
 }

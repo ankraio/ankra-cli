@@ -428,12 +428,12 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 			return asyncWriteError("adding node group", wait, addError)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group add")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group add", clusterID)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group add")
+			printNodeGroupWriteSubmitted("Node group add", clusterID)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -483,12 +483,12 @@ Examples:
 			return asyncWriteError("scaling node group", wait, scaleError)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group scale")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group scale", clusterID)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group scale")
+			printNodeGroupWriteSubmitted("Node group scale", clusterID)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -544,12 +544,12 @@ Examples:
 			return asyncWriteError("upgrading node group", wait, upgradeError)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group instance-type update")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group instance-type update", clusterID)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group instance-type update")
+			printNodeGroupWriteSubmitted("Node group instance-type update", clusterID)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -612,12 +612,12 @@ Examples:
 			return asyncWriteError("deleting node group", wait, deleteError)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group delete")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group delete", clusterID)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group delete")
+			printNodeGroupWriteSubmitted("Node group delete", clusterID)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -720,12 +720,12 @@ the autoscaler, and installs the Cluster Autoscaler on first enable.`,
 			return asyncWriteError("updating node group autoscaling", wait, setError)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group autoscaling update")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group autoscaling update", clusterID)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group autoscaling update")
+			printNodeGroupWriteSubmitted("Node group autoscaling update", clusterID)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -785,12 +785,12 @@ var clusterNodeGroupLabelsCmd = &cobra.Command{
 			return asyncWriteError("updating node group labels", wait, updateError)
 		}
 		if submitted {
-			if handled, renderError := renderStructured(cmd, newAsyncSubmittedResult("Node group labels update")); renderError != nil {
+			if handled, renderError := renderStructured(cmd, newNodeGroupSubmittedResult("Node group labels update", clusterID)); renderError != nil {
 				return renderError
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group labels update")
+			printNodeGroupWriteSubmitted("Node group labels update", clusterID)
 			return nil
 		}
 		if handled, renderError := renderStructured(cmd, result); renderError != nil {
@@ -845,12 +845,12 @@ var clusterNodeGroupTaintsCmd = &cobra.Command{
 			return asyncWriteError("updating node group taints", wait, updateError)
 		}
 		if submitted {
-			if handled, renderError := renderStructured(cmd, newAsyncSubmittedResult("Node group taints update")); renderError != nil {
+			if handled, renderError := renderStructured(cmd, newNodeGroupSubmittedResult("Node group taints update", clusterID)); renderError != nil {
 				return renderError
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group taints update")
+			printNodeGroupWriteSubmitted("Node group taints update", clusterID)
 			return nil
 		}
 		if handled, renderError := renderStructured(cmd, result); renderError != nil {

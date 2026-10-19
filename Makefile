@@ -18,7 +18,9 @@ lint:
 # hooks points this clone at the committed .githooks/ so the pre-commit gate
 # actually runs. git never sets core.hooksPath for you, so a fresh clone
 # commits with no gate at all and says nothing about it — run this once after
-# cloning. Idempotent.
+# cloning. Idempotent. The path stays relative on purpose: git resolves it per
+# worktree, so each worktree runs its own branch's hook, and running this also
+# replaces an absolute value that would pin every worktree to one copy.
 hooks:
 	@git config core.hooksPath .githooks
 	@echo "core.hooksPath = $$(git config core.hooksPath) (pre-commit gate active)"

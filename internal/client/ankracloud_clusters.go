@@ -18,6 +18,16 @@ const (
 	AnkraCloudDistributionK3s     = "k3s"
 )
 
+// AnkraCloud network modes. ipv4_nat is the server default: a NAT router for
+// the nodes' IPv4 egress and a bastion with a public IPv4 address. ipv6_only
+// is for a zone without public IPv4: no router, the bastion is reached over
+// IPv6 and the Cloud's port forward, and the nodes reach IPv4 through the
+// zone's NAT64.
+const (
+	AnkraCloudNetworkModeIPv4NAT  = "ipv4_nat"
+	AnkraCloudNetworkModeIPv6Only = "ipv6_only"
+)
+
 // CreateAnkraCloudClusterRequest mirrors the cluster-api decoder for
 // POST /api/v1/clusters/ankracloud (providerapi.decodeCreateAnkraCloudClusterRequest):
 // a self-managed kubeadm or k3s cluster on Ankra Cloud servers. Ankra Cloud
@@ -30,9 +40,11 @@ const (
 //
 // The network is either adopted (private_network_id) or created from
 // network_ip_range (an RFC 1918 /16../29; server default a /24 derived from the cluster); the
-// server refuses both together. bastion_plan and control_plane_plan are
-// required; worker_plan is required while worker_count is above zero and no
-// node_groups are sent, and etcd_plan for an external etcd topology.
+// server refuses both together. network_mode is ipv4_nat (server default) or
+// ipv6_only; omitted, the server's default applies. bastion_plan and
+// control_plane_plan are required; worker_plan is required while worker_count
+// is above zero and no node_groups are sent, and etcd_plan for an external
+// etcd topology.
 type CreateAnkraCloudClusterRequest struct {
 	Name                 string                `json:"name"`
 	Description          *string               `json:"description,omitempty"`
@@ -43,6 +55,7 @@ type CreateAnkraCloudClusterRequest struct {
 	Template             string                `json:"template,omitempty"`
 	PrivateNetworkID     *string               `json:"private_network_id,omitempty"`
 	NetworkIPRange       *string               `json:"network_ip_range,omitempty"`
+	NetworkMode          string                `json:"network_mode,omitempty"`
 	BastionPlan          string                `json:"bastion_plan"`
 	BastionAllowedIPs    []string              `json:"bastion_allowed_ips,omitempty"`
 	ControlPlaneCount    int                   `json:"control_plane_count,omitempty"`

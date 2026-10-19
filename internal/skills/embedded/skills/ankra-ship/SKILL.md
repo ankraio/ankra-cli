@@ -1,6 +1,6 @@
 ---
 name: ankra-ship
-description: Ship code with Ankra - take a fresh (vibe-coded) project or any repository to a live URL through Ankra Pipelines, then run it on day 2 - the generated `.ankra/pipeline.yaml` that tests, builds rootless in your own cluster, scans with Semgrep, Checkov and Trivy, gates on findings and publishes an immutable `sha-` tag; push-to-deploy and the `Live:` URL; pull-request previews, environment secrets, rollback, promotion, alerts; and Ankra AI reviewing every pull request, watching runs and opening fix PRs. Use when the user says ship it, deploy this, get it live, go to production, wants CI/CD for a new or AI-generated project, asks how to test, build, scan, package or release code with Ankra, or asks what to do once it is live. This is the default skill for shipping; `ankra-applications` and `ankra-cicd` are its detail.
+description: Ship code with Ankra - take a fresh (vibe-coded) project or any repository to a live URL through Ankra Pipelines, then run it on day 2 - the generated `.ankra/pipeline.yaml` that tests, builds rootless in your own cluster, scans with Semgrep, Checkov and Trivy, gates on findings and publishes an immutable `sha-` tag; development following every merge and a person promoting the same tag to production; pull-request previews, environment secrets, rollback, alerts; and Ankra AI reviewing every pull request, watching runs and opening fix PRs. Use when the user says ship it, deploy this, get it live, go to production, wants CI/CD for a new or AI-generated project, asks how to test, build, scan, package or release code with Ankra, or asks what to do once it is live. This is the default skill for shipping; `ankra-applications` and `ankra-cicd` are its detail.
 ---
 
 # Ship with Ankra
@@ -14,8 +14,18 @@ needs GitHub Actions minutes, a runner fleet, `kubectl` in CI, or a registry pas
 
 Use this skill first whenever the job is *get this code running and keep it running*. Reach for
 `ankra-applications` for the registry matrix and fleet-wide rollout, `ankra-cicd` for a repository with
-no application (connect it, author `.ankra/pipeline.yaml`), the authority gate and the GitOps bump,
+no application (connect it, author `.ankra/pipeline.yaml`), the authority gate, fast CI and the GitOps bump,
 `ankra-troubleshooting` when the workload is up but unhealthy, and `ankra-ai-gateway` for the Ask/Agent binding modes the AI acts under.
+
+## Recommended path
+
+Golden path 1, **Ship code** (and the deploy stage of golden path 5, agent-driven work; the canonical
+list is in `ankra-platform-principles`). Make the source shippable (§0), then `ankra application ship
+. --cluster <dev-cluster>`: registration, the setup pull request (Dockerfile, manifests,
+`.ankra/ankra.yaml`, `.ankra/pipeline.yaml`), a pipeline that tests, builds, scans and gates in your
+own cluster, an immutable `sha-` tag. **Development follows every merge; a person promotes the same
+tag development proved to production** (§7). Done means evidence, not a green command (§7). Never
+hand-write a GitHub Actions workflow, Kubernetes manifests, `kubectl` or `helm` for this.
 
 ## The contract
 
@@ -50,11 +60,16 @@ check and fix, in the repository, in one commit:
   `poetry.lock`/`requirements.txt`. The test command Ankra detects becomes the `test` stage.
 - **A `Dockerfile` if the framework is unusual.** Ankra generates one for Node (Next.js, React,
   Express, NestJS), Python (FastAPI, Django, Flask), Go, Rust, Java, Ruby, PHP, Elixir and static
-  sites; anything it cannot classify needs yours.
+  sites - a Vite single-page app (Lovable's shape: `build` script, no `start`) gets an unprivileged
+  nginx on 8080 with SPA fallback and `/healthz`. A Dockerfile you commit is never overwritten.
 - **A `.dockerignore`**, and migrations that run on start or on one documented command (§8).
+- **Tell the coding agent what is Ankra's job**: no Kubernetes manifests, no CI workflows. When the
+  analysis finds the app needs Postgres, the setup PR adds a CloudNativePG database with
+  `DATABASE_URL` wired, one per environment.
 
 Run the tests locally once: a project that fails its own tests fails the `test` stage, and the
-first run is the one everyone watches.
+first run is the one everyone watches. A repository with no test command gets no `test` stage.
+A Lovable app that calls Supabase keeps calling it - Ankra does not rewrite the data layer.
 
 ## 1. Orient (two minutes, every time)
 
@@ -98,17 +113,23 @@ first image, deploys, waits for the installation to be healthy, counts running p
 `Live: https://…` from the deployments surface's published hostname. Every wait is bounded by one
 `--timeout` (default 1h across all steps). If it expires, **re-run the same command** — it continues
 from the current state; nothing is lost. It refuses to print a `Live:` line for a parked deployment
-(0 running pods) and exits non-zero instead: a URL that answers 503 is the one lie it never tells.
+(0 running pods), or for an Ingress whose backend Service, port or endpoints do not resolve (state
+`unroutable`, with `url_problem`), and exits non-zero instead.
 
-Without `--ankra-build` it prints the setup PR URL and waits for a human to merge it, because the
-first image comes from the pipeline the PR adds; with it, Ankra's own builders make the first image
-and the merge wait is skipped (404 while the organisation's `platform_builds` capability is off —
-`ankra org ci-settings get` shows `Platform builds enabled`). A repository with several
-applications is refused without `--name`: ship once adopted the wrong one and redeployed it onto
-the caller's hostname.
+On Ankra Pipelines (the default) it waits for the run of the tracked branch's head commit; when no
+run appears within a minute it starts that branch's push run itself (needs `applications.deploy`).
+A run whose trigger the branch does not satisfy yet - typically the setup PR is not merged - stops
+ship with the PR to merge. Only the legacy generated-workflow lane waits on the merge. With
+`--ankra-build` Ankra's own builders make the first image (404 while the organisation's
+`platform_builds` capability is off — `ankra org ci-settings get` shows `Platform builds
+enabled`). An existing application is reused only when it tracks the same repository **and** the
+requested branch; otherwise ship stops and names them - pass `--name` (and `--branch`).
+`--namespace` and `--set` (for example `ingress_enabled=true`, `ingress_host=app.example.com`)
+pass through to the deploy.
 
 Progress goes to stderr; `-o json` puts one document on stdout (`application_id`, `setup_pr_url`,
 `url`, `state` …). Exit `0` live, `2` usage or ambiguity, `5` timeout, `6` not logged in, `7` forbidden.
+The installed `/ankra-ship-service` command drives this from Claude Code.
 
 ## 3. The full path, step by step
 
@@ -124,7 +145,8 @@ ankra application add . --name <name> \
   --registry-pull-secret shop-registry --registry-admin-credential harbor-admin
 ```
 
-`--branch` is trusted from the *local* branch when omitted — pass the remote branch. Declare a
+`--branch` defaults to the remote's default branch, else the current local branch — pass it when
+the tracked branch is neither. Declare a
 registry you already operate **at `add` time** (a registry added later leaves a pipeline that logs
 in to the wrong one); with no declaration the image goes to the organisation's own Ankra registry
 project and Ankra mints the push robot. `--wait` follows the analysis and prints the setup PR URL or
@@ -143,55 +165,16 @@ It carries `.ankra/ankra.yaml`, `.ankra/pipeline.yaml`, `Dockerfile` (when gener
 probe paths and the resource requests; push corrections back with `files`. **The setup PR is a
 proposal, not a gate** — the generated pipeline is the definition of record before the PR opens, so
 builds run from the next push whether or not it is merged; merging is how the file reaches the
-default branch and stays editable in Git.
+default branch and stays editable in Git. When the setup PR fails its own checks (usually a
+vulnerable dependency the repository already had), Ankra AI commits a fix to that same PR and says
+so in its status comment.
 
 ### 3c. What the generated pipeline says
 
-```yaml
-apiVersion: ankra.io/v1
-kind: Pipeline
-metadata: { name: "shop" }
-on:
-  push: { branches: ["main"] }
-  pull_request: { branches: ["main"], fork_policy: "read_only" }
-  manual: {}
-concurrency: { group: "${{ ankra.repository }}-${{ ankra.ref }}", cancel_in_progress: true }
-workspace: { size: "10Gi", access: "rwo" }
-defaults: { image: "node:22", timeout: "30m", network: "egress-https" }
-permissions: { contents: "read" }
-stages:
-  - { name: checkout, kind: checkout }
-  - name: test
-    kind: run
-    needs: [checkout]
-    run: "npm ci && npm test"
-    test_results: [{ format: junit, path: "test-results.xml" }]
-  - name: build
-    kind: build
-    needs: [test]
-    build: { dockerfile: "Dockerfile", provenance: true, sbom: true }
-  - name: scan
-    kind: scan
-    needs: [build]
-    with: { image_gate: "app", semgrep_config: "p/default p/docker p/javascript p/typescript" }
-    scan:
-      scanners: [semgrep, checkov, trivy]
-      fail_on: { semgrep: "error", checkov: "none", trivy: "app" }
-  - { name: gate, kind: gate, needs: [scan], gate: { require_stages: [scan] } }
-  - name: publish
-    kind: publish
-    needs: [gate]
-    when: { events: [push] }
-    with: { image: "harbor.ankra.cloud/<project>/shop" }   # recorded, not read: the target is the app's registry
-```
-
-Stages without `needs` run in parallel; `publish` refuses without a successful `gate` upstream and
-only runs on `push`, so a pull request builds, scans and reports but never publishes. `fail_on`
-values outside a scanner's own severity words (`trivy: "app"`, `checkov: "none"`) carry no floor
-and leave the organisation gate to decide. `registry_auth` and `source_token` are reserved bindings
-Ankra adds from the push robot — never declare them. Do not pin `build.platforms`: builds run
-natively, and a fabricated `linux/amd64` fails on an arm64 cluster ("no QEMU emulation
-registered"). [reference.md](reference.md) has the full schema.
+A generated file has `checkout`, a `test` stage when the repository declares a test command,
+`build`, `scan` (Semgrep, Checkov, Trivy), `gate`, and a push-only `publish`: a pull request builds,
+scans and reports but never publishes. Never declare `registry_auth`/`source_token`, never pin
+`build.platforms`. The annotated file is in [reference.md](reference.md#the-generated-pipeline-annotated).
 
 ### 3d. Approve the authority — a human does this
 
@@ -204,8 +187,10 @@ ankra pipeline definitions approve <definition-id>                # pipelines.ma
 An unapproved definition is **not refused**: the run executes with none of its protected sections,
 so the build has no `registry_auth` and dies with `step_refused` ("This step declares a secret
 binding the platform sent no value for (registry_auth)"). A service-account or agent token is
-refused at `approve`, so an agent stops here and asks. Only the current default-branch definition
-can be approved, once; `ankra pipeline get` on an unapproved run prints the exact approve command.
+refused at `approve`, so an agent stops here and asks. Creating the application in the portal
+approves the generated pipeline in that person's name; one added from the CLI, a token or an agent
+waits for an administrator. Only the current default-branch definition can be approved, once;
+`ankra pipeline get --application <application> --latest` prints the exact approve command.
 
 ### 3e. Run, gate on it, read it
 
@@ -220,29 +205,15 @@ ankra pipeline artifacts <run-id> --application <application-id>          # step
 ankra pipeline rerun <run-id> --application <application-id> --failed-only --wait
 ```
 
-`get --wait --exit-code` is the primitive to gate anything external on: `0` succeeded, `1` concluded
-otherwise, `5` not concluded by `--timeout`, `3` no run matched. `status` is the lifecycle
-(`queued` → `running` → `concluded`); `outcome` is the verdict (`success`, `failure`, `cancelled`,
-`timed_out`, `skipped`, `infra_error`). A failed run names its error class: `step_failed` is your
-build, `image_gate_blocked` is a finding, `registry_push_failed`, `build_runtime_confined` and
-`platform_build_infra` are placement or Ankra. `rerun` skips publish (`when.events` is push/manual)
-— push a commit to publish. `--failed-only` also re-runs the checkout and every step the failed ones
-build on (the new run's workspace starts empty), and is refused when a step that failed could not
-run in a re-run. Logs attach once a step has an execution; a concluded step replays for
-24 h and from the archived artifact after that.
+`get --wait --exit-code` is the primitive to gate anything external on: `0` succeeded, `1`
+concluded otherwise, `5` not concluded by `--timeout`, `3` no run matched. A re-run of a push
+publishes again but never rolls a deployment; `--full` sets path filters aside. Outcomes, error
+classes and re-run planning: [reference.md](reference.md#run-states-error-classes-and-re-runs).
 
 ### 3f. Already on GitHub Actions? Convert in one call
 
-```bash
-ankra application pipeline convert <application-id>                  # stores the converted definition, opens the PR
-ankra application pipeline convert <application-id> --keep-workflows
-```
-
-Ankra converts the workflow to `.ankra/pipeline.yaml`, records it as the definition of record,
-**switches the generated workflow off on GitHub** so no commit builds twice, and opens a PR on
-`ankra/pipeline-migration` that commits the file and removes Ankra's generated workflow (a workflow
-the repository wrote itself is never touched). Review the result: marketplace actions it cannot map
-become `run` stages that exit 1 with an explanation, never a silent drop.
+`ankra application pipeline convert <application-id>` converts the workflow, switches Ankra's
+generated one off and opens a PR; details in [reference.md](reference.md#converting-a-github-actions-application).
 
 ## 4. Tests
 
@@ -250,52 +221,17 @@ The `test` stage is a `run` stage: a script in an image, on the shared workspace
 by default (`run` stages get `network: none`; set `egress-https` if the tests fetch). Give it what a
 real test needs:
 
-```yaml
-services:
-  postgres:
-    image: "postgres:16"
-    env: { POSTGRES_PASSWORD: "test", POSTGRES_DB: "shop" }
-    ports: ["5432"]
-    ready: { tcp: "5432" }
-stages:
-  - name: test
-    kind: run
-    needs: [checkout]
-    image: "golang:${{ matrix.go }}"
-    network: services
-    services: [postgres]
-    env:
-      DATABASE_URL: "postgres://postgres:test@postgres:5432/shop?sslmode=disable"
-      GOMODCACHE: "/workspace/.ankra-go/mod"     # the root filesystem is read-only: keep caches on the workspace
-      GOCACHE: "/workspace/.ankra-go/cache"
-    cache:
-      - key: "go-${{ hashFiles('go.mod', 'go.sum') }}"
-        paths: [".ankra-go/mod", ".ankra-go/cache"]  # relative to the workspace root
-        restore_keys: ["go-"]
-        fallback: none
-    run: |
-      go test ./... -json > test-results.json
-    test_results: [{ format: go-test, path: "test-results.json" }]
-    matrix:
-      go: ["1.25", "1.26"]
-```
+Sidecars, matrix and caches: [reference.md](reference.md#a-test-stage-with-a-database-matrix-and-cache).
 
 A generated `test` stage follows the committed lockfile (`uv sync --locked && uv run pytest`,
 `pnpm install --frozen-lockfile`, `go test ./...`). `test_results` formats are `junit`, `go-test`,
-`pytest`, `playwright` — declared and carried, not yet ingested; the exit code is what fails the
-run. A matrix fans out per axis value (GitHub Actions semantics, at most 64 legs).
+`pytest`, `playwright`; Ankra records every test's outcome and duration, read with `ankra pipeline
+tests <run-id> --application <application-id>` (failed, flaky, slowest; `history`, `timings`,
+`quarantine` below it). The exit code still fails the step, unless every failed test is
+quarantined. A matrix fans out per axis value (GitHub Actions semantics, at most 64 legs).
 
-Caches: `hashFiles` is evaluated after checkout in the stage's `working_directory`; the exact key
-restores first, then each `restore_keys` prefix in order. A default-branch run reads and saves only
-its own scope; a branch or PR run reads its own scope then the default branch's and saves only its
-own; fork and tag runs get none. A save happens only after the step passes (a `hashFiles` key once,
-a static key every time). 14 days unused, 10 GiB per repository, 4 GiB per path. On an agent
-without cache archives a cache is a shared 5Gi volume per path - `fallback: none` makes it an
-empty directory instead, which never wedges overlapping runs. The generated `test` stage declares
-its package caches (pnpm/Yarn/npm, Go, pip/uv/Poetry/Pipenv, cargo) this way under
-`/workspace/.ankra-*`, keyed on the lock file, with `fallback: none`; a committed file is never
-rewritten, so copy the block into an older one. A cache path outside the workspace is refused. Every step's output is archived as a `step_log` artifact, and `key=value` lines
-appended to `$ANKRA_OUTPUT` become `${{ needs.test.outputs.<name> }}` downstream.
+Generated test stages keep package caches on the workspace, keyed on the lock file; rules in
+[reference.md](reference.md#caches-and-outputs).
 
 ## 5. Build
 
@@ -304,6 +240,12 @@ appended to `$ANKRA_OUTPUT` become `${{ needs.test.outputs.<name> }}` downstream
 digest is what scan reads and gate judges. `build.dockerfile`, `context`, `target`, `build_args`
 (names resolved from variables), `provenance`, `sbom`, `cache_to`. Monorepos get one file with
 `build-<component>` / `scan-<component>` / `publish-<component>` stages filtered by `when.paths`.
+
+A slow pipeline is golden path 6, **Fast CI**, in `ankra-cicd` §7b: `affected:` and path filters
+so a change runs only the stages it touches, `promote_from: pull_request` so a merge re-tags the
+image its pull request already built and tested instead of building again, the merge train, and
+`--full` / the `ankra:full-run` label / `[skip ci]` to set the filters aside or skip a push.
+Generated pipelines already declare `promote_from` when their shape allows.
 
 If the build dies within ~30 s on `rootlesskit … failed to share mount point: /: permission denied`,
 the node's runtime confines the builder (containerd AppArmor, kubelet `seccompDefault`; DigitalOcean
@@ -330,26 +272,47 @@ A stage's `with.image_gate` / `scan.fail_on` can only **tighten** the organisati
 report that never uploads is `no_scan_results` — "This is not a clean scan" — and blocks. `publish`
 copies the judged digest into the application's real repository as `sha-<7>` (the commit's first
 seven characters), verifies it, and refuses a registry host other than the one Ankra resolved. That
-tag is the identity every deploy, promotion, rollback and scan history is keyed on; `latest` does
-not exist here.
+tag is the identity every deploy, promotion, rollback and scan history is keyed on. `publish.tags`
+can add extra tags to the same digest (a moving `latest`, `"0.2.${{ ankra.run.number }}"`) for
+consumers outside Ankra; never deploy or promote by them.
 
 ## 7. Ship: from a published tag to a running service
 
 ```bash
 ankra application auto-deploy get <application-id>    # on by default; shows the newest build seen on the branch
-ankra application auto-deploy set <application-id> --enabled=false   # gate production explicitly
-ankra application deploy <application-id> --cluster <cluster> --namespace shop --mode high_availability --set replicas=3
-ankra application deployments <application-id>        # where it runs, the ingress host, publication state
+ankra application deploy <application-id> --cluster <dev-cluster> --namespace shop-dev \
+  --set ingress_enabled=true --set ingress_host=shop.example.dev
+ankra application deployments <application-id>        # where it runs, the ingress host, the tag on each
 ankra application env-secrets list <application-id>
 printf '%s' "${DATABASE_URL:?}" | ankra application env-secrets set <application-id> DATABASE_URL   # :? refuses an unset value
 ankra application env-secrets apply <application-id>  # set stores; apply seals into the workloads and rolls
 ankra org variables set SUPPORT_EMAIL support@example.com          # non-secret config: variables, not secrets
 ```
 
-Push-to-deploy watches the tracked branch for a published tag and rolls it out; a pull request never
-deploys anywhere but a preview. Deploy inputs come from `--set`; secrets from env-secrets (**never
-`--value`** on the command line); non-secret configuration from organisation, cluster or stack
-variables (resolution: stack > cluster > organisation).
+Push-to-deploy watches the tracked branch for a published tag and rolls it out to every environment
+that follows pushes; a pull request never deploys anywhere but a preview. Deploy inputs come from
+`--set`; secrets from env-secrets (**never `--value`** on the command line); non-secret
+configuration from organisation, cluster or stack variables (resolution: stack > cluster >
+organisation). Env-secrets belong to the application and are sealed into **every** environment; a
+value that must differ per environment (a test and a live payment key) is a SOPS-encrypted Secret
+in that cluster's Stack (`ankra-sops-secrets`).
+
+**Two environments: development follows merges, a person promotes to production.**
+
+```bash
+# 1. Portal: application Settings → Push to deploy → "What follows pushes": development on, production off.
+#    (`auto-deploy set --enabled=false` turns push-to-deploy off for EVERY environment - not this.)
+# 2. Promote the exact tag development proved - a re-tag, never a rebuild:
+ankra application deploy <application-id> --cluster <prod-cluster> --namespace shop \
+  --set image_tag=sha-<the-tag-that-passed> --mode high_availability --set replicas=3 \
+  --set ingress_enabled=true --set ingress_host=shop.example.com
+# Rollback is the same command with the previous tag from `ankra application deployments`.
+```
+
+Production is not brought online until development is online and tested, and production is a
+decision a person makes: an agent prepares the command and stops for confirmation (the installed
+`/ankra-promote` command does exactly that). The portal's **Environments** page and chat
+(`promote_application`, Agent mode, confirmed) promote the same way (§8).
 
 Then verify, in this order, before saying it is live:
 
@@ -364,8 +327,15 @@ curl -fsS https://<host>/healthz
 
 The hostname derives on the first deploy from the cluster's public domain (the organisation's
 preview domain when a DNS zone covers it, else the generated `*.ankra.cc` subdomain) with a
-cert-manager certificate. A green `deploy` is not a working service; the curl is. On a shared
-cluster a Pending pod is usually CPU quota: read the events before touching anything.
+cert-manager certificate; your own domain is `--set ingress_host=` plus a DNS zone the cluster
+serves (`ankra-domains-dns`). A green `deploy` is not a working service; the curl is, and then one
+real journey (sign up, sign in) in a browser. On a shared cluster a Pending pod is usually CPU
+quota: read the events before touching anything.
+
+**Done means evidence.** Before saying "live", attach: the test runner output (not "tests pass"),
+the `sha-` tag and its digest, the scan summary (`ankra pipeline findings`, or an explicit zero),
+the public URL answering 200 with a valid certificate, a browser walk of the main journeys when a
+browser is available, and the exact rollback command. Anything missing means not done.
 
 ## 8. Day 2
 
@@ -383,30 +353,28 @@ ankra org ai-environment get                          # preview domain, TLS issu
 ankra org ai-environment set --demo-base-domain preview.example.com
 ```
 
-The staging cluster is chosen in the portal (Organisation settings → AI → Environment). Ankra mints
+The staging cluster is chosen in the portal (**AI → Settings → Workspaces**); the development
+cluster works, so no third cluster is needed. Ankra mints
 the preview hostname but publishes **no DNS** under the demo base domain — point a wildcard at the
 staging cluster's ingress yourself, or the URL resolves nowhere and gets no certificate.
 
 **Rollback.** Every deployment is keyed on a `sha-<7>` tag, so rolling back is putting an earlier
-published tag back on the running workload — one thing moves, and the rollback holds until a
-genuinely newer build arrives. The application rollback lane does exactly that: `GET
-…/rollback-targets` lists the tags still in the registry, `POST …/rollbacks` with `cluster_id` and
-`image_tag` performs it, and the answer spells out what it does **not** revert (a migrated schema,
-data written since, changed secrets, stack edits). It is a portal-session and AI surface, not a CLI
-verb: `ankra chat "roll shop back to sha-1a2b3c4 on <cluster>" --mode agent`, then confirm the
-action. A stack Ankra deployed is `git revert` in the GitOps repository; a Helm release you manage
-yourself is `ankra cluster helm rollback <release> -n <ns> --revision <n>` after `helm history`
-(refused for addon-managed releases — change the stack). Roll back first, fix on a branch.
+published tag back: `ankra application deploy <application-id> --cluster <cluster> --set
+image_tag=sha-<previous>` (§7), or the portal's Environments page / `ankra chat "roll shop back to
+sha-1a2b3c4 on <cluster>" --mode agent` (the rollback lane, which also lists what it does **not**
+revert: a migrated schema, data written since, changed secrets, stack edits). A stack Ankra
+deployed is `git revert` in the GitOps repository; a Helm release you manage yourself is `ankra
+cluster helm rollback <release> -n <ns> --revision <n>` after `ankra cluster helm history` (refused
+for addon-managed releases — change the stack). Roll back first, fix on a branch.
 
-**Promotion.** The tag, and only the tag, moves between environments; configuration is deliberately
-not promoted, and the preview names every config difference so you decide. Promote from the
-application's environments page in the portal, from chat (`promote_application`, Agent mode,
-confirmed action), or over the API (`GET …/promotions/preview`, `POST …/promotions`). A source whose
-deploy has not settled is `source_not_settled`; a target that follows pushes is
-`target_follows_pushes` and refused rather than re-pointed, so turn auto-deploy off for production
-first; missing env-secrets on the target block it by name. The same `sha-<7>` in staging and
-production is the proof you shipped what you tested. Fleets of clusters use a stack profile
-(`ankra-stack-profiles`) or a published add-on (`ankra-applications` §8), never copied YAML.
+**Promotion.** The tag, and only the tag, moves between environments; configuration stays in each
+environment's deploy options and cluster configuration. Besides §7's `deploy --set image_tag=`, the
+portal's Environments page, chat and the API (`GET …/promotions/preview`, `POST …/promotions`)
+preview every config difference first: a source whose deploy has not settled is
+`source_not_settled`, a target that follows pushes is `target_follows_pushes` (switch production
+off under **What follows pushes**), and missing env-secrets block by name. The same `sha-<7>` in
+development and production is the proof you shipped what you tested. Fleets of clusters use a stack
+profile (`ankra-stack-profiles`) or a published add-on (`ankra-applications` §8), never copied YAML.
 
 **Schedules, manual runs, alerts.** A nightly is `ankra pipeline schedules create --application
 <application-id> --cron "0 3 * * 1-5" --ref main --timezone Europe/London`; a dispatch with inputs is
@@ -433,8 +401,8 @@ Ankra AI is in the loop at four points, and it never holds authority it was not 
   registers a watch; when the run concludes, the AI wakes in the same conversation with the outcome
   and the failing step's log tail. On a pull request, `@ankraai merge when green` records a request
   to squash-merge once the run, the gate, the review verdict and human approvals all agree —
-  Agent-mode bindings only, 24 h expiry, a new push invalidates it. It is built but **switched off
-  for every organisation today**; the request is refused with that reason until Ankra enables it.
+  Agent-mode bindings only, 24 h expiry, a new push invalidates it. It is **off by default**: an
+  organisation admin turns **Merge when green** on per GitHub installation, beside its AI mode.
 - **A failed build on the tracked branch is fixed.** Auto-fix is **on by default per application**
   — its output is a pull request a human merges, and closing the PR undoes all of it. Ankra tries
   the deterministic rungs first (registry login, rerun, setup retry), then dispatches a bounded
@@ -455,18 +423,12 @@ the binding's identity and still arrives as a pull request.
 
 ## 10. What is not there yet
 
-Say this out loud rather than promising it. The spec accepts fifteen stage kinds; **six execute**:
-`checkout`, `run`, `build`, `scan`, `gate`, `publish`. `preview`, `verify`, `deploy`, `agent`,
-`approval`, `webhook`, `automation`, `ankra` and `external` validate with a warning and are skipped
-as `kind_unavailable`; `uses:` is refused outright — write the step as `run:`; `on_failure:`,
-`finally:`, `retry:` and `test_results` ingestion are accepted but not yet honoured. So **an
-`approval` stage blocks nothing — everything downstream runs**, and a skipped stage is not a failed
-one: do not make the `Ankra pipeline` check *required* while the definition carries an unexecuted
-kind, or it goes green having done none of what that stage names. Previews, deploys, rollback and
-promotion happen through the application lanes above, not inside a pipeline. GitLab and Bitbucket
-plan from the stored definition (the head-sha file is read on GitHub only) and have no setup-PR
-writer yet. `egress-https` reaches **public addresses only**; name a private range with
-`ankra org ci-settings set --egress-allowed-cidr <cidr>` before the step runs.
+Say this out loud rather than promising it. Seven stage kinds execute: `checkout`, `run`, `build`,
+`scan`, `gate`, `publish`, `deploy` (host targets only, never a cluster). `preview`, `verify`,
+`agent`, `approval`, `webhook`, `automation`, `ankra`, `external` are skipped as
+`kind_unavailable`, so **an `approval` stage blocks nothing**; `uses:` is refused; `retry:` is not
+applied. Previews, cluster deploys, rollback and promotion happen through the application lanes,
+not inside a pipeline. Full list: [reference.md](reference.md#what-is-not-there-yet-in-full).
 
 ## When nothing happens, or the wrong thing does
 
@@ -477,20 +439,16 @@ writer yet. `egress-https` reaches **public addresses only**; name a private ran
 | Build: `step_refused … (registry_auth)` | definition not approved | §3d, a human approves |
 | `artifact_store_unavailable` | no ready backup vault | `ankra-backups`, or wait for the platform default |
 | Build exits ~30 s, rootlesskit mount permission denied | confined runtime | §5, fallback to platform builders |
-| `build_fallback_none` | fallback needs `--build-fallback platform_builders` **and** the grant | `ankra org ci-settings get` |
-| Exit 79, "no QEMU emulation registered" | pinned `platforms` on an arm64 cluster | drop `build.platforms` |
 | `image_gate_blocked` | a finding at or above the gate | fix it, or a written disposition in `ankra-security` |
-| `no_scan_results` | scan report never uploaded | vault (above) or an older platform; do not treat as clean |
 | Step "running" for minutes with no output | pod Pending: CPU quota, no StorageClass, disk | `ankra pipeline get <run-id>` Queueing says where the wait went ("Pending 5m in the cluster (scheduling 4m30s, volumes 8s, image pull 19s)"); then `ankra cluster events -n ankra-ci --type Warning` |
-| `publish` skipped on a rerun | `when.events` excludes `rerun` | push a commit |
-| A stage's log says `UNAUTHORIZED: project <name> not found` from a Harbor registry | the project does not exist; it is not a credential fault | a hand-written copy to a second registry: remove it and deploy `publish`'s `image_ref` (`ankra-cicd` §3), or declare the registry on the application |
+| `publish` skipped on a rerun, or a rerun published but nothing rolled | the rerun repeats a pull request, tag, manual, API or agent run; a rerun's image never becomes the push-to-deploy candidate | push a commit, or `ankra application deploy --set image_tag=sha-<7>` |
+| Production changed on a merge | production still follows pushes | switch it off under **What follows pushes**; promote by tag (§7) |
 | Run green, release never arrived | a shipping stage failed under `allow_failure` | read each step's outcome with `ankra pipeline get <run-id> --application <application-id>`; drop the flag |
-| Test or build times out reaching a private host | `egress-https` is public-only | `ankra org ci-settings set --egress-allowed-cidr 10.0.0.0/8` |
-| Two builds per commit | generated GitHub workflow still present | §3f `pipeline convert` |
-| No "Ankra pipeline" check on the PR, only a comment | GitHub App lacks `checks:write` | grant it on the installation |
-| Setup PR 403 "Resource not accessible by integration" | repo not in the App installation | add it (owner-only) or choose "All repositories" |
+| Two builds per commit | generated GitHub workflow still present | `ankra application pipeline convert` |
 | Deploy healthy, URL does not load | preview/demo domain has no DNS, or probe paths | wildcard record; §7 curl ladder |
 | First deploy crash-loops | env-secret set but never applied | `ankra application env-secrets apply <application-id>` |
+
+Rarer symptoms (build fallback, QEMU, missing scan results, Harbor project, private egress, App permissions): [reference.md](reference.md#rarer-symptoms).
 
 ## Rules
 
@@ -498,22 +456,26 @@ writer yet. `egress-https` reaches **public addresses only**; name a private ran
   capacity or approval fix. A hand-rolled GitHub Actions workflow forks the contract away from the
   scans, the gate, the digest publish and the managed registry auth — permanently, and silently.
 - **Immutable tags only.** `sha-<7>` is the identity of every deploy, preview, rollback and
-  promotion. Nothing is tagged `latest` and nothing is rebuilt to promote.
+  promotion. Never deploy by `latest` or any extra `publish.tags`, and never rebuild to promote.
+- **Development follows merges; a person promotes to production.** Production never follows
+  pushes, and no agent promotes on its own.
 - **Approval is human.** Authority (`definitions approve`) and promotion approval are refused to
   service and agent tokens. An agent reaches that point, stops, and says so.
 - **Set, then apply.** `env-secrets set` stores; `env-secrets apply` seals and rolls. Secrets by
   stdin or prompt, never `--value`, never echoed into a transcript.
-- **Verify, then claim.** Operations → pods → events → logs → curl. A green command is not a
-  working service, and a listing can be minutes stale on a busy platform: the curl is primary.
+- **Verify, then claim, with evidence.** Operations → pods → events → logs → curl → a real journey.
+  A green command is not a working service; report the evidence list in §7.
 - **Confirm the organisation before writing** (`ankra org current`, `--org`); a wrong-org
   registration is a tear-down, not a rename.
 - **Re-run is the recovery, and §10 is the truth.** Every wait resumes from platform state; a
-  timeout is a pause. Do not emit `deploy`, `approval` or `agent` stages and call them wired.
+  timeout is a pause. Do not emit `approval` or `agent` stages and call them wired, and do not emit
+  `deploy` to reach a cluster: it releases only to host targets.
 
 ## Related skills
 
 - `ankra-applications` — the registry matrix, monorepo components, fleet rollout, the worked run.
-- `ankra-cicd` — repositories without an application, the pipeline authoring primer, the authority gate, the GitOps bump.
+- `ankra-cicd` — repositories without an application, the pipeline authoring primer, the authority gate, fast CI (golden path 6), the GitOps bump.
+- `ankra-app-integrations` — wiring the app to a database, registry, LLM gateway or managed service already in the organisation.
 - `ankra-ai-gateway` — Ask vs Agent per binding, the staging cluster, workspaces and PR demos.
 - `ankra-security` — findings, KEV/EPSS, dispositions, tokens and least-privilege credentials.
 - `ankra-troubleshooting` — up but wrong; `ankra-domains-dns` — the public and preview domains, TLS.

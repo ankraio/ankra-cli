@@ -302,6 +302,12 @@ func newExecTestEnv(t *testing.T) *execTestEnv {
 	t.Setenv("ANKRA_EXEC_NOTRUN_FILE", environment.notRunPath)
 	t.Setenv("ANKRA_EXEC_RETRIES", "1")
 	t.Setenv("ANKRA_EXEC_FORWARD_ENV", "")
+	// CI's job sets GOMEMLIMIT, and so does an Ankra Workspace: any forwarded
+	// name set in the test's own environment would join every run's env, so
+	// each test starts from none of them and sets only what it forwards.
+	for _, name := range execForwardEnv {
+		unsetTestEnv(t, name)
+	}
 	t.Setenv("ANKRA_EXEC_ORG", "")
 	t.Setenv("ANKRA_ORG", "")
 	originalSleep := execSleep
@@ -342,6 +348,31 @@ func (environment *execTestEnv) logLines(t *testing.T) []string {
 		return nil
 	}
 	return strings.Split(strings.TrimSpace(string(contents)), "\n")
+}
+
+// unsetTestEnv removes a variable for the test, restoring it afterwards.
+func unsetTestEnv(t *testing.T, name string) {
+	t.Helper()
+	t.Setenv(name, "")
+	if unsetError := os.Unsetenv(name); unsetError != nil {
+		t.Fatal(unsetError)
+	}
+}
+
+func TestExecForwardsAGoMemoryLimit(t *testing.T) {
+	environment := newExecTestEnv(t)
+	t.Setenv("GOMEMLIMIT", "5GiB")
+	environment.api.addStreams(streamOutput("ok\n", "", exitCode(0), true))
+
+	if _, stderr, code := runExecCommand(t, context.Background(), "go", "test", "./..."); code != 0 {
+		t.Fatalf("exit = %d; stderr:\n%s", code, stderr)
+	}
+	if len(environment.api.runRequests) != 1 {
+		t.Fatalf("runs started = %d", len(environment.api.runRequests))
+	}
+	if env := environment.api.runRequests[0].Env; env["GOMEMLIMIT"] != "5GiB" || len(env) != 1 {
+		t.Fatalf("env = %v, want GOMEMLIMIT forwarded as CI sets it", env)
+	}
 }
 
 func TestExecPassesTheRemoteExitCodeThrough(t *testing.T) {

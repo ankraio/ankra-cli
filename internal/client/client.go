@@ -25,6 +25,12 @@ type Client struct {
 	// deadline, so this is the only thing standing between a wedged server
 	// and a CLI that never returns.
 	slowWriteTimeout time.Duration
+
+	// tokenExpiryWarning warns, once per invocation, when the platform says
+	// the token in use expires within TokenExpiryWarningWindow. Every
+	// transport the client builds shares it, so the slow-write lane cannot
+	// warn a second time.
+	tokenExpiryWarning *tokenExpiryWarning
 }
 
 // defaultSlowWriteTimeout is the overall bound for a long synchronous
@@ -54,9 +60,10 @@ func (t *orgOverrideTransport) RoundTrip(req *http.Request) (*http.Response, err
 // expected to already be validated and normalized via NormalizeBaseURL.
 func New(token, baseURL string) *Client {
 	c := &Client{
-		Token:            token,
-		BaseURL:          baseURL,
-		slowWriteTimeout: defaultSlowWriteTimeout,
+		Token:              token,
+		BaseURL:            baseURL,
+		slowWriteTimeout:   defaultSlowWriteTimeout,
+		tokenExpiryWarning: newTokenExpiryWarning(),
 	}
 	sharedBase := &http.Transport{
 		ResponseHeaderTimeout: 30 * time.Second,
@@ -65,7 +72,10 @@ func New(token, baseURL string) *Client {
 	// retryTransport); the org override header is applied outside the
 	// retry loop so every attempt carries it.
 	sharedTransport := &orgOverrideTransport{
-		base:  &retryTransport{base: sharedBase},
+		base: &tokenExpiryTransport{
+			base:    &retryTransport{base: sharedBase},
+			warning: c.tokenExpiryWarning,
+		},
 		orgID: &c.orgOverride,
 	}
 	c.HTTP = &http.Client{
@@ -100,7 +110,10 @@ func (c *Client) httpClientForSlowWrite() *http.Client {
 	slowWriteBase := &http.Transport{
 		ResponseHeaderTimeout: 0,
 	}
-	slowWriteTransport := &orgOverrideTransport{base: slowWriteBase, orgID: &c.orgOverride}
+	slowWriteTransport := &orgOverrideTransport{
+		base:  &tokenExpiryTransport{base: slowWriteBase, warning: c.tokenExpiryWarning},
+		orgID: &c.orgOverride,
+	}
 	timeout := c.slowWriteTimeout
 	if timeout <= 0 {
 		timeout = defaultSlowWriteTimeout

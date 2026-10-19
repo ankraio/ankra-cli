@@ -156,9 +156,33 @@ func TestCancelPipelineRunAlreadyConcluded(t *testing.T) {
 		w.WriteHeader(http.StatusConflict)
 		_, _ = fmt.Fprint(w, `{"detail":"This pipeline run has already concluded"}`)
 	})
-	_, err := testClient.CancelPipelineRun(context.Background(), PipelineSelector{ApplicationID: "app-1"}, "run-1")
+	_, err := testClient.CancelPipelineRun(context.Background(), PipelineSelector{ApplicationID: "app-1"}, "run-1", false)
 	if err == nil || err.Error() != "This pipeline run has already concluded" {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+// TestCancelPipelineRunSendsForceOnlyWhenAsked pins the force query: absent
+// unless the caller asked for it, so an ordinary cancel still lets the run's
+// finally stages run, and the run's cancelling flag is read back.
+func TestCancelPipelineRunSendsForceOnlyWhenAsked(t *testing.T) {
+	var queries []string
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		queries = append(queries, r.URL.RawQuery)
+		_, _ = fmt.Fprint(w, `{"id":"run-1","run_number":7,"status":"running","cancelling":true}`)
+	})
+	run, err := testClient.CancelPipelineRun(context.Background(), PipelineSelector{ApplicationID: "app-1"}, "run-1", false)
+	if err != nil {
+		t.Fatalf("cancel error = %v", err)
+	}
+	if !run.Cancelling {
+		t.Error("the run's cancelling flag was not read")
+	}
+	if _, err := testClient.CancelPipelineRun(context.Background(), PipelineSelector{ApplicationID: "app-1"}, "run-1", true); err != nil {
+		t.Fatalf("forced cancel error = %v", err)
+	}
+	if len(queries) != 2 || queries[0] != "" || queries[1] != "force=true" {
+		t.Errorf("queries = %q, want no query and then force=true", queries)
 	}
 }
 

@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -169,6 +170,48 @@ func TestCancelExecution(t *testing.T) {
 	}
 	if resp.Status != "cancelling" {
 		t.Errorf("expected cancelling status, got %s", resp.Status)
+	}
+}
+
+// TestExecutionWritesReportAPermissionRefusal pins that a cancel or retry the
+// platform refuses on RBAC grounds (executions.operate at the execution's
+// cluster, cluster#4672) comes back as a *PermissionDeniedError naming the
+// permission, not as the raw JSON body.
+func TestExecutionWritesReportAPermissionRefusal(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse(t, w, http.StatusForbidden, map[string]string{
+			"detail":     "permission_denied",
+			"permission": "executions.operate",
+		})
+	})
+	calls := map[string]func() error{
+		"cancel": func() error {
+			_, callError := testClient.CancelExecution(context.Background(), "exec-1")
+			return callError
+		},
+		"cancel step": func() error {
+			_, callError := testClient.CancelExecutionStep(context.Background(), "exec-1", "step-1")
+			return callError
+		},
+		"retry": func() error {
+			_, callError := testClient.RetryExecution(context.Background(), "exec-1")
+			return callError
+		},
+		"batch cancel": func() error {
+			_, callError := testClient.BatchCancelExecutions(context.Background(), []string{"exec-1"})
+			return callError
+		},
+	}
+	for name, call := range calls {
+		callError := call()
+		var denied *PermissionDeniedError
+		if !errors.As(callError, &denied) || denied.Permission != "executions.operate" {
+			t.Errorf("%s: error = %v, want a PermissionDeniedError for executions.operate", name, callError)
+			continue
+		}
+		if strings.Contains(callError.Error(), "{") {
+			t.Errorf("%s: error carries the raw body: %v", name, callError)
+		}
 	}
 }
 

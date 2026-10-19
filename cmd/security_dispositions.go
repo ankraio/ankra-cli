@@ -583,13 +583,14 @@ Examples:
 		if rendered, err := renderStructured(cmd, mutation); rendered || err != nil {
 			return err
 		}
-		renderSecurityDispositionMutation(cmd.OutOrStdout(), "Recorded", mutation)
+		renderSecurityDispositionPolicy(cmd.OutOrStdout(), "Recorded", mutation.Policy)
 		return nil
 	},
 }
 
-func renderSecurityDispositionMutation(out io.Writer, verb string, mutation *client.SecurityDispositionMutation) {
-	policy := mutation.Policy
+// renderSecurityDispositionPolicy prints the one-line summary of a policy a
+// write just stored.
+func renderSecurityDispositionPolicy(out io.Writer, verb string, policy client.SecurityDisposition) {
 	_, _ = fmt.Fprintf(out, "%s %s policy %s (%s): %s in %s · %s · %d active matches · expires %s\n",
 		verb, policy.Disposition, policy.ID, policy.Status,
 		policy.Selector.CVEID, policy.Selector.PackageName, securitySelectorTarget(policy.Selector),
@@ -641,14 +642,14 @@ the security.manage permission; the write asks for confirmation unless
 		if confirmError := confirmPrompt(cmd.InOrStdin(), narration, fmt.Sprintf("Update disposition policy %s? [y/N]: ", policyID), yes); confirmError != nil {
 			return confirmError
 		}
-		mutation, err := apiClient.UpdateSecurityDisposition(policyID, request)
+		policy, err := apiClient.UpdateSecurityDisposition(policyID, request)
 		if err != nil {
 			return fmt.Errorf("updating the disposition: %w", err)
 		}
-		if rendered, err := renderStructured(cmd, mutation); rendered || err != nil {
+		if rendered, err := renderStructured(cmd, policy); rendered || err != nil {
 			return err
 		}
-		renderSecurityDispositionMutation(cmd.OutOrStdout(), "Updated", mutation)
+		renderSecurityDispositionPolicy(cmd.OutOrStdout(), "Updated", *policy)
 		return nil
 	},
 }
@@ -678,14 +679,14 @@ Needs the security.manage permission; asks for confirmation unless --yes.`,
 		if confirmError := confirmPrompt(cmd.InOrStdin(), narration, fmt.Sprintf("Revoke disposition policy %s? Its occurrences become actionable again. [y/N]: ", policyID), yes); confirmError != nil {
 			return confirmError
 		}
-		mutation, err := apiClient.RevokeSecurityDisposition(policyID, client.SecurityDispositionRevokeRequest{Reason: strings.TrimSpace(reason)})
+		policy, err := apiClient.RevokeSecurityDisposition(policyID, client.SecurityDispositionRevokeRequest{Reason: strings.TrimSpace(reason)})
 		if err != nil {
 			return fmt.Errorf("revoking the disposition: %w", err)
 		}
-		if rendered, err := renderStructured(cmd, mutation); rendered || err != nil {
+		if rendered, err := renderStructured(cmd, policy); rendered || err != nil {
 			return err
 		}
-		renderSecurityDispositionMutation(cmd.OutOrStdout(), "Revoked", mutation)
+		renderSecurityDispositionPolicy(cmd.OutOrStdout(), "Revoked", *policy)
 		return nil
 	},
 }

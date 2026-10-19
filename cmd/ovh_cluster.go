@@ -502,21 +502,7 @@ var ovhSSHKeysGetCmd = &cobra.Command{
 			return nil
 		}
 
-		if len(result.SSHKeyCredentialIDs) == 0 {
-			fmt.Println("Attached SSH keys: none")
-		} else {
-			fmt.Println("Attached SSH key credential IDs:")
-			for _, id := range result.SSHKeyCredentialIDs {
-				fmt.Printf("  %s\n", id)
-			}
-		}
-
-		if len(result.AvailableSSHKeys) > 0 {
-			fmt.Println("\nAvailable SSH key credentials:")
-			for _, key := range result.AvailableSSHKeys {
-				fmt.Printf("  %-38s  %s\n", key.CredentialID, key.Name)
-			}
-		}
+		printClusterSSHKeys(result)
 		return nil
 	},
 }

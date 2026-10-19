@@ -10,6 +10,18 @@ Dockerfile, or containers on a running Docker daemon, local or remote - into a c
 runs. One command does the whole journey; each step is also its own command when you want to
 inspect the result before the next one.
 
+## Recommended path
+
+- Prerequisite from golden path **3, the estate**: a ready backup vault (`ankra-backups`); the
+  dumps travel through it.
+- `--plan`, rehearse while the source serves, cut over once with `--stop-source`. Then the
+  migrated stack is an ordinary stack: commit the generated `cluster.yaml` and manifests to the
+  GitOps repository (golden path **2**, `ankra-gitops`), seal its secrets (`ankra-sops-secrets`),
+  and protect it (`ankra cluster stacks protect`) so it is backed up from day one.
+- Code that will keep changing belongs on golden path **1** (`ankra-ship`: `ankra application
+  add` and Ankra Pipelines); moving a GitHub Actions workflow is `ankra-cicd`, not this skill.
+- Avoid: hand-written manifests or `kubectl apply` for the move, and dumps left in Git or the vault.
+
 ## The one command
 
 ```bash
@@ -29,13 +41,17 @@ is still serving, then run once more with `--stop-source`**: that stops the sour
 non-database services first, so the final dump is the last word on the data.
 
 - `--plan` before anything else. The plan names every item that will *not* be carried.
+- `--stack` / `--namespace` name the target (default: the source's own project name); `--vault`
+  is required when the organisation has more than one ready vault.
 - `--no-data` deploys the workloads only; `--out` moves the working directory
   (default `ankra-migration`); `--timeout` bounds each waiting step.
 - `--option key=value` reaches the module and applies to convert and export alike.
 
-**Not carried:** files in the volumes of non-database workloads, and data in engines the
-export does not dump (Redis, MongoDB, search indexes). Dumped engines today: PostgreSQL and
-MySQL/MariaDB. Nothing is silently dropped - the plan lists each such item; move the rest by
+**Not carried:** files in the volumes of non-database workloads; data in engines the export
+does not dump (Redis, Valkey, MongoDB, Elasticsearch/OpenSearch, RabbitMQ, MinIO, ClickHouse and
+others - they come up empty); a single dump above 625 GiB; PostgreSQL role passwords (the
+application user keeps its Secret, other login roles need `ALTER ROLE ... PASSWORD`). Dumped
+engines today: PostgreSQL and MySQL/MariaDB. Nothing is silently dropped - the plan lists each such item; move the rest by
 hand after the workloads run.
 
 ## Prerequisites
@@ -53,6 +69,7 @@ hand after the workloads run.
 
 ```bash
 ankra migrate detect ./app                       # which modules recognise it, most confident first
+ankra migrate convert ./app --out ./app-k8s --dry-run   # print what would be written
 ankra migrate convert ./app --out ./app-k8s      # write cluster.yaml + manifests; read the warnings
 ankra cluster apply -f ./app-k8s/cluster.yaml    # deploy the stack
 ankra migrate export ./app --out ./app-data      # dump the databases (manifest.json + SHA256SUMS)
@@ -79,6 +96,16 @@ Useful docker-module options (`--option`, repeatable, on convert/export/up):
 | `cluster-issuer=letsencrypt-prod` | request TLS for every Ingress |
 | `volume-size=20Gi` / `storage-class=<name>` | sizing for every PersistentVolumeClaim |
 | `use-environment=true` | let your shell satisfy `${VAR}` references |
+
+When a restore fails, the reason travels with the operation and the CLI prints it. The restore
+Job stays in the namespace for an hour; read it through Ankra:
+
+```bash
+ankra cluster get k8s-jobs -n <namespace>          # ankra-restore-<suffix>
+ankra cluster logs -n <namespace> -l ankra.io/restore-import=<job-name> --all-containers --follow=false
+```
+
+An agent too old for data restores says so - `ankra cluster agent upgrade`.
 
 ## The imports a vault keeps
 
@@ -128,7 +155,8 @@ a module that calls itself something else.
 
 ## Related skills
 
-- `ankra-backups` - the vault the restore path depends on.
+- `ankra-backups` - the vault the restore path depends on, and protecting the migrated stack.
+- `ankra-gitops` - where the generated stack lives after the cutover.
 - `ankra-import-cluster` / `ankra-stacks-addons` - the stack YAML convert generates.
 - `ankra-troubleshooting` - when the deployed workloads misbehave.
 - `ankra-app-integrations` - wiring the migrated app to registries and secrets afterwards.
