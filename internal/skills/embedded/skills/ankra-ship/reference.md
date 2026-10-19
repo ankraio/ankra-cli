@@ -454,6 +454,11 @@ Ankra converts the workflow to `.ankra/pipeline.yaml`, records it as the definit
 `ankra/pipeline-migration` that commits the file and removes Ankra's generated workflow (a workflow
 the repository wrote itself is never touched). Review the result: marketplace actions it cannot map
 become `run` stages that exit 1 with an explanation, never a silent drop.
+A job with no `container:` runs in an Ubuntu image matching its `runs-on` (`buildpack-deps:noble`
+for `ubuntu-latest`/`ubuntu-24.04`, `buildpack-deps:jammy` for `ubuntu-22.04`, pinned by digest),
+set as `defaults.image`, and a `setup-node`/`setup-go`/`setup-python`/`setup-java` step with a
+version becomes the language image of the stages after it. The runner image has git, curl, make
+and gcc but not GitHub's full tool set, so check the notes for stages that need another image.
 
 
 ## A test stage with a database, matrix and cache

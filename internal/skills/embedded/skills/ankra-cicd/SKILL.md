@@ -239,6 +239,8 @@ repository's workflow you map yourself. The concepts line up one to one:
 | `on: push/pull_request/schedule/workflow_dispatch` | `on: push/pull_request/schedule/manual` |
 | a job, its `needs:` | a stage (`kind: run`), its `needs:` |
 | `runs-on: ubuntu-latest` + `container:` | `image:` (the toolchain image *is* the runner) |
+| `runs-on: ubuntu-*` with no `container:` | `defaults.image:` an Ubuntu image of the same release; the converter uses `buildpack-deps:noble` (24.04) or `buildpack-deps:jammy` (22.04), pinned by digest, which carry git, curl, make and gcc but no language toolchain |
+| `actions/setup-node`/`setup-go`/`setup-python`/`setup-java` with a version | `image: node:<v>` / `golang:<v>` / `python:<v>` / `eclipse-temurin:<v>` on the stages after it |
 | `services:` | top-level `services:` + stage `services:` + `network: services` |
 | `strategy.matrix` | `matrix:` (same include/exclude semantics) |
 | `actions/cache` | `cache:` with `key`/`paths`/`restore_keys` |
@@ -247,6 +249,12 @@ repository's workflow you map yourself. The concepts line up one to one:
 | `concurrency` | `concurrency:` |
 | `uses: some/action@v4` | no equivalent — write the shell it wraps as `run:`; a marketplace action with no shell equivalent is a `run:` that says so |
 | a `deploy` job running `kubectl`/`helm` | **delete it**; the Ankra engine deploys from Git (the GitOps bump in [reference.md](reference.md) §C) |
+
+Every `kind: run` stage needs an image, its own or `defaults.image`. A run stage with neither is a
+fatal validation error, reported with the violation key `pipeline_image:` and the stage's name:
+`ankra pipeline validate` refuses the file and no run is planned from it.
+A run stage cannot install a missing tool at run time either (non-root, read-only root filesystem),
+so pick an image that already has what the job's steps call.
 
 Then, in the same PR that adds `.ankra/pipeline.yaml`: delete `.github/workflows/*.yml` (or
 `.gitlab-ci.yml`), or leave a single stub with `on: workflow_dispatch` only. Two CI systems on one

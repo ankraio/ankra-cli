@@ -144,13 +144,18 @@ ankra cluster access grant <email> --cluster prod --role view|edit|admin|cluster
   [--namespace <ns>] [--expires 30m|4h|7d|<RFC3339>] [--reason "..."]
 ankra cluster access revoke <grant-id|email> --cluster prod
 ankra cluster access elevate --cluster prod --role edit --expires 4h --reason "..."   # break-glass, for yourself only
-ankra org access-policy get                        # creator role, ceiling, elevated lifetime, reason rule
+ankra org access-policy get                        # creator role, ceiling, elevated lifetime, reason rule, pending proposal
+ankra org access-policy set --max-role edit --creator-role view --reason "..."   # PROPOSES; prints the apply link
+ankra org access-policy proposals [--status pending|all] ; ankra org access-policy proposal <id>
 ```
 
 A grant without `--expires` is standing. `elevate` needs only `kube_access.elevate`, always grants
 the caller, and requires `--expires` and `--reason`; run it again to extend, `revoke <grant-id>` to
 end it early. A grant the organisation access policy refuses names the limit and what to pass. The
-policy is read-only from the CLI: an owner or admin changes it in the Ankra UI. See `ankra-security`.
+CLI cannot change the policy: `set` only proposes (needs `kube_access.manage`), prints the before
+and after, the proposal id, its 7-day expiry and an apply link, and an organisation owner or admin
+opens that link signed in and applies it. `--wait` blocks until it is decided (exit 0 applied, 4
+dismissed, 1 expired or superseded, 5 on `--timeout`). See `ankra-security`.
 
 ## Triage
 

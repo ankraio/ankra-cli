@@ -96,6 +96,7 @@ ankra cluster access grant bob@example.com --cluster prod --role edit --namespac
   --expires 4h --reason "INC-4711: restart the stuck rollout"
 ankra cluster access revoke alice@example.com --cluster prod   # or a grant id
 ankra org access-policy get                        # the limits every grant is held to
+ankra org access-policy set --max-role edit --elevated-max-ttl 4h --reason "..."   # proposes; an owner/admin applies
 ankra security access --cluster prod               # review: risky grants with their fix, and what could not be checked
 ```
 
@@ -148,10 +149,14 @@ sets no ceiling.
 
 `ankra org access-policy get` reads it and needs `kube_access.manage`, `kube_access.policy` or
 `kube_access.elevate`. Changing it needs `kube_access.policy` (owners and admins) and a person
-signed in: API tokens cannot change it unless they are explicitly scoped for it, and the CLI has no
-command for it. An owner or admin changes it in the Ankra UI under Organisation settings, Roles,
-"Kubernetes access policy". Set a ceiling and an elevated lifetime in every organisation that runs
-production clusters.
+signed in: no API token can change it, whatever its scopes. A token (the CLI, an MCP client) with
+`kube_access.manage` can only PROPOSE a change: `ankra org access-policy set --max-role edit
+--creator-role view --reason "..."` prints the before and after, the proposal id, its 7-day expiry
+and an apply link; an owner or admin opens the link signed in (Organisation settings, Roles,
+"Kubernetes access policy") and applies or dismisses it. One proposal is pending at a time (a new
+one replaces it), and applying is refused if the policy moved since it was proposed. `ankra org
+access-policy proposals` and `proposal <id>` read them; `set --wait` blocks until it is decided.
+Set a ceiling and an elevated lifetime in every organisation that runs production clusters.
 
 A grant the policy refuses fails with a 403 naming the limit: `cluster_access_policy_violation`,
 `cluster_access_grant_expiry_required`, `cluster_access_grant_lifetime_exceeded` or
