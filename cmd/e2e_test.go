@@ -5313,6 +5313,14 @@ func (m baseMock) GetServicePackage(context.Context, string) (*client.ServicePac
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetServiceProfilePin(context.Context, string, string) (*client.ServiceProfilePin, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PublishServicePackage(context.Context, json.RawMessage) (*client.ServicePackageDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetServiceClusterPolicy(context.Context, string) (*client.ServiceClusterPolicy, error) {
 	return nil, errors.New("not implemented")
 }

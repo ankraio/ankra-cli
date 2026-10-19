@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -146,6 +147,46 @@ type ServicePackageContract struct {
 	Secrets       []ServicePackageSecret             `json:"secrets" yaml:"secrets"`
 	Outputs       []ServicePackageOutput             `json:"outputs" yaml:"outputs"`
 	Lifecycle     ServicePackageLifecycle            `json:"lifecycle" yaml:"lifecycle"`
+	// Connection is how consumers reach an instance, declared from schema 2:
+	// the wire protocol and where the engine listens and keeps its
+	// credentials. Absent from a schema 1 package.
+	Connection *ServicePackageConnection `json:"connection,omitempty" yaml:"connection,omitempty"`
+}
+
+// ServicePackageConnection is a package's declared connection: the protocol
+// its consumers speak, the Services it listens on, its credentials Secret and
+// where each of the protocol's connection fields comes from.
+type ServicePackageConnection struct {
+	Protocol   string                                    `json:"protocol" yaml:"protocol"`
+	Endpoints  []ServicePackageConnectionEndpoint        `json:"endpoints" yaml:"endpoints"`
+	SecretName string                                    `json:"secret_name" yaml:"secret_name"`
+	SecretKeys []string                                  `json:"secret_keys" yaml:"secret_keys"`
+	Fields     map[string]ServicePackageConnectionSource `json:"fields" yaml:"fields"`
+}
+
+// ServicePackageConnectionEndpoint is one Service of the engine. The first is
+// the primary: the one consumers are pointed at and the canary dials.
+type ServicePackageConnectionEndpoint struct {
+	Name    string `json:"name" yaml:"name"`
+	Scheme  string `json:"scheme" yaml:"scheme"`
+	Service string `json:"service" yaml:"service"`
+	Port    int    `json:"port" yaml:"port"`
+}
+
+// ServicePackageConnectionSource is where one connection field comes from:
+// kind secret_key (Value is the Secret key), literal (Value is the value),
+// primary_host or primary_address (no Value).
+type ServicePackageConnectionSource struct {
+	Kind  string `json:"kind" yaml:"kind"`
+	Value string `json:"value" yaml:"value"`
+}
+
+// ServiceProfilePin is the exact profile version a package pins: its ids and
+// content digest, and the organisation that owns it (the package's
+// publisher).
+type ServiceProfilePin struct {
+	Profile        ServiceProfileReference `json:"profile" yaml:"profile"`
+	OrganisationID string                  `json:"organisation_id" yaml:"organisation_id"`
 }
 
 // ServicePackageDetail is one package version with its contract.
@@ -633,6 +674,30 @@ func (c *Client) GetServicePackage(ctx context.Context, versionID string) (*Serv
 	var detail ServicePackageDetail
 	address := c.servicesURL("/api/v1/org/service-packages/%s", nil, versionID)
 	if requestError := c.sendJSONContext(ctx, http.MethodGet, address, nil, &detail); requestError != nil {
+		return nil, requestError
+	}
+	return &detail, nil
+}
+
+// GetServiceProfilePin reads the pin a package needs for one version of a
+// stack profile this organisation owns.
+func (c *Client) GetServiceProfilePin(ctx context.Context, profileID string, versionID string) (*ServiceProfilePin, error) {
+	var pin ServiceProfilePin
+	address := c.servicesURL("/api/v1/org/service-packages/profile-pins/%s/%s", nil, profileID, versionID)
+	if requestError := c.sendJSONContext(ctx, http.MethodGet, address, nil, &pin); requestError != nil {
+		return nil, requestError
+	}
+	return &pin, nil
+}
+
+// PublishServicePackage publishes a package version from its contract
+// document, sent exactly as written so the platform validates what the
+// author wrote. Publishing the same name and version again with the same
+// content returns the stored version; different content is refused.
+func (c *Client) PublishServicePackage(ctx context.Context, document json.RawMessage) (*ServicePackageDetail, error) {
+	var detail ServicePackageDetail
+	address := c.servicesURL("/api/v1/org/service-packages", nil)
+	if requestError := c.sendJSONContext(ctx, http.MethodPost, address, document, &detail); requestError != nil {
 		return nil, requestError
 	}
 	return &detail, nil

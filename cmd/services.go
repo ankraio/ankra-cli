@@ -1036,6 +1036,8 @@ type APIClient interface {
 
 	ListServicePackages(ctx context.Context, options client.ServicePageOptions) (*client.ServicePackagePage, error)
 	GetServicePackage(ctx context.Context, versionID string) (*client.ServicePackageDetail, error)
+	GetServiceProfilePin(ctx context.Context, profileID string, versionID string) (*client.ServiceProfilePin, error)
+	PublishServicePackage(ctx context.Context, document json.RawMessage) (*client.ServicePackageDetail, error)
 	GetServiceClusterPolicy(ctx context.Context, clusterID string) (*client.ServiceClusterPolicy, error)
 	SetServiceClusterPolicy(ctx context.Context, clusterID string, request client.ServiceClusterPolicyRequest) (*client.ServiceClusterPolicy, error)
 	ListServiceConsumers(ctx context.Context, applicationID string, options client.ServicePageOptions) (*client.ServiceConsumerPage, error)

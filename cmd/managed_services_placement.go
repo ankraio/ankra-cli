@@ -23,16 +23,19 @@ func newServicesPackagesCommand() *cobra.Command {
 	packagesCommand := &cobra.Command{
 		Use:     "packages",
 		Aliases: []string{"package", "catalog", "catalogue"},
-		Short:   "Browse the service catalogue",
+		Short:   "Browse the service catalogue and publish your own packages",
 		Long: `Browse the service catalogue: the immutable package versions this organisation
-may set up, Ankra's own (PostgreSQL, Valkey, OpenSearch, ...) and any shared
-with it.
+may set up, Ankra's own (PostgreSQL, Valkey, OpenSearch, ...), any shared
+with it, and its own. 'init' and 'publish' turn one of your stack profiles
+into a package that connects to applications like Ankra's own.
 
 Being listed is not being deployable: setup re-checks access and the pinned
 profile when the review is prepared.`,
 	}
 	packagesCommand.AddCommand(newServicesPackagesListCommand())
 	packagesCommand.AddCommand(newServicesPackagesGetCommand())
+	packagesCommand.AddCommand(newServicesPackagesInitCommand())
+	packagesCommand.AddCommand(newServicesPackagesPublishCommand())
 	return packagesCommand
 }
 
