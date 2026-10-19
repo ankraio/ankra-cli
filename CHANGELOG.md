@@ -1,6 +1,12 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.42.0 — 2026-10-19
+
+Signed provenance comes to the CLI: `ankra application provenance` and
+`ankra org provenance` show and change whether deploys verify the
+attestations a pipeline publishes, and manage the organisation's signing
+keys. Stack profiles now treat an empty value as a value: `--set name=` and
+an empty default bind `""` instead of falling back or reading as unset.
 
 ### Added
 
