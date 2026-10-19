@@ -250,8 +250,9 @@ repository's workflow you map yourself. The concepts line up one to one:
 | `uses: some/action@v4` | no equivalent — write the shell it wraps as `run:`; a marketplace action with no shell equivalent is a `run:` that says so |
 | a `deploy` job running `kubectl`/`helm` | **delete it**; the Ankra engine deploys from Git (the GitOps bump in [reference.md](reference.md) §C) |
 
-Every `kind: run` stage needs an image, its own or `defaults.image`. One with neither is fatal
-under `pipeline_image:`: `ankra pipeline validate` refuses the file and no run is planned from it.
+Every `kind: run` stage needs an image, its own or `defaults.image`. A run stage with neither is a
+fatal validation error, reported with the violation key `pipeline_image:` and the stage's name:
+`ankra pipeline validate` refuses the file and no run is planned from it.
 A run stage cannot install a missing tool at run time either (non-root, read-only root filesystem),
 so pick an image that already has what the job's steps call.
 
