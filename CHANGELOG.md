@@ -1,6 +1,11 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.43.0 — 2026-10-19
+
+The organisation's Kubernetes access policy can now be changed from the
+CLI the only way it may be: by proposal. `ankra org access-policy set`
+records the change you want and prints a link, and an organisation owner
+or admin applies it, signed in. No token can change the policy itself.
 
 ### Added
 
