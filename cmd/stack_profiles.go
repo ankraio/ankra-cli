@@ -663,8 +663,11 @@ func previewApply(cmd *cobra.Command, profileID string, versionFlag int, binding
 			name += " *"
 		}
 		value := row.Value
-		if value == "" {
+		switch {
+		case row.Source == "unset":
 			value = "-"
+		case value == "":
+			value = `""`
 		}
 		previewTable.AppendRow(table.Row{name, value, row.Source})
 	}
@@ -700,7 +703,7 @@ func buildParameterBindings(setValues, setFiles, setEnvs []string) ([]client.Par
 		if err != nil {
 			return nil, err
 		}
-		bindings = append(bindings, client.ParameterBinding{Name: name, Value: value})
+		bindings = append(bindings, client.ParameterBinding{Name: name, Value: value, Explicit: true})
 	}
 
 	for _, entry := range setFiles {
@@ -712,7 +715,7 @@ func buildParameterBindings(setValues, setFiles, setEnvs []string) ([]client.Par
 		if readError != nil {
 			return nil, fmt.Errorf("--set-file %q: %w", name, readError)
 		}
-		bindings = append(bindings, client.ParameterBinding{Name: name, Value: string(contents)})
+		bindings = append(bindings, client.ParameterBinding{Name: name, Value: string(contents), Explicit: true})
 	}
 
 	for _, entry := range setEnvs {
@@ -725,7 +728,7 @@ func buildParameterBindings(setValues, setFiles, setEnvs []string) ([]client.Par
 		if !present {
 			return nil, fmt.Errorf("--set-env %q: environment variable %q is not set", name, environmentVariable)
 		}
-		bindings = append(bindings, client.ParameterBinding{Name: name, Value: value})
+		bindings = append(bindings, client.ParameterBinding{Name: name, Value: value, Explicit: true})
 	}
 
 	return bindings, nil
