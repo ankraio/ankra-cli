@@ -244,6 +244,14 @@ func TestConfirmChatActionSuccessFollowsThePlatformStatus(t *testing.T) {
 	}
 }
 
+func TestConfirmChatActionNilResultIsNotRun(t *testing.T) {
+	// No answer is not an observation that the action ran.
+	var result *ConfirmChatActionResult
+	if !result.NotRun() {
+		t.Error("NotRun() = false for a nil result, want true")
+	}
+}
+
 func TestConfirmChatActionHonoursAnExplicitSuccess(t *testing.T) {
 	// A body that states `success` is taken at its word, so a platform that
 	// starts sending it cannot be overridden by the status fallback.

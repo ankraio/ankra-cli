@@ -154,6 +154,9 @@ func confirmNotRunError(result *client.ConfirmChatActionResult, actionID string)
 	if !result.NotRun() {
 		return nil
 	}
+	if result == nil {
+		return withExitCode(exitError, fmt.Errorf("action %s: the platform returned no answer, so it is not known to have run", actionID))
+	}
 	reason := result.Message
 	if reason == "" {
 		reason = "the platform did not say why"
