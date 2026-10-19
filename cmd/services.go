@@ -35,6 +35,9 @@ type APIClient interface {
 	DeleteClusterAccessGrant(ctx context.Context, clusterID string, grantID string) (*client.DeleteClusterAccessGrantResponse, error)
 	ElevateClusterAccess(ctx context.Context, clusterID string, request client.ElevateClusterAccessRequest) (*client.CreateClusterAccessGrantResponse, error)
 	GetClusterAccessPolicy(ctx context.Context) (*client.ClusterAccessPolicy, error)
+	ProposeClusterAccessPolicy(ctx context.Context, request client.ProposeClusterAccessPolicyRequest) (*client.ClusterAccessPolicyProposal, error)
+	GetClusterAccessPolicyProposal(ctx context.Context, proposalID string) (*client.ClusterAccessPolicyProposal, error)
+	ListClusterAccessPolicyProposals(ctx context.Context, status string) (*client.ClusterAccessPolicyProposalList, error)
 
 	ListClusterAddonListing(clusterID string) (client.ClusterAddonListing, error)
 	ListAvailableAddons(clusterID string) ([]client.AvailableAddon, error)

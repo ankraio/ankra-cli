@@ -139,6 +139,18 @@ func (m baseMock) GetClusterAccessPolicy(ctx context.Context) (*client.ClusterAc
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ProposeClusterAccessPolicy(ctx context.Context, request client.ProposeClusterAccessPolicyRequest) (*client.ClusterAccessPolicyProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetClusterAccessPolicyProposal(ctx context.Context, proposalID string) (*client.ClusterAccessPolicyProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListClusterAccessPolicyProposals(ctx context.Context, status string) (*client.ClusterAccessPolicyProposalList, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListStackProfiles(page, pageSize int, search string, category string) (*client.StackProfileListResponse, error) {
 	return nil, errors.New("not implemented")
 }
