@@ -1,5 +1,20 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Changed
+
+- **`ankra cluster agent ci set --run-reservation default` returns a cluster
+  to the platform's run reservation default**, which is now `on` where the
+  cluster's agent supports run reservation and the cluster runs Kubernetes
+  1.33 or later, and `off` everywhere else. A cluster that chose a mode keeps
+  it: `--run-reservation off` is the per-cluster opt-out and stays off
+  whatever the default does, and `default` clears that choice again. `ankra
+  cluster agent ci get` says where the mode comes from, as `on (platform
+  default)` or `off (chosen)`, and `-o json` carries the platform's
+  `ci_run_reservation_source`. A platform older than the default prints the
+  mode alone, as before, and refuses `default` with its own message (exit 1).
+
 ## v0.41.0 — 2026-10-18
 
 The headline is reaching cluster-scoped kinds: `ankra cluster delete`,
