@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra cluster ankracloud quota <cluster>` shows how much of the Ankra
+  Cloud account is left.** Running out of account quota used to show up only
+  after the fact, as a PersistentVolumeClaim stuck Pending on
+  `ProvisioningFailed` or a node-group scale failing inside a reconcile
+  operation. The command lists each limit (servers, cores, memory, storage,
+  floating IPs, private networks, routers) with what the account already
+  holds and what is left, names the ones near or at their limit, and says how
+  to raise one. `-o json|yaml` prints the report as the platform returns it.
+
+### Fixed
+
+- **`ankra cluster apply --wait` and `ankra cluster stacks deploy-draft` print
+  the platform's warnings.** A write that needs more new claim storage than
+  the Ankra Cloud account has left now says so after it succeeds, naming the
+  limit, what the account holds, what the change asks for and where to raise
+  the limit. `deploy-draft` could not read a stack write that carried any
+  warning at all, because it expected the warnings as plain strings; it now
+  reads the objects the platform sends.
+
 ### Fixed
 
 - **`ankra cluster draft` now says why a stack was refused.** A request the

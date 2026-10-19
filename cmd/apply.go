@@ -178,6 +178,7 @@ func runApply(cmd *cobra.Command, _ []string) error {
 
 	fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
 		strings.TrimRight(baseURL, "/"), importResponse.ClusterId)
+	printValidationWarnings(cmd.ErrOrStderr(), importResponse.Warnings)
 	return nil
 }
 

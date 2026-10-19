@@ -2604,6 +2604,10 @@ func (m baseMock) GetAnkraCloudK8sVersion(clusterID string) (*client.K8sVersionI
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetAnkraCloudQuotas(clusterID string) (*client.ClusterQuotaReport, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) UpgradeAnkraCloudK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error) {
 	return nil, errors.New("not implemented")
 }
