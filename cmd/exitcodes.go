@@ -79,6 +79,14 @@ func exitCodeFor(err error) int {
 	// in again or a stronger role cannot change it, and the way out is a
 	// different request (change the member's role), so it is a usage error
 	// rather than the generic failure a script may retry.
+	// A cluster access policy proposal the platform refused as invalid
+	// (422: an unknown role, a bound out of range, a creator role above the
+	// ceiling, a proposal identical to the live policy) is fixed by changing
+	// the flags.
+	var rejectedProposal *client.ClusterAccessPolicyProposalRejectedError
+	if errors.As(err, &rejectedProposal) {
+		return exitUsage
+	}
 	var roleGrant *client.ClusterAccessRoleGrantError
 	if errors.As(err, &roleGrant) {
 		return exitUsage

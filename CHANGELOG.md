@@ -1,5 +1,25 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra org access-policy set` proposes a change to the organisation's
+  Kubernetes access policy, and a person applies it.** The policy stays
+  human-only: no token can change it. `set` takes only what should change
+  (`--creator-role`, `--max-role`, `--elevated-max-ttl 4h|7d|none`,
+  `--require-reason-from <role>|none`) and a required `--reason`, and prints
+  the policy before and after with the changed rows marked, the proposal id,
+  when it expires (7 days) and the link an organisation owner or admin opens,
+  signed in, to apply it. Nothing changes until they do; the CLI cannot apply
+  it. `--wait` blocks until the proposal is decided and exits 0 when it was
+  applied, 4 when it was dismissed, 1 when it expired or a newer proposal
+  replaced it, and 5 when `--timeout` (default 30m) ran out. `ankra org
+  access-policy proposals [--status pending|all]` and `proposal <id>` read
+  them, and `get` names a pending proposal and its link. Proposing needs the
+  `kube_access.manage` permission (exit 7 without it); a proposal the platform
+  refuses as invalid or identical to the live policy exits 2.
+
 ## v0.42.0 — 2026-10-19
 
 Signed provenance comes to the CLI: `ankra application provenance` and
