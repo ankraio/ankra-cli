@@ -1,5 +1,26 @@
 # Ankra CLI Changelog
 
+## v0.43.1 — 2026-10-19
+
+`ankra chat actions confirm` now tells a script the truth: `-o json` says
+`success: true` for an action that ran, and a confirmation the platform
+answered without running the action exits 1.
+
+### Fixed
+
+- **`ankra chat actions confirm -o json` reports `success: true` for an
+  action that ran.** The platform's confirm answer says what happened in
+  `status` and carries no `success` field, so the CLI printed
+  `success: false` next to `status: confirmed` and "Action executed
+  successfully", and a script checking `.success` treated every working
+  confirm as a failure. `success` is now true exactly when the status is
+  `confirmed`. A confirm the platform answers with any other status (`failed`
+  when the action errored, or when the organisation's write limit refused it
+  and the card is still pending) no longer prints "Action ... confirmed": it
+  exits 1 with the platform's reason, after the JSON or YAML document when
+  `-o` is set. A reject still exits 0.
+  `-o yaml` now uses the same field names as `-o json`.
+
 ## v0.43.0 — 2026-10-19
 
 The organisation's Kubernetes access policy can now be changed from the
@@ -24,21 +45,6 @@ or admin applies it, signed in. No token can change the policy itself.
   them, and `get` names a pending proposal and its link. Proposing needs the
   `kube_access.manage` permission (exit 7 without it); a proposal the platform
   refuses as invalid or identical to the live policy exits 2.
-
-### Fixed
-
-- **`ankra chat actions confirm -o json` reports `success: true` for an
-  action that ran.** The platform's confirm answer says what happened in
-  `status` and carries no `success` field, so the CLI printed
-  `success: false` next to `status: confirmed` and "Action executed
-  successfully", and a script checking `.success` treated every working
-  confirm as a failure. `success` is now true exactly when the status is
-  `confirmed`. A confirm the platform answers with any other status (`failed`
-  when the action errored, or when the organisation's write limit refused it
-  and the card is still pending) no longer prints "Action ... confirmed": it
-  exits 1 with the platform's reason, after the JSON or YAML document when
-  `-o` is set. A reject still exits 0.
-  `-o yaml` now uses the same field names as `-o json`.
 
 ## v0.42.0 — 2026-10-19
 
