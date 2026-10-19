@@ -201,7 +201,7 @@ func stackWriteResultFromPromote(promoted *client.PatchStackResult) *client.Stac
 		if promoted.GitPushMessage != "" {
 			message += " " + promoted.GitPushMessage
 		}
-		result.Warnings = append(result.Warnings, message)
+		result.Warnings = append(result.Warnings, client.ValidationWarning{Kind: "Stack", Message: message, Category: "gitops"})
 	}
 	return result
 }
@@ -211,18 +211,18 @@ func stackWriteResultFromPromote(promoted *client.PatchStackResult) *client.Stac
 // draft still bound to the stack holds something this write did not ship -
 // a member removal, or an edit made in the builder meanwhile. A listing that
 // cannot be read is said to be unconfirmed rather than taken as "closed".
-func draftLeftoverWarnings(clusterID string, listed client.ClusterStackDocument) []string {
+func draftLeftoverWarnings(clusterID string, listed client.ClusterStackDocument) []client.ValidationWarning {
 	documents, listError := apiClient.ListClusterStackDocuments(clusterID)
 	if listError != nil {
-		return []string{fmt.Sprintf(
+		return []client.ValidationWarning{{Kind: "Stack", Name: listed.Name(), Category: "draft", Message: fmt.Sprintf(
 			"Could not confirm the draft of stack '%s' was closed (%v); check it with 'ankra cluster stacks list %s'.",
-			listed.Name(), listError, listed.Name())}
+			listed.Name(), listError, listed.Name())}}
 	}
 	for _, document := range documents {
 		if strings.EqualFold(document.Name(), listed.Name()) && document.DraftID() == listed.DraftID() {
-			return []string{fmt.Sprintf(
+			return []client.ValidationWarning{{Kind: "Stack", Name: listed.Name(), Category: "draft", Message: fmt.Sprintf(
 				"Stack '%s' still holds a draft after this deploy: it carries changes this command does not ship, "+
-					"such as a member removal. Review and deploy them from the stack builder.", listed.Name())}
+					"such as a member removal. Review and deploy them from the stack builder.", listed.Name())}}
 		}
 	}
 	return nil

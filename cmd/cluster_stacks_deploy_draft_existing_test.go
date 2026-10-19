@@ -229,7 +229,7 @@ func TestStackWriteResultFromPromoteKeepsRefusalsAndTheDeferredPush(t *testing.T
 	if result.OperationID != nil || result.CommitSHA != nil {
 		t.Fatalf("absent ids must stay absent: %+v", result)
 	}
-	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "The repository is unreachable.") {
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0].Message, "The repository is unreachable.") {
 		t.Fatalf("a deferred push must be a warning: %+v", result.Warnings)
 	}
 }
