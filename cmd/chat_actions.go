@@ -119,6 +119,9 @@ func runChatActionDecision(cmd *cobra.Command, actionID string, confirmed, force
 	if handled, renderError := renderStructured(cmd, result); renderError != nil {
 		return renderError
 	} else if handled {
+		if !confirmed {
+			return nil
+		}
 		return confirmNotRunError(result, actionID)
 	}
 
@@ -139,11 +142,13 @@ func runChatActionDecision(cmd *cobra.Command, actionID string, confirmed, force
 	return nil
 }
 
-// confirmNotRunError turns a 200 `failed` answer into an exit-1 error. The
-// platform answers 200 for an action it did not run - an execution error, or
-// the organisation's write limit refusing it with the card left pending - so
+// confirmNotRunError turns a confirmation the platform answered without
+// running the action into an exit-1 error. The platform answers 200 for an
+// action it did not run - `failed` for an execution error, or for the
+// organisation's write limit refusing it with the card left pending - so
 // without this a script saw exit 0 for a write that never happened
-// (ankra-g7307k). Structured output has already been written to stdout by
+// (ankra-g7307k). Any status but `confirmed` counts, so an outcome this CLI
+// does not recognise is never printed as confirmed. Only for confirmed=true. Structured output has already been written to stdout by
 // the time this runs; the error goes to stderr.
 func confirmNotRunError(result *client.ConfirmChatActionResult, actionID string) error {
 	if !result.NotRun() {
@@ -152,6 +157,9 @@ func confirmNotRunError(result *client.ConfirmChatActionResult, actionID string)
 	reason := result.Message
 	if reason == "" {
 		reason = "the platform did not say why"
+	}
+	if result.Status != "" && result.Status != client.ConfirmStatusFailed {
+		reason += " (status " + result.Status + ")"
 	}
 	return withExitCode(exitError, fmt.Errorf("action %s was not run: %s", actionID, reason))
 }

@@ -198,7 +198,11 @@ func TestConfirmChatActionSuccessFollowsThePlatformStatus(t *testing.T) {
 	}{
 		{"executed", ConfirmStatusConfirmed, "Action executed successfully", true, false},
 		{"write limit refused it", ConfirmStatusFailed, "Organisation write limit reached", false, true},
-		{"rejected", ConfirmStatusRejected, "Action rejected", false, false},
+		// A reject is not a confirmation; callers ask NotRun only after
+		// confirming, where `rejected` would indeed mean it did not run.
+		{"rejected", ConfirmStatusRejected, "Action rejected", false, true},
+		// A status this CLI does not know never reads as executed.
+		{"unknown status", "pending", "Queued", false, true},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

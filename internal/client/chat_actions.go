@@ -110,11 +110,14 @@ func (result *ConfirmChatActionResult) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// NotRun reports whether the platform answered a confirmation without running
-// the action: the 200 `failed` status (an execution error, or the write limit
-// refusing it before it started).
+// NotRun reports, for a confirmation (confirmed=true), whether the platform
+// answered without running the action: anything but success, which covers
+// the 200 `failed` status (an execution error, or the write limit refusing it
+// before it started) and any status this CLI does not know. A reject answers
+// `rejected`, which is not a confirmation, so callers ask this only when
+// they confirmed.
 func (result *ConfirmChatActionResult) NotRun() bool {
-	return result != nil && result.Status == ConfirmStatusFailed
+	return result != nil && !result.Success
 }
 
 // ConfirmChatAction confirms or rejects a pending AI action.

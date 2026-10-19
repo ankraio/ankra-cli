@@ -285,3 +285,34 @@ func TestChatActionsConfirmJSONStillPrintsTheDocumentWhenNotRun(t *testing.T) {
 		t.Errorf("rendered = %v, want success false and status failed", rendered)
 	}
 }
+
+func TestChatActionsConfirmUnknownStatusIsNotReportedConfirmed(t *testing.T) {
+	// Only `confirmed` means the action ran; an outcome this CLI does not
+	// recognise must not print "confirmed" and exit 0.
+	mock := &chatActionMock{confirmResult: platformConfirmResult(t, "pending", "Queued")}
+	setMockClient(t, mock)
+
+	var commandError error
+	stdoutOutput := captureStdout(t, func() {
+		_, commandError = executeCommand("chat", "actions", "confirm", "action-8")
+	})
+	if exitCodeFor(commandError) != exitError {
+		t.Errorf("exit code = %d, want %d (error %v)", exitCodeFor(commandError), exitError, commandError)
+	}
+	if strings.Contains(stdoutOutput, "Action action-8 confirmed") {
+		t.Errorf("an unrecognised status must not read as confirmed, got: %s", stdoutOutput)
+	}
+}
+
+func TestChatActionsRejectJSONExitsZero(t *testing.T) {
+	// A reject answers `rejected` with success false; that is the reject
+	// working, not a failure.
+	mock := &chatActionMock{confirmResult: platformConfirmResult(t, "rejected", "Action rejected")}
+	setMockClient(t, mock)
+	t.Cleanup(func() { _ = chatActionsRejectCmd.Flags().Set("output", "") })
+
+	output, commandError := executeCommand("chat", "actions", "reject", "action-9", "-o", "json")
+	if commandError != nil {
+		t.Fatalf("reject: %v\n%s", commandError, output)
+	}
+}
