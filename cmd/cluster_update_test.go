@@ -151,7 +151,9 @@ func TestClusterUpdateRefusesBadInputBeforeWriting(t *testing.T) {
 		"no environment":       {"so-infrastructure"},
 		"blank environment":    {"so-infrastructure", "--environment", "   "},
 		"environment too long": {"so-infrastructure", "--environment", strings.Repeat("e", clusterEnvironmentNameLimit+1)},
-		"unknown criticality":  {"so-infrastructure", "--environment", "development", "--criticality", "loud"},
+		// 26 letters but 52 bytes: the platform counts bytes, so it would refuse this.
+		"non-ASCII environment over the byte limit": {"so-infrastructure", "--environment", strings.Repeat("é", 26)},
+		"unknown criticality":                       {"so-infrastructure", "--environment", "development", "--criticality", "loud"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			mock := newClusterUpdateMock()
@@ -240,19 +242,38 @@ func TestUnreadImportMetadataWarnings(t *testing.T) {
 	}{
 		"environment": {importClusterWithEnvironment, []string{
 			"metadata.environment is not read: a cluster file does not set or change the cluster's environment. " +
-				"Set it with: ankra cluster update so-infrastructure --environment development"}},
+				"Once the cluster exists, set it with: ankra cluster update so-infrastructure --environment development"}},
 		"criticality that is not text": {"kind: ImportCluster\nmetadata:\n  name: edge\n  criticality: [loud]\nspec:\n  stacks: []\n",
 			[]string{"metadata.criticality is not read: a cluster file does not set or change the cluster's reporting level. " +
-				"Set it with: ankra cluster update edge --criticality <value>"}},
+				"Once the cluster exists, set it with: ankra cluster update edge --criticality <value>"}},
 		"a value that needs quoting": {"kind: ImportCluster\nmetadata:\n  name: edge\n  environment: EU QA\nspec:\n  stacks: []\n",
 			[]string{"metadata.environment is not read: a cluster file does not set or change the cluster's environment. " +
-				"Set it with: ankra cluster update edge --environment 'EU QA'"}},
+				"Once the cluster exists, set it with: ankra cluster update edge --environment 'EU QA'"}},
 		"neither": {"kind: ImportCluster\nmetadata:\n  name: edge\n  description: x\nspec:\n  stacks: []\n", nil},
 	} {
 		got := unreadImportMetadataWarnings(writeImportClusterWithEnvironment(t, testCase.document))
 		if strings.Join(got, "\n") != strings.Join(testCase.want, "\n") {
 			t.Errorf("%s:\n got %q\nwant %q", name, got, testCase.want)
 		}
+	}
+}
+
+// The warning inspects the document apply sends and no other. apply reads only
+// the first document of a '---' stream, so a key in a later one is not
+// warned about; if apply ever reads further, this fails and the warning has
+// to follow it.
+func TestUnreadImportMetadataWarningsReadTheDocumentApplySends(t *testing.T) {
+	const twoDocuments = "kind: ImportCluster\nmetadata:\n  name: so-infrastructure\nspec:\n  stacks: []\n" +
+		"---\nkind: ImportCluster\nmetadata:\n  name: so-upcloud-infrastructure\n  environment: development\nspec:\n  stacks: []\n"
+	importRequest, buildError := buildImportRequestFromBytes([]byte(twoDocuments), t.TempDir())
+	if buildError != nil {
+		t.Fatalf("building the request: %v", buildError)
+	}
+	if importRequest.Name != "so-infrastructure" {
+		t.Fatalf("apply now sends %q, not the first document; the warning reads only the first", importRequest.Name)
+	}
+	if got := unreadImportMetadataWarnings(writeImportClusterWithEnvironment(t, twoDocuments)); got != nil {
+		t.Errorf("warned about a document apply does not send: %q", got)
 	}
 }
 

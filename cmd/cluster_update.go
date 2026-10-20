@@ -19,6 +19,8 @@ import (
 // change on a schedule (PLA-913).
 
 // clusterEnvironmentNameLimit is the platform's limit on an environment name.
+// The platform counts it in bytes (Go len), so the check here does too: a
+// rune count would pass a non-ASCII name the platform then refuses.
 const clusterEnvironmentNameLimit = 50
 
 // clusterCriticalities are the reporting levels the platform accepts, loudest
@@ -129,7 +131,8 @@ func resolveClusterUpdateInput(environmentFlag string, criticalityFlag string) (
 		return "", "", errors.New("--environment is required: production, staging, development, testing, local, or a name of your own")
 	}
 	if len(environment) > clusterEnvironmentNameLimit {
-		return "", "", fmt.Errorf("--environment must be at most %d characters", clusterEnvironmentNameLimit)
+		return "", "", fmt.Errorf("--environment must be at most %d bytes (a letter outside ASCII counts as two or more)",
+			clusterEnvironmentNameLimit)
 	}
 	pairedLevel, isPreset := presetEnvironmentReportingLevels[strings.ToLower(environment)]
 	if isPreset {

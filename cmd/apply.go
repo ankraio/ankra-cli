@@ -236,7 +236,11 @@ var unreadImportMetadata = []struct{ key, names, flag string }{
 
 // unreadImportMetadataWarnings returns one line per unread key the file at
 // filePath sets. A file that cannot be read or parsed yields none; loading it
-// reports that.
+// reports that. It parses with the same yaml.Unmarshal as
+// buildImportRequestFromBytes, which reads only the first document of a
+// '---' stream, so it inspects exactly the document apply sends. The
+// suggestion says "once the cluster exists" because validate, a dry run, or
+// the apply that creates the cluster all print it before there is one.
 func unreadImportMetadataWarnings(filePath string) []string {
 	data, readError := os.ReadFile(filePath)
 	if readError != nil {
@@ -260,7 +264,7 @@ func unreadImportMetadataWarnings(filePath string) []string {
 			suggestedValue = shellWordOrQuoted(strings.TrimSpace(text))
 		}
 		warnings = append(warnings, fmt.Sprintf(
-			"metadata.%s is not read: a cluster file does not set or change the cluster's %s. Set it with: ankra cluster update %s %s %s",
+			"metadata.%s is not read: a cluster file does not set or change the cluster's %s. Once the cluster exists, set it with: ankra cluster update %s %s %s",
 			unread.key, unread.names, shellWordOrQuoted(clusterName), unread.flag, suggestedValue))
 	}
 	return warnings
