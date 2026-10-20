@@ -89,6 +89,10 @@ func (m baseMock) MoveCluster(ctx context.Context, clusterID string, destination
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) SetClusterEnvironment(context.Context, string, string, string) (*client.ClusterEnvironmentResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) DeprovisionCluster(ctx context.Context, clusterID string) (*client.DeprovisionClusterResult, error) {
 	return nil, errors.New("not implemented")
 }
