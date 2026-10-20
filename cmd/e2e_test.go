@@ -893,6 +893,18 @@ func (m baseMock) GetOrganisationDnsZone(ctx context.Context) (*client.DnsZone, 
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListCloudDNSZones(ctx context.Context) (*client.CloudDNSZones, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetCloudDNSAccess(ctx context.Context, zoneID string) (*client.CloudDNSAccessPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateCloudDNSAccess(ctx context.Context, zoneID string, policy client.CloudDNSAccessPolicy) (*client.CloudDNSAccessPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListOrganisationDnsRecords(ctx context.Context) (*client.DnsRecordsListResult, error) {
 	return nil, errors.New("not implemented")
 }

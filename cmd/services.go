@@ -200,6 +200,9 @@ type APIClient interface {
 	DeleteClusterVariable(ctx context.Context, clusterID, name string) error
 
 	GetOrganisationDnsZone(ctx context.Context) (*client.DnsZone, error)
+	ListCloudDNSZones(ctx context.Context) (*client.CloudDNSZones, error)
+	GetCloudDNSAccess(ctx context.Context, zoneID string) (*client.CloudDNSAccessPolicy, error)
+	UpdateCloudDNSAccess(ctx context.Context, zoneID string, policy client.CloudDNSAccessPolicy) (*client.CloudDNSAccessPolicy, error)
 	ListOrganisationDnsRecords(ctx context.Context) (*client.DnsRecordsListResult, error)
 	CreateOrganisationDnsRecord(ctx context.Context, name, recordType, content string, ttl *int) (*client.DnsRecord, error)
 	UpdateOrganisationDnsRecord(ctx context.Context, recordID, content string, ttl *int) (*client.DnsRecord, error)

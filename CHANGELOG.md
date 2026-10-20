@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra org access-gateway status` checks a Platform and Cloud relay deployment together.** It reads live workloads and Secret references through Ankra, and supports JSON/YAML output without revealing credentials. Pass `--platform-cluster` and `--relay-cluster` to name the two clusters. Token equality and a browser SSO login remain separate checks.
+- **`ankra org access-gateway zones|get|set` manages Cloud DNS proxy policies with an Ankra login.** List the organisation's Cloud zones, inspect an effective access policy, or set `--mode public|organisation` with optional repeated `--role` values. The Platform checks organisation membership and `members.manage` before forwarding a policy change to Cloud.
+
 ### Fixed
 
 - **Cluster resource commands accept the declared plural of a custom resource.** Pass `--resource backuprepositories` with `--group velero.io --api-version v1` when a CRD's plural cannot be derived from its kind. This fixes false not-found results from `cluster patch` and `cluster delete` for resources such as Velero BackupRepository.

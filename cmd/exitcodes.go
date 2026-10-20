@@ -65,6 +65,13 @@ func exitCodeFor(err error) int {
 	if errors.Is(err, client.ErrUnauthorized) {
 		return exitAuth
 	}
+	if errors.Is(err, client.ErrCloudDNSZoneNotFound) {
+		return exitNotFound
+	}
+	var invalidCloudPolicy *client.CloudDNSValidationError
+	if errors.As(err, &invalidCloudPolicy) {
+		return exitUsage
+	}
 	// A cluster access request the organisation access policy refused (a
 	// role above the ceiling, a missing or too long --expires, a missing
 	// --reason) is fixed by changing the invocation, not the caller's role:
