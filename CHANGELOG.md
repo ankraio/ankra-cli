@@ -4,6 +4,7 @@
 
 ### Added
 
+- **`ankra services packages init --addon <chart> --registry <name> --chart-version <v>` makes a managed service from one Helm chart.** It first creates a stack profile holding that chart alone (each service it sets up installs into a namespace named after the service; `--values` passes a values file), then writes the package pinned to it, as `init --profile` does. Fill in the connection and publish it with `ankra services packages publish`. The output file is checked before the profile is created, so a refused run leaves nothing behind.
 - **`ankra org access-gateway status` checks a Platform and Cloud relay deployment together.** It reads live workloads and Secret references through Ankra, and supports JSON/YAML output without revealing credentials. Pass `--platform-cluster` and `--relay-cluster` to name the two clusters. Token equality and a browser SSO login remain separate checks.
 - **`ankra org access-gateway zones|get|set` manages Cloud DNS proxy policies with an Ankra login.** List the organisation's Cloud zones, inspect an effective access policy, or set `--mode public|organisation` with optional repeated `--role` values. The Platform checks organisation membership and `members.manage` before forwarding a policy change to Cloud.
 
