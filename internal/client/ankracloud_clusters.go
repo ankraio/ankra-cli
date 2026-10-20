@@ -45,36 +45,45 @@ const (
 // control_plane_plan are required; worker_plan is required while worker_count
 // is above zero and no node_groups are sent, and etcd_plan for an external
 // etcd topology.
+//
+// The *_disk_gibibytes members size each role's root disk in GiB (a node
+// group's disk_gibibytes wins over worker_disk_gibibytes). Omitted, a server
+// takes its plan's included disk; Ankra Cloud refuses a size below the
+// plan's and the template's minimum.
 type CreateAnkraCloudClusterRequest struct {
-	Name                 string                `json:"name"`
-	Description          *string               `json:"description,omitempty"`
-	CredentialID         string                `json:"credential_id"`
-	RuntimeCredentialID  *string               `json:"runtime_credential_id,omitempty"`
-	SSHKeyCredentialID   string                `json:"ssh_key_credential_id"`
-	Zone                 string                `json:"zone"`
-	Template             string                `json:"template,omitempty"`
-	PrivateNetworkID     *string               `json:"private_network_id,omitempty"`
-	NetworkIPRange       *string               `json:"network_ip_range,omitempty"`
-	NetworkMode          string                `json:"network_mode,omitempty"`
-	BastionPlan          string                `json:"bastion_plan"`
-	BastionAllowedIPs    []string              `json:"bastion_allowed_ips,omitempty"`
-	ControlPlaneCount    int                   `json:"control_plane_count,omitempty"`
-	ControlPlanePlan     string                `json:"control_plane_plan"`
-	WorkerCount          *int                  `json:"worker_count,omitempty"`
-	WorkerPlan           string                `json:"worker_plan,omitempty"`
-	Distribution         string                `json:"distribution,omitempty"`
-	KubernetesVersion    *string               `json:"kubernetes_version,omitempty"`
-	EtcdTopology         string                `json:"etcd_topology,omitempty"`
-	EtcdNodeCount        int                   `json:"etcd_node_count,omitempty"`
-	EtcdPlan             string                `json:"etcd_plan,omitempty"`
-	CNI                  string                `json:"cni,omitempty"`
-	NodeGroups           []AddNodeGroupRequest `json:"node_groups,omitempty"`
-	GitopsCredentialName *string               `json:"gitops_credential_name,omitempty"`
-	GitopsRepository     *string               `json:"gitops_repository,omitempty"`
-	GitopsBranch         *string               `json:"gitops_branch,omitempty"`
-	IncludeNetworking    *bool                 `json:"include_networking,omitempty"`
-	IncludeDNS           *bool                 `json:"include_dns,omitempty"`
-	RetentionPolicy      string                `json:"retention_policy,omitempty"`
+	Name                      string                `json:"name"`
+	Description               *string               `json:"description,omitempty"`
+	CredentialID              string                `json:"credential_id"`
+	RuntimeCredentialID       *string               `json:"runtime_credential_id,omitempty"`
+	SSHKeyCredentialID        string                `json:"ssh_key_credential_id"`
+	Zone                      string                `json:"zone"`
+	Template                  string                `json:"template,omitempty"`
+	PrivateNetworkID          *string               `json:"private_network_id,omitempty"`
+	NetworkIPRange            *string               `json:"network_ip_range,omitempty"`
+	NetworkMode               string                `json:"network_mode,omitempty"`
+	BastionPlan               string                `json:"bastion_plan"`
+	BastionAllowedIPs         []string              `json:"bastion_allowed_ips,omitempty"`
+	ControlPlaneCount         int                   `json:"control_plane_count,omitempty"`
+	ControlPlanePlan          string                `json:"control_plane_plan"`
+	WorkerCount               *int                  `json:"worker_count,omitempty"`
+	WorkerPlan                string                `json:"worker_plan,omitempty"`
+	Distribution              string                `json:"distribution,omitempty"`
+	KubernetesVersion         *string               `json:"kubernetes_version,omitempty"`
+	EtcdTopology              string                `json:"etcd_topology,omitempty"`
+	EtcdNodeCount             int                   `json:"etcd_node_count,omitempty"`
+	EtcdPlan                  string                `json:"etcd_plan,omitempty"`
+	CNI                       string                `json:"cni,omitempty"`
+	NodeGroups                []AddNodeGroupRequest `json:"node_groups,omitempty"`
+	GitopsCredentialName      *string               `json:"gitops_credential_name,omitempty"`
+	GitopsRepository          *string               `json:"gitops_repository,omitempty"`
+	GitopsBranch              *string               `json:"gitops_branch,omitempty"`
+	IncludeNetworking         *bool                 `json:"include_networking,omitempty"`
+	IncludeDNS                *bool                 `json:"include_dns,omitempty"`
+	RetentionPolicy           string                `json:"retention_policy,omitempty"`
+	BastionDiskGibibytes      int                   `json:"bastion_disk_gibibytes,omitempty"`
+	ControlPlaneDiskGibibytes int                   `json:"control_plane_disk_gibibytes,omitempty"`
+	EtcdDiskGibibytes         int                   `json:"etcd_disk_gibibytes,omitempty"`
+	WorkerDiskGibibytes       int                   `json:"worker_disk_gibibytes,omitempty"`
 }
 
 type CreateAnkraCloudClusterResponse struct {
