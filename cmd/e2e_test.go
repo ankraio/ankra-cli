@@ -1726,7 +1726,7 @@ func (m baseMock) SetClusterAgentAutoUpgrade(context.Context, string, bool) (*cl
 	return &client.AgentSettingsResult{Success: true, Message: "Cluster agent settings updated successfully"}, nil
 }
 
-func (m baseMock) UpgradeClusterAgent(ctx context.Context, clusterID string) (*client.UpgradeAgentResult, error) {
+func (m baseMock) UpgradeClusterAgent(ctx context.Context, clusterID string, request client.AgentUpgradeRequest) (*client.UpgradeAgentResult, error) {
 	return nil, errors.New("not implemented")
 }
 
