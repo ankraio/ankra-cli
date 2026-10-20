@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"sort"
 	"strings"
@@ -216,19 +215,25 @@ package pinned to it.`,
 			case !fromAddon && (addonRegistry != "" || addonChartVersion != "" || addonValuesPath != ""):
 				return errors.New("--registry, --chart-version and --values go with --addon")
 			}
-			if fromAddon {
-				// Creating the profile is not undone, so a file init could not
-				// write is refused before anything is created.
-				if outputPath != "" && outputPath != "-" {
-					_, statError := os.Stat(outputPath)
-					switch {
-					case statError == nil:
-						return fmt.Errorf("%s already exists; choose another file or remove it first", outputPath)
-					case !errors.Is(statError, fs.ErrNotExist):
-						// A path that cannot be checked is not known to be writable.
-						return fmt.Errorf("checking %s before creating anything: %w", outputPath, statError)
-					}
+			// reserved is the output file, created empty before the profile
+			// when --addon will create one: creating a profile is not undone,
+			// so a file init could not write is refused before anything
+			// exists, and removed again if a later step fails.
+			var reserved *os.File
+			if fromAddon && outputPath != "" && outputPath != "-" {
+				file, openError := openNewFile(outputPath)
+				if openError != nil {
+					return fmt.Errorf("preparing %s before creating anything: %w", outputPath, openError)
 				}
+				reserved = file
+				defer func() {
+					if reserved != nil {
+						_ = reserved.Close()
+						_ = os.Remove(outputPath)
+					}
+				}()
+			}
+			if fromAddon {
 				createdProfile, createdVersion, createError := profileFromAddon(name, addonChart, addonChartVersion, addonRegistry, addonValuesPath)
 				if createError != nil {
 					return createError
@@ -249,7 +254,17 @@ package pinned to it.`,
 				_, writeError := command.OutOrStdout().Write(encoded)
 				return writeError
 			}
-			if writeError := writeNewFile(outputPath, encoded); writeError != nil {
+			if reserved != nil {
+				file := reserved
+				reserved = nil
+				if _, writeError := file.Write(encoded); writeError != nil {
+					_ = file.Close()
+					return writeError
+				}
+				if closeError := file.Close(); closeError != nil {
+					return closeError
+				}
+			} else if writeError := writeNewFile(outputPath, encoded); writeError != nil {
 				return writeError
 			}
 			_, _ = fmt.Fprintf(command.ErrOrStderr(), "Wrote %s. Fill in the connection's Service, port and Secret, then run:\n  ankra services packages publish -f %s\n", outputPath, outputPath)
@@ -321,10 +336,7 @@ const maxServicePackageDocumentBytes = 256 * 1024
 // exclusive, so an existing file - or one that appears between any check and
 // the write - is never overwritten.
 func writeNewFile(path string, content []byte) error {
-	file, openError := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(openError, os.ErrExist) {
-		return fmt.Errorf("%s already exists; choose another file or remove it first", path)
-	}
+	file, openError := openNewFile(path)
 	if openError != nil {
 		return openError
 	}
@@ -333,6 +345,16 @@ func writeNewFile(path string, content []byte) error {
 		return writeError
 	}
 	return file.Close()
+}
+
+// openNewFile creates path for writing, refusing a file that already exists
+// rather than overwriting it.
+func openNewFile(path string) (*os.File, error) {
+	file, openError := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(openError, os.ErrExist) {
+		return nil, fmt.Errorf("%s already exists; choose another file or remove it first", path)
+	}
+	return file, openError
 }
 
 // readServicePackageDocument reads a package document from a file, or from

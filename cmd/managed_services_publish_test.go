@@ -3,6 +3,8 @@ package cmd
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -169,6 +171,15 @@ func TestServicesPackagesInitRefusesAnAddonAndAProfileTogetherBeforeCreatingAnyt
 	}
 	if len(platform.requests("POST", "/stack-profiles/import")) != 0 || len(platform.requests("GET", "/helm/registries/dragonfly")) != 0 {
 		t.Fatal("nothing is created before the flags and the output file are known to be usable")
+	}
+	reservedPath := filepath.Join(t.TempDir(), "package.json")
+	_, _, runError = runServicesCommand(t, platform, "", "packages", "init", "--addon", "dragonfly", "--registry", "unknown",
+		"--chart-version", "1", "--name", "dragonfly-cache", "--protocol", "redis", "-f", reservedPath)
+	if runError == nil {
+		t.Fatal("an unknown registry is refused")
+	}
+	if _, statError := os.Stat(reservedPath); !errors.Is(statError, fs.ErrNotExist) {
+		t.Fatalf("the output file reserved before a refused run is removed again: %v", statError)
 	}
 }
 
