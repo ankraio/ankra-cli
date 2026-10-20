@@ -539,7 +539,7 @@ type APIClient interface {
 	GetClusterAgent(clusterID string) (*client.AgentInfo, error)
 	GetAgentToken(clusterID string) (*client.AgentToken, error)
 	GenerateAgentToken(ctx context.Context, clusterID string) (*client.AgentToken, error)
-	UpgradeClusterAgent(ctx context.Context, clusterID string) (*client.UpgradeAgentResult, error)
+	UpgradeClusterAgent(ctx context.Context, clusterID string, request client.AgentUpgradeRequest) (*client.UpgradeAgentResult, error)
 	SetClusterAgentAutoUpgrade(ctx context.Context, clusterID string, enabled bool, reason string) (*client.AgentSettingsResult, error)
 	GetAgentCISettings(ctx context.Context, clusterID string) (*client.AgentCISettings, error)
 	UpdateAgentCISettings(ctx context.Context, clusterID string, update client.AgentCISettingsUpdate) (*client.AgentCISettings, error)

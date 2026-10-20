@@ -16,6 +16,16 @@
   your own words, so the next person can tell a deliberate fence (a freeze
   window, a migration night) from an accident. Without `--reason` the change
   is still recorded.
+- **`ankra cluster agent upgrade --version <release>` installs an exact agent
+  release, and `--allow-downgrade` lets it be an older one.** Without
+  `--version` the command still installs the newer of the release the agent
+  runs and the latest stable release, so it never moves an agent backwards. A
+  `--version` older than the running release is refused unless
+  `--allow-downgrade` is also given, and a release that is neither published
+  nor running is refused too; both refusals print the platform's own reason
+  and exit 2. `--allow-downgrade` without `--version` is a usage error. This
+  is the rollback the platform's API already allowed and the CLI could not
+  ask for.
 - **`ankra services packages init` and `publish` turn one of your stack
   profiles into a managed service.** `init --profile <id> --profile-version
   <id> --name <name> --protocol <protocol>` writes a package for that profile
