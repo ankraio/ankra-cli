@@ -2,7 +2,10 @@ package client
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -156,5 +159,39 @@ func TestUpgradeClusterAgent(t *testing.T) {
 	}
 	if !got.Success {
 		t.Errorf("UpgradeClusterAgent() got.Success = %v, want true", got.Success)
+	}
+}
+
+// The auto-upgrade switch sends its reason only when there is one; the
+// platform records it on the change's audit row (ankra-8tbujq).
+func TestSetClusterAgentAutoUpgradeSendsTheReasonOnlyWhenGiven(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		enabled  bool
+		reason   string
+		wantBody map[string]any
+	}{
+		"fence with a reason": {false, "storage cutover", map[string]any{"disable_auto_upgrade": true, "reason": "storage cutover"}},
+		"lift without one":    {true, "", map[string]any{"disable_auto_upgrade": false}},
+	} {
+		var receivedBody []byte
+		testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPatch || !strings.HasSuffix(r.URL.Path, "/agent/settings") {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			receivedBody, _ = io.ReadAll(r.Body)
+			jsonResponse(t, w, http.StatusOK, AgentSettingsResult{Success: true})
+		})
+		if _, switchError := testClient.SetClusterAgentAutoUpgrade(context.Background(), "cluster-id",
+			testCase.enabled, testCase.reason); switchError != nil {
+			t.Fatalf("%s: unexpected error %v", name, switchError)
+		}
+		var decoded map[string]any
+		if decodeError := json.Unmarshal(receivedBody, &decoded); decodeError != nil {
+			t.Fatalf("%s: body is not JSON: %v", name, decodeError)
+		}
+		if !reflect.DeepEqual(decoded, testCase.wantBody) {
+			t.Errorf("%s: body = %v, want %v", name, decoded, testCase.wantBody)
+		}
 	}
 }

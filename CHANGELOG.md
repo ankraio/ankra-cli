@@ -10,6 +10,12 @@
 
 ### Added
 
+- **`ankra cluster agent auto-upgrade enable|disable --reason "..."` records
+  why.** Every change to the auto-upgrade switch is now on the organisation
+  audit log with who made it and the setting it replaced, and `--reason` adds
+  your own words, so the next person can tell a deliberate fence (a freeze
+  window, a migration night) from an accident. Without `--reason` the change
+  is still recorded.
 - **`ankra services packages init` and `publish` turn one of your stack
   profiles into a managed service.** `init --profile <id> --profile-version
   <id> --name <name> --protocol <protocol>` writes a package for that profile

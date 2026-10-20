@@ -13,6 +13,7 @@ import (
 type agentAutoUpgradeCall struct {
 	clusterID string
 	enabled   bool
+	reason    string
 }
 
 type agentAutoUpgradeMock struct {
@@ -23,8 +24,8 @@ type agentAutoUpgradeMock struct {
 }
 
 func (mock *agentAutoUpgradeMock) SetClusterAgentAutoUpgrade(_ context.Context, clusterID string,
-	enabled bool) (*client.AgentSettingsResult, error) {
-	mock.calls = append(mock.calls, agentAutoUpgradeCall{clusterID: clusterID, enabled: enabled})
+	enabled bool, reason string) (*client.AgentSettingsResult, error) {
+	mock.calls = append(mock.calls, agentAutoUpgradeCall{clusterID: clusterID, enabled: enabled, reason: reason})
 	if mock.updateError != nil {
 		return nil, mock.updateError
 	}
@@ -130,5 +131,33 @@ func TestClusterAgentAutoUpgradeSwitchesTakeNoArguments(t *testing.T) {
 	}
 	if len(mock.calls) != 0 {
 		t.Fatalf("a usage error still wrote the flag: %+v", mock.calls)
+	}
+}
+
+// The reason reaches the platform trimmed, and a switch without one sends
+// none (ankra-8tbujq): the platform records it on the change's audit row.
+func TestClusterAgentAutoUpgradeSendsTheReason(t *testing.T) {
+	mock := &agentAutoUpgradeMock{}
+	t.Cleanup(func() {
+		for _, subcommand := range []string{"disable", "enable"} {
+			if found, _, findError := rootCmd.Find([]string{"cluster", "agent", "auto-upgrade", subcommand}); findError == nil {
+				_ = found.Flags().Set("reason", "")
+			}
+		}
+	})
+
+	if _, runError := runAgentAutoUpgradeCommand(t, mock, "cluster", "agent", "auto-upgrade", "disable",
+		"--reason", "  storage cutover tonight  "); runError != nil {
+		t.Fatalf("expected success, got %v", runError)
+	}
+	if len(mock.calls) != 1 || mock.calls[0].reason != "storage cutover tonight" || mock.calls[0].enabled {
+		t.Fatalf("expected the trimmed reason on the opt-out, got %+v", mock.calls)
+	}
+
+	if _, runError := runAgentAutoUpgradeCommand(t, mock, "cluster", "agent", "auto-upgrade", "enable"); runError != nil {
+		t.Fatalf("expected success, got %v", runError)
+	}
+	if len(mock.calls) != 2 || mock.calls[1].reason != "" {
+		t.Fatalf("a switch without --reason sent one: %+v", mock.calls)
 	}
 }

@@ -113,12 +113,17 @@ type AgentSettingsResult struct {
 // SetClusterAgentAutoUpgrade flips the cluster agent's automatic-upgrade
 // opt-out: enabled=false stores disable_auto_upgrade=true, which the
 // platform's fleet rollout honours; enabled=true clears it. The same flag
-// the portal's cluster settings write (ankra-f5y9z).
-func (c *Client) SetClusterAgentAutoUpgrade(ctx context.Context, clusterID string, enabled bool) (*AgentSettingsResult, error) {
+// the portal's cluster settings write (ankra-f5y9z). reason, when not
+// empty, is recorded on the change's audit row beside who made it and the
+// value it replaced (ankra-8tbujq); an empty reason is not sent.
+func (c *Client) SetClusterAgentAutoUpgrade(ctx context.Context, clusterID string, enabled bool, reason string) (*AgentSettingsResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/agent/settings", c.BaseURL, clusterID)
+	payload := map[string]any{"disable_auto_upgrade": !enabled}
+	if reason != "" {
+		payload["reason"] = reason
+	}
 	var result AgentSettingsResult
-	if err := c.sendJSONContext(ctx, http.MethodPatch, url,
-		map[string]bool{"disable_auto_upgrade": !enabled}, &result); err != nil {
+	if err := c.sendJSONContext(ctx, http.MethodPatch, url, payload, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
