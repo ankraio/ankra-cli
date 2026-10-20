@@ -1,28 +1,19 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.44.0 — 2026-10-20
+
+The headline is control over the agent version: `ankra cluster agent upgrade
+--version` installs an exact agent release, `--allow-downgrade` lets that be a
+rollback, and `ankra cluster agent auto-upgrade enable|disable --reason`
+records why the fleet rollout was fenced off. Alongside it, `ankra services
+packages init` and `publish` turn your own stack profiles into managed
+services, `ankra cluster ankracloud quota` shows what the Ankra Cloud account
+has left, `ankra org access-gateway` manages Cloud DNS access policies, and
+`ankra cluster stacks deploy-draft` now deploys the draft of a stack that is
+already running.
 
 ### Added
 
-- **`ankra org access-gateway status` checks a Platform and Cloud relay deployment together.** It reads live workloads and Secret references through Ankra, and supports JSON/YAML output without revealing credentials. Pass `--platform-cluster` and `--relay-cluster` to name the two clusters. Token equality and a browser SSO login remain separate checks.
-- **`ankra org access-gateway zones|get|set` manages Cloud DNS proxy policies with an Ankra login.** List the organisation's Cloud zones, inspect an effective access policy, or set `--mode public|organisation` with optional repeated `--role` values. The Platform checks organisation membership and `members.manage` before forwarding a policy change to Cloud.
-
-### Fixed
-
-- **Cluster resource commands accept the declared plural of a custom resource.** Pass `--resource backuprepositories` with `--group velero.io --api-version v1` when a CRD's plural cannot be derived from its kind. This fixes false not-found results from `cluster patch` and `cluster delete` for resources such as Velero BackupRepository.
-
-- **CI capacity hints name the full pool member.** Pending steps on another cluster no longer make an idle primary appear full or recommend increasing its workers.
-
-- **`ankra cluster stacks deploy-draft` deploys the draft of a stack that is already deployed.** The draft `ankra cluster draft -f` (or the stack builder) leaves on an existing stack could previously only be deployed from the dashboard, so the fix was to force `manifests upgrade` on each member. The command now reads the draft in full and promotes it through the same write the builder's Deploy button uses. Only the members the draft changes are written, the rest of the stack keeps running, and if the draft is still open afterwards (for example, it records a member removal) the command says so. This needs a platform that serves the CLI's stack-draft read. An older platform answers with a message pointing to the stack builder.
-
-### Added
-
-- **`ankra cluster agent auto-upgrade enable|disable --reason "..."` records
-  why.** Every change to the auto-upgrade switch is now on the organisation
-  audit log with who made it and the setting it replaced, and `--reason` adds
-  your own words, so the next person can tell a deliberate fence (a freeze
-  window, a migration night) from an accident. Without `--reason` the change
-  is still recorded.
 - **`ankra cluster agent upgrade --version <release>` installs an exact agent
   release, and `--allow-downgrade` lets it be an older one.** Without
   `--version` the command still installs the newer of the release the agent
@@ -33,6 +24,12 @@
   and exit 2. `--allow-downgrade` without `--version` is a usage error. This
   is the rollback the platform's API already allowed and the CLI could not
   ask for.
+- **`ankra cluster agent auto-upgrade enable|disable --reason "..."` records
+  why.** Every change to the auto-upgrade switch is now on the organisation
+  audit log with who made it and the setting it replaced, and `--reason` adds
+  your own words, so the next person can tell a deliberate fence (a freeze
+  window, a migration night) from an accident. Without `--reason` the change
+  is still recorded.
 - **`ankra services packages init` and `publish` turn one of your stack
   profiles into a managed service.** `init --profile <id> --profile-version
   <id> --name <name> --protocol <protocol>` writes a package for that profile
@@ -52,19 +49,51 @@
   floating IPs, private networks, routers) with what the account already
   holds and what is left, names the ones near or at their limit, and says how
   to raise one. `-o json|yaml` prints the report as the platform returns it.
+- **`ankra org access-gateway zones|get|set` manages Cloud DNS proxy
+  policies with an Ankra login.** List the organisation's Cloud zones, inspect
+  an effective access policy, or set `--mode public|organisation` with
+  optional repeated `--role` values. The Platform checks organisation
+  membership and `members.manage` before forwarding a policy change to Cloud.
+  An unknown zone exits 3 and a policy Cloud refuses as invalid exits 2.
+- **`ankra org access-gateway status` checks a Platform and Cloud relay
+  deployment together.** It reads live workloads and Secret references
+  through Ankra, and supports JSON/YAML output without revealing credentials.
+  Pass `--platform-cluster` and `--relay-cluster` to name the two clusters.
+  Token equality and a browser SSO login remain separate checks.
+
+### Changed
+
+- **The embedded `ankra-cicd` and `ankra-ship` skills explain where a
+  converted job with no `container:` runs.** A GitHub Actions job converted
+  to an Ankra pipeline without a container now runs in an Ubuntu image that
+  matches its `runs-on` (`buildpack-deps:noble` or `buildpack-deps:jammy`,
+  pinned by digest), and a `setup-node`/`setup-go`/`setup-python`/`setup-java`
+  step with a version becomes the language image of the stages after it. The
+  skills say so, and that a `kind: run` stage with no image is a fatal
+  `pipeline_image:` validation error. Run `ankra skills install` to refresh
+  installed copies.
 
 ### Fixed
 
+- **`ankra cluster stacks deploy-draft` deploys the draft of a stack that is
+  already deployed.** The draft `ankra cluster draft -f` (or the stack
+  builder) leaves on an existing stack could previously only be deployed from
+  the dashboard, so the fix was to force `manifests upgrade` on each member.
+  The command now reads the draft in full and promotes it through the same
+  write the builder's Deploy button uses. Only the members the draft changes
+  are written, the rest of the stack keeps running, and if the draft is still
+  open afterwards (for example, it records a member removal) the command says
+  so. This needs a platform that serves the CLI's stack-draft read. An older
+  platform answers with a message pointing to the stack builder. Such a stack
+  used to be refused with exit 2.
 - **`ankra cluster apply --wait` and `ankra cluster stacks deploy-draft` print
   the platform's warnings.** A write that needs more new claim storage than
   the Ankra Cloud account has left now says so after it succeeds, naming the
   limit, what the account holds, what the change asks for and where to raise
   the limit. `deploy-draft` could not read a stack write that carried any
   warning at all, because it expected the warnings as plain strings; it now
-  reads the objects the platform sends.
-
-### Fixed
-
+  reads the objects the platform sends, and `-o json` prints each warning as
+  an object with `kind`, `name`, `key`, `message` and `category`.
 - **`ankra cluster draft` now says why a stack was refused.** A request the
   platform rejected as invalid (for example an addon missing `registry_name`
   or `registry_url`) used to print only the stack name and exit non-zero with
@@ -72,6 +101,14 @@
   the addon or manifest by name, and the field - and errors the platform
   reports alongside an otherwise successful response fail the stack instead
   of being dropped.
+- **Cluster resource commands accept the declared plural of a custom
+  resource.** Pass `--resource backuprepositories` with `--group velero.io
+  --api-version v1` when a CRD's plural cannot be derived from its kind. This
+  fixes false not-found results from `cluster patch`, `cluster delete` and
+  `cluster describe` for resources such as Velero BackupRepository.
+- **CI capacity hints name the full pool member.** Pending steps on another
+  cluster no longer make an idle primary appear full or recommend increasing
+  its workers.
 
 ## v0.43.1 — 2026-10-19
 
