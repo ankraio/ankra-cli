@@ -185,13 +185,19 @@ func newAccessGatewayStatusCommand() *cobra.Command {
 			if report.Ready {
 				state = "ready"
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Access gateway: %s\n", state)
-			for _, deployment := range report.PlatformDeployments {
-				fmt.Fprintf(cmd.OutOrStdout(), "  Platform %s: %d/%d ready; token reference %t\n", deployment.Name, deployment.ReadyReplicas, deployment.DesiredReplicas, deployment.CredentialRef)
+			if _, writeError := fmt.Fprintf(cmd.OutOrStdout(), "Access gateway: %s\n", state); writeError != nil {
+				return writeError
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "  Cloud relay: %d/%d ready; token reference %t; broker URL valid %t\n", report.RelayDeployment.ReadyReplicas, report.RelayDeployment.DesiredReplicas, report.RelayDeployment.CredentialRef, report.RelayDeployment.BrokerURLValid)
-			fmt.Fprintf(cmd.OutOrStdout(), "  Secrets: Platform %t, relay %t; token equality not checked\n", report.PlatformSecretPresent, report.RelaySecretPresent)
-			return nil
+			for _, deployment := range report.PlatformDeployments {
+				if _, writeError := fmt.Fprintf(cmd.OutOrStdout(), "  Platform %s: %d/%d ready; token reference %t\n", deployment.Name, deployment.ReadyReplicas, deployment.DesiredReplicas, deployment.CredentialRef); writeError != nil {
+					return writeError
+				}
+			}
+			if _, writeError := fmt.Fprintf(cmd.OutOrStdout(), "  Cloud relay: %d/%d ready; token reference %t; broker URL valid %t\n", report.RelayDeployment.ReadyReplicas, report.RelayDeployment.DesiredReplicas, report.RelayDeployment.CredentialRef, report.RelayDeployment.BrokerURLValid); writeError != nil {
+				return writeError
+			}
+			_, writeError := fmt.Fprintf(cmd.OutOrStdout(), "  Secrets: Platform %t, relay %t; token equality not checked\n", report.PlatformSecretPresent, report.RelaySecretPresent)
+			return writeError
 		},
 	}
 	command.Flags().String("platform-cluster", "", "Ankra cluster running the Platform API")
@@ -213,7 +219,9 @@ func newAccessGatewayZonesCommand() *cobra.Command {
 				return renderError
 			}
 			for _, zone := range zones.Items {
-				fmt.Fprintf(command.OutOrStdout(), "%s\t%s\n", zone.ID, zone.Name)
+				if _, writeError := fmt.Fprintf(command.OutOrStdout(), "%s\t%s\n", zone.ID, zone.Name); writeError != nil {
+					return writeError
+				}
 			}
 			return nil
 		}}
@@ -233,9 +241,13 @@ func newAccessGatewayGetCommand() *cobra.Command {
 			if rendered, renderError := renderStructured(command, policy); rendered || renderError != nil {
 				return renderError
 			}
-			fmt.Fprintf(command.OutOrStdout(), "Mode: %s\nRoles: %s\n", policy.Mode, strings.Join(policy.Roles, ", "))
+			if _, writeError := fmt.Fprintf(command.OutOrStdout(), "Mode: %s\nRoles: %s\n", policy.Mode, strings.Join(policy.Roles, ", ")); writeError != nil {
+				return writeError
+			}
 			if policy.InheritedFrom != "" {
-				fmt.Fprintf(command.OutOrStdout(), "Inherited from: %s\n", policy.InheritedFrom)
+				if _, writeError := fmt.Fprintf(command.OutOrStdout(), "Inherited from: %s\n", policy.InheritedFrom); writeError != nil {
+					return writeError
+				}
 			}
 			return nil
 		}}
@@ -263,8 +275,8 @@ func newAccessGatewaySetCommand() *cobra.Command {
 			if rendered, renderError := renderStructured(command, policy); rendered || renderError != nil {
 				return renderError
 			}
-			fmt.Fprintf(command.OutOrStdout(), "Access policy set to %s for zone %s.\n", policy.Mode, args[0])
-			return nil
+			_, writeError := fmt.Fprintf(command.OutOrStdout(), "Access policy set to %s for zone %s.\n", policy.Mode, args[0])
+			return writeError
 		}}
 	command.Flags().String("mode", "", "Access mode: public or organisation")
 	command.Flags().StringSlice("role", nil, "Allowed organisation role; repeat to allow several (empty means all members)")

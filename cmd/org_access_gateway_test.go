@@ -68,12 +68,13 @@ func (mock accessGatewayMock) GetResources(clusterID string, request client.GetR
 	}
 	query := request.ResourceRequests[0]
 	item := client.ResourceResponseItem{Status: "success", Kind: query.Kind}
-	if query.Kind == "Deployment" {
+	switch query.Kind {
+	case "Deployment":
 		if query.Group != "apps" || query.Version != "v1" {
 			return nil, fmt.Errorf("wrong Deployment API version")
 		}
 		item.Items = []interface{}{gatewayTestDeployment(query.Name, query.Name == "ankra-tunnel-relay")}
-	} else if query.Kind == "Secret" {
+	case "Secret":
 		if query.Group != "" || query.Version != "v1" || query.Name != accessGatewaySecretName {
 			return nil, fmt.Errorf("wrong Secret API request")
 		}
@@ -83,7 +84,7 @@ func (mock accessGatewayMock) GetResources(clusterID string, request client.GetR
 			item.SecretValues = client.SecretValuesWithheld
 			item.Items = []interface{}{map[string]interface{}{"data": map[string]interface{}{"token": "cluster-keyed-digest"}}}
 		}
-	} else {
+	default:
 		return nil, fmt.Errorf("unexpected resource %s", query.Kind)
 	}
 	return &client.GetResourcesResponse{ResourceResponses: []client.ResourceResponseItem{item}}, nil
