@@ -161,6 +161,12 @@ func TestServicesPackagesInitRefusesAnAddonAndAProfileTogetherBeforeCreatingAnyt
 	if runError == nil || !strings.Contains(runError.Error(), "already exists") {
 		t.Fatalf("an existing output file is refused: %v", runError)
 	}
+	unwritable := filepath.Join(existing, "package.json")
+	_, _, runError = runServicesCommand(t, platform, "", "packages", "init", "--addon", "dragonfly", "--registry", "dragonfly",
+		"--chart-version", "1", "--name", "dragonfly-cache", "--protocol", "redis", "-f", unwritable)
+	if runError == nil || !strings.Contains(runError.Error(), "before creating anything") {
+		t.Fatalf("a path that cannot be checked is refused: %v", runError)
+	}
 	if len(platform.requests("POST", "/stack-profiles/import")) != 0 || len(platform.requests("GET", "/helm/registries/dragonfly")) != 0 {
 		t.Fatal("nothing is created before the flags and the output file are known to be usable")
 	}

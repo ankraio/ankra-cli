@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"sort"
 	"strings"
@@ -219,8 +220,13 @@ package pinned to it.`,
 				// Creating the profile is not undone, so a file init could not
 				// write is refused before anything is created.
 				if outputPath != "" && outputPath != "-" {
-					if _, statError := os.Stat(outputPath); statError == nil {
+					_, statError := os.Stat(outputPath)
+					switch {
+					case statError == nil:
 						return fmt.Errorf("%s already exists; choose another file or remove it first", outputPath)
+					case !errors.Is(statError, fs.ErrNotExist):
+						// A path that cannot be checked is not known to be writable.
+						return fmt.Errorf("checking %s before creating anything: %w", outputPath, statError)
 					}
 				}
 				createdProfile, createdVersion, createError := profileFromAddon(name, addonChart, addonChartVersion, addonRegistry, addonValuesPath)
