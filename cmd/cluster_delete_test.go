@@ -90,6 +90,19 @@ func TestDelete_KindSpellingsResolveGroupAndPlural(t *testing.T) {
 	}
 }
 
+func TestDelete_CustomResourceExplicitPlural(t *testing.T) {
+	mock := &deleteResourceMock{}
+	_, runError := runDelete(t, mock, "", "BackupRepository", "seaweedfs-default-kopia",
+		"-n", "velero", "--group", "velero.io", "--api-version", "v1",
+		"--resource", "backuprepositories", "--cluster", "prod-cluster", "--dry-run")
+	if runError != nil {
+		t.Fatalf("delete dry run failed: %v", runError)
+	}
+	if len(mock.requests) != 1 || mock.requests[0].Resource != "backuprepositories" {
+		t.Fatalf("expected exact CRD plural, got %+v", mock.requests)
+	}
+}
+
 func TestDelete_ClusterScopedKindNeedsNoNamespaceAndWarns(t *testing.T) {
 	mock := &deleteResourceMock{}
 	out, err := runDelete(t, mock, "y\n", "namespace", "scratch", "--cluster", "prod-cluster")
