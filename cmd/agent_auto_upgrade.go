@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -32,9 +33,13 @@ as soon as the cluster has no write execution running. Disabling that here
 fences this cluster's agent off from the rollout - for a freeze window or a
 migration night - and enabling it puts the agent back in. Either way
 'ankra cluster agent upgrade' still applies the latest release on demand,
-and 'ankra cluster agent status' shows the current setting.`,
-		Example: `  ankra cluster agent auto-upgrade disable --cluster prod
-  ankra cluster agent auto-upgrade enable --cluster prod`,
+and 'ankra cluster agent status' shows the current setting.
+
+Every change is recorded in the organisation audit log with who made it and
+the setting it replaced; --reason adds your own words for why, so the next
+person to look can tell a deliberate fence from an accident.`,
+		Example: `  ankra cluster agent auto-upgrade disable --cluster prod --reason "storage cutover tonight"
+  ankra cluster agent auto-upgrade enable --cluster prod --reason "cutover finished"`,
 	}
 	command.AddCommand(newClusterAgentAutoUpgradeSwitchCommand(false), newClusterAgentAutoUpgradeSwitchCommand(true))
 	return command
@@ -53,6 +58,8 @@ func newClusterAgentAutoUpgradeSwitchCommand(enabled bool) *cobra.Command {
 			return runClusterAgentAutoUpgrade(command, enabled)
 		},
 	}
+	command.Flags().String("reason", "",
+		"Why the switch is changing, recorded on the change's audit row (optional; the platform keeps the first 500 characters)")
 	registerStructuredOutputFlags(command)
 	return command
 }
@@ -66,7 +73,8 @@ func runClusterAgentAutoUpgrade(command *cobra.Command, enabled bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	result, err := apiClient.SetClusterAgentAutoUpgrade(ctx, cluster.ID, enabled)
+	reason, _ := command.Flags().GetString("reason")
+	result, err := apiClient.SetClusterAgentAutoUpgrade(ctx, cluster.ID, enabled, strings.TrimSpace(reason))
 	if err != nil {
 		return fmt.Errorf("updating agent auto-upgrade: %w", err)
 	}

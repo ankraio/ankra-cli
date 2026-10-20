@@ -10,6 +10,12 @@
 
 ### Added
 
+- **`ankra cluster agent auto-upgrade enable|disable --reason "..."` records
+  why.** Every change to the auto-upgrade switch is now on the organisation
+  audit log with who made it and the setting it replaced, and `--reason` adds
+  your own words, so the next person can tell a deliberate fence (a freeze
+  window, a migration night) from an accident. Without `--reason` the change
+  is still recorded.
 - **`ankra cluster agent upgrade --version <release>` installs an exact agent
   release, and `--allow-downgrade` lets it be an older one.** Without
   `--version` the command still installs the newer of the release the agent

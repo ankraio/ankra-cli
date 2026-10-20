@@ -174,8 +174,8 @@ A failed platform execution explains more deploy failures than pod logs do - sta
 
 ```bash
 ankra cluster agent status                       # version, check-in, whether auto-upgrade is on
-ankra cluster agent auto-upgrade disable         # fence this agent off from the fleet rollout (a freeze window)
-ankra cluster agent auto-upgrade enable          # put it back in
+ankra cluster agent auto-upgrade disable --reason "freeze window"   # fence this agent off from the fleet rollout
+ankra cluster agent auto-upgrade enable --reason "freeze over"      # put it back in
 ankra cluster agent upgrade                      # apply a release now, whichever way the switch sits
 ankra cluster agent upgrade --version 2.1.1250   # install exactly that published release
 ankra cluster agent upgrade --version 2.1.1247 --allow-downgrade   # roll back on purpose
@@ -183,7 +183,8 @@ ankra cluster agent upgrade --version 2.1.1247 --allow-downgrade   # roll back o
 
 The fleet rollout upgrades every online agent that has not opted out, as soon as the cluster has
 no write execution running; it knows nothing about your freeze windows, so disable it ahead of
-one and enable it after. The MCP twins are `get_cluster_agent_status`, `set_cluster_agent_auto_upgrade`
+one and enable it after. Each switch is recorded in the audit log (`set_agent_auto_upgrade`, with the
+previous value and your `--reason`), so say why. The MCP twins are `get_cluster_agent_status`, `set_cluster_agent_auto_upgrade`
 and `upgrade_cluster_agent` (which takes the same `version` / `allow_downgrade`).
 
 `agent upgrade` without `--version` installs the newer of the release the agent runs and the latest
