@@ -59,7 +59,7 @@ func newClusterAgentAutoUpgradeSwitchCommand(enabled bool) *cobra.Command {
 		},
 	}
 	command.Flags().String("reason", "",
-		"Why the switch is changing, recorded on the change's audit row (optional, up to 500 characters)")
+		"Why the switch is changing, recorded on the change's audit row (optional; the platform keeps the first 500 characters)")
 	registerStructuredOutputFlags(command)
 	return command
 }
