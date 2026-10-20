@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jedib0t/go-pretty/v6/text"
@@ -179,7 +181,30 @@ func printAgentToken(token *client.AgentToken) {
 var clusterAgentUpgradeCmd = &cobra.Command{
 	Use:   "upgrade",
 	Short: "Upgrade the agent on the selected cluster",
+	Long: `Upgrade the Ankra agent on the selected cluster now, instead of waiting for
+the fleet rollout.
+
+Without --version the platform installs the newer of the release the agent
+runs and the latest stable release, so this never moves an agent backwards:
+an agent already on a newer release (a release candidate) is re-rendered where
+it is.
+
+--version installs that exact published release. A version older than the one
+the agent runs is refused unless --allow-downgrade is also given, so a
+downgrade only ever happens when both flags say so. A version that is neither
+published nor the running one is refused.`,
+	Example: `  ankra cluster agent upgrade
+  ankra cluster agent upgrade --version 2.1.1250
+  ankra cluster agent upgrade --version 2.1.1247 --allow-downgrade`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		version, _ := cmd.Flags().GetString("version")
+		allowDowngrade, _ := cmd.Flags().GetBool("allow-downgrade")
+		upgradeRequest := client.AgentUpgradeRequest{Version: strings.TrimSpace(version), AllowDowngrade: allowDowngrade}
+		if upgradeRequest.AllowDowngrade && upgradeRequest.Version == "" {
+			return withExitCode(exitUsage, errors.New(
+				"--allow-downgrade needs --version: name the release to downgrade to; without a version the upgrade never moves the agent backwards"))
+		}
+
 		cluster, err := resolveActiveCluster(cmd)
 		if err != nil {
 			return err
@@ -188,23 +213,48 @@ var clusterAgentUpgradeCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		result, err := apiClient.UpgradeClusterAgent(ctx, cluster.ID)
+		result, err := apiClient.UpgradeClusterAgent(ctx, cluster.ID, upgradeRequest)
 		if err != nil {
-			return fmt.Errorf("upgrading agent: %w", err)
+			return agentUpgradeError(err)
 		}
 
 		if result.Success {
-			fmt.Printf("Agent upgrade initiated for cluster '%s'!\n", cluster.Name)
-			fmt.Println("The agent will automatically restart with the new version.")
-			fmt.Println("\nRun 'ankra cluster agent status' to check the upgrade progress.")
+			out := cmd.OutOrStdout()
+			if upgradeRequest.Version != "" {
+				_, _ = fmt.Fprintf(out, "Agent update to %s initiated for cluster '%s'!\n", upgradeRequest.Version, cluster.Name)
+			} else {
+				_, _ = fmt.Fprintf(out, "Agent upgrade initiated for cluster '%s'!\n", cluster.Name)
+			}
+			_, _ = fmt.Fprintln(out, "The agent will automatically restart with the new version.")
+			_, _ = fmt.Fprintln(out, "\nRun 'ankra cluster agent status' to check the upgrade progress.")
 			return nil
 		}
 		return fmt.Errorf("agent upgrade request did not report success")
 	},
 }
 
+// agentUpgradeError words a failed hand upgrade. The platform's refusal of a
+// named version (an older release without --allow-downgrade, or a release it
+// cannot install) is relayed as the platform's own sentence and exits as a
+// usage error: the way out is a different invocation, not a retry.
+func agentUpgradeError(upgradeError error) error {
+	var refused *client.AgentUpgradeRefusedError
+	if errors.As(upgradeError, &refused) {
+		message := "upgrading agent: " + refused.Detail
+		if refused.IsDowngradeRefusal() {
+			message += "\nAdd --allow-downgrade to install the older release on purpose."
+		}
+		return withExitCode(exitUsage, errors.New(message))
+	}
+	return fmt.Errorf("upgrading agent: %w", upgradeError)
+}
+
 func init() {
 	clusterAgentTokenCmd.Flags().Bool("generate", false, "Generate a new agent token")
+	clusterAgentUpgradeCmd.Flags().String("version", "",
+		"Exact agent release to install (default: the newer of the running release and the latest stable one)")
+	clusterAgentUpgradeCmd.Flags().Bool("allow-downgrade", false,
+		"Allow --version to be older than the release the agent runs (needs --version)")
 
 	registerStructuredOutputFlags(clusterAgentStatusCmd, clusterAgentTokenCmd)
 

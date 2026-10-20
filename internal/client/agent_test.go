@@ -2,7 +2,11 @@ package client
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -150,11 +154,90 @@ func TestUpgradeClusterAgent(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	got, err := testClient.UpgradeClusterAgent(context.Background(), "cluster-id")
+	got, err := testClient.UpgradeClusterAgent(context.Background(), "cluster-id", AgentUpgradeRequest{})
 	if err != nil {
 		t.Fatalf("UpgradeClusterAgent() error = %v", err)
 	}
 	if !got.Success {
 		t.Errorf("UpgradeClusterAgent() got.Success = %v, want true", got.Success)
+	}
+}
+
+// A plain upgrade posts no body, exactly as every CLI before --version did; a
+// named version posts {version, allow_downgrade}.
+func TestUpgradeClusterAgentSendsTheVersionOnlyWhenNamed(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		request  AgentUpgradeRequest
+		wantBody map[string]any
+	}{
+		"plain":     {AgentUpgradeRequest{}, nil},
+		"a version": {AgentUpgradeRequest{Version: "2.1.1250"}, map[string]any{"version": "2.1.1250", "allow_downgrade": false}},
+		"an allowed downgrade": {AgentUpgradeRequest{Version: "2.1.1247", AllowDowngrade: true},
+			map[string]any{"version": "2.1.1247", "allow_downgrade": true}},
+	} {
+		var receivedBody []byte
+		testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			receivedBody, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusOK)
+		})
+		if _, upgradeError := testClient.UpgradeClusterAgent(context.Background(), "cluster-id", testCase.request); upgradeError != nil {
+			t.Fatalf("%s: unexpected error %v", name, upgradeError)
+		}
+		if testCase.wantBody == nil {
+			if len(receivedBody) != 0 {
+				t.Errorf("%s: a plain upgrade sent a body: %s", name, receivedBody)
+			}
+			continue
+		}
+		var decoded map[string]any
+		if decodeError := json.Unmarshal(receivedBody, &decoded); decodeError != nil {
+			t.Fatalf("%s: body is not JSON: %v (%s)", name, decodeError, receivedBody)
+		}
+		if !reflect.DeepEqual(decoded, testCase.wantBody) {
+			t.Errorf("%s: body = %v, want %v", name, decoded, testCase.wantBody)
+		}
+	}
+}
+
+// The platform's refusals of a named version arrive as its own sentence: 409
+// is the downgrade refusal, 422 a release it cannot install. Any other status
+// stays the generic unexpected-response error.
+func TestUpgradeClusterAgentRelaysTheVersionRefusals(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		status        int
+		body          string
+		wantRefused   bool
+		wantDowngrade bool
+	}{
+		"older without allow_downgrade": {http.StatusConflict,
+			`{"detail":"The agent runs 2.1.1250, which is newer than 2.1.1247. Pass allow_downgrade to downgrade it on purpose."}`, true, true},
+		"unknown version": {http.StatusUnprocessableEntity,
+			`{"detail":"Agent version 9.9.9 is not a published stable release or the version this agent runs."}`, true, false},
+		"cluster offline": {http.StatusServiceUnavailable, `{"detail":"Cluster must be available to upgrade cluster agent"}`, false, false},
+	} {
+		testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(testCase.status)
+			_, _ = w.Write([]byte(testCase.body))
+		})
+		_, upgradeError := testClient.UpgradeClusterAgent(context.Background(), "cluster-id",
+			AgentUpgradeRequest{Version: "2.1.1247"})
+		var refused *AgentUpgradeRefusedError
+		isRefused := errors.As(upgradeError, &refused)
+		if isRefused != testCase.wantRefused {
+			t.Fatalf("%s: refused = %v (%v), want %v", name, isRefused, upgradeError, testCase.wantRefused)
+		}
+		if !isRefused {
+			if upgradeError == nil {
+				t.Fatalf("%s: expected an error", name)
+			}
+			continue
+		}
+		if refused.IsDowngradeRefusal() != testCase.wantDowngrade || refused.StatusCode != testCase.status {
+			t.Errorf("%s: refusal = %+v", name, refused)
+		}
+		if !strings.Contains(testCase.body, refused.Error()) {
+			t.Errorf("%s: message %q is not the platform's detail", name, refused.Error())
+		}
 	}
 }
