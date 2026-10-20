@@ -90,8 +90,8 @@ func accessGatewayEnv(object map[string]interface{}, name string) map[string]int
 	return nil
 }
 
-func accessGatewayReplicas(object map[string]interface{}, key string, defaultValue int) int {
-	value := getNestedString(object, key, "replicas")
+func accessGatewayReplicaCount(object map[string]interface{}, section, field string, defaultValue int) int {
+	value := getNestedString(object, section, field)
 	if value == "" {
 		return defaultValue
 	}
@@ -107,8 +107,8 @@ func inspectAccessGatewayDeployment(object map[string]interface{}, name string, 
 	if object == nil {
 		return status
 	}
-	status.DesiredReplicas = accessGatewayReplicas(object, "spec", 1)
-	status.ReadyReplicas = accessGatewayReplicas(object, "status", 0)
+	status.DesiredReplicas = accessGatewayReplicaCount(object, "spec", "replicas", 1)
+	status.ReadyReplicas = accessGatewayReplicaCount(object, "status", "readyReplicas", 0)
 	credential := accessGatewayEnv(object, "ANKRA_ACCESS_GATE_TOKEN")
 	valueFrom, _ := getNestedMap(credential, "valueFrom")
 	secretRef, _ := getNestedMap(valueFrom, "secretKeyRef")

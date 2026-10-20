@@ -104,7 +104,7 @@ func gatewayTestDeployment(name string, relay bool) map[string]interface{} {
 		"spec": map[string]interface{}{"replicas": float64(2), "template": map[string]interface{}{
 			"spec": map[string]interface{}{"containers": []interface{}{map[string]interface{}{"env": environment}}},
 		}},
-		"status": map[string]interface{}{"readyReplicas": float64(2)},
+		"status": map[string]interface{}{"replicas": float64(2), "readyReplicas": float64(2)},
 	}
 }
 
@@ -149,5 +149,14 @@ func TestAccessGatewayDeploymentRequiresSecretReferenceAndHTTPSOrigin(t *testing
 	environment[0].(map[string]interface{})["valueFrom"] = nil
 	if inspectAccessGatewayDeployment(object, "ankra-tunnel-relay", true).Ready {
 		t.Fatal("missing Secret reference reported ready")
+	}
+}
+
+func TestAccessGatewayDeploymentUsesReadyReplicas(t *testing.T) {
+	object := gatewayTestDeployment("ankra-cluster-api", false)
+	object["status"].(map[string]interface{})["readyReplicas"] = float64(0)
+	status := inspectAccessGatewayDeployment(object, "ankra-cluster-api", false)
+	if status.Ready || status.ReadyReplicas != 0 || status.DesiredReplicas != 2 {
+		t.Fatalf("unready deployment reported ready: %+v", status)
 	}
 }
