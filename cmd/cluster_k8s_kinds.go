@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -143,6 +144,7 @@ func singularK8sKindKey(rawKind string) string {
 func resolveK8sKindFromFlags(cmd *cobra.Command, rawKind string) (k8sKind, error) {
 	apiGroup, _ := cmd.Flags().GetString("group")
 	apiVersion, _ := cmd.Flags().GetString("api-version")
+	resource, _ := cmd.Flags().GetString("resource")
 	isClusterScoped, _ := cmd.Flags().GetBool("cluster-scoped")
 	resolved, resolveError := resolveK8sKind(rawKind, apiGroup, apiVersion)
 	if resolveError != nil {
@@ -151,13 +153,22 @@ func resolveK8sKindFromFlags(cmd *cobra.Command, rawKind string) (k8sKind, error
 	if isClusterScoped {
 		resolved.clusterScoped = true
 	}
+	if resource != "" {
+		if !k8sResourceNamePattern.MatchString(resource) {
+			return k8sKind{}, withExitCode(exitUsage, fmt.Errorf("--resource must be a lowercase Kubernetes resource plural"))
+		}
+		resolved.resource = resource
+	}
 	return resolved, nil
 }
+
+var k8sResourceNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
 // registerK8sKindFlags adds the flags resolveK8sKindFromFlags reads.
 func registerK8sKindFlags(command *cobra.Command) {
 	command.Flags().String("group", "", "API group for a kind outside the built-in set (e.g. cert-manager.io)")
 	command.Flags().String("api-version", "", "API version for a kind outside the built-in set (e.g. v1, v1beta1)")
+	command.Flags().String("resource", "", "Exact API resource plural when a custom kind has an irregular plural (e.g. backuprepositories)")
 	command.Flags().Bool("cluster-scoped", false,
 		"Treat a kind outside the built-in set as cluster-scoped (e.g. ClusterIssuer, ClusterPolicy); no --namespace is needed")
 }

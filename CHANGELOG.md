@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- **Cluster resource commands accept the declared plural of a custom resource.** Pass `--resource backuprepositories` with `--group velero.io --api-version v1` when a CRD's plural cannot be derived from its kind. This fixes false not-found results from `cluster patch` and `cluster delete` for resources such as Velero BackupRepository.
+
 - **CI capacity hints name the full pool member.** Pending steps on another cluster no longer make an idle primary appear full or recommend increasing its workers.
 
 - **`ankra cluster stacks deploy-draft` deploys the draft of a stack that is already deployed.** The draft `ankra cluster draft -f` (or the stack builder) leaves on an existing stack could previously only be deployed from the dashboard, so the fix was to force `manifests upgrade` on each member. The command now reads the draft in full and promotes it through the same write the builder's Deploy button uses. Only the members the draft changes are written, the rest of the stack keeps running, and if the draft is still open afterwards (for example, it records a member removal) the command says so. This needs a platform that serves the CLI's stack-draft read. An older platform answers with a message pointing to the stack builder.
