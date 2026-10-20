@@ -1,5 +1,11 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **`ankra services packages init --addon <chart> --registry <name> --chart-version <v>` makes a managed service from one Helm chart.** It first creates a stack profile holding that chart alone (each service it sets up installs into a namespace named after the service; `--values` passes a values file), then writes the package pinned to it, as `init --profile` does. Fill in the connection and publish it with `ankra services packages publish`. The output file is checked before the profile is created, so a refused run leaves nothing behind.
+
 ## v0.44.0 — 2026-10-20
 
 The headline is control over the agent version: `ankra cluster agent upgrade

@@ -412,6 +412,13 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 			return
 		}
 		fakeServiceJSON(t, writer, http.StatusOK, fakeServiceRetirement("in_progress"))
+	case request.Method == http.MethodGet && path == "/api/v1/org/helm/registries/dragonfly":
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"registry": map[string]any{"name": "dragonfly", "url": "oci://ghcr.io/dragonflydb/dragonfly/helm"},
+			"charts": []any{}, "indexing": false, "pagination": map[string]any{"page": 1, "page_size": 1, "total": 0}})
+	case request.Method == http.MethodPost && path == "/api/v1/org/stack-profiles/import":
+		fakeServiceJSON(t, writer, http.StatusCreated, map[string]any{
+			"profile": map[string]any{"id": fakeMemberProfileID, "name": "dragonfly-cache", "category": "managed-service", "tags": []any{}},
+			"version": map[string]any{"id": fakeMemberProfileVersionID, "version": 1}, "warnings": []any{}})
 	case request.Method == http.MethodGet && path == "/api/v1/org/service-packages/profile-pins/"+fakeMemberProfileID+"/"+fakeMemberProfileVersionID:
 		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"organisation_id": fakeServiceOrganisation,
 			"profile": map[string]any{"id": fakeMemberProfileID, "version_id": fakeMemberProfileVersionID, "digest": "sha256:" + strings.Repeat("9", 64)}})

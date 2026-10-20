@@ -263,6 +263,15 @@ func (c *Client) ImportStackProfile(importRequest ImportStackProfileRequest) (*C
 
 type CreateStackProfileResult struct {
 	Profile StackProfileSummary `json:"profile"`
+	// Version is the version an import publishes (POST .../import answers
+	// it beside the profile); nil for a create that does not.
+	Version *CreatedStackProfileVersion `json:"version,omitempty"`
+}
+
+// CreatedStackProfileVersion is the version a profile import published.
+type CreatedStackProfileVersion struct {
+	ID      string `json:"id"`
+	Version int    `json:"version"`
 }
 
 // ImportStackProfileDraftRequest opens an imported IaC document as a
