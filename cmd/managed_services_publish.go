@@ -197,9 +197,11 @@ package pinned to it.`,
   ankra services packages publish -f dragonfly-cache.json`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			// Every refusal below is fixed by changing the flags, so each
+			// exits with the usage code (2), before any request is made.
 			protocol, known := servicePackageProtocols[protocolName]
 			if !known {
-				return fmt.Errorf("unknown protocol %q: choose one of %s", protocolName, strings.Join(servicePackageProtocolNames(), ", "))
+				return withExitCode(exitUsage, fmt.Errorf("invalid --protocol %q: must be one of %s", protocolName, strings.Join(servicePackageProtocolNames(), ", ")))
 			}
 			if capability == "" {
 				capability = protocol.capability
@@ -207,13 +209,13 @@ package pinned to it.`,
 			fromAddon := addonChart != ""
 			switch {
 			case fromAddon && (profileID != "" || profileVersionID != ""):
-				return errors.New("choose either --addon or --profile and --profile-version, not both")
+				return withExitCode(exitUsage, errors.New("choose either --addon or --profile and --profile-version, not both"))
 			case fromAddon && (addonRegistry == "" || addonChartVersion == ""):
-				return errors.New("--addon needs --registry and --chart-version")
+				return withExitCode(exitUsage, errors.New("--addon needs --registry and --chart-version"))
 			case !fromAddon && (profileID == "" || profileVersionID == ""):
-				return errors.New("pass --profile and --profile-version, or --addon with --registry and --chart-version")
+				return withExitCode(exitUsage, errors.New("pass --profile and --profile-version, or --addon with --registry and --chart-version"))
 			case !fromAddon && (addonRegistry != "" || addonChartVersion != "" || addonValuesPath != ""):
-				return errors.New("--registry, --chart-version and --values go with --addon")
+				return withExitCode(exitUsage, errors.New("--registry, --chart-version and --values go with --addon"))
 			}
 			// reserved is the output file, created empty before the profile
 			// when --addon will create one: creating a profile is not undone,
