@@ -9,8 +9,10 @@ package cmd
 // headroom can be checked before a deploy that needs it.
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -28,16 +30,21 @@ var ankraCloudQuotaCmd = &cobra.Command{
 		"and routers.\n\n" +
 		"Storage is shared by server disks and every PersistentVolumeClaim the Ankra Cloud CSI provisions, " +
 		"so a claim larger than what is left stays Pending. Applies and stack deploys that need more storage " +
-		"than is left say so in their warnings.",
+		"than is left say so in their warnings.\n\n" +
+		"Quota applies to Ankra Cloud clusters only: a cluster built on another provider, or imported, " +
+		"is refused with exit code 2.",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
+		}
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
 			return resolveError
 		}
 		report, fetchError := apiClient.GetAnkraCloudQuotas(clusterID)
 		if fetchError != nil {
-			return fmt.Errorf("fetching the Ankra Cloud quota: %w", fetchError)
+			return ankraCloudQuotaError(args[0], clusterID, fetchError)
 		}
 		if handled, renderError := renderStructured(cmd, report); renderError != nil {
 			return renderError
@@ -47,6 +54,28 @@ var ankraCloudQuotaCmd = &cobra.Command{
 		printClusterQuotaReport(cmd.OutOrStdout(), report)
 		return nil
 	},
+}
+
+// ankraCloudQuotaError explains a failed quota read. The quota route answers
+// 404 for a cluster that exists but was not built on Ankra Cloud, which used
+// to reach the user as a bare "404 Not Found" (exit 3, as if the cluster did
+// not exist). On a 404 the cluster's kind is read: a cluster of another kind
+// is a wrong argument, so it exits 2 with a sentence saying so. When the
+// cluster is an Ankra Cloud one, or its kind cannot be read, the platform's
+// own answer is kept.
+func ankraCloudQuotaError(typed string, clusterID string, fetchError error) error {
+	wrapped := fmt.Errorf("fetching the Ankra Cloud quota: %w", fetchError)
+	var unexpected *client.UnexpectedResponseError
+	if !errors.As(fetchError, &unexpected) || unexpected.StatusCode != http.StatusNotFound {
+		return wrapped
+	}
+	cluster, lookupError := apiClient.GetClusterByID(clusterID)
+	if lookupError != nil || cluster.Kind == "" || cluster.Kind == "ankracloud" {
+		return wrapped
+	}
+	return withExitCode(exitUsage, fmt.Errorf(
+		"%s is not an Ankra Cloud cluster (its kind is %s); quota applies to Ankra Cloud clusters only",
+		typed, cluster.Kind))
 }
 
 // quotaDimensionLabels names each dimension the way the Ankra Cloud console
