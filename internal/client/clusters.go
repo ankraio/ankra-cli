@@ -81,8 +81,12 @@ func (c *Client) ListClusters(page int, pageSize int) (*ClusterListResponse, err
 	return response, nil
 }
 
-// getClusterMaxPages caps how many pages of name matches GetCluster reads.
-const getClusterMaxPages = 50
+// getClusterMaxPages caps how many pages of name matches GetCluster reads,
+// getClusterPageSize rows each.
+const (
+	getClusterMaxPages = 50
+	getClusterPageSize = 100
+)
 
 // GetCluster looks up a cluster by exact name. The backend narrows with
 // its `name` filter and the exact match happens here.
@@ -98,8 +102,8 @@ const getClusterMaxPages = 50
 // Callers that refuse or delete on absence (ankra-kpq4ae) depend on that.
 func (c *Client) GetCluster(name string) (ClusterListItem, error) {
 	for page := 1; page <= getClusterMaxPages; page++ {
-		url := fmt.Sprintf("%s/api/v1/clusters?name=%s&page=%d&page_size=100",
-			c.BaseURL, neturl.QueryEscape(name), page)
+		url := fmt.Sprintf("%s/api/v1/clusters?name=%s&page=%d&page_size=%d",
+			c.BaseURL, neturl.QueryEscape(name), page, getClusterPageSize)
 		var wrapper ClusterListResponse
 		if err := c.getJSON(url, &wrapper); err != nil {
 			return ClusterListItem{}, err
@@ -109,7 +113,14 @@ func (c *Client) GetCluster(name string) (ClusterListItem, error) {
 				return cluster, nil
 			}
 		}
-		if len(wrapper.Result) == 0 || wrapper.Pagination.TotalPages <= page {
+		// The page count decides when the platform reports one; a response
+		// without it ends only on a short page, so a missing count can never
+		// cut the read short and pass for an absence.
+		lastPage := len(wrapper.Result) < getClusterPageSize
+		if wrapper.Pagination.TotalPages > 0 {
+			lastPage = wrapper.Pagination.TotalPages <= page
+		}
+		if len(wrapper.Result) == 0 || lastPage {
 			return ClusterListItem{}, fmt.Errorf("no cluster found for name %q: %w", name, ErrClusterNotFound)
 		}
 	}

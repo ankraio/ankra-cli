@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -142,6 +143,26 @@ func TestGetClusterReadsEveryPageBeforeCallingANameAbsent(t *testing.T) {
 	}
 	if strings.Join(pages, ",") != "1,2" {
 		t.Fatalf("pages read = %v, want 1,2", pages)
+	}
+}
+
+// A response without a page count ends only on a short page: a full first
+// page with the count missing must not read as "no such cluster".
+func TestGetClusterWithoutAPageCountReadsOnUntilAShortPage(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		var result []ClusterListItem
+		if r.URL.Query().Get("page") == "1" {
+			for index := range 100 {
+				result = append(result, ClusterListItem{ID: fmt.Sprintf("id-%d", index), Name: fmt.Sprintf("my-cluster-%d", index)})
+			}
+		} else {
+			result = []ClusterListItem{{ID: "id-exact", Name: "my-cluster"}}
+		}
+		jsonResponse(t, w, http.StatusOK, ClusterListResponse{Result: result})
+	})
+	got, err := testClient.GetCluster("my-cluster")
+	if err != nil || got.ID != "id-exact" {
+		t.Fatalf("GetCluster() = %+v, %v; want the exact match on page 2", got, err)
 	}
 }
 
