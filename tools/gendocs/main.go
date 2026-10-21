@@ -393,9 +393,10 @@ func renderCommand(b *strings.Builder, c *cobra.Command) {
 // block is dedented by its common indent: trimming the whole string instead
 // strips only the first line's indent and leaves the rest ragged
 // (ankra-7qk1wu). Indentation beyond the common indent, such as a wrapped
-// command's continuation lines, is kept.
+// command's continuation lines, is kept. CRLF line endings are normalised
+// so no line carries a trailing carriage return into the fence.
 func renderExample(example string) string {
-	lines := trimBlankLines(strings.Split(example, "\n"))
+	lines := trimBlankLines(strings.Split(strings.ReplaceAll(example, "\r\n", "\n"), "\n"))
 	if len(lines) == 0 {
 		return ""
 	}

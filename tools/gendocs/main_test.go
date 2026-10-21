@@ -155,6 +155,9 @@ func TestRenderExampleDedentsTheWholeBlock(t *testing.T) {
 		t.Fatalf("renderExample mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 
+	if got := renderExample("  ankra cluster list\r\n  ankra cluster get web\r\n"); got != "ankra cluster list\nankra cluster get web" {
+		t.Fatalf("CRLF example kept carriage returns or indent: %q", got)
+	}
 	if got := renderExample("ankra version"); got != "ankra version" {
 		t.Fatalf("an unindented one-liner changed: %q", got)
 	}
