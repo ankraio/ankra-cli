@@ -5,6 +5,8 @@
 ### Added
 
 - **`ankra services packages init --addon <chart> --registry <name> --chart-version <v>` makes a managed service from one Helm chart.** It first creates a stack profile holding that chart alone (each service it sets up installs into a namespace named after the service; `--values` passes a values file), then writes the package pinned to it, as `init --profile` does. Fill in the connection and publish it with `ankra services packages publish`. The output file is checked before the profile is created, so a refused run leaves nothing behind.
+- **`ankra cluster update <cluster> --environment <name>` changes an existing cluster's environment.** It was set only at creation (by `ankra cluster aws create --environment`) or in the portal, so a cluster replaced by another one could not be moved from production to development from the terminal. A preset environment brings the reporting level the portal pairs with it (testing is graded as development, local as disposable); `--criticality` sets the level explicitly, and an environment of your own leaves the level as it is unless `--criticality` is given. The cluster is named by name or id, or the selected cluster is used.
+- **`ankra cluster apply` and `ankra cluster validate` warn when a cluster file sets `metadata.environment` or `metadata.criticality`.** Neither key is read, so neither sets nor changes the cluster's environment or reporting level, but a file carrying one passed both commands without a word. The warning names the `ankra cluster update` command that does change the value; it goes to stderr, so `-o json` output stays parseable.
 
 ## v0.44.0 — 2026-10-20
 

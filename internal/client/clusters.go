@@ -531,6 +531,32 @@ func (c *Client) TriggerReconcile(ctx context.Context, clusterID string) (*Trigg
 	return &result, nil
 }
 
+// ClusterEnvironmentResult is what PATCH .../environment answers: the stored
+// environment, and the stored criticality only when the request set one.
+type ClusterEnvironmentResult struct {
+	Environment string  `json:"environment"`
+	Criticality *string `json:"criticality,omitempty"`
+}
+
+// SetClusterEnvironment writes a cluster's environment label and, when
+// criticality is not empty, the reporting level its insights are graded at,
+// in one transaction - the route the portal's environment control uses. An
+// empty criticality is not sent, which leaves the stored level as it is. Like
+// the reconcile route, it serves every cluster kind despite "imported" in
+// its path.
+func (c *Client) SetClusterEnvironment(ctx context.Context, clusterID string, environment string, criticality string) (*ClusterEnvironmentResult, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/environment", c.BaseURL, neturl.PathEscape(clusterID))
+	payload := map[string]any{"environment": environment}
+	if criticality != "" {
+		payload["criticality"] = criticality
+	}
+	var result ClusterEnvironmentResult
+	if err := c.sendJSONContext(ctx, http.MethodPatch, url, payload, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) ApplyCluster(ctx context.Context, clusterReq CreateImportClusterRequest, wait bool) (*ImportResponse, bool, error) {
 	for i := range clusterReq.Spec.Stacks {
 		if clusterReq.Spec.Stacks[i].Manifests == nil {

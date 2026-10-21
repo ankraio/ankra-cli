@@ -59,6 +59,7 @@ func runClusterValidate(cmd *cobra.Command, _ []string) error {
 	if err := validateResourceGraph(importRequest); err != nil {
 		return fmt.Errorf("invalid ImportCluster in %q:\n  %w", filePath, err)
 	}
+	printUnreadImportMetadataWarnings(cmd, filePath)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
