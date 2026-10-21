@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -100,8 +101,72 @@ func servicePackageSkeleton(name string, version string, capability string, prot
 	}
 }
 
+// parseGeneratedKeys reads --generate-key values: "key" for a random value of
+// the platform's default length, "key:length" for a random value of that
+// many characters, and "key=value" for a fixed value. A fixed value is stored
+// in the profile, so it is for a name (a user or database name the chart is
+// told to create), never a secret. The platform validates names and bounds.
+func parseGeneratedKeys(specifications []string) ([]client.GeneratedServiceSecretKey, error) {
+	keys := make([]client.GeneratedServiceSecretKey, 0, len(specifications))
+	for _, specification := range specifications {
+		if key, value, isFixed := strings.Cut(specification, "="); isFixed {
+			if strings.Contains(key, ":") {
+				return nil, fmt.Errorf("--generate-key %q: choose key:length for a random value or key=value for a fixed one, not both", specification)
+			}
+			if key == "" || value == "" {
+				return nil, fmt.Errorf("--generate-key %q: write key=value for a fixed value", specification)
+			}
+			keys = append(keys, client.GeneratedServiceSecretKey{Key: key, Value: value})
+			continue
+		}
+		key, lengthText, hasLength := strings.Cut(specification, ":")
+		if key == "" {
+			return nil, fmt.Errorf("--generate-key %q: name the key", specification)
+		}
+		generated := client.GeneratedServiceSecretKey{Key: key}
+		if hasLength {
+			length, parseError := strconv.Atoi(lengthText)
+			if parseError != nil || length <= 0 {
+				return nil, fmt.Errorf("--generate-key %q: the length after : must be a whole number of characters", specification)
+			}
+			generated.Length = length
+		}
+		keys = append(keys, generated)
+	}
+	return keys, nil
+}
+
+// profileFromAddon asks the platform to make one Helm chart into a stack
+// profile (POST /api/v1/org/stack-profiles/from-chart) and answers the
+// profile and the version it published. The platform resolves the registry
+// and builds the profile document, with a credentials release first when
+// generated names a Secret.
+func profileFromAddon(name string, chart string, chartVersion string, registryName string, valuesPath string,
+	generated *client.GeneratedServiceSecret) (string, string, error) {
+	chartRequest := client.ChartServiceProfileRequest{
+		Name: name, ChartName: chart, ChartVersion: chartVersion, RegistryName: registryName, GeneratedSecret: generated,
+	}
+	if valuesPath != "" {
+		values, readError := os.ReadFile(valuesPath)
+		if readError != nil {
+			return "", "", fmt.Errorf("reading the chart values: %w", readError)
+		}
+		chartRequest.ValuesYAML = string(values)
+	}
+	created, createError := apiClient.CreateChartServiceProfile(chartRequest)
+	if createError != nil {
+		return "", "", fmt.Errorf("creating a stack profile from the %s chart: %w", chart, createError)
+	}
+	if created.Version == nil || created.Profile.ID == "" || created.Version.ID == "" {
+		return "", "", errors.New("the platform created the stack profile but did not say which version it published; run init again with --profile and --profile-version")
+	}
+	return created.Profile.ID, created.Version.ID, nil
+}
+
 func newServicesPackagesInitCommand() *cobra.Command {
 	var profileID, profileVersionID, name, version, capability, protocolName, outputPath string
+	var addonChart, addonRegistry, addonChartVersion, addonValuesPath, generatedSecretName string
+	var generatedKeySpecifications []string
 	initCommand := &cobra.Command{
 		Use:   "init",
 		Short: "Write a package skeleton for one of your stack profiles",
@@ -118,24 +183,103 @@ what only you know about the engine the profile deploys:
   connection.secret_name           the Secret holding its credentials
   connection.fields                which key of that Secret holds each field
 
-Publication refuses the package until these are filled in.`,
+Publication refuses the package until these are filled in.
+
+To make a service from one Helm chart rather than a stack profile, pass
+--addon with --registry and --chart-version instead of --profile and
+--profile-version: init first creates a stack profile holding that chart
+alone (installed into a namespace named after each service), then writes the
+package pinned to it.
+
+With --generate-secret, that profile also generates the service's
+credentials: a Secret of that name in each service's namespace, created on
+the first install and kept unchanged across upgrades. Name its keys with
+--generate-key: "password" for a random value, "password:48" for a random
+value of 48 characters. Random values are generated in the cluster and Ankra
+never sees them. "username=app" sets a fixed value, which is stored in the
+profile and visible on the command line, so use it only for names (a user or
+database name), never for a password. Point the chart at the Secret in
+--values (most charts take an existing-secret setting); the package's
+connection names it already.`,
 		Example: `  ankra services packages init --profile <profile-id> --profile-version <version-id> \
     --name dragonfly-cache --protocol redis -f dragonfly-cache.json
+  ankra services packages init --addon dragonfly --registry dragonfly --chart-version 1.2.0 \
+    --values dragonfly-values.yaml --name dragonfly-cache --protocol redis -f dragonfly-cache.json
+  ankra services packages init --addon postgresql --registry bitnami --chart-version 16.4.2 \
+    --generate-secret orders-db-auth --generate-key username=app --generate-key password \
+    --values orders-db-values.yaml --name orders-db --protocol postgres -f orders-db.json
   ankra services packages publish -f dragonfly-cache.json`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			// Every refusal below is fixed by changing the flags, so each
+			// exits with the usage code (2), before any request is made.
 			protocol, known := servicePackageProtocols[protocolName]
 			if !known {
-				return fmt.Errorf("unknown protocol %q: choose one of %s", protocolName, strings.Join(servicePackageProtocolNames(), ", "))
+				return withExitCode(exitUsage, fmt.Errorf("invalid --protocol %q: must be one of %s", protocolName, strings.Join(servicePackageProtocolNames(), ", ")))
 			}
 			if capability == "" {
 				capability = protocol.capability
+			}
+			fromAddon := addonChart != ""
+			switch {
+			case fromAddon && (profileID != "" || profileVersionID != ""):
+				return withExitCode(exitUsage, errors.New("choose either --addon or --profile and --profile-version, not both"))
+			case fromAddon && (addonRegistry == "" || addonChartVersion == ""):
+				return withExitCode(exitUsage, errors.New("--addon needs --registry and --chart-version"))
+			case !fromAddon && (profileID == "" || profileVersionID == ""):
+				return withExitCode(exitUsage, errors.New("pass --profile and --profile-version, or --addon with --registry and --chart-version"))
+			case !fromAddon && (generatedSecretName != "" || len(generatedKeySpecifications) > 0):
+				return withExitCode(exitUsage, errors.New("--generate-secret and --generate-key go with --addon"))
+			case generatedSecretName == "" && len(generatedKeySpecifications) > 0:
+				return withExitCode(exitUsage, errors.New("--generate-key needs --generate-secret, the Secret its keys go into"))
+			case generatedSecretName != "" && len(generatedKeySpecifications) == 0:
+				return withExitCode(exitUsage, errors.New("--generate-secret needs at least one --generate-key"))
+			case !fromAddon && (addonRegistry != "" || addonChartVersion != "" || addonValuesPath != ""):
+				return withExitCode(exitUsage, errors.New("--registry, --chart-version and --values go with --addon"))
+			}
+			// reserved is the output file, created empty before the profile
+			// when --addon will create one: creating a profile is not undone,
+			// so a file init could not write is refused before anything
+			// exists, and removed again if a later step fails.
+			var reserved *os.File
+			if fromAddon && outputPath != "" && outputPath != "-" {
+				file, openError := openNewFile(outputPath)
+				if openError != nil {
+					return fmt.Errorf("preparing %s before creating anything: %w", outputPath, openError)
+				}
+				reserved = file
+				defer func() {
+					if reserved != nil {
+						_ = reserved.Close()
+						_ = os.Remove(outputPath)
+					}
+				}()
+			}
+			if fromAddon {
+				var generated *client.GeneratedServiceSecret
+				if generatedSecretName != "" {
+					keys, keysError := parseGeneratedKeys(generatedKeySpecifications)
+					if keysError != nil {
+						return withExitCode(exitUsage, keysError)
+					}
+					generated = &client.GeneratedServiceSecret{Name: generatedSecretName, Keys: keys}
+				}
+				createdProfile, createdVersion, createError := profileFromAddon(name, addonChart, addonChartVersion, addonRegistry, addonValuesPath, generated)
+				if createError != nil {
+					return createError
+				}
+				profileID, profileVersionID = createdProfile, createdVersion
+				_, _ = fmt.Fprintf(command.ErrOrStderr(), "Created stack profile %s (%s) from the %s chart %s.\n", name, profileID, addonChart, addonChartVersion)
 			}
 			pin, pinError := apiClient.GetServiceProfilePin(command.Context(), profileID, profileVersionID)
 			if pinError != nil {
 				return fmt.Errorf("reading the stack profile version to pin: %w", pinError)
 			}
-			encoded, encodeError := json.MarshalIndent(servicePackageSkeleton(name, version, capability, protocolName, *pin), "", "  ")
+			skeleton := servicePackageSkeleton(name, version, capability, protocolName, *pin)
+			if generatedSecretName != "" {
+				skeleton.Connection.SecretName = generatedSecretName
+			}
+			encoded, encodeError := json.MarshalIndent(skeleton, "", "  ")
 			if encodeError != nil {
 				return encodeError
 			}
@@ -144,7 +288,17 @@ Publication refuses the package until these are filled in.`,
 				_, writeError := command.OutOrStdout().Write(encoded)
 				return writeError
 			}
-			if writeError := writeNewFile(outputPath, encoded); writeError != nil {
+			if reserved != nil {
+				file := reserved
+				reserved = nil
+				if _, writeError := file.Write(encoded); writeError != nil {
+					_ = file.Close()
+					return writeError
+				}
+				if closeError := file.Close(); closeError != nil {
+					return closeError
+				}
+			} else if writeError := writeNewFile(outputPath, encoded); writeError != nil {
 				return writeError
 			}
 			_, _ = fmt.Fprintf(command.ErrOrStderr(), "Wrote %s. Fill in the connection's Service, port and Secret, then run:\n  ankra services packages publish -f %s\n", outputPath, outputPath)
@@ -158,7 +312,13 @@ Publication refuses the package until these are filled in.`,
 	initCommand.Flags().StringVar(&protocolName, "protocol", "", "wire protocol consumers speak: "+strings.Join(servicePackageProtocolNames(), ", "))
 	initCommand.Flags().StringVar(&capability, "capability", "", "what the package provides (defaults to the protocol's usual one)")
 	initCommand.Flags().StringVarP(&outputPath, "file", "f", "", "write the skeleton to this file instead of standard output")
-	for _, required := range []string{"profile", "profile-version", "name", "protocol"} {
+	initCommand.Flags().StringVar(&addonChart, "addon", "", "make the service from this Helm chart instead of a stack profile")
+	initCommand.Flags().StringVar(&addonRegistry, "registry", "", "the Helm registry --addon comes from (as named in Ankra)")
+	initCommand.Flags().StringVar(&addonChartVersion, "chart-version", "", "the chart version --addon pins")
+	initCommand.Flags().StringVar(&addonValuesPath, "values", "", "a values file for the --addon chart")
+	initCommand.Flags().StringVar(&generatedSecretName, "generate-secret", "", "with --addon, a Secret of this name the profile generates in each service's namespace")
+	initCommand.Flags().StringArrayVar(&generatedKeySpecifications, "generate-key", nil, "a key of --generate-secret: key (random), key:length (random of that length) or key=value (a fixed, non-secret name such as a user); repeatable")
+	for _, required := range []string{"name", "protocol"} {
 		_ = initCommand.MarkFlagRequired(required)
 	}
 	return initCommand
@@ -212,10 +372,7 @@ const maxServicePackageDocumentBytes = 256 * 1024
 // exclusive, so an existing file - or one that appears between any check and
 // the write - is never overwritten.
 func writeNewFile(path string, content []byte) error {
-	file, openError := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(openError, os.ErrExist) {
-		return fmt.Errorf("%s already exists; choose another file or remove it first", path)
-	}
+	file, openError := openNewFile(path)
 	if openError != nil {
 		return openError
 	}
@@ -224,6 +381,16 @@ func writeNewFile(path string, content []byte) error {
 		return writeError
 	}
 	return file.Close()
+}
+
+// openNewFile creates path for writing, refusing a file that already exists
+// rather than overwriting it.
+func openNewFile(path string) (*os.File, error) {
+	file, openError := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(openError, os.ErrExist) {
+		return nil, fmt.Errorf("%s already exists; choose another file or remove it first", path)
+	}
+	return file, openError
 }
 
 // readServicePackageDocument reads a package document from a file, or from

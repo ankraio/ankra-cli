@@ -86,6 +86,13 @@ var hetznerCreateCmd = &cobra.Command{
 			}
 		}
 
+		environment, criticality, classificationError := clusterClassificationFromFlags(cmd)
+		if classificationError != nil {
+			return classificationError
+		}
+		req.Environment = environment
+		req.Criticality = criticality
+
 		result, err := apiClient.CreateHetznerCluster(req)
 		if err != nil {
 			return fmt.Errorf("creating Hetzner cluster: %w", err)
@@ -677,6 +684,7 @@ func init() {
 	hetznerCreateCmd.Flags().Bool("external-cloud-provider", true, "Install the Hetzner CCM and CSI (cloud-provider=external) for LoadBalancers and persistent volumes (default on; pass --external-cloud-provider=false to skip, which also disables --include-networking)")
 	hetznerCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
 	registerIncludeDNSFlag(hetznerCreateCmd)
+	registerClusterClassificationFlags(hetznerCreateCmd)
 	hetznerCreateCmd.Flags().String("gitops-credential-name", "", "GitOps GitHub credential name; when set with --gitops-repository, the generated hcloud stack is committed to Git (optional)")
 	hetznerCreateCmd.Flags().String("gitops-repository", "", "GitOps repository (e.g. org/repo) to commit the generated stack to (optional)")
 	hetznerCreateCmd.Flags().String("gitops-branch", "master", "GitOps branch to commit to")

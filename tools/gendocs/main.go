@@ -373,7 +373,7 @@ func renderCommand(b *strings.Builder, c *cobra.Command) {
 		fmt.Fprintf(b, "```bash\n%s\n```\n\n", c.UseLine())
 	}
 
-	if example := strings.TrimSpace(c.Example); example != "" {
+	if example := renderExample(c.Example); example != "" {
 		b.WriteString("**Examples**\n\n")
 		fmt.Fprintf(b, "```bash\n%s\n```\n\n", example)
 	}
@@ -386,6 +386,21 @@ func renderCommand(b *strings.Builder, c *cobra.Command) {
 		}
 		b.WriteString("\n")
 	}
+}
+
+// renderExample turns a cobra Example into the body of a bash fence. Cobra
+// examples indent every line (two spaces, for the terminal help), so the
+// block is dedented by its common indent: trimming the whole string instead
+// strips only the first line's indent and leaves the rest ragged
+// (ankra-7qk1wu). Indentation beyond the common indent, such as a wrapped
+// command's continuation lines, is kept. CRLF line endings are normalised
+// so no line carries a trailing carriage return into the fence.
+func renderExample(example string) string {
+	lines := trimBlankLines(strings.Split(strings.ReplaceAll(example, "\r\n", "\n"), "\n"))
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(dedent(lines), "\n")
 }
 
 func collectFlags(fs *pflag.FlagSet) []string {

@@ -263,6 +263,57 @@ func (c *Client) ImportStackProfile(importRequest ImportStackProfileRequest) (*C
 
 type CreateStackProfileResult struct {
 	Profile StackProfileSummary `json:"profile"`
+	// Version is the version an import publishes (POST .../import answers
+	// it beside the profile); nil for a create that does not.
+	Version *CreatedStackProfileVersion `json:"version,omitempty"`
+}
+
+// CreatedStackProfileVersion is the version a profile import published.
+type CreatedStackProfileVersion struct {
+	ID      string `json:"id"`
+	Version int    `json:"version"`
+}
+
+// ChartServiceProfileRequest asks the platform to make one Helm chart, from a
+// registry the organisation can use, into a stack profile for a managed
+// service (POST /api/v1/org/stack-profiles/from-chart). The platform builds
+// the profile document itself and publishes its first version.
+type ChartServiceProfileRequest struct {
+	Name            string                  `json:"name"`
+	Description     string                  `json:"description,omitempty"`
+	ChartName       string                  `json:"chart_name"`
+	ChartVersion    string                  `json:"chart_version"`
+	RegistryName    string                  `json:"registry_name"`
+	ValuesYAML      string                  `json:"values_yaml,omitempty"`
+	GeneratedSecret *GeneratedServiceSecret `json:"generated_secret,omitempty"`
+}
+
+// GeneratedServiceSecret is a Secret the profile generates in each service's
+// namespace on its first install and keeps across upgrades. Its values are
+// never seen or stored by Ankra.
+type GeneratedServiceSecret struct {
+	Name string                      `json:"name"`
+	Keys []GeneratedServiceSecretKey `json:"keys"`
+}
+
+// GeneratedServiceSecretKey is one key: random of Length characters (0 means
+// the platform's default), or the fixed Value, never both.
+type GeneratedServiceSecretKey struct {
+	Key    string `json:"key"`
+	Length int    `json:"length,omitempty"`
+	Value  string `json:"value,omitempty"`
+}
+
+// CreateChartServiceProfile makes one Helm chart into a service profile and
+// answers the profile and the version it published. A refusal carries the
+// platform's own sentence (for example the field a generated key fails on).
+func (c *Client) CreateChartServiceProfile(chartRequest ChartServiceProfileRequest) (*CreateStackProfileResult, error) {
+	requestURL := fmt.Sprintf("%s/api/v1/org/stack-profiles/from-chart", c.BaseURL)
+	var result CreateStackProfileResult
+	if err := c.postCSRFJSON(requestURL, chartRequest, &result, "create chart service profile"); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 // ImportStackProfileDraftRequest opens an imported IaC document as a

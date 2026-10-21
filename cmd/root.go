@@ -75,6 +75,7 @@ func SetVersion(v string) {
 func Execute() {
 	rootCmd.Version = version
 	wrapArgsValidators(rootCmd)
+	wrapProviderKindRefusals(rootCmd)
 	if handled, exitCode := dispatchExternalPlugin(os.Args[1:]); handled {
 		os.Exit(exitCode)
 	}

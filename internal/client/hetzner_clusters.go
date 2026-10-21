@@ -74,6 +74,8 @@ type CreateHetznerClusterRequest struct {
 	GitopsCredentialName   *string                  `json:"gitops_credential_name,omitempty"`
 	GitopsRepository       *string                  `json:"gitops_repository,omitempty"`
 	GitopsBranch           *string                  `json:"gitops_branch,omitempty"`
+	Environment            *string                  `json:"environment,omitempty"`
+	Criticality            *string                  `json:"criticality,omitempty"`
 }
 
 type CreateHetznerClusterResponse struct {

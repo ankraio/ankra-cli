@@ -32,6 +32,8 @@ type CreateMorpheusClusterRequest struct {
 	CNI                string  `json:"cni,omitempty"`
 	IncludeNetworking  bool    `json:"include_networking"`
 	IncludeDNS         bool    `json:"include_dns"`
+	Environment        *string `json:"environment,omitempty"`
+	Criticality        *string `json:"criticality,omitempty"`
 }
 
 type CreateMorpheusClusterResponse struct {

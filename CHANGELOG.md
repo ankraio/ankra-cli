@@ -2,28 +2,90 @@
 
 ## Unreleased
 
+## v0.45.1 - 2026-10-21
+
+A patch release that makes `ankra delete cluster` and `ankra cluster
+deprovision` fail closed. When the cluster's kind could not be read (a network
+error, a timeout, a platform error, an expired login), `ankra delete cluster`
+skipped its cloud-cluster check and sent the delete anyway, and `ankra cluster
+deprovision` with no argument went on without the kind. Both now stop with
+nothing changed. Managed Kubernetes clusters and playgrounds are pointed at
+their own removal commands. It also adds `ankra services packages collisions`.
+
 ### Added
 
 - **Ankra Cloud clusters can size each server's root disk and choose its storage tier.** `ankra cluster ankracloud create` and `preflight` take `--bastion-disk-gib`, `--control-plane-disk-gib`, `--etcd-disk-gib` and `--worker-disk-gib`, and the matching `--*-disk-tier` flags (`local-nvme`, `standard`, `maxiops` or `hdd`). `ankra cluster node-group add` takes `--disk-gib` and `--disk-tier`, which apply to every server a node group creates, scale-ups included. A size or tier you leave unset is not sent, so the server takes its plan's included disk on the zone's default tier. Put CI workers on small `local-nvme` disks when their data lives on persistent volumes. The preflight counts the chosen sizes against the account's storage quota, and Ankra Cloud refuses a size below the plan's and the template's minimum. The disk flags are refused on other providers, and `node-group list` shows `disk=<n>GiB/<tier>` for a group that chose either.
 - **`ankra org access-gateway status` checks a Platform and Cloud relay deployment together.** It reads live workloads and Secret references through Ankra, and supports JSON/YAML output without revealing credentials. Pass `--platform-cluster` and `--relay-cluster` to name the two clusters. Token equality and a browser SSO login remain separate checks.
 - **`ankra org access-gateway zones|get|set` manages Cloud DNS proxy policies with an Ankra login.** List the organisation's Cloud zones, inspect an effective access policy, or set `--mode public|organisation` with optional repeated `--role` values. The Platform checks organisation membership and `members.manage` before forwarding a policy change to Cloud.
+- **`ankra services packages collisions` checks that two services from a package could share a cluster.** `collisions --profile <id> --demo <workspace-id>` reads a running demo of the stack profile and names any cluster-scoped object (a ClusterRole, a CRD, a webhook, a StorageClass) whose name does not change with the service's namespace, which a second service would also claim, and the Services and Secrets named after the service, which a package's connection cannot name as fixed values. It exits 0 only when every kind was read and nothing collides; a check that could not read everything exits 1 with the reason.
 
 ### Fixed
 
-- **Cluster resource commands accept the declared plural of a custom resource.** Pass `--resource backuprepositories` with `--group velero.io --api-version v1` when a CRD's plural cannot be derived from its kind. This fixes false not-found results from `cluster patch` and `cluster delete` for resources such as Velero BackupRepository.
+- **`ankra delete cluster` no longer deletes a cluster whose kind it could not read.** It reads the cluster's kind first, to refuse a cloud cluster that must be deprovisioned instead, but when that read failed (a network error, a timeout, a platform error or an expired login) it skipped the check and sent the delete anyway. It now stops with nothing deleted: ``could not read what kind of cluster "lab" is, so nothing was deleted (a cloud cluster must be deprovisioned instead); try again``, exiting 1, or 6 or 7 when the read was refused for your login or role. A cluster that does not exist exits 3 before anything is sent, and one whose kind the platform did not report is refused the same way. The confirmation prompt and `--force` work as before.
+- **`ankra delete cluster` names the right command for every cluster it cannot remove.** A managed Kubernetes cluster (EKS, AKS, GKE, DOKS, UKS, OVH MKS, Kapsule or Ankra Cloud Kubernetes) points at `ankra cluster managed delete <id> --provider <kind>`, and a playground at `ankra cluster playground destroy <id>`, each with exit 2, where they reached the platform and came back as `delete refused: status 409` or, for a playground, were deleted without releasing its environment.
+- **`ankra cluster deprovision` with no argument no longer guesses when it cannot read the selected cluster.** A failed read of the selected cluster used to carry on with no kind, so a cloud cluster went to the generic deprovision without its volume check or the warning that its record is deleted. It now stops with nothing changed (exit 1, or 6 or 7 for your login or role), and a selection that no longer exists exits 3 and says to select another cluster.
+- **`ankra cluster deprovision` refuses a managed Kubernetes cluster or a playground instead of reporting success.** The generic deprovision accepted them and printed `Cluster deprovision initiated.` while the managed control plane, its node pools or the playground's environment kept running and billing. It now exits 2 naming `ankra cluster managed delete <id> --provider <kind>` or `ankra cluster playground destroy <id>`. A cluster whose kind the platform did not report is refused with exit 1.
+- **A cluster named exactly is found however many other clusters share part of its name.** The platform's name filter matches substrings, and the lookup read only its first 100 matches, so a cluster sorted past them was reported as missing. Every page is read now, and a listing too long to read in full is an error rather than "does not exist".
+- **`ankra services consumers unbind --revision` no longer removes a binding it failed to read.** With `--revision`, any read failure was ignored so that a binding whose application was removed could still be unbound; now only a binding that reads as not found is removed unread, and any other failure stops the command with nothing removed.
 
-- **CI capacity hints name the full pool member.** Pending steps on another cluster no longer make an idle primary appear full or recommend increasing its workers.
+## v0.45.0 - 2026-10-21
 
-- **`ankra cluster stacks deploy-draft` deploys the draft of a stack that is already deployed.** The draft `ankra cluster draft -f` (or the stack builder) leaves on an existing stack could previously only be deployed from the dashboard, so the fix was to force `manifests upgrade` on each member. The command now reads the draft in full and promotes it through the same write the builder's Deploy button uses. Only the members the draft changes are written, the rest of the stack keeps running, and if the draft is still open afterwards (for example, it records a member removal) the command says so. This needs a platform that serves the CLI's stack-draft read. An older platform answers with a message pointing to the stack builder.
+The headline is checking a managed service's connection before you publish
+it: `ankra services packages propose` reads a running demo of the stack
+profile and proposes the connection the package could declare, and `probe`
+tries it against the demo with the readiness canary. `ankra services packages
+init --addon` now has the platform build the chart's stack profile and can
+generate the service's credentials with `--generate-secret`. Cluster
+commands run against a cluster of the wrong kind now say so and exit 2.
 
 ### Added
 
-- **`ankra cluster agent auto-upgrade enable|disable --reason "..."` records
-  why.** Every change to the auto-upgrade switch is now on the organisation
-  audit log with who made it and the setting it replaced, and `--reason` adds
-  your own words, so the next person can tell a deliberate fence (a freeze
-  window, a migration night) from an accident. Without `--reason` the change
-  is still recorded.
+- **`ankra services packages propose` and `probe` check a package's connection against a running demo before you publish it.** `propose --profile <id> --demo <workspace-id>` reads a running demo of the stack profile on the staging cluster and proposes the connection blocks the package could declare, from its Services' ports and its Secrets' key names (never their values); `-f package.json` writes the best complete proposal into the file `init` made. A demo whose namespace could not be observed exits 1 with the reason instead of reading as one with nothing to propose. `probe --profile <id> --demo <workspace-id> -f package.json --wait` runs the protocol's readiness canary against the demo with that connection and exits 0 only when it passed: failed and unknown exit 1 with the reason, and a probe still running at `--timeout` exits 5.
+- **`ankra services packages init --addon` asks the platform for the chart's stack profile and can generate the service's credentials.** The platform now builds the single-chart profile (POST /api/v1/org/stack-profiles/from-chart) instead of the CLI writing it. With `--generate-secret <name>` and one `--generate-key` per key (`password` for a random value, `password:48` for one of 48 characters, `username=app` for a fixed one), the profile also generates the service's credentials: a Secret created on the first install and kept unchanged across upgrades, and the package's connection already names it. Random values are generated in the cluster and Ankra never sees them; a fixed value is stored in the profile, so use it only for a name such as a user, never for a password.
+
+### Changed
+
+- **`ankra cluster node-group`, `ankra cluster ssh-keys`, `ankra cluster scale` and `ankra cluster upgrade` on a cluster Ankra did not build now exit 2, not 1.** These commands need a cluster Ankra builds (Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, Ankra Cloud, AWS, Proxmox VE or HPE Morpheus), and naming another one is a usage mistake, not a platform failure. The message names the cluster as you typed it and its kind, for example `lab does not support node groups (its kind is imported); only Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, Ankra Cloud, AWS, Proxmox VE and HPE Morpheus clusters do`. This matches `ankra cluster ankracloud quota` on a cluster that is not an Ankra Cloud one, which exits 2 since v0.44.1.
+- **Every `ankra cluster <provider>` command run against a cluster of another provider says so and exits 2.** `ankra cluster hetzner workers` on an OVH cluster, for example, printed `unexpected status: 409 Conflict` and exited 1, as if the platform had failed. It now prints ``ci is not a Hetzner cluster (its kind is ovh); `ankra cluster hetzner workers` applies to Hetzner clusters only. For this cluster use `ankra cluster ovh workers` ``; the second sentence appears when the cluster's own provider has the same command. This covers every command under `ankra cluster hetzner`, `ovh`, `upcloud`, `digitalocean`, `scaleway`, `ankracloud`, `aws`, `proxmox` and `morpheus` that takes a cluster. The kind is read only after the platform refuses, so a command that succeeds makes no extra request, and any other failure keeps its own message and exit code.
+- **`ankra delete cluster` on a cloud cluster exits 2, not 1, and the refusal goes to standard error.** The message names the cluster's kind and the `ankra cluster deprovision` command that removes it with its cloud resources; it used to be printed on standard output, followed by a second, shorter error.
+
+## v0.44.1 - 2026-10-21
+
+A patch release. Every `ankra cluster <provider> create` now takes
+`--environment` and `--criticality`, `ankra cluster update --environment`
+changes an existing cluster's environment, and `ankra services packages init
+--addon` makes a managed service from one Helm chart. It also fixes two exit
+codes found at the v0.44.0 release gate: `ankra services packages init` flag
+mistakes exit 2, and `ankra cluster ankracloud quota` on a cluster that is not
+an Ankra Cloud cluster says so and exits 2 instead of printing a raw 404.
+
+### Added
+
+- **`ankra services packages init --addon <chart> --registry <name> --chart-version <v>` makes a managed service from one Helm chart.** It first creates a stack profile holding that chart alone (each service it sets up installs into a namespace named after the service; `--values` passes a values file), then writes the package pinned to it, as `init --profile` does. Fill in the connection and publish it with `ankra services packages publish`. The output file is checked before the profile is created, so a refused run leaves nothing behind.
+- **`ankra cluster update <cluster> --environment <name>` changes an existing cluster's environment.** It was set only at creation (by `ankra cluster aws create --environment`) or in the portal, so a cluster replaced by another one could not be moved from production to development from the terminal. A preset environment brings the reporting level the portal pairs with it (testing is graded as development, local as disposable); `--criticality` sets the level explicitly, and an environment of your own leaves the level as it is unless `--criticality` is given. The cluster is named by name or id, or the selected cluster is used.
+- **`ankra cluster apply` and `ankra cluster validate` warn when a cluster file sets `metadata.environment` or `metadata.criticality`.** Neither key is read, so neither sets nor changes the cluster's environment or reporting level, but a file carrying one passed both commands without a word. The warning names the `ankra cluster update` command that does change the value; it goes to stderr, so `-o json` output stays parseable.
+- **Every `ankra cluster <provider> create` sets the cluster's environment: `--environment` and `--criticality` now exist on Hetzner, OVHcloud, UpCloud, DigitalOcean, Scaleway, Proxmox, Morpheus, Ankra Cloud and managed clusters (`ankra cluster managed create` and `import`), not only on AWS.** Until now a cluster built from the terminal on any other provider started as development, and a CLI-only user could not put it into the production group that dynamic cluster groups use to scope production access. Without either flag the platform default is unchanged: development, with its own reporting level. `--criticality` takes production, staging, development or disposable. An unknown level, or an environment longer than 50 bytes, is refused with exit 2 before anything is created; this applies to `ankra cluster aws create` too, which used to send any value. The Scaleway, Ankra Cloud and AWS `preflight` commands take the same flags.
+
+### Fixed
+
+- **`ankra services packages init` treats a wrong flag as a usage error (exit 2).** An unknown `--protocol` now says `invalid --protocol "bogus": must be one of nats, opensearch, postgres, redis, s3, victorialogs, victoriametrics` and exits 2, where it exited 1 like a platform failure. The same goes for flags that do not go together (`--addon` with `--profile`, `--addon` without `--registry` and `--chart-version`, neither `--addon` nor `--profile`, or `--registry`, `--chart-version` or `--values` without `--addon`). Nothing is sent to the platform in any of these cases, as before.
+- **`ankra cluster ankracloud quota` on a cluster that is not an Ankra Cloud cluster says so.** It printed `unexpected status: 404 Not Found` and exited 3, as if the cluster did not exist. It now prints `<cluster> is not an Ankra Cloud cluster (its kind is hetzner); quota applies to Ankra Cloud clusters only` and exits 2, since the fix is to name an Ankra Cloud cluster. With `-o json` standard output stays empty and the message goes to standard error, as for every other refusal. A cluster that does not exist still exits 3, and the quota of an Ankra Cloud cluster is shown as before. An unknown `-o` value is now refused with exit 2 before anything is read, where it could exit 3 after the read.
+- **The binaries are built with Go 1.26.10**, which fixes the `crypto/x509` advisory GO-2026-6809, so a vulnerability scan of the `ankra` binary no longer reports it.
+
+## v0.44.0 — 2026-10-20
+
+The headline is control over the agent version: `ankra cluster agent upgrade
+--version` installs an exact agent release, `--allow-downgrade` lets that be a
+rollback, and `ankra cluster agent auto-upgrade enable|disable --reason`
+records why the fleet rollout was fenced off. Alongside it, `ankra services
+packages init` and `publish` turn your own stack profiles into managed
+services, `ankra cluster ankracloud quota` shows what the Ankra Cloud account
+has left, `ankra org access-gateway` manages Cloud DNS access policies, and
+`ankra cluster stacks deploy-draft` now deploys the draft of a stack that is
+already running.
+
+### Added
+
 - **`ankra cluster agent upgrade --version <release>` installs an exact agent
   release, and `--allow-downgrade` lets it be an older one.** Without
   `--version` the command still installs the newer of the release the agent
@@ -34,6 +96,12 @@
   and exit 2. `--allow-downgrade` without `--version` is a usage error. This
   is the rollback the platform's API already allowed and the CLI could not
   ask for.
+- **`ankra cluster agent auto-upgrade enable|disable --reason "..."` records
+  why.** Every change to the auto-upgrade switch is now on the organisation
+  audit log with who made it and the setting it replaced, and `--reason` adds
+  your own words, so the next person can tell a deliberate fence (a freeze
+  window, a migration night) from an accident. Without `--reason` the change
+  is still recorded.
 - **`ankra services packages init` and `publish` turn one of your stack
   profiles into a managed service.** `init --profile <id> --profile-version
   <id> --name <name> --protocol <protocol>` writes a package for that profile
@@ -53,19 +121,51 @@
   floating IPs, private networks, routers) with what the account already
   holds and what is left, names the ones near or at their limit, and says how
   to raise one. `-o json|yaml` prints the report as the platform returns it.
+- **`ankra org access-gateway zones|get|set` manages Cloud DNS proxy
+  policies with an Ankra login.** List the organisation's Cloud zones, inspect
+  an effective access policy, or set `--mode public|organisation` with
+  optional repeated `--role` values. The Platform checks organisation
+  membership and `members.manage` before forwarding a policy change to Cloud.
+  An unknown zone exits 3 and a policy Cloud refuses as invalid exits 2.
+- **`ankra org access-gateway status` checks a Platform and Cloud relay
+  deployment together.** It reads live workloads and Secret references
+  through Ankra, and supports JSON/YAML output without revealing credentials.
+  Pass `--platform-cluster` and `--relay-cluster` to name the two clusters.
+  Token equality and a browser SSO login remain separate checks.
+
+### Changed
+
+- **The embedded `ankra-cicd` and `ankra-ship` skills explain where a
+  converted job with no `container:` runs.** A GitHub Actions job converted
+  to an Ankra pipeline without a container now runs in an Ubuntu image that
+  matches its `runs-on` (`buildpack-deps:noble` or `buildpack-deps:jammy`,
+  pinned by digest), and a `setup-node`/`setup-go`/`setup-python`/`setup-java`
+  step with a version becomes the language image of the stages after it. The
+  skills say so, and that a `kind: run` stage with no image is a fatal
+  `pipeline_image:` validation error. Run `ankra skills install` to refresh
+  installed copies.
 
 ### Fixed
 
+- **`ankra cluster stacks deploy-draft` deploys the draft of a stack that is
+  already deployed.** The draft `ankra cluster draft -f` (or the stack
+  builder) leaves on an existing stack could previously only be deployed from
+  the dashboard, so the fix was to force `manifests upgrade` on each member.
+  The command now reads the draft in full and promotes it through the same
+  write the builder's Deploy button uses. Only the members the draft changes
+  are written, the rest of the stack keeps running, and if the draft is still
+  open afterwards (for example, it records a member removal) the command says
+  so. This needs a platform that serves the CLI's stack-draft read. An older
+  platform answers with a message pointing to the stack builder. Such a stack
+  used to be refused with exit 2.
 - **`ankra cluster apply --wait` and `ankra cluster stacks deploy-draft` print
   the platform's warnings.** A write that needs more new claim storage than
   the Ankra Cloud account has left now says so after it succeeds, naming the
   limit, what the account holds, what the change asks for and where to raise
   the limit. `deploy-draft` could not read a stack write that carried any
   warning at all, because it expected the warnings as plain strings; it now
-  reads the objects the platform sends.
-
-### Fixed
-
+  reads the objects the platform sends, and `-o json` prints each warning as
+  an object with `kind`, `name`, `key`, `message` and `category`.
 - **`ankra cluster draft` now says why a stack was refused.** A request the
   platform rejected as invalid (for example an addon missing `registry_name`
   or `registry_url`) used to print only the stack name and exit non-zero with
@@ -73,6 +173,14 @@
   the addon or manifest by name, and the field - and errors the platform
   reports alongside an otherwise successful response fail the stack instead
   of being dropped.
+- **Cluster resource commands accept the declared plural of a custom
+  resource.** Pass `--resource backuprepositories` with `--group velero.io
+  --api-version v1` when a CRD's plural cannot be derived from its kind. This
+  fixes false not-found results from `cluster patch`, `cluster delete` and
+  `cluster describe` for resources such as Velero BackupRepository.
+- **CI capacity hints name the full pool member.** Pending steps on another
+  cluster no longer make an idle primary appear full or recommend increasing
+  its workers.
 
 ## v0.43.1 — 2026-10-19
 

@@ -91,6 +91,8 @@ type CreateAnkraCloudClusterRequest struct {
 	ControlPlaneDiskTier      string                `json:"control_plane_disk_tier,omitempty"`
 	EtcdDiskTier              string                `json:"etcd_disk_tier,omitempty"`
 	WorkerDiskTier            string                `json:"worker_disk_tier,omitempty"`
+	Environment               *string               `json:"environment,omitempty"`
+	Criticality               *string               `json:"criticality,omitempty"`
 }
 
 type CreateAnkraCloudClusterResponse struct {

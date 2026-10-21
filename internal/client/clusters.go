@@ -81,6 +81,13 @@ func (c *Client) ListClusters(page int, pageSize int) (*ClusterListResponse, err
 	return response, nil
 }
 
+// getClusterMaxPages caps how many pages of name matches GetCluster reads,
+// getClusterPageSize rows each.
+const (
+	getClusterMaxPages = 50
+	getClusterPageSize = 100
+)
+
 // GetCluster looks up a cluster by exact name. The backend narrows with
 // its `name` filter and the exact match happens here.
 //
@@ -88,19 +95,37 @@ func (c *Client) ListClusters(page int, pageSize int) (*ClusterListResponse, err
 // read - the request silently returned the default first page of 25, so
 // any cluster sorted past it answered "no cluster found" (ankra-99r3d,
 // the same truncation listAllClusters was already fixed for).
+//
+// The server's `name` filter is a substring match, so more than one page
+// can match: every page is read before the name is called absent, and a
+// listing cut short by the page cap is an error, never ErrClusterNotFound.
+// Callers that refuse or delete on absence (ankra-kpq4ae) depend on that.
 func (c *Client) GetCluster(name string) (ClusterListItem, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters?name=%s&page=1&page_size=100",
-		c.BaseURL, neturl.QueryEscape(name))
-	var wrapper ClusterListResponse
-	if err := c.getJSON(url, &wrapper); err != nil {
-		return ClusterListItem{}, err
-	}
-	for _, cluster := range wrapper.Result {
-		if cluster.Name == name {
-			return cluster, nil
+	for page := 1; page <= getClusterMaxPages; page++ {
+		url := fmt.Sprintf("%s/api/v1/clusters?name=%s&page=%d&page_size=%d",
+			c.BaseURL, neturl.QueryEscape(name), page, getClusterPageSize)
+		var wrapper ClusterListResponse
+		if err := c.getJSON(url, &wrapper); err != nil {
+			return ClusterListItem{}, err
+		}
+		for _, cluster := range wrapper.Result {
+			if cluster.Name == name {
+				return cluster, nil
+			}
+		}
+		// The page count decides when the platform reports one; a response
+		// without it ends only on a short page, so a missing count can never
+		// cut the read short and pass for an absence.
+		lastPage := len(wrapper.Result) < getClusterPageSize
+		if wrapper.Pagination.TotalPages > 0 {
+			lastPage = wrapper.Pagination.TotalPages <= page
+		}
+		if len(wrapper.Result) == 0 || lastPage {
+			return ClusterListItem{}, fmt.Errorf("no cluster found for name %q: %w", name, ErrClusterNotFound)
 		}
 	}
-	return ClusterListItem{}, fmt.Errorf("no cluster found for name %q: %w", name, ErrClusterNotFound)
+	return ClusterListItem{}, fmt.Errorf("looking up cluster %q: more than %d pages of clusters match the name, "+
+		"so its absence could not be confirmed", name, getClusterMaxPages)
 }
 
 // GetClusterByID looks up a cluster by its UUID. Passing an explicit page
@@ -527,6 +552,32 @@ func (c *Client) TriggerReconcile(ctx context.Context, clusterID string) (*Trigg
 	var result TriggerReconcileResult
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
+}
+
+// ClusterEnvironmentResult is what PATCH .../environment answers: the stored
+// environment, and the stored criticality only when the request set one.
+type ClusterEnvironmentResult struct {
+	Environment string  `json:"environment"`
+	Criticality *string `json:"criticality,omitempty"`
+}
+
+// SetClusterEnvironment writes a cluster's environment label and, when
+// criticality is not empty, the reporting level its insights are graded at,
+// in one transaction - the route the portal's environment control uses. An
+// empty criticality is not sent, which leaves the stored level as it is. Like
+// the reconcile route, it serves every cluster kind despite "imported" in
+// its path.
+func (c *Client) SetClusterEnvironment(ctx context.Context, clusterID string, environment string, criticality string) (*ClusterEnvironmentResult, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/environment", c.BaseURL, neturl.PathEscape(clusterID))
+	payload := map[string]any{"environment": environment}
+	if criticality != "" {
+		payload["criticality"] = criticality
+	}
+	var result ClusterEnvironmentResult
+	if err := c.sendJSONContext(ctx, http.MethodPatch, url, payload, &result); err != nil {
+		return nil, err
 	}
 	return &result, nil
 }

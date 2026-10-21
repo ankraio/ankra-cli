@@ -83,6 +83,7 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	printUnreadImportMetadataWarnings(cmd, filePath)
 	if dryRun {
 		fmt.Printf("Validation succeeded for %q; no changes applied (--dry-run).\n", filePath)
 		if override := clusterFlagOverride(cmd); override != "" {
@@ -219,6 +220,78 @@ func loadImportCluster(filePath string, allowRepoint bool, allowRepointDestroyin
 		return client.CreateImportClusterRequest{}, fmt.Errorf("invalid ImportCluster in %q:\n  %w", filePath, err)
 	}
 	return importRequest, nil
+}
+
+// unreadImportMetadata lists the metadata keys a cluster file plausibly
+// carries that apply does not send, with what each one names and the
+// 'ankra cluster update' flag that does change it. A file setting one passed
+// validate and apply in silence, leaving its author unable to tell whether
+// the value took effect (PLA-913). It does not: this CLI never sends it, and
+// the platform applies an import's environment only when the import creates
+// the cluster, so no file edit changes an existing cluster's.
+var unreadImportMetadata = []struct{ key, names, flag string }{
+	{"environment", "environment", "--environment"},
+	{"criticality", "reporting level", "--criticality"},
+}
+
+// unreadImportMetadataWarnings returns one line per unread key the file at
+// filePath sets. A file that cannot be read or parsed yields none; loading it
+// reports that. It parses with the same yaml.Unmarshal as
+// buildImportRequestFromBytes, which reads only the first document of a
+// '---' stream, so it inspects exactly the document apply sends. The
+// suggestion says "once the cluster exists" because validate, a dry run, or
+// the apply that creates the cluster all print it before there is one.
+func unreadImportMetadataWarnings(filePath string) []string {
+	data, readError := os.ReadFile(filePath)
+	if readError != nil {
+		return nil
+	}
+	var document struct {
+		Metadata map[string]interface{} `yaml:"metadata"`
+	}
+	if yaml.Unmarshal(data, &document) != nil {
+		return nil
+	}
+	clusterName, _ := document.Metadata["name"].(string)
+	var warnings []string
+	for _, unread := range unreadImportMetadata {
+		value, present := document.Metadata[unread.key]
+		if !present {
+			continue
+		}
+		suggestedValue := "<value>"
+		if text, isText := value.(string); isText && strings.TrimSpace(text) != "" {
+			suggestedValue = shellWordOrQuoted(strings.TrimSpace(text))
+		}
+		warnings = append(warnings, fmt.Sprintf(
+			"metadata.%s is not read: a cluster file does not set or change the cluster's %s. Once the cluster exists, set it with: ankra cluster update %s %s %s",
+			unread.key, unread.names, shellWordOrQuoted(clusterName), unread.flag, suggestedValue))
+	}
+	return warnings
+}
+
+// printUnreadImportMetadataWarnings writes those lines to stderr, so a
+// structured -o json/yaml result on stdout stays parseable.
+func printUnreadImportMetadataWarnings(cmd *cobra.Command, filePath string) {
+	for _, warning := range unreadImportMetadataWarnings(filePath) {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
+	}
+}
+
+// shellWordOrQuoted leaves a value that is one plain shell word as it is and
+// single-quotes anything else, so a suggested command can be pasted as shown.
+func shellWordOrQuoted(value string) string {
+	if value == "" {
+		return shellQuote(value)
+	}
+	for _, character := range value {
+		isPlain := character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' || strings.ContainsRune("._-/:@", character)
+		if !isPlain {
+			return shellQuote(value)
+		}
+	}
+	return value
 }
 
 // applyImportCluster sends the request; submitted is true when the platform

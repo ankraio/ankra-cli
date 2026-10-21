@@ -89,6 +89,10 @@ func (m baseMock) MoveCluster(ctx context.Context, clusterID string, destination
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) SetClusterEnvironment(context.Context, string, string, string) (*client.ClusterEnvironmentResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) DeprovisionCluster(ctx context.Context, clusterID string) (*client.DeprovisionClusterResult, error) {
 	return nil, errors.New("not implemented")
 }
@@ -160,6 +164,10 @@ func (m baseMock) ExportStackProfileIac(profileID string, version int) (*client.
 }
 
 func (m baseMock) ImportStackProfile(importRequest client.ImportStackProfileRequest) (*client.CreateStackProfileResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateChartServiceProfile(chartRequest client.ChartServiceProfileRequest) (*client.CreateStackProfileResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -5326,6 +5334,22 @@ func (m baseMock) GetServicePackage(context.Context, string) (*client.ServicePac
 }
 
 func (m baseMock) GetServiceProfilePin(context.Context, string, string) (*client.ServiceProfilePin, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetStackProfileDemoConnectionProposal(ctx context.Context, profileID string, workspaceID string) (*client.StackProfileDemoConnectionProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ProbeStackProfileDemoConnection(ctx context.Context, profileID string, workspaceID string, connection client.ServicePackageConnection) (*client.StackProfileDemoConnectionProbe, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetStackProfileDemoConnectionProbe(ctx context.Context, profileID string, workspaceID string, probeID string) (*client.StackProfileDemoConnectionProbe, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetStackProfileDemoCollisionCheck(ctx context.Context, profileID string, workspaceID string) (*client.StackProfileDemoCollisionCheck, error) {
 	return nil, errors.New("not implemented")
 }
 
