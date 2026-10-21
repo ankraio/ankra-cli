@@ -41,12 +41,13 @@ var deleteClusterCmd = &cobra.Command{
 		if lookupErr == nil {
 			switch clusterInfo.Kind {
 			case "hetzner", "ovh", "upcloud", "digitalocean", "scaleway", "ankracloud", "aws", "proxmox", "morpheus":
-				fmt.Printf(
-					"Cluster %q is a %s cloud cluster and cannot be deleted with this command.\n"+
-						"Run 'ankra cluster deprovision %s' instead so the cloud resources are released.\n",
-					name, clusterInfo.Kind, clusterInfo.ID,
-				)
-				return fmt.Errorf("refusing to delete cloud cluster %q via generic delete", name)
+				// A cloud cluster is removed by deprovisioning it, so
+				// naming one here is a usage error (exit 2), like any
+				// other command run against a cluster of the wrong kind.
+				return withExitCode(exitUsage, fmt.Errorf(
+					"%s is a cloud cluster (its kind is %s), which `ankra delete cluster` cannot remove; "+
+						"run `ankra cluster deprovision %s` instead so its cloud resources are released",
+					name, clusterInfo.Kind, clusterInfo.ID))
 			}
 		}
 

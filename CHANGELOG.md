@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed
+
+- **`ankra cluster node-group`, `ankra cluster ssh-keys`, `ankra cluster scale` and `ankra cluster upgrade` on a cluster Ankra did not build now exit 2, not 1.** These commands need a cluster Ankra builds (Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, Ankra Cloud, AWS, Proxmox VE or HPE Morpheus), and naming another one is a usage mistake, not a platform failure. The message names the cluster as you typed it and its kind, for example `lab does not support node groups (its kind is imported); only Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, Ankra Cloud, AWS, Proxmox VE and HPE Morpheus clusters do`. This matches `ankra cluster ankracloud quota` on a cluster that is not an Ankra Cloud one, which exits 2 since v0.44.1.
+- **Every `ankra cluster <provider>` command run against a cluster of another provider says so and exits 2.** `ankra cluster hetzner workers` on an OVH cluster, for example, printed `unexpected status: 409 Conflict` and exited 1, as if the platform had failed. It now prints ``ci is not a Hetzner cluster (its kind is ovh); `ankra cluster hetzner workers` applies to Hetzner clusters only. For this cluster use `ankra cluster ovh workers` ``; the second sentence appears when the cluster's own provider has the same command. This covers every command under `ankra cluster hetzner`, `ovh`, `upcloud`, `digitalocean`, `scaleway`, `ankracloud`, `aws`, `proxmox` and `morpheus` that takes a cluster. The kind is read only after the platform refuses, so a command that succeeds makes no extra request, and any other failure keeps its own message and exit code.
+- **`ankra delete cluster` on a cloud cluster exits 2, not 1, and the refusal goes to standard error.** The message names the cluster's kind and the `ankra cluster deprovision` command that removes it with its cloud resources; it used to be printed on standard output, followed by a second, shorter error.
+
 ## v0.44.1 - 2026-10-21
 
 A patch release. Every `ankra cluster <provider> create` now takes
