@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -116,6 +117,44 @@ func TestGetCluster(t *testing.T) {
 				t.Errorf("GetCluster() got.Name = %v, want my-cluster", got.Name)
 			}
 		})
+	}
+}
+
+// The server's name filter is a substring match, so the exact name can sit
+// past the first page; reading only page 1 reported such a cluster as
+// absent, which `ankra delete cluster` turns into "does not exist" (exit 3).
+func TestGetClusterReadsEveryPageBeforeCallingANameAbsent(t *testing.T) {
+	var pages []string
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		pages = append(pages, page)
+		result := []ClusterListItem{{ID: "id-" + page, Name: "my-cluster-" + page}}
+		if page == "2" {
+			result = append(result, ClusterListItem{ID: "id-exact", Name: "my-cluster"})
+		}
+		jsonResponse(t, w, http.StatusOK, ClusterListResponse{
+			Result: result, Pagination: Pagination{TotalCount: 300, Page: 1, PageSize: 100, TotalPages: 3},
+		})
+	})
+	got, err := testClient.GetCluster("my-cluster")
+	if err != nil || got.ID != "id-exact" {
+		t.Fatalf("GetCluster() = %+v, %v; want the exact match on page 2", got, err)
+	}
+	if strings.Join(pages, ",") != "1,2" {
+		t.Fatalf("pages read = %v, want 1,2", pages)
+	}
+}
+
+func TestGetClusterCappedListingIsNotAnAbsence(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse(t, w, http.StatusOK, ClusterListResponse{
+			Result:     []ClusterListItem{{ID: "id", Name: "my-cluster-other"}},
+			Pagination: Pagination{TotalCount: 100000, Page: 1, PageSize: 100, TotalPages: 1000},
+		})
+	})
+	_, err := testClient.GetCluster("my-cluster")
+	if err == nil || errors.Is(err, ErrClusterNotFound) {
+		t.Fatalf("a listing cut short by the page cap must not read as not found, got %v", err)
 	}
 }
 
