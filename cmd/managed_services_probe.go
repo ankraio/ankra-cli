@@ -162,7 +162,7 @@ func bestCompleteProposal(proposals []client.ServiceConnectionProposal) (client.
 // writeProposedConnection replaces the connection of the package file at
 // packagePath. The file is read into the contract init writes, refusing
 // fields that contract does not know so none is dropped, and replaced
-// atomically.
+// atomically with the original file's permissions.
 func writeProposedConnection(packagePath string, connection client.ServicePackageConnection) error {
 	raw, readError := readServicePackageDocument(nil, packagePath)
 	if readError != nil {
@@ -190,6 +190,11 @@ func writeProposedConnection(packagePath string, connection client.ServicePackag
 	}
 	if closeError := temporary.Close(); closeError != nil {
 		return fmt.Errorf("writing the package file: %w", closeError)
+	}
+	if original, statError := os.Stat(packagePath); statError == nil {
+		if chmodError := os.Chmod(temporary.Name(), original.Mode().Perm()); chmodError != nil {
+			return fmt.Errorf("writing the package file: %w", chmodError)
+		}
 	}
 	return os.Rename(temporary.Name(), packagePath)
 }

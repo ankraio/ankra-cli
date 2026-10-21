@@ -19,7 +19,7 @@ func TestServicesPackagesProposeWritesTheBestCompleteProposalIntoThePackage(t *t
 	initial := client.ServicePackageContract{SchemaVersion: 2, Name: "dragonfly-cache", Version: "1.0.0", Capability: "cache",
 		Connection: &client.ServicePackageConnection{Protocol: "redis"}}
 	encoded, _ := json.Marshal(initial)
-	if writeError := os.WriteFile(packagePath, encoded, 0o600); writeError != nil {
+	if writeError := os.WriteFile(packagePath, encoded, 0o644); writeError != nil {
 		t.Fatal(writeError)
 	}
 	stdout, stderr, runError := runServicesCommand(t, platform, "", "packages", "propose", "--profile", fakeMemberProfileID,
@@ -37,6 +37,9 @@ func TestServicesPackagesProposeWritesTheBestCompleteProposalIntoThePackage(t *t
 		contract.Connection == nil || contract.Connection.SecretName != "dragonfly-auth" || len(contract.Connection.Endpoints) != 1 ||
 		contract.Connection.Endpoints[0].Port != 6379 {
 		t.Fatalf("the package keeps its fields and takes the proposal's connection: %v\n%s", decodeError, written)
+	}
+	if info, statError := os.Stat(packagePath); statError != nil || info.Mode().Perm() != 0o644 {
+		t.Fatalf("the rewrite keeps the file's permissions: %v %v", info.Mode(), statError)
 	}
 	if !strings.Contains(stderr, "ankra services packages probe --profile "+fakeMemberProfileID+" --demo demo-ready -f "+packagePath) {
 		t.Fatalf("the next step is named:\n%s", stderr)
