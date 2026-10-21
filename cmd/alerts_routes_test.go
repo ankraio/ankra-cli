@@ -178,6 +178,7 @@ func TestAlertsRoutesCreateSendsOnlyPassedFlags(t *testing.T) {
 	request := mock.createRequest
 	if request == nil {
 		t.Fatal("expected the create call to reach the client")
+		return // unreachable; keeps staticcheck SA5011 quiet, which flagged the dereference below with go1.26.10
 	}
 	if request.DestinationID != "3d0f6a2e-0000-4000-8000-000000000001" {
 		t.Errorf("destination_id = %q", request.DestinationID)
@@ -321,6 +322,7 @@ func TestAlertsRoutesUpdateSendsOnlyChangedFields(t *testing.T) {
 	request := mock.updateRequest
 	if request == nil {
 		t.Fatal("expected the update call to reach the client")
+		return // unreachable; keeps staticcheck SA5011 quiet, which flagged the dereference below with go1.26.10
 	}
 	if request.Priority == nil || *request.Priority != 5 {
 		t.Errorf("priority = %v, want 5", request.Priority)
@@ -664,6 +666,7 @@ func TestAlertsRoutesCreateSendsTheApplicationAndReferenceScope(t *testing.T) {
 	request := mock.createRequest
 	if request == nil {
 		t.Fatal("expected the create call to reach the client")
+		return // unreachable; keeps staticcheck SA5011 quiet, which flagged the dereference below with go1.26.10
 	}
 	if request.ApplicationID == nil || *request.ApplicationID != "89789fcd-8879-4cf2-891a-01d24826ef64" {
 		t.Errorf("application_id = %v, want the application id", request.ApplicationID)
