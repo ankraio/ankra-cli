@@ -38,6 +38,7 @@ profile when the review is prepared.`,
 	packagesCommand.AddCommand(newServicesPackagesPublishCommand())
 	packagesCommand.AddCommand(newServicesPackagesProposeCommand())
 	packagesCommand.AddCommand(newServicesPackagesProbeCommand())
+	packagesCommand.AddCommand(newServicesPackagesCollisionsCommand())
 	return packagesCommand
 }
 
@@ -679,14 +680,18 @@ func runServicesConsumersUnbind(command *cobra.Command, arguments []string) erro
 	// The binding is read to show what is removed and, without --revision,
 	// for the revision to remove it at. A binding whose application or
 	// cluster is gone no longer reads by id, yet can still be removed.
+	// Only a binding that reads as not found is removed unread: any other
+	// failure says nothing about the binding, so nothing is removed.
 	consumer, getError := apiClient.GetServiceConsumer(ctx, consumerID)
-	if getError != nil && revision == 0 {
-		if isServiceNotFound(getError) {
+	if getError != nil {
+		if !isServiceNotFound(getError) {
+			return getError
+		}
+		if revision == 0 {
 			return fmt.Errorf("consumer binding %s could not be read (%w): it may not exist, or its application or cluster "+
 				"was removed - such a binding can still be unbound with --revision <n>, using the revision "+
 				"'ankra services consumers list --application <application>' shows", consumerID, getError)
 		}
-		return getError
 	}
 	description := consumerID
 	if consumer != nil {

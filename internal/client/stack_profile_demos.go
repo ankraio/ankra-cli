@@ -80,3 +80,39 @@ func (c *Client) GetStackProfileDemoConnectionProbe(ctx context.Context, profile
 	}
 	return &probe, nil
 }
+
+// StackProfileDemoCollisionCheck answers whether two services set up from a
+// package built on a stack profile could share a cluster, read off one of its
+// running demos (GET .../demos/{workspace_id}/collisions). Verdict is
+// no_collision, collisions or unknown, and is read before Collisions: an
+// unknown verdict (Reason says why, UnreadableKinds which kinds) proves
+// nothing, so an empty Collisions there is not "no collision".
+type StackProfileDemoCollisionCheck struct {
+	DemoStatus            string                   `json:"demo_status" yaml:"demo_status"`
+	Verdict               string                   `json:"verdict" yaml:"verdict"`
+	Reason                string                   `json:"reason" yaml:"reason"`
+	Collisions            []ServiceInstanceFinding `json:"collisions" yaml:"collisions"`
+	InstanceSpecificNames []ServiceInstanceFinding `json:"instance_specific_names" yaml:"instance_specific_names"`
+	CheckedKinds          []string                 `json:"checked_kinds" yaml:"checked_kinds"`
+	UnreadableKinds       []string                 `json:"unreadable_kinds" yaml:"unreadable_kinds"`
+	Note                  string                   `json:"note" yaml:"note"`
+}
+
+// ServiceInstanceFinding is one object that would not survive a second
+// service set up from the same package, and why.
+type ServiceInstanceFinding struct {
+	Kind   string `json:"kind" yaml:"kind"`
+	Name   string `json:"name" yaml:"name"`
+	Reason string `json:"reason" yaml:"reason"`
+}
+
+// GetStackProfileDemoCollisionCheck reads the collision check for one of a
+// profile's demos.
+func (c *Client) GetStackProfileDemoCollisionCheck(ctx context.Context, profileID string, workspaceID string) (*StackProfileDemoCollisionCheck, error) {
+	var check StackProfileDemoCollisionCheck
+	address := c.servicesURL("/api/v1/org/stack-profiles/%s/demos/%s/collisions", nil, profileID, workspaceID)
+	if requestError := c.sendJSONContext(ctx, http.MethodGet, address, nil, &check); requestError != nil {
+		return nil, requestError
+	}
+	return &check, nil
+}

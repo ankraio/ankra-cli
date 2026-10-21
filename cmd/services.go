@@ -1048,6 +1048,7 @@ type APIClient interface {
 	GetStackProfileDemoConnectionProposal(ctx context.Context, profileID string, workspaceID string) (*client.StackProfileDemoConnectionProposal, error)
 	ProbeStackProfileDemoConnection(ctx context.Context, profileID string, workspaceID string, connection client.ServicePackageConnection) (*client.StackProfileDemoConnectionProbe, error)
 	GetStackProfileDemoConnectionProbe(ctx context.Context, profileID string, workspaceID string, probeID string) (*client.StackProfileDemoConnectionProbe, error)
+	GetStackProfileDemoCollisionCheck(ctx context.Context, profileID string, workspaceID string) (*client.StackProfileDemoCollisionCheck, error)
 	PublishServicePackage(ctx context.Context, document json.RawMessage) (*client.ServicePackageDetail, error)
 	GetServiceClusterPolicy(ctx context.Context, clusterID string) (*client.ServiceClusterPolicy, error)
 	SetServiceClusterPolicy(ctx context.Context, clusterID string, request client.ServiceClusterPolicyRequest) (*client.ServiceClusterPolicy, error)

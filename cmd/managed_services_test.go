@@ -82,6 +82,8 @@ type fakeServicesPlatform struct {
 	packageSecrets []any
 	// unbindInUse makes a binding removal answer that a service still uses it.
 	unbindInUse bool
+	// consumerReadFails makes every single-binding read answer a 502.
+	consumerReadFails bool
 	// ignoreInstanceFilters answers the instance inventory unfiltered, as a
 	// platform from before cluster#4053 that ignores the filter keys would.
 	ignoreInstanceFilters bool
@@ -333,6 +335,8 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 			map[string]any{"id": fakeServiceConsumerID, "application_id": fakeServiceApplication, "cluster_id": fakeServiceClusterID,
 				"namespace": "orders", "allow_planned": true, "local_only": false, "revision": 4, "updated_at": "2026-10-01T00:00:00Z"},
 		}})
+	case request.Method == http.MethodGet && platform.consumerReadFails && strings.HasPrefix(path, admission+"/consumers/"):
+		fakeServiceJSON(t, writer, http.StatusBadGateway, map[string]any{"detail": "Bad Gateway"})
 	case request.Method == http.MethodGet && path == admission+"/consumers/"+fakeServiceConsumerID:
 		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"id": fakeServiceConsumerID, "application_id": fakeServiceApplication,
 			"organisation_id": fakeServiceOrganisation, "cluster_id": fakeServiceClusterID, "namespace": "orders",
@@ -464,6 +468,18 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		reason := map[string]string{"passed": "", "failed": "AUTH failed: WRONGPASS", "unknown": "The demo stopped before the probe ran."}[verdict]
 		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"probe_id": "probe-1", "status": "probed", "verdict": verdict,
 			"cause": verdict, "reason": reason, "requested_at": "2026-10-21T10:00:00Z", "probed_at": "2026-10-21T10:00:30Z"})
+	case request.Method == http.MethodGet && path == "/api/v1/org/stack-profiles/"+fakeMemberProfileID+"/demos/demo-ready/collisions":
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"demo_status": "ready", "verdict": "collisions", "reason": "",
+			"collisions": []any{map[string]any{"kind": "ClusterRole", "name": "dragonfly-operator",
+				"reason": "Its name does not change with the service's namespace, so a second service would claim it too."}},
+			"instance_specific_names": []any{}, "checked_kinds": []any{"ClusterRole"}, "unreadable_kinds": []any{}, "note": ""})
+	case request.Method == http.MethodGet && path == "/api/v1/org/stack-profiles/"+fakeMemberProfileID+"/demos/demo-clean/collisions":
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"demo_status": "ready", "verdict": "no_collision", "reason": "",
+			"collisions": []any{}, "instance_specific_names": []any{}, "checked_kinds": []any{"ClusterRole"}, "unreadable_kinds": []any{}, "note": ""})
+	case request.Method == http.MethodGet && path == "/api/v1/org/stack-profiles/"+fakeMemberProfileID+"/demos/demo-dark/collisions":
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"demo_status": "ready", "verdict": "unknown",
+			"reason": "The staging cluster agent did not answer the ClusterRole listing.", "collisions": []any{},
+			"instance_specific_names": []any{}, "checked_kinds": []any{}, "unreadable_kinds": []any{"ClusterRole"}, "note": ""})
 	case request.Method == http.MethodPost && path == "/api/v1/org/stack-profiles/import":
 		fakeServiceJSON(t, writer, http.StatusCreated, map[string]any{
 			"profile": map[string]any{"id": fakeMemberProfileID, "name": "dragonfly-cache", "category": "managed-service", "tags": []any{}},
@@ -544,7 +560,7 @@ func runServicesCommand(t *testing.T, platform *fakeServicesPlatform, input stri
 func TestServicesCommandsRegistered(t *testing.T) {
 	expected := map[string][]string{
 		"":            {"list", "get", "setup", "delete", "packages", "policy", "consumers", "reviews", "retirements"},
-		"packages":    {"list", "get", "init", "publish", "propose", "probe"},
+		"packages":    {"list", "get", "init", "publish", "propose", "probe", "collisions"},
 		"policy":      {"get", "set"},
 		"consumers":   {"list", "get", "bind", "unbind"},
 		"reviews":     {"list", "get", "confirm"},
@@ -1636,6 +1652,21 @@ func TestServicesConsumersUnbindAnOrphanedBinding(t *testing.T) {
 	deletes := platform.requests(http.MethodDelete, "/consumers/"+fakeServiceOrphanConsumerID)
 	if len(deletes) != 1 || deletes[0].query != "expected_revision=2" {
 		t.Fatalf("unexpected removals %+v", deletes)
+	}
+}
+
+// A binding read that failed for any reason other than not found says
+// nothing about the binding, so --revision does not remove it unread
+// (ankra-kpq4ae audit).
+func TestServicesConsumersUnbindFailsClosedWhenTheReadFails(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.consumerReadFails = true
+	_, _, runError := runServicesCommand(t, platform, "", "consumers", "unbind", fakeServiceConsumerID, "--revision", "4", "--yes")
+	if runError == nil {
+		t.Fatal("a failed binding read must refuse the removal")
+	}
+	if deletes := platform.requests(http.MethodDelete, "/consumers/"); len(deletes) != 0 {
+		t.Fatalf("a binding was removed although it could not be read: %+v", deletes)
 	}
 }
 

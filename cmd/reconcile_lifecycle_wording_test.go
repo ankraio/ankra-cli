@@ -108,7 +108,7 @@ func TestClusterProvisionHelpDoesNotClaimItIsAStart(t *testing.T) {
 }
 
 func TestClusterDeprovisionPromptSaysTeardownNotPowerOff(t *testing.T) {
-	mock := &deprovisionMock{cluster: client.ClusterListItem{ID: "c-1", Name: "demo"}}
+	mock := &deprovisionMock{cluster: client.ClusterListItem{ID: "c-1", Name: "demo", Kind: "imported"}}
 	output, err := runConfirmCommand(t, mock, "n\n",
 		[]*cobra.Command{clusterDeprovisionCmd},
 		"cluster", "deprovision", "demo")
