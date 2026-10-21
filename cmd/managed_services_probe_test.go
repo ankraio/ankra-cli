@@ -57,8 +57,11 @@ func TestServicesPackagesProposeRefusesAnUnobservedDemo(t *testing.T) {
 	if runError == nil || !strings.Contains(runError.Error(), "could not be observed") {
 		t.Fatalf("an unobserved demo must not succeed: %v", runError)
 	}
+	// The services command runs here without the root command's
+	// SilenceUsage, so cobra's usage text follows the JSON on stdout; the
+	// document itself is the first value.
 	var answer client.StackProfileDemoConnectionProposal
-	if decodeError := json.Unmarshal([]byte(stdout), &answer); decodeError != nil || answer.Observable {
+	if decodeError := json.NewDecoder(strings.NewReader(stdout)).Decode(&answer); decodeError != nil || answer.Observable {
 		t.Fatalf("-o json stays parseable and says unobserved: %v\n%s", decodeError, stdout)
 	}
 	if unchanged, _ := os.ReadFile(packagePath); string(unchanged) != `{"schema_version":2,"name":"x"}` {
