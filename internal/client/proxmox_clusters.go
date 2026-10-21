@@ -35,9 +35,11 @@ type CreateProxmoxClusterRequest struct {
 	NetworkMode string `json:"network_mode,omitempty"`
 	// SitePublicIP is the address other sites dial this cluster's bastion on
 	// for the overlay; required with wireguard_mesh.
-	SitePublicIP      string `json:"site_public_ip,omitempty"`
-	IncludeNetworking bool   `json:"include_networking"`
-	IncludeDNS        bool   `json:"include_dns"`
+	SitePublicIP      string  `json:"site_public_ip,omitempty"`
+	IncludeNetworking bool    `json:"include_networking"`
+	IncludeDNS        bool    `json:"include_dns"`
+	Environment       *string `json:"environment,omitempty"`
+	Criticality       *string `json:"criticality,omitempty"`
 }
 
 type CreateProxmoxClusterResponse struct {

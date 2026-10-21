@@ -80,6 +80,13 @@ var digitaloceanCreateCmd = &cobra.Command{
 			}
 		}
 
+		environment, criticality, classificationError := clusterClassificationFromFlags(cmd)
+		if classificationError != nil {
+			return classificationError
+		}
+		req.Environment = environment
+		req.Criticality = criticality
+
 		result, err := apiClient.CreateDigitaloceanCluster(req)
 		if err != nil {
 			return fmt.Errorf("creating DigitalOcean cluster: %w", err)
@@ -654,6 +661,7 @@ func init() {
 	digitaloceanCreateCmd.Flags().Bool("external-cloud-provider", true, "Install the DigitalOcean CCM and CSI (cloud-provider=external) for LoadBalancers and persistent volumes (default on; pass --external-cloud-provider=false to skip, which also disables --include-networking)")
 	digitaloceanCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
 	registerIncludeDNSFlag(digitaloceanCreateCmd)
+	registerClusterClassificationFlags(digitaloceanCreateCmd)
 	digitaloceanCreateCmd.Flags().String("gitops-credential-name", "", "GitOps GitHub credential name; when set with --gitops-repository, the generated digitalocean-cloud-provider stack is committed to Git (optional)")
 	digitaloceanCreateCmd.Flags().String("gitops-repository", "", "GitOps repository (e.g. org/repo) to commit the generated stack to (optional)")
 	digitaloceanCreateCmd.Flags().String("gitops-branch", "master", "GitOps branch to commit to")

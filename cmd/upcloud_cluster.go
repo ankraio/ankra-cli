@@ -85,6 +85,13 @@ var upcloudCreateCmd = &cobra.Command{
 			}
 		}
 
+		environment, criticality, classificationError := clusterClassificationFromFlags(cmd)
+		if classificationError != nil {
+			return classificationError
+		}
+		req.Environment = environment
+		req.Criticality = criticality
+
 		result, err := apiClient.CreateUpcloudCluster(req)
 		if err != nil {
 			return fmt.Errorf("creating UpCloud cluster: %w", err)
@@ -660,6 +667,7 @@ func init() {
 	upcloudCreateCmd.Flags().String("cni", "", "CNI plugin: flannel, calico, or cilium (optional; the platform default is used when omitted)")
 	upcloudCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
 	registerIncludeDNSFlag(upcloudCreateCmd)
+	registerClusterClassificationFlags(upcloudCreateCmd)
 	upcloudCreateCmd.Flags().String("gitops-credential-name", "", "GitOps GitHub credential name; when set with --gitops-repository, the generated upcloud-cloud-provider stack is committed to Git (optional)")
 	upcloudCreateCmd.Flags().String("gitops-repository", "", "GitOps repository (e.g. org/repo) to commit the generated stack to (optional)")
 	upcloudCreateCmd.Flags().String("gitops-branch", "master", "GitOps branch to commit to")
