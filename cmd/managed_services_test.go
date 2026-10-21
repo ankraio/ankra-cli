@@ -468,6 +468,18 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		reason := map[string]string{"passed": "", "failed": "AUTH failed: WRONGPASS", "unknown": "The demo stopped before the probe ran."}[verdict]
 		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"probe_id": "probe-1", "status": "probed", "verdict": verdict,
 			"cause": verdict, "reason": reason, "requested_at": "2026-10-21T10:00:00Z", "probed_at": "2026-10-21T10:00:30Z"})
+	case request.Method == http.MethodGet && path == "/api/v1/org/stack-profiles/"+fakeMemberProfileID+"/demos/demo-ready/collisions":
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"demo_status": "ready", "verdict": "collisions", "reason": "",
+			"collisions": []any{map[string]any{"kind": "ClusterRole", "name": "dragonfly-operator",
+				"reason": "Its name does not change with the service's namespace, so a second service would claim it too."}},
+			"instance_specific_names": []any{}, "checked_kinds": []any{"ClusterRole"}, "unreadable_kinds": []any{}, "note": ""})
+	case request.Method == http.MethodGet && path == "/api/v1/org/stack-profiles/"+fakeMemberProfileID+"/demos/demo-clean/collisions":
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"demo_status": "ready", "verdict": "no_collision", "reason": "",
+			"collisions": []any{}, "instance_specific_names": []any{}, "checked_kinds": []any{"ClusterRole"}, "unreadable_kinds": []any{}, "note": ""})
+	case request.Method == http.MethodGet && path == "/api/v1/org/stack-profiles/"+fakeMemberProfileID+"/demos/demo-dark/collisions":
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"demo_status": "ready", "verdict": "unknown",
+			"reason": "The staging cluster agent did not answer the ClusterRole listing.", "collisions": []any{},
+			"instance_specific_names": []any{}, "checked_kinds": []any{}, "unreadable_kinds": []any{"ClusterRole"}, "note": ""})
 	case request.Method == http.MethodPost && path == "/api/v1/org/stack-profiles/import":
 		fakeServiceJSON(t, writer, http.StatusCreated, map[string]any{
 			"profile": map[string]any{"id": fakeMemberProfileID, "name": "dragonfly-cache", "category": "managed-service", "tags": []any{}},
@@ -548,7 +560,7 @@ func runServicesCommand(t *testing.T, platform *fakeServicesPlatform, input stri
 func TestServicesCommandsRegistered(t *testing.T) {
 	expected := map[string][]string{
 		"":            {"list", "get", "setup", "delete", "packages", "policy", "consumers", "reviews", "retirements"},
-		"packages":    {"list", "get", "init", "publish", "propose", "probe"},
+		"packages":    {"list", "get", "init", "publish", "propose", "probe", "collisions"},
 		"policy":      {"get", "set"},
 		"consumers":   {"list", "get", "bind", "unbind"},
 		"reviews":     {"list", "get", "confirm"},

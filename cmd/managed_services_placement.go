@@ -38,6 +38,7 @@ profile when the review is prepared.`,
 	packagesCommand.AddCommand(newServicesPackagesPublishCommand())
 	packagesCommand.AddCommand(newServicesPackagesProposeCommand())
 	packagesCommand.AddCommand(newServicesPackagesProbeCommand())
+	packagesCommand.AddCommand(newServicesPackagesCollisionsCommand())
 	return packagesCommand
 }
 

@@ -115,3 +115,25 @@ func TestServicesPackagesProbeExitsZeroOnlyWhenTheProbePassed(t *testing.T) {
 		t.Fatalf("without --wait the probe is only queued: %v\n%s", runError, stdout)
 	}
 }
+
+// TestServicesPackagesCollisionsExitsZeroOnlyWithoutACollision covers the
+// three verdicts: no_collision exits 0, collisions exit 1 naming the object,
+// and unknown exits 1 with the reason, never reading as no collision.
+func TestServicesPackagesCollisionsExitsZeroOnlyWithoutACollision(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	if stdout, _, runError := runServicesCommand(t, platform, "", "packages", "collisions", "--profile", fakeMemberProfileID,
+		"--demo", "demo-clean"); runError != nil || !strings.Contains(stdout, "no collision") {
+		t.Fatalf("no_collision: %v\n%s", runError, stdout)
+	}
+	stdout, _, runError := runServicesCommand(t, platform, "", "packages", "collisions", "--profile", fakeMemberProfileID, "--demo", "demo-ready")
+	if runError == nil || !strings.Contains(stdout, "ClusterRole dragonfly-operator") {
+		t.Fatalf("collisions must fail and name the object: %v\n%s", runError, stdout)
+	}
+	stdout, _, runError = runServicesCommand(t, platform, "", "packages", "collisions", "--profile", fakeMemberProfileID,
+		"--demo", "demo-dark", "-o", "json")
+	var check client.StackProfileDemoCollisionCheck
+	if runError == nil || !strings.Contains(runError.Error(), "did not answer the ClusterRole listing") ||
+		json.NewDecoder(strings.NewReader(stdout)).Decode(&check) != nil || check.Verdict != "unknown" {
+		t.Fatalf("unknown must fail with its reason and keep -o json parseable: %v\n%s", runError, stdout)
+	}
+}

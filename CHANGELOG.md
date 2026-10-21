@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra services packages collisions` checks that two services from a package could share a cluster.** `collisions --profile <id> --demo <workspace-id>` reads a running demo of the stack profile and names any cluster-scoped object (a ClusterRole, a CRD, a webhook, a StorageClass) whose name does not change with the service's namespace, which a second service would also claim, and the Services and Secrets named after the service, which a package's connection cannot name as fixed values. It exits 0 only when every kind was read and nothing collides; a check that could not read everything exits 1 with the reason.
+
 ## v0.45.0 - 2026-10-21
 
 The headline is checking a managed service's connection before you publish

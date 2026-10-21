@@ -5349,6 +5349,10 @@ func (m baseMock) GetStackProfileDemoConnectionProbe(ctx context.Context, profil
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetStackProfileDemoCollisionCheck(ctx context.Context, profileID string, workspaceID string) (*client.StackProfileDemoCollisionCheck, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) PublishServicePackage(context.Context, json.RawMessage) (*client.ServicePackageDetail, error) {
 	return nil, errors.New("not implemented")
 }
