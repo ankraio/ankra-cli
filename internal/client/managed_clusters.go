@@ -116,6 +116,8 @@ type CreateManagedClusterRequest struct {
 	Kapsule              *KapsuleClusterOptions          `json:"kapsule,omitempty"`
 	AnkraCloudK8s        *AnkraCloudK8sClusterOptions    `json:"ankracloud_k8s,omitempty"`
 	Aks                  *AksClusterOptions              `json:"aks,omitempty"`
+	Environment          *string                         `json:"environment,omitempty"`
+	Criticality          *string                         `json:"criticality,omitempty"`
 }
 
 type CreateManagedClusterResponse struct {
@@ -355,6 +357,8 @@ type ImportManagedClusterRequest struct {
 	CredentialID      string  `json:"credential_id"`
 	Name              *string `json:"name,omitempty"`
 	Description       *string `json:"description,omitempty"`
+	Environment       *string `json:"environment,omitempty"`
+	Criticality       *string `json:"criticality,omitempty"`
 }
 
 type ImportManagedClusterResponse struct {

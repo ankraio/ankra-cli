@@ -296,8 +296,6 @@ func awsCreateRequestFromFlags(cmd *cobra.Command) (client.CreateAwsClusterReque
 	gitopsRepository, _ := cmd.Flags().GetString("gitops-repository")
 	gitopsBranch, _ := cmd.Flags().GetString("gitops-branch")
 	retentionPolicy, _ := cmd.Flags().GetString("retention-policy")
-	environment, _ := cmd.Flags().GetString("environment")
-	criticality, _ := cmd.Flags().GetString("criticality")
 
 	cniFeatureFlags, cniFeaturesError := awsCNIFeaturesFromFlag(cniFeatures)
 	if cniFeaturesError != nil {
@@ -373,12 +371,12 @@ func awsCreateRequestFromFlags(cmd *cobra.Command) (client.CreateAwsClusterReque
 	if gitopsBranch != "" {
 		request.GitopsBranch = &gitopsBranch
 	}
-	if environment != "" {
-		request.Environment = &environment
+	environment, criticality, classificationError := clusterClassificationFromFlags(cmd)
+	if classificationError != nil {
+		return client.CreateAwsClusterRequest{}, classificationError
 	}
-	if criticality != "" {
-		request.Criticality = &criticality
-	}
+	request.Environment = environment
+	request.Criticality = criticality
 	return request, nil
 }
 
@@ -1011,6 +1009,7 @@ var awsPricingCmd = &cobra.Command{
 // registerAwsCreateFlags declares the create/preflight flag set once so the
 // two commands can never drift.
 func registerAwsCreateFlags(commands ...*cobra.Command) {
+	registerClusterClassificationFlags(commands...)
 	for _, command := range commands {
 		command.Flags().String("name", "", "Cluster name (required)")
 		command.Flags().String("description", "", "Cluster description")
@@ -1045,8 +1044,6 @@ func registerAwsCreateFlags(commands ...*cobra.Command) {
 		command.Flags().String("gitops-repository", "", "GitOps repository (owner/repo) the generated stack is committed to")
 		command.Flags().String("gitops-branch", "", "GitOps branch (server default: master)")
 		command.Flags().String("retention-policy", "", "Teardown policy for EBS volumes and load balancers: retain or delete (server default: retain)")
-		command.Flags().String("environment", "", "Cluster environment label, e.g. production or development (server default)")
-		command.Flags().String("criticality", "", "Cluster criticality label (server default)")
 		command.Flags().Bool("include-networking", true, "Provision the networking stack (default on; pass --include-networking=false to skip)")
 		registerIncludeDNSFlag(command)
 		_ = command.MarkFlagRequired("name")

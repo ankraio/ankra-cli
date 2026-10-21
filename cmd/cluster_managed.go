@@ -90,6 +90,13 @@ var managedCreateCmd = &cobra.Command{
 			}
 		}
 
+		environment, criticality, classificationError := clusterClassificationFromFlags(cmd)
+		if classificationError != nil {
+			return classificationError
+		}
+		request.Environment = environment
+		request.Criticality = criticality
+
 		result, err := apiClient.CreateManagedCluster(provider, request)
 		if err != nil {
 			return fmt.Errorf("creating managed cluster: %w", err)
@@ -573,6 +580,13 @@ var managedImportCmd = &cobra.Command{
 			request.Description = &description
 		}
 
+		environment, criticality, classificationError := clusterClassificationFromFlags(cmd)
+		if classificationError != nil {
+			return classificationError
+		}
+		request.Environment = environment
+		request.Criticality = criticality
+
 		result, err := apiClient.ImportManagedCluster(provider, request)
 		if err != nil {
 			return fmt.Errorf("importing managed cluster: %w", err)
@@ -890,6 +904,7 @@ func managedLifecycleError(action string, apiError error) error {
 func init() {
 	managedCreateCmd.Flags().String("provider", "", managedProviderFlagHelp)
 	managedCreateCmd.Flags().String("name", "", "Cluster name")
+	registerClusterClassificationFlags(managedCreateCmd)
 	managedCreateCmd.Flags().String("credential-id", "", "Cloud credential ID (optional with --provider ankracloud_k8s: Ankra uses the organisation's built-in Ankra Cloud credential)")
 	managedCreateCmd.Flags().String("location", "", "Region or zone for the cluster")
 	managedCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional)")
@@ -980,6 +995,7 @@ func init() {
 	managedImportCmd.Flags().String("credential-id", "", "Cloud credential ID")
 	managedImportCmd.Flags().String("provider-cluster-id", "", "Provider-side cluster ID (from discover)")
 	managedImportCmd.Flags().String("name", "", "Name for the cluster in Ankra (defaults to the provider-side name)")
+	registerClusterClassificationFlags(managedImportCmd)
 	managedImportCmd.Flags().String("description", "", "Description for the cluster in Ankra (optional)")
 	_ = managedImportCmd.MarkFlagRequired("provider")
 	_ = managedImportCmd.MarkFlagRequired("credential-id")

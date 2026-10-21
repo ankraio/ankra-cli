@@ -231,6 +231,12 @@ func ankraCloudCreateRequestFromFlags(cmd *cobra.Command) (client.CreateAnkraClo
 			request.GitopsBranch = &gitopsBranch
 		}
 	}
+	environment, criticality, classificationError := clusterClassificationFromFlags(cmd)
+	if classificationError != nil {
+		return client.CreateAnkraCloudClusterRequest{}, classificationError
+	}
+	request.Environment = environment
+	request.Criticality = criticality
 	return request, nil
 }
 
@@ -642,6 +648,7 @@ var ankraCloudPricingCmd = &cobra.Command{
 // registerAnkraCloudCreateFlags declares the create/preflight flag set once
 // so the two commands can never drift.
 func registerAnkraCloudCreateFlags(commands ...*cobra.Command) {
+	registerClusterClassificationFlags(commands...)
 	for _, command := range commands {
 		command.Flags().String("name", "", "Cluster name (required)")
 		command.Flags().String("description", "", "Cluster description")
