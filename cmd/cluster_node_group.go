@@ -26,9 +26,10 @@ type (
 )
 
 // resolveNodeGroupClusterKind looks up the cluster and confirms it is a
-// cloud-managed kind that supports node groups, returning a clear error
-// otherwise.
-func resolveNodeGroupClusterKind(clusterID string) (string, error) {
+// cloud-managed kind that supports node groups. A cluster of another kind is
+// a usage error (exit 2) naming its kind; typed is the cluster as the user
+// named it.
+func resolveNodeGroupClusterKind(typed, clusterID string) (string, error) {
 	cluster, lookupError := apiClient.GetClusterByID(clusterID)
 	if lookupError != nil {
 		return "", fmt.Errorf("looking up cluster %q: %w", clusterID, lookupError)
@@ -37,9 +38,7 @@ func resolveNodeGroupClusterKind(clusterID string) (string, error) {
 	case "hetzner", "ovh", "upcloud", "digitalocean", "scaleway", "ankracloud", "aws", "proxmox", "morpheus":
 		return cluster.Kind, nil
 	default:
-		return "", fmt.Errorf(
-			"cluster %q (kind %q) does not support node groups. Only Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, Ankra Cloud, AWS, Proxmox VE, and HPE Morpheus clusters can use this command",
-			clusterID, cluster.Kind)
+		return "", unsupportedClusterKindError(typed, cluster.Kind, "node groups")
 	}
 }
 
@@ -277,7 +276,7 @@ var clusterNodeGroupListCmd = &cobra.Command{
 		if resolveError != nil {
 			return resolveError
 		}
-		kind, kindError := resolveNodeGroupClusterKind(clusterID)
+		kind, kindError := resolveNodeGroupClusterKind(args[0], clusterID)
 		if kindError != nil {
 			return kindError
 		}
@@ -381,7 +380,7 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 		if resolveError != nil {
 			return resolveError
 		}
-		kind, kindError := resolveNodeGroupClusterKind(clusterID)
+		kind, kindError := resolveNodeGroupClusterKind(args[0], clusterID)
 		if kindError != nil {
 			return kindError
 		}
@@ -467,7 +466,7 @@ Examples:
 		if convertError != nil {
 			return fmt.Errorf("invalid count: %w", convertError)
 		}
-		kind, kindError := resolveNodeGroupClusterKind(clusterID)
+		kind, kindError := resolveNodeGroupClusterKind(args[0], clusterID)
 		if kindError != nil {
 			return kindError
 		}
@@ -528,7 +527,7 @@ Examples:
 		}
 		groupName := args[1]
 		instanceType := args[2]
-		kind, kindError := resolveNodeGroupClusterKind(clusterID)
+		kind, kindError := resolveNodeGroupClusterKind(args[0], clusterID)
 		if kindError != nil {
 			return kindError
 		}
@@ -584,7 +583,7 @@ Examples:
 		groupName := args[1]
 		yes, _ := cmd.Flags().GetBool("yes")
 		drainOptions := drainOptionsFromFlags(cmd)
-		kind, kindError := resolveNodeGroupClusterKind(clusterID)
+		kind, kindError := resolveNodeGroupClusterKind(args[0], clusterID)
 		if kindError != nil {
 			return kindError
 		}
@@ -650,14 +649,14 @@ var clusterNodeGroupAutoscalingGetCmd = &cobra.Command{
 			return resolveError
 		}
 		groupName := args[1]
-		kind, kindError := resolveNodeGroupClusterKind(clusterID)
+		kind, kindError := resolveNodeGroupClusterKind(args[0], clusterID)
 		if kindError != nil {
 			return kindError
 		}
 
 		autoscalingGet := nodeGroupAutoscalingGetForKind(kind)
 		if autoscalingGet == nil {
-			return fmt.Errorf("cluster %q (kind %q) does not support node-group autoscaling", clusterID, kind)
+			return unsupportedClusterKindError(args[0], kind, "node-group autoscaling")
 		}
 
 		result, getError := autoscalingGet(clusterID, groupName)
@@ -697,7 +696,7 @@ the autoscaler, and installs the Cluster Autoscaler on first enable.`,
 		enabled, _ := cmd.Flags().GetBool("enabled")
 		minCount, _ := cmd.Flags().GetInt("min")
 		maxCount, _ := cmd.Flags().GetInt("max")
-		kind, kindError := resolveNodeGroupClusterKind(clusterID)
+		kind, kindError := resolveNodeGroupClusterKind(args[0], clusterID)
 		if kindError != nil {
 			return kindError
 		}
@@ -712,7 +711,7 @@ the autoscaler, and installs the Cluster Autoscaler on first enable.`,
 
 		autoscalingSet := nodeGroupAutoscalingSetForKind(kind)
 		if autoscalingSet == nil {
-			return fmt.Errorf("cluster %q (kind %q) does not support node-group autoscaling", clusterID, kind)
+			return unsupportedClusterKindError(args[0], kind, "node-group autoscaling")
 		}
 
 		result, submitted, setError := autoscalingSet(requestContext, clusterID, groupName, req, wait)
@@ -769,7 +768,7 @@ var clusterNodeGroupLabelsCmd = &cobra.Command{
 		if parseError != nil {
 			return fmt.Errorf("invalid --labels: %w", parseError)
 		}
-		kind, kindError := resolveNodeGroupClusterKind(clusterID)
+		kind, kindError := resolveNodeGroupClusterKind(args[0], clusterID)
 		if kindError != nil {
 			return kindError
 		}
@@ -829,7 +828,7 @@ var clusterNodeGroupTaintsCmd = &cobra.Command{
 		if parseError != nil {
 			return fmt.Errorf("invalid --taints: %w", parseError)
 		}
-		kind, kindError := resolveNodeGroupClusterKind(clusterID)
+		kind, kindError := resolveNodeGroupClusterKind(args[0], clusterID)
 		if kindError != nil {
 			return kindError
 		}

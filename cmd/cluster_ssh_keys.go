@@ -17,9 +17,10 @@ type (
 )
 
 // resolveSSHKeysClusterKind looks up the cluster and confirms it is a
-// cloud-managed kind that supports cluster SSH key management, returning a
-// clear error otherwise.
-func resolveSSHKeysClusterKind(clusterID string) (string, error) {
+// cloud-managed kind that supports cluster SSH key management. A cluster of
+// another kind is a usage error (exit 2) naming its kind; typed is the
+// cluster as the user named it.
+func resolveSSHKeysClusterKind(typed, clusterID string) (string, error) {
 	cluster, lookupError := apiClient.GetClusterByID(clusterID)
 	if lookupError != nil {
 		return "", fmt.Errorf("looking up cluster %q: %w", clusterID, lookupError)
@@ -28,9 +29,7 @@ func resolveSSHKeysClusterKind(clusterID string) (string, error) {
 	case "hetzner", "ovh", "upcloud", "digitalocean", "scaleway", "ankracloud", "aws", "proxmox", "morpheus":
 		return cluster.Kind, nil
 	default:
-		return "", fmt.Errorf(
-			"cluster %q (kind %q) does not support SSH key management; only Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, Ankra Cloud, AWS, Proxmox VE, and HPE Morpheus clusters can use this command",
-			clusterID, cluster.Kind)
+		return "", unsupportedClusterKindError(typed, cluster.Kind, "SSH key management")
 	}
 }
 
@@ -126,7 +125,7 @@ var clusterSSHKeysGetCmd = &cobra.Command{
 		if resolveError != nil {
 			return resolveError
 		}
-		kind, err := resolveSSHKeysClusterKind(clusterID)
+		kind, err := resolveSSHKeysClusterKind(args[0], clusterID)
 		if err != nil {
 			return err
 		}
@@ -201,7 +200,7 @@ Pass --clear to remove all user SSH keys (the Ankra-managed key always remains).
 			return errors.New("provide at least one --ssh-key-credential-ids value, or pass --clear to remove all user SSH keys")
 		}
 
-		kind, err := resolveSSHKeysClusterKind(clusterID)
+		kind, err := resolveSSHKeysClusterKind(args[0], clusterID)
 		if err != nil {
 			return err
 		}
@@ -243,7 +242,7 @@ re-apply the authorised keys to running nodes.`,
 		if resolveError != nil {
 			return resolveError
 		}
-		kind, err := resolveSSHKeysClusterKind(clusterID)
+		kind, err := resolveSSHKeysClusterKind(args[0], clusterID)
 		if err != nil {
 			return err
 		}

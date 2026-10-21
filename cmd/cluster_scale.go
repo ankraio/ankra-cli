@@ -73,9 +73,7 @@ Examples:
 
 		scale, supported := scaleFunctionForKind(cluster.Kind)
 		if !supported {
-			return fmt.Errorf(
-				"cluster %q (kind %q) does not support worker scaling. Only Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, Ankra Cloud, AWS, Proxmox VE, and HPE Morpheus clusters can be scaled with this command",
-				clusterID, cluster.Kind)
+			return unsupportedClusterKindError(args[0], cluster.Kind, "worker scaling")
 		}
 
 		result, scaleError := scale(clusterID, workerCount, drainOptionsFromFlags(cmd))

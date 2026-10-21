@@ -77,9 +77,7 @@ Examples:
 
 		upgrade, supported := upgradeFunctionForKind(cluster.Kind)
 		if !supported {
-			return fmt.Errorf(
-				"cluster %q (kind %q) does not support Kubernetes version upgrades. Only Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, Ankra Cloud, AWS, Proxmox VE, and HPE Morpheus clusters can be upgraded with this command",
-				clusterID, cluster.Kind)
+			return unsupportedClusterKindError(args[0], cluster.Kind, "Kubernetes version upgrades")
 		}
 
 		result, err := upgrade(clusterID, targetVersion, clusterUpgradeForce)
