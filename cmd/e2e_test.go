@@ -5333,6 +5333,18 @@ func (m baseMock) GetServiceProfilePin(context.Context, string, string) (*client
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetStackProfileDemoConnectionProposal(ctx context.Context, profileID string, workspaceID string) (*client.StackProfileDemoConnectionProposal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ProbeStackProfileDemoConnection(ctx context.Context, profileID string, workspaceID string, connection client.ServicePackageConnection) (*client.StackProfileDemoConnectionProbe, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetStackProfileDemoConnectionProbe(ctx context.Context, profileID string, workspaceID string, probeID string) (*client.StackProfileDemoConnectionProbe, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) PublishServicePackage(context.Context, json.RawMessage) (*client.ServicePackageDetail, error) {
 	return nil, errors.New("not implemented")
 }
