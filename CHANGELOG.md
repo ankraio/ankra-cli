@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## v0.44.1 - 2026-10-21
+
+A patch release. Every `ankra cluster <provider> create` now takes
+`--environment` and `--criticality`, `ankra cluster update --environment`
+changes an existing cluster's environment, and `ankra services packages init
+--addon` makes a managed service from one Helm chart. It also fixes two exit
+codes found at the v0.44.0 release gate: `ankra services packages init` flag
+mistakes exit 2, and `ankra cluster ankracloud quota` on a cluster that is not
+an Ankra Cloud cluster says so and exits 2 instead of printing a raw 404.
+
 ### Added
 
 - **`ankra services packages init --addon <chart> --registry <name> --chart-version <v>` makes a managed service from one Helm chart.** It first creates a stack profile holding that chart alone (each service it sets up installs into a namespace named after the service; `--values` passes a values file), then writes the package pinned to it, as `init --profile` does. Fill in the connection and publish it with `ankra services packages publish`. The output file is checked before the profile is created, so a refused run leaves nothing behind.
