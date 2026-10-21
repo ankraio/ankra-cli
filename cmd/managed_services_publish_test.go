@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -10,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"gopkg.in/yaml.v3"
+	"ankra/internal/client"
 )
 
 func TestServicesPackagesInitWritesAPinnedSchemaTwoSkeletonForTheProtocol(t *testing.T) {
@@ -93,56 +92,48 @@ func TestServicesPackagesInitFromAnAddonCreatesItsProfileAndPinsIt(t *testing.T)
 		t.Fatal(writeError)
 	}
 	stdout, stderr, runError := runServicesCommand(t, platform, "", "packages", "init", "--addon", "dragonfly", "--registry", "dragonfly",
-		"--chart-version", "v1.34.1", "--values", values, "--name", "dragonfly-cache", "--protocol", "redis")
+		"--chart-version", "v1.34.1", "--values", values, "--name", "dragonfly-cache", "--protocol", "redis",
+		"--generate-secret", "dragonfly-auth", "--generate-key", "username=default", "--generate-key", "password:48")
 	if runError != nil {
 		t.Fatalf("%v\n%s", runError, stderr)
 	}
-	imports := platform.requests("POST", "/stack-profiles/import")
-	if len(imports) != 1 {
-		t.Fatalf("one import, got %d", len(imports))
+	created := platform.requests("POST", "/stack-profiles/from-chart")
+	if len(created) != 1 || len(platform.requests("POST", "/stack-profiles/import")) != 0 {
+		t.Fatalf("one from-chart request and no client-built import, got %d", len(created))
 	}
-	var request struct {
-		Name          string   `json:"name"`
-		Category      string   `json:"category"`
-		Tags          []string `json:"tags"`
-		ContentBase64 string   `json:"content_base64"`
+	var request client.ChartServiceProfileRequest
+	if decodeError := json.Unmarshal([]byte(created[0].body), &request); decodeError != nil {
+		t.Fatal(decodeError)
 	}
-	if decodeError := json.Unmarshal([]byte(imports[0].body), &request); decodeError != nil || request.Name != "dragonfly-cache" || request.Category == "" {
-		t.Fatalf("import request %s: %v", imports[0].body, decodeError)
+	if request.Name != "dragonfly-cache" || request.ChartName != "dragonfly" || request.ChartVersion != "v1.34.1" ||
+		request.RegistryName != "dragonfly" || request.ValuesYAML != "storage:\n  enabled: true\n" || request.GeneratedSecret == nil ||
+		request.GeneratedSecret.Name != "dragonfly-auth" || len(request.GeneratedSecret.Keys) != 2 ||
+		request.GeneratedSecret.Keys[0] != (client.GeneratedServiceSecretKey{Key: "username", Value: "default"}) ||
+		request.GeneratedSecret.Keys[1] != (client.GeneratedServiceSecretKey{Key: "password", Length: 48}) {
+		t.Fatalf("from-chart request %s", created[0].body)
 	}
-	document, _ := base64.StdEncoding.DecodeString(request.ContentBase64)
-	var profile struct {
-		Kind string `yaml:"kind"`
-		Spec struct {
-			Stacks []struct {
-				Name   string `yaml:"name"`
-				Addons []struct {
-					ChartName     string `yaml:"chart_name"`
-					ChartVersion  string `yaml:"chart_version"`
-					RegistryName  string `yaml:"registry_name"`
-					RegistryURL   string `yaml:"registry_url"`
-					Namespace     string `yaml:"namespace"`
-					Configuration struct {
-						ValuesBase64 string `yaml:"values_base64"`
-					} `yaml:"configuration"`
-				} `yaml:"addons"`
-			} `yaml:"stacks"`
-		} `yaml:"spec"`
-	}
-	if parseError := yaml.Unmarshal(document, &profile); parseError != nil || profile.Kind != "ImportCluster" ||
-		len(profile.Spec.Stacks) != 1 || len(profile.Spec.Stacks[0].Addons) != 1 {
-		t.Fatalf("profile document %s: %v", document, parseError)
-	}
-	addon := profile.Spec.Stacks[0].Addons[0]
-	decodedValues, _ := base64.StdEncoding.DecodeString(addon.Configuration.ValuesBase64)
-	if addon.ChartName != "dragonfly" || addon.ChartVersion != "v1.34.1" || addon.RegistryName != "dragonfly" ||
-		addon.RegistryURL != "oci://ghcr.io/dragonflydb/dragonfly/helm" || addon.Namespace != "${{ ankra.stack_name }}" ||
-		string(decodedValues) != "storage:\n  enabled: true\n" {
-		t.Fatalf("addon %+v", addon)
+	var skeleton client.ServicePackageContract
+	if decodeError := json.Unmarshal([]byte(stdout), &skeleton); decodeError != nil || skeleton.Connection == nil ||
+		skeleton.Connection.SecretName != "dragonfly-auth" {
+		t.Fatalf("the skeleton names the generated Secret: %v\n%s", decodeError, stdout)
 	}
 	if len(platform.requests("GET", "/profile-pins/"+fakeMemberProfileID+"/"+fakeMemberProfileVersionID)) != 1 ||
 		!strings.Contains(stdout, fakeMemberProfileVersionID) || !strings.Contains(stderr, "Created stack profile dragonfly-cache") {
-		t.Fatalf("the package must be pinned to the profile the import created\n%s\n%s", stdout, stderr)
+		t.Fatalf("the package must be pinned to the profile the platform created\n%s\n%s", stdout, stderr)
+	}
+}
+
+func TestParseGeneratedKeysReadsRandomSizedAndFixedKeys(t *testing.T) {
+	keys, parseError := parseGeneratedKeys([]string{"password", "token:32", "username=app"})
+	if parseError != nil || len(keys) != 3 || keys[0] != (client.GeneratedServiceSecretKey{Key: "password"}) ||
+		keys[1] != (client.GeneratedServiceSecretKey{Key: "token", Length: 32}) ||
+		keys[2] != (client.GeneratedServiceSecretKey{Key: "username", Value: "app"}) {
+		t.Fatalf("%+v %v", keys, parseError)
+	}
+	for _, refused := range []string{"", ":32", "password:x", "password:0", "=app", "username=", "password:48=secret"} {
+		if _, parseError := parseGeneratedKeys([]string{refused}); parseError == nil {
+			t.Fatalf("%q must be refused", refused)
+		}
 	}
 }
 
@@ -152,6 +143,9 @@ func TestServicesPackagesInitRefusesAnAddonAndAProfileTogetherBeforeCreatingAnyt
 		{"--addon", "dragonfly", "--registry", "dragonfly", "--chart-version", "1", "--profile", fakeMemberProfileID, "--profile-version", fakeMemberProfileVersionID},
 		{"--addon", "dragonfly", "--registry", "dragonfly"},
 		{"--registry", "dragonfly"},
+		{"--profile", fakeMemberProfileID, "--profile-version", fakeMemberProfileVersionID, "--generate-secret", "auth", "--generate-key", "password"},
+		{"--addon", "dragonfly", "--registry", "dragonfly", "--chart-version", "1", "--generate-key", "password"},
+		{"--addon", "dragonfly", "--registry", "dragonfly", "--chart-version", "1", "--generate-secret", "auth"},
 		{},
 	} {
 		_, _, runError := runServicesCommand(t, platform, "", append([]string{"packages", "init", "--name", "dragonfly-cache", "--protocol", "redis"}, arguments...)...)
@@ -177,7 +171,7 @@ func TestServicesPackagesInitRefusesAnAddonAndAProfileTogetherBeforeCreatingAnyt
 	if runError == nil || !strings.Contains(runError.Error(), "before creating anything") {
 		t.Fatalf("a path that cannot be checked is refused: %v", runError)
 	}
-	if len(platform.requests("POST", "/stack-profiles/import")) != 0 || len(platform.requests("GET", "/helm/registries/dragonfly")) != 0 {
+	if len(platform.requests("POST", "/stack-profiles/from-chart")) != 0 {
 		t.Fatal("nothing is created before the flags and the output file are known to be usable")
 	}
 	reservedPath := filepath.Join(t.TempDir(), "package.json")

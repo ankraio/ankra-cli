@@ -423,6 +423,18 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 	case request.Method == http.MethodGet && path == "/api/v1/org/helm/registries/dragonfly":
 		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"registry": map[string]any{"name": "dragonfly", "url": "oci://ghcr.io/dragonflydb/dragonfly/helm"},
 			"charts": []any{}, "indexing": false, "pagination": map[string]any{"page": 1, "page_size": 1, "total": 0}})
+	case request.Method == http.MethodPost && path == "/api/v1/org/stack-profiles/from-chart":
+		var chartRequest struct {
+			RegistryName string `json:"registry_name"`
+		}
+		_ = json.Unmarshal(bodyBytes, &chartRequest)
+		if chartRequest.RegistryName != "dragonfly" {
+			fakeServiceJSON(t, writer, http.StatusUnprocessableEntity, map[string]any{"detail": "registry_name must name a Helm registry this organisation can use"})
+			return
+		}
+		fakeServiceJSON(t, writer, http.StatusCreated, map[string]any{
+			"profile": map[string]any{"id": fakeMemberProfileID, "name": "dragonfly-cache", "category": "managed-service", "tags": []any{}},
+			"version": map[string]any{"id": fakeMemberProfileVersionID, "version": 1}, "warnings": []any{}})
 	case request.Method == http.MethodGet && path == "/api/v1/org/stack-profiles/"+fakeMemberProfileID+"/demos/demo-ready/connection-proposal":
 		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{
 			"demo_status": "ready", "observable": true, "reason": "", "observed_services": 2, "observed_secrets": 1,
