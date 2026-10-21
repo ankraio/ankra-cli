@@ -20,8 +20,13 @@ const cloudClusterKindsSentence = "Hetzner, OVH, UpCloud, DigitalOcean, Scaleway
 // cluster whose kind cannot do what the command asks (node groups on an
 // imported cluster, for example). Naming another cluster is the fix, so it
 // is a usage error (exit 2), the same class as `ankra cluster ankracloud
-// quota` on a cluster that is not an Ankra Cloud one.
+// quota` on a cluster that is not an Ankra Cloud one. A cluster whose kind
+// the platform did not report is not known to be the wrong kind, so it keeps
+// the generic failure code and says what is missing instead.
 func unsupportedClusterKindError(typed, kind, capability string) error {
+	if kind == "" {
+		return fmt.Errorf("the platform did not report what kind of cluster %s is, so %s cannot be used on it", typed, capability)
+	}
 	return withExitCode(exitUsage, fmt.Errorf(
 		"%s does not support %s (its kind is %s); only %s clusters do",
 		typed, capability, kind, cloudClusterKindsSentence))

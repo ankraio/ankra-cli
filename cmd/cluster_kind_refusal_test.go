@@ -49,15 +49,15 @@ func TestCommandsOnAClusterOfTheWrongKindExitTwoNamingTheKind(t *testing.T) {
 	writeSelectedClusterJSON(t)
 	imported := client.ClusterListItem{ID: testClusterID, Name: "lab", Kind: "imported"}
 	for name, arguments := range map[string][]string{
-		"node-group list":             {"cluster", "node-group", "list", testClusterID},
-		"node-group scale":            {"cluster", "node-group", "scale", testClusterID, "workers", "3"},
-		"node-group autoscaling get":  {"cluster", "node-group", "autoscaling", "get", testClusterID, "workers"},
-		"ssh-keys get":                {"cluster", "ssh-keys", "get", testClusterID},
-		"ssh-keys resync":             {"cluster", "ssh-keys", "resync", testClusterID},
-		"scale":                       {"cluster", "scale", testClusterID, "3"},
-		"upgrade":                     {"cluster", "upgrade", testClusterID, "v1.33.2"},
-		"node-group autoscaling set":  {"cluster", "node-group", "autoscaling", "set", testClusterID, "workers", "--enabled=false"},
-		"node-group delete (--force)": {"cluster", "node-group", "delete", testClusterID, "workers", "--force"},
+		"node-group list":            {"cluster", "node-group", "list", testClusterID},
+		"node-group scale":           {"cluster", "node-group", "scale", testClusterID, "workers", "3"},
+		"node-group autoscaling get": {"cluster", "node-group", "autoscaling", "get", testClusterID, "workers"},
+		"ssh-keys get":               {"cluster", "ssh-keys", "get", testClusterID},
+		"ssh-keys resync":            {"cluster", "ssh-keys", "resync", testClusterID},
+		"scale":                      {"cluster", "scale", testClusterID, "3"},
+		"upgrade":                    {"cluster", "upgrade", testClusterID, "v1.33.2"},
+		"node-group autoscaling set": {"cluster", "node-group", "autoscaling", "set", testClusterID, "workers", "--enabled=false"},
+		"node-group delete (--yes)":  {"cluster", "node-group", "delete", testClusterID, "workers", "--yes"},
 	} {
 		setMockClient(t, &wrongKindMock{cluster: imported})
 		_, runError := executeCommand(arguments...)
@@ -76,6 +76,29 @@ func TestCommandsOnAClusterOfTheWrongKindExitTwoNamingTheKind(t *testing.T) {
 func TestUnsupportedClusterKindErrorSentence(t *testing.T) {
 	got := unsupportedClusterKindError("lab", "imported", "node groups")
 	want := "lab does not support node groups (its kind is imported); only Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, Ankra Cloud, AWS, Proxmox VE and HPE Morpheus clusters do"
+	if got.Error() != want || exitCodeFor(got) != exitUsage {
+		t.Fatalf("got %q (exit %d), want %q (exit 2)", got, exitCodeFor(got), want)
+	}
+}
+
+func TestAnUnreportedKindIsNotCalledTheWrongKind(t *testing.T) {
+	got := unsupportedClusterKindError("lab", "", "node groups")
+	want := "the platform did not report what kind of cluster lab is, so node groups cannot be used on it"
+	if got.Error() != want || exitCodeFor(got) != exitError {
+		t.Fatalf("got %q (exit %d), want %q (exit 1)", got, exitCodeFor(got), want)
+	}
+
+	writeSelectedClusterJSON(t)
+	setMockClient(t, &wrongKindMock{cluster: client.ClusterListItem{ID: testClusterID}})
+	_, runError := executeCommand("cluster", "node-group", "list", testClusterID)
+	if runError == nil || exitCodeFor(runError) != exitError || strings.Contains(runError.Error(), "its kind is") {
+		t.Fatalf("an empty kind must not read as a wrong kind, got %v (exit %d)", runError, exitCodeFor(runError))
+	}
+}
+
+func TestUnsupportedAutoscalingKindNamesNoSupportedKinds(t *testing.T) {
+	got := unsupportedAutoscalingKindError("lab", "proxmox")
+	want := "lab does not support node-group autoscaling (its kind is proxmox)"
 	if got.Error() != want || exitCodeFor(got) != exitUsage {
 		t.Fatalf("got %q (exit %d), want %q (exit 2)", got, exitCodeFor(got), want)
 	}
@@ -158,13 +181,26 @@ func TestProviderCommandKeepsThePlatformAnswerWhenTheKindDoesNotExplainIt(t *tes
 	}
 }
 
+// notAClusterArgument lists the first positional arguments of provider
+// group commands that are not a cluster. Any other argument list must start
+// with a cluster and be wrapped, so a command that names its cluster argument
+// differently ("[cluster]", "<id>") fails here instead of silently keeping
+// the raw 409 and exit 1.
+var notAClusterArgument = map[string]bool{
+	"<credential-id>": true,
+}
+
 func TestEveryProviderClusterCommandIsWrapped(t *testing.T) {
 	wrapProviderKindRefusals(rootCmd)
 	wrapProviderKindRefusals(rootCmd) // a second call must not stack wrappers
 	wrapped := 0
 	var walk func(command *cobra.Command, family string)
 	walk = func(command *cobra.Command, family string) {
-		if command.RunE != nil && takesClusterFirst(command) {
+		fields := strings.Fields(command.Use)
+		if command.RunE != nil && len(fields) > 1 && !strings.HasPrefix(fields[1], "-") && !notAClusterArgument[fields[1]] {
+			if !takesClusterFirst(command) {
+				t.Errorf("%s takes %s first: name it <cluster_id|name> or add it to notAClusterArgument", command.CommandPath(), fields[1])
+			}
 			if command.Annotations[providerKindRefusalAnnotation] != family {
 				t.Errorf("%s takes a cluster but is not wrapped", command.CommandPath())
 			}

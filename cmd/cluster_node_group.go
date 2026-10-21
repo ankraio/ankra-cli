@@ -42,6 +42,15 @@ func resolveNodeGroupClusterKind(typed, clusterID string) (string, error) {
 	}
 }
 
+// unsupportedAutoscalingKindError refuses node-group autoscaling on a kind
+// that has node groups but no autoscaling. It names no supported kinds: the
+// cluster's own kind is one of the node-group kinds, so the shared sentence
+// would list it as supporting what it does not.
+func unsupportedAutoscalingKindError(typed, kind string) error {
+	return withExitCode(exitUsage, fmt.Errorf(
+		"%s does not support node-group autoscaling (its kind is %s)", typed, kind))
+}
+
 func nodeGroupListForKind(kind string) nodeGroupListFunc {
 	switch kind {
 	case "hetzner":
@@ -656,7 +665,7 @@ var clusterNodeGroupAutoscalingGetCmd = &cobra.Command{
 
 		autoscalingGet := nodeGroupAutoscalingGetForKind(kind)
 		if autoscalingGet == nil {
-			return unsupportedClusterKindError(args[0], kind, "node-group autoscaling")
+			return unsupportedAutoscalingKindError(args[0], kind)
 		}
 
 		result, getError := autoscalingGet(clusterID, groupName)
@@ -711,7 +720,7 @@ the autoscaler, and installs the Cluster Autoscaler on first enable.`,
 
 		autoscalingSet := nodeGroupAutoscalingSetForKind(kind)
 		if autoscalingSet == nil {
-			return unsupportedClusterKindError(args[0], kind, "node-group autoscaling")
+			return unsupportedAutoscalingKindError(args[0], kind)
 		}
 
 		result, submitted, setError := autoscalingSet(requestContext, clusterID, groupName, req, wait)
