@@ -3,6 +3,7 @@ package cmd
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -424,6 +425,12 @@ If no cluster name is provided, uses the currently selected cluster.`,
 		if err != nil {
 			return err
 		}
+		// The dispatch below picks the endpoint, the volume check and the
+		// prompt from the kind, so a kind that was not read, or one the
+		// generic lane cannot tear down, never reaches it.
+		if refusal := deprovisionKindRefusal(clusterName, clusterID, clusterKind); refusal != nil {
+			return refusal
+		}
 
 		// The Hetzner, UpCloud, OVH, DigitalOcean, AWS and Proxmox
 		// deprovision endpoints honor force; the Morpheus lane and the
@@ -634,15 +641,44 @@ func resolveClusterFromArgsWithKind(cmd *cobra.Command, args []string) (string, 
 	if err != nil {
 		return "", "", "", err
 	}
+	// The kind decides which teardown a cluster gets, so a selection whose
+	// kind cannot be read is an error, never a cluster of no kind: that used
+	// to send a cloud cluster down the generic lane with its volume check
+	// skipped (ankra-kpq4ae).
 	cluster, lookupErr := apiClient.GetCluster(selected.Name)
 	if lookupErr != nil {
-		// We have a resolved selection but the backend lookup failed. We
-		// intentionally return the id/name with no kind so the generic
-		// deprovision path is used (and the API will return a precise error
-		// if the selection is stale).
-		return selected.ID, selected.Name, "", nil
+		if errors.Is(lookupErr, client.ErrClusterNotFound) {
+			return "", "", "", withExitCode(exitNotFound, fmt.Errorf(
+				"the selected cluster %s no longer exists: select another with 'ankra cluster select'", selected.Name))
+		}
+		return "", "", "", fmt.Errorf("could not read the selected cluster %s, so nothing was changed; try again: %w",
+			selected.Name, lookupErr)
 	}
 	return cluster.ID, cluster.Name, cluster.Kind, nil
+}
+
+// deprovisionKindRefusal is the refusal for a cluster `ankra cluster
+// deprovision` must not send anywhere, or nil when its kind has a lane here.
+// A kind the platform did not report is refused, because the endpoint, the
+// volume check and the prompt all follow from it. Managed Kubernetes and
+// playgrounds have their own removal commands; the generic lane would mark
+// them deprovisioned while their cloud resources keep running (ankra-menqa).
+func deprovisionKindRefusal(name, clusterID, kind string) error {
+	switch {
+	case kind == "":
+		return fmt.Errorf("the platform did not report what kind of cluster %s is, so nothing was deprovisioned; try again", name)
+	case managedClusterKinds[kind]:
+		return withExitCode(exitUsage, fmt.Errorf(
+			"%s is a managed Kubernetes cluster (its kind is %s), which `ankra cluster deprovision` cannot remove; "+
+				"run `ankra cluster managed delete %s --provider %s` instead so its cloud resources are released",
+			name, kind, clusterID, kind))
+	case kind == "playground":
+		return withExitCode(exitUsage, fmt.Errorf(
+			"%s is a playground, which `ankra cluster deprovision` cannot remove; "+
+				"run `ankra cluster playground destroy %s` instead so its environment is released",
+			name, clusterID))
+	}
+	return nil
 }
 
 var clusterRollToCmd = &cobra.Command{
