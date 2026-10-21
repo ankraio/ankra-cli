@@ -2,12 +2,29 @@
 
 ## Unreleased
 
+## v0.44.1 - 2026-10-21
+
+A patch release. Every `ankra cluster <provider> create` now takes
+`--environment` and `--criticality`, `ankra cluster update --environment`
+changes an existing cluster's environment, and `ankra services packages init
+--addon` makes a managed service from one Helm chart. It also fixes two exit
+codes found at the v0.44.0 release gate: `ankra services packages init` flag
+mistakes exit 2, and `ankra cluster ankracloud quota` on a cluster that is not
+an Ankra Cloud cluster says so and exits 2 instead of printing a raw 404.
+
 ### Added
 
+- **`ankra services packages propose` and `probe` check a package's connection against a running demo before you publish it.** `propose --profile <id> --demo <workspace-id>` reads a running demo of the stack profile on the staging cluster and proposes the connection blocks the package could declare, from its Services' ports and its Secrets' key names (never their values); `-f package.json` writes the best complete proposal into the file `init` made. A demo whose namespace could not be observed exits 1 with the reason instead of reading as one with nothing to propose. `probe --profile <id> --demo <workspace-id> -f package.json --wait` runs the protocol's readiness canary against the demo with that connection and exits 0 only when it passed: failed and unknown exit 1 with the reason, and a probe still running at `--timeout` exits 5.
 - **`ankra services packages init --addon <chart> --registry <name> --chart-version <v>` makes a managed service from one Helm chart.** The platform creates a stack profile holding that chart alone (each service it sets up installs into a namespace named after the service; `--values` passes a values file), then init writes the package pinned to it, as `init --profile` does. With `--generate-secret <name>` and one `--generate-key` per key (`password` for a random value, `password:48` for a random value of 48 characters, `username=app` for a fixed one), the profile also generates the service's credentials: a Secret created on the first install and kept unchanged across upgrades, whose values Ankra never sees, and the package's connection already names it. Fill in the rest of the connection and publish it with `ankra services packages publish`. The output file is created before the profile, so a refused run leaves nothing behind.
 - **`ankra cluster update <cluster> --environment <name>` changes an existing cluster's environment.** It was set only at creation (by `ankra cluster aws create --environment`) or in the portal, so a cluster replaced by another one could not be moved from production to development from the terminal. A preset environment brings the reporting level the portal pairs with it (testing is graded as development, local as disposable); `--criticality` sets the level explicitly, and an environment of your own leaves the level as it is unless `--criticality` is given. The cluster is named by name or id, or the selected cluster is used.
 - **`ankra cluster apply` and `ankra cluster validate` warn when a cluster file sets `metadata.environment` or `metadata.criticality`.** Neither key is read, so neither sets nor changes the cluster's environment or reporting level, but a file carrying one passed both commands without a word. The warning names the `ankra cluster update` command that does change the value; it goes to stderr, so `-o json` output stays parseable.
 - **Every `ankra cluster <provider> create` sets the cluster's environment: `--environment` and `--criticality` now exist on Hetzner, OVHcloud, UpCloud, DigitalOcean, Scaleway, Proxmox, Morpheus, Ankra Cloud and managed clusters (`ankra cluster managed create` and `import`), not only on AWS.** Until now a cluster built from the terminal on any other provider started as development, and a CLI-only user could not put it into the production group that dynamic cluster groups use to scope production access. Without either flag the platform default is unchanged: development, with its own reporting level. `--criticality` takes production, staging, development or disposable. An unknown level, or an environment longer than 50 bytes, is refused with exit 2 before anything is created; this applies to `ankra cluster aws create` too, which used to send any value. The Scaleway, Ankra Cloud and AWS `preflight` commands take the same flags.
+
+### Fixed
+
+- **`ankra services packages init` treats a wrong flag as a usage error (exit 2).** An unknown `--protocol` now says `invalid --protocol "bogus": must be one of nats, opensearch, postgres, redis, s3, victorialogs, victoriametrics` and exits 2, where it exited 1 like a platform failure. The same goes for flags that do not go together (`--addon` with `--profile`, `--addon` without `--registry` and `--chart-version`, neither `--addon` nor `--profile`, or `--registry`, `--chart-version` or `--values` without `--addon`). Nothing is sent to the platform in any of these cases, as before.
+- **`ankra cluster ankracloud quota` on a cluster that is not an Ankra Cloud cluster says so.** It printed `unexpected status: 404 Not Found` and exited 3, as if the cluster did not exist. It now prints `<cluster> is not an Ankra Cloud cluster (its kind is hetzner); quota applies to Ankra Cloud clusters only` and exits 2, since the fix is to name an Ankra Cloud cluster. With `-o json` standard output stays empty and the message goes to standard error, as for every other refusal. A cluster that does not exist still exits 3, and the quota of an Ankra Cloud cluster is shown as before. An unknown `-o` value is now refused with exit 2 before anything is read, where it could exit 3 after the read.
+- **The binaries are built with Go 1.26.10**, which fixes the `crypto/x509` advisory GO-2026-6809, so a vulnerability scan of the `ankra` binary no longer reports it.
 
 ## v0.44.0 — 2026-10-20
 

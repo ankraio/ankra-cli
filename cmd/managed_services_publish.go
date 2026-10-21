@@ -207,9 +207,11 @@ an existing-secret setting); the package's connection names it already.`,
   ankra services packages publish -f dragonfly-cache.json`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			// Every refusal below is fixed by changing the flags, so each
+			// exits with the usage code (2), before any request is made.
 			protocol, known := servicePackageProtocols[protocolName]
 			if !known {
-				return fmt.Errorf("unknown protocol %q: choose one of %s", protocolName, strings.Join(servicePackageProtocolNames(), ", "))
+				return withExitCode(exitUsage, fmt.Errorf("invalid --protocol %q: must be one of %s", protocolName, strings.Join(servicePackageProtocolNames(), ", ")))
 			}
 			if capability == "" {
 				capability = protocol.capability
@@ -217,19 +219,19 @@ an existing-secret setting); the package's connection names it already.`,
 			fromAddon := addonChart != ""
 			switch {
 			case fromAddon && (profileID != "" || profileVersionID != ""):
-				return errors.New("choose either --addon or --profile and --profile-version, not both")
+				return withExitCode(exitUsage, errors.New("choose either --addon or --profile and --profile-version, not both"))
 			case fromAddon && (addonRegistry == "" || addonChartVersion == ""):
-				return errors.New("--addon needs --registry and --chart-version")
+				return withExitCode(exitUsage, errors.New("--addon needs --registry and --chart-version"))
 			case !fromAddon && (profileID == "" || profileVersionID == ""):
-				return errors.New("pass --profile and --profile-version, or --addon with --registry and --chart-version")
+				return withExitCode(exitUsage, errors.New("pass --profile and --profile-version, or --addon with --registry and --chart-version"))
 			case !fromAddon && (generatedSecretName != "" || len(generatedKeySpecifications) > 0):
-				return errors.New("--generate-secret and --generate-key go with --addon")
+				return withExitCode(exitUsage, errors.New("--generate-secret and --generate-key go with --addon"))
 			case generatedSecretName == "" && len(generatedKeySpecifications) > 0:
-				return errors.New("--generate-key needs --generate-secret, the Secret its keys go into")
+				return withExitCode(exitUsage, errors.New("--generate-key needs --generate-secret, the Secret its keys go into"))
 			case generatedSecretName != "" && len(generatedKeySpecifications) == 0:
-				return errors.New("--generate-secret needs at least one --generate-key")
+				return withExitCode(exitUsage, errors.New("--generate-secret needs at least one --generate-key"))
 			case !fromAddon && (addonRegistry != "" || addonChartVersion != "" || addonValuesPath != ""):
-				return errors.New("--registry, --chart-version and --values go with --addon")
+				return withExitCode(exitUsage, errors.New("--registry, --chart-version and --values go with --addon"))
 			}
 			// reserved is the output file, created empty before the profile
 			// when --addon will create one: creating a profile is not undone,
@@ -254,7 +256,7 @@ an existing-secret setting); the package's connection names it already.`,
 				if generatedSecretName != "" {
 					keys, keysError := parseGeneratedKeys(generatedKeySpecifications)
 					if keysError != nil {
-						return keysError
+						return withExitCode(exitUsage, keysError)
 					}
 					generated = &client.GeneratedServiceSecret{Name: generatedSecretName, Keys: keys}
 				}

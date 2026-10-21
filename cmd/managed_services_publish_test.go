@@ -58,8 +58,13 @@ func TestServicesPackagesInitRefusesAnUnknownProtocolAndAnExistingFile(t *testin
 	platform := newFakeServicesPlatform(t)
 	_, _, runError := runServicesCommand(t, platform, "", "packages", "init", "--profile", fakeMemberProfileID,
 		"--profile-version", fakeMemberProfileVersionID, "--name", "broker", "--protocol", "amqp")
-	if runError == nil || !strings.Contains(runError.Error(), `unknown protocol "amqp"`) || len(platform.requests("GET", "/profile-pins/")) != 0 {
+	if runError == nil || len(platform.requests("GET", "/profile-pins/")) != 0 {
 		t.Fatalf("an unknown protocol is refused before any request: %v", runError)
+	}
+	want := `invalid --protocol "amqp": must be one of nats, opensearch, postgres, redis, s3, victorialogs, victoriametrics`
+	if runError.Error() != want || exitCodeFor(runError) != exitUsage {
+		t.Fatalf("an unknown protocol is a usage error (exit 2) naming the allowed values:\n got %q (exit %d)\nwant %q (exit 2)",
+			runError, exitCodeFor(runError), want)
 	}
 	existing := filepath.Join(t.TempDir(), "package.json")
 	if writeError := os.WriteFile(existing, []byte("{}"), 0o600); writeError != nil {
@@ -146,6 +151,9 @@ func TestServicesPackagesInitRefusesAnAddonAndAProfileTogetherBeforeCreatingAnyt
 		_, _, runError := runServicesCommand(t, platform, "", append([]string{"packages", "init", "--name", "dragonfly-cache", "--protocol", "redis"}, arguments...)...)
 		if runError == nil {
 			t.Fatalf("%v must be refused", arguments)
+		}
+		if exitCodeFor(runError) != exitUsage {
+			t.Fatalf("%v is a flag mistake and must exit 2, got exit %d: %v", arguments, exitCodeFor(runError), runError)
 		}
 	}
 	existing := filepath.Join(t.TempDir(), "package.json")

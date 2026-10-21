@@ -91,6 +91,11 @@ type fakeServicesPlatform struct {
 	// foreignPackagePublisher adds a postgresql package from another
 	// publisher, so a bare "postgresql" names two different packages.
 	foreignPackagePublisher bool
+	// probeVerdict is the verdict a probe settles with ("" keeps it queued
+	// for ever); probeReads counts the probe reads, the first answering
+	// queued.
+	probeVerdict string
+	probeReads   int
 }
 
 // fakeServiceOrphanConsumerID is a binding whose application was removed:
@@ -101,12 +106,15 @@ var fakeServiceBindingRevisions = map[string]string{fakeServiceConsumerID: "4", 
 
 func newFakeServicesPlatform(t *testing.T) *fakeServicesPlatform {
 	t.Helper()
-	platform := &fakeServicesPlatform{t: t, settledOutcome: "retired"}
+	platform := &fakeServicesPlatform{t: t, settledOutcome: "retired", probeVerdict: "passed"}
 	platform.server = httptest.NewServer(http.HandlerFunc(platform.serve))
 	t.Cleanup(platform.server.Close)
 	previousInterval := serviceRetirementPollInterval
 	serviceRetirementPollInterval = 0
 	t.Cleanup(func() { serviceRetirementPollInterval = previousInterval })
+	previousProbeInterval := connectionProbePollInterval
+	connectionProbePollInterval = 0
+	t.Cleanup(func() { connectionProbePollInterval = previousProbeInterval })
 	return platform
 }
 
@@ -427,6 +435,35 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		fakeServiceJSON(t, writer, http.StatusCreated, map[string]any{
 			"profile": map[string]any{"id": fakeMemberProfileID, "name": "dragonfly-cache", "category": "managed-service", "tags": []any{}},
 			"version": map[string]any{"id": fakeMemberProfileVersionID, "version": 1}, "warnings": []any{}})
+	case request.Method == http.MethodGet && path == "/api/v1/org/stack-profiles/"+fakeMemberProfileID+"/demos/demo-ready/connection-proposal":
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{
+			"demo_status": "ready", "observable": true, "reason": "", "observed_services": 2, "observed_secrets": 1,
+			"note": "These proposals have not been tried.",
+			"proposals": []any{map[string]any{"complete": true, "confidence": "high", "unresolved": []any{},
+				"reasons": []any{"Port 6379 is Redis's own."},
+				"connection": map[string]any{"protocol": "redis", "secret_name": "dragonfly-auth", "secret_keys": []any{"password"},
+					"endpoints": []any{map[string]any{"name": "primary", "scheme": "redis", "service": "dragonfly", "port": 6379}},
+					"fields": map[string]any{"host": map[string]any{"kind": "primary_host", "value": ""},
+						"password": map[string]any{"kind": "secret_key", "value": "password"}}}}}})
+	case request.Method == http.MethodGet && path == "/api/v1/org/stack-profiles/"+fakeMemberProfileID+"/demos/demo-dark/connection-proposal":
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"demo_status": "ready", "observable": false,
+			"reason": "The staging cluster agent could not list the demo's Secret objects.", "proposals": []any{}})
+	case request.Method == http.MethodPost && path == "/api/v1/org/stack-profiles/"+fakeMemberProfileID+"/demos/demo-ready/connection-probes":
+		fakeServiceJSON(t, writer, http.StatusAccepted, map[string]any{"probe_id": "probe-1", "status": "queued", "verdict": "unknown",
+			"cause": "queued", "reason": "", "requested_at": "2026-10-21T10:00:00Z", "probed_at": nil})
+	case request.Method == http.MethodGet && path == "/api/v1/org/stack-profiles/"+fakeMemberProfileID+"/demos/demo-ready/connection-probes/probe-1":
+		platform.mutex.Lock()
+		platform.probeReads++
+		reads, verdict := platform.probeReads, platform.probeVerdict
+		platform.mutex.Unlock()
+		if reads < 2 || verdict == "" {
+			fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"probe_id": "probe-1", "status": "queued", "verdict": "unknown",
+				"cause": "queued", "reason": "", "requested_at": "2026-10-21T10:00:00Z", "probed_at": nil})
+			return
+		}
+		reason := map[string]string{"passed": "", "failed": "AUTH failed: WRONGPASS", "unknown": "The demo stopped before the probe ran."}[verdict]
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"probe_id": "probe-1", "status": "probed", "verdict": verdict,
+			"cause": verdict, "reason": reason, "requested_at": "2026-10-21T10:00:00Z", "probed_at": "2026-10-21T10:00:30Z"})
 	case request.Method == http.MethodPost && path == "/api/v1/org/stack-profiles/import":
 		fakeServiceJSON(t, writer, http.StatusCreated, map[string]any{
 			"profile": map[string]any{"id": fakeMemberProfileID, "name": "dragonfly-cache", "category": "managed-service", "tags": []any{}},
@@ -507,7 +544,7 @@ func runServicesCommand(t *testing.T, platform *fakeServicesPlatform, input stri
 func TestServicesCommandsRegistered(t *testing.T) {
 	expected := map[string][]string{
 		"":            {"list", "get", "setup", "delete", "packages", "policy", "consumers", "reviews", "retirements"},
-		"packages":    {"list", "get", "init", "publish"},
+		"packages":    {"list", "get", "init", "publish", "propose", "probe"},
 		"policy":      {"get", "set"},
 		"consumers":   {"list", "get", "bind", "unbind"},
 		"reviews":     {"list", "get", "confirm"},

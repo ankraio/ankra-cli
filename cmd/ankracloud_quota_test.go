@@ -15,6 +15,17 @@ type ankraCloudQuotaMock struct {
 	report      *client.ClusterQuotaReport
 	readError   error
 	requestedID string
+	cluster     client.ClusterListItem
+	lookupError error
+	lookups     int
+}
+
+func (mock *ankraCloudQuotaMock) GetClusterByID(clusterID string) (client.ClusterListItem, error) {
+	mock.lookups++
+	if mock.lookupError != nil {
+		return client.ClusterListItem{}, mock.lookupError
+	}
+	return mock.cluster, nil
 }
 
 func (mock *ankraCloudQuotaMock) GetAnkraCloudQuotas(clusterID string) (*client.ClusterQuotaReport, error) {
@@ -47,8 +58,8 @@ func TestAnkraCloudQuotaShowsWhatIsLeft(t *testing.T) {
 	if runError != nil {
 		t.Fatalf("quota: %v\n%s", runError, output)
 	}
-	if mock.requestedID != testClusterID {
-		t.Fatalf("quota read cluster %q, want %q", mock.requestedID, testClusterID)
+	if mock.requestedID != testClusterID || mock.lookups != 0 {
+		t.Fatalf("quota read cluster %q after %d cluster lookups, want %q and none", mock.requestedID, mock.lookups, testClusterID)
 	}
 	for _, fragment := range []string{"Storage", "275 GiB", "300 GiB", "25 GiB", "Servers", "(full)",
 		"Near or at the limit: servers, storage.", "https://cloud.ankra.app/settings/quotas"} {
@@ -78,6 +89,61 @@ func TestAnkraCloudQuotaReportsAnUnreachableCloud(t *testing.T) {
 	if _, runError := runAnkraCloudCommand(t, mock, "quota", testClusterID); runError == nil ||
 		!strings.Contains(runError.Error(), "fetching the Ankra Cloud quota") {
 		t.Fatalf("an unreadable quota must fail with its cause, got %v", runError)
+	}
+}
+
+func TestAnkraCloudQuotaOnAnotherKindOfClusterSaysSoAndExitsTwo(t *testing.T) {
+	for _, structured := range []bool{false, true} {
+		mock := &ankraCloudQuotaMock{readError: &client.UnexpectedResponseError{StatusCode: 404},
+			cluster: client.ClusterListItem{ID: testClusterID, Name: "games", Kind: "hetzner"}}
+		arguments := []string{"quota", testClusterID}
+		if structured {
+			arguments = append(arguments, "-o", "json")
+		}
+		output, runError := runAnkraCloudCommand(t, mock, arguments...)
+		want := testClusterID + " is not an Ankra Cloud cluster (its kind is hetzner); quota applies to Ankra Cloud clusters only"
+		if runError == nil || runError.Error() != want || exitCodeFor(runError) != exitUsage {
+			t.Fatalf("a Hetzner cluster must be refused with exit 2 and a plain sentence:\n got %v (exit %d)\nwant %q", runError, exitCodeFor(runError), want)
+		}
+		if strings.Contains(runError.Error(), "404") {
+			t.Fatalf("the refusal must not carry the raw 404: %v", runError)
+		}
+		// The harness returns stdout together with cobra's own "Error:" line,
+		// so anything beyond that line would be a document written to stdout.
+		if structured {
+			for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+				if line != "" && !strings.HasPrefix(line, "Error: ") {
+					t.Fatalf("-o json must write no document on a refusal (the error goes to stderr), got:\n%s", output)
+				}
+			}
+		}
+	}
+}
+
+func TestAnkraCloudQuotaRefusesAnUnknownOutputFormatBeforeAnyRequest(t *testing.T) {
+	mock := &ankraCloudQuotaMock{report: nearlyFullQuotaReport()}
+	_, runError := runAnkraCloudCommand(t, mock, "quota", testClusterID, "-o", "bogus")
+	if runError == nil || exitCodeFor(runError) != exitUsage || mock.requestedID != "" {
+		t.Fatalf("-o bogus must exit 2 before the quota is read: %v (exit %d), read %q", runError, exitCodeFor(runError), mock.requestedID)
+	}
+}
+
+func TestAnkraCloudQuotaKeepsThePlatformAnswerWhenTheKindDoesNotExplainIt(t *testing.T) {
+	notFound := &client.UnexpectedResponseError{StatusCode: 404}
+	for name, mock := range map[string]*ankraCloudQuotaMock{
+		"an Ankra Cloud cluster": {readError: notFound, cluster: client.ClusterListItem{ID: testClusterID, Kind: "ankracloud"}},
+		"an unreadable kind":     {readError: notFound, lookupError: errors.New("listing clusters failed")},
+		"an empty kind":          {readError: notFound, cluster: client.ClusterListItem{ID: testClusterID}},
+	} {
+		_, runError := runAnkraCloudCommand(t, mock, "quota", testClusterID)
+		if runError == nil || !strings.Contains(runError.Error(), "fetching the Ankra Cloud quota") || exitCodeFor(runError) != exitNotFound {
+			t.Fatalf("%s: the platform's 404 must be kept (exit 3), got %v (exit %d)", name, runError, exitCodeFor(runError))
+		}
+	}
+	serverError := &ankraCloudQuotaMock{readError: &client.UnexpectedResponseError{StatusCode: 502},
+		cluster: client.ClusterListItem{ID: testClusterID, Kind: "hetzner"}}
+	if _, runError := runAnkraCloudCommand(t, serverError, "quota", testClusterID); runError == nil || exitCodeFor(runError) != exitError || serverError.lookups != 0 {
+		t.Fatalf("only a 404 reads the cluster's kind: got %v (exit %d) after %d lookups", runError, exitCodeFor(runError), serverError.lookups)
 	}
 }
 
