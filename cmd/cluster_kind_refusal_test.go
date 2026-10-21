@@ -199,6 +199,11 @@ func TestEveryProviderClusterCommandIsWrapped(t *testing.T) {
 	var walk func(command *cobra.Command, family string)
 	walk = func(command *cobra.Command, family string) {
 		fields := strings.Fields(command.Use)
+		// A Run-only command cannot return an error, so the wrapper cannot
+		// reach it: cluster-taking provider commands must use RunE.
+		if command.Run != nil && command.RunE == nil && len(fields) > 1 && !notAClusterArgument[fields[1]] {
+			t.Errorf("%s uses Run: a provider command that takes a cluster must use RunE so a wrong kind exits 2", command.CommandPath())
+		}
 		if command.RunE != nil && len(fields) > 1 && !strings.HasPrefix(fields[1], "-") && !notAClusterArgument[fields[1]] {
 			if !takesClusterFirst(command) {
 				t.Errorf("%s takes %s first: name it <cluster_id|name> or add it to notAClusterArgument", command.CommandPath(), fields[1])
