@@ -350,14 +350,19 @@ func nodeGroupZoneSuffix(nodeGroup client.NodeGroupInfo) string {
 	return ""
 }
 
-// nodeGroupDiskSuffix renders a node group's root disk size for a list line,
-// or "" when the group chose none, so the line is unchanged for every
+// nodeGroupDiskSuffix renders a node group's root disk size and tier for a
+// list line, or "" when the group chose neither, so the line is unchanged for every
 // provider without the field and every group on its plan's included disk.
 func nodeGroupDiskSuffix(nodeGroup client.NodeGroupInfo) string {
-	if nodeGroup.DiskGibibytes <= 0 {
-		return ""
+	switch {
+	case nodeGroup.DiskGibibytes > 0 && nodeGroup.DiskTier != "":
+		return fmt.Sprintf("  disk=%dGiB/%s", nodeGroup.DiskGibibytes, nodeGroup.DiskTier)
+	case nodeGroup.DiskGibibytes > 0:
+		return fmt.Sprintf("  disk=%dGiB", nodeGroup.DiskGibibytes)
+	case nodeGroup.DiskTier != "":
+		return "  disk=" + nodeGroup.DiskTier
 	}
-	return fmt.Sprintf("  disk=%dGiB", nodeGroup.DiskGibibytes)
+	return ""
 }
 
 // maxNodeGroupUserDataBytes mirrors the platform's refusal cap (the
@@ -409,9 +414,13 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 		if diskError != nil {
 			return diskError
 		}
-		if diskGibibytes > 0 && kind != "ankracloud" {
+		diskTier, diskTierError := ankraCloudDiskTierFlag(cmd, "disk-tier")
+		if diskTierError != nil {
+			return diskTierError
+		}
+		if (diskGibibytes > 0 || diskTier != "") && kind != "ankracloud" {
 			return withExitCode(exitUsage, fmt.Errorf(
-				"--disk-gib is supported only on Ankra Cloud clusters; cluster %q is %s", clusterID, kind))
+				"--disk-gib and --disk-tier are supported only on Ankra Cloud clusters; cluster %q is %s", clusterID, kind))
 		}
 		labelsFlag, _ := cmd.Flags().GetString("labels")
 		labels, labelsError := parseLabelsFlag(labelsFlag)
@@ -434,6 +443,7 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 			Zone:             zone,
 			UserData:         userData,
 			DiskGibibytes:    diskGibibytes,
+			DiskTier:         diskTier,
 		}
 
 		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
@@ -896,6 +906,7 @@ func init() {
 			"effect defaults to NoSchedule); a tainted group runs only pods that tolerate them, such as "+
 			"pipeline pods placed with 'ankra cluster agent ci set --node-group'")
 	clusterNodeGroupAddCmd.Flags().Int("disk-gib", 0, "Root disk size in GiB of every server the group creates, scale-ups included (Ankra Cloud clusters only; default: the plan's included disk). Ankra Cloud refuses a size below the plan's and the template's minimum")
+	clusterNodeGroupAddCmd.Flags().String("disk-tier", "", "Storage tier of the root disk of every server the group creates, scale-ups included (Ankra Cloud clusters only): local-nvme (the node's own disks, the choice for CI nodes), standard, maxiops or hdd (the zone's Ankra Storage). Default: the zone's default tier")
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("name")
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("instance-type")
 

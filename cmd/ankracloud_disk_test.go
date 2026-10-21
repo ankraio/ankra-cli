@@ -12,7 +12,9 @@ import (
 func TestAnkraCloudCreateAndPreflightSendTheDiskSizes(t *testing.T) {
 	mock := &ankraCloudClusterMock{preflightResult: client.AnkraCloudPreflightResult{CanProceed: true}}
 	diskArguments := []string{"--bastion-disk-gib", "10", "--control-plane-disk-gib", "40",
-		"--etcd-disk-gib", "20", "--worker-disk-gib", "60"}
+		"--etcd-disk-gib", "20", "--worker-disk-gib", "60",
+		"--bastion-disk-tier", "standard", "--control-plane-disk-tier", "maxiops",
+		"--etcd-disk-tier", "hdd", "--worker-disk-tier", " Local-NVMe "}
 	for _, verb := range []string{"create", "preflight"} {
 		arguments := append(append([]string{verb}, ankraCloudRequiredCreateArguments...), diskArguments...)
 		if output, runError := runAnkraCloudCommand(t, mock, arguments...); runError != nil {
@@ -21,7 +23,9 @@ func TestAnkraCloudCreateAndPreflightSendTheDiskSizes(t *testing.T) {
 	}
 	for _, request := range []client.CreateAnkraCloudClusterRequest{mock.createRequests[0], mock.preflightRequests[0]} {
 		if request.BastionDiskGibibytes != 10 || request.ControlPlaneDiskGibibytes != 40 ||
-			request.EtcdDiskGibibytes != 20 || request.WorkerDiskGibibytes != 60 {
+			request.EtcdDiskGibibytes != 20 || request.WorkerDiskGibibytes != 60 ||
+			request.BastionDiskTier != "standard" || request.ControlPlaneDiskTier != "maxiops" ||
+			request.EtcdDiskTier != "hdd" || request.WorkerDiskTier != "local-nvme" {
 			t.Fatalf("request = %+v", request)
 		}
 	}
@@ -36,8 +40,22 @@ func TestAnkraCloudCreateOmitsUnsetDiskSizes(t *testing.T) {
 	if marshalError != nil {
 		t.Fatal(marshalError)
 	}
-	if strings.Contains(string(body), "disk_gibibytes") {
-		t.Fatalf("an unset disk size must be omitted so the plan's included disk applies: %s", body)
+	if strings.Contains(string(body), "disk_") {
+		t.Fatalf("an unset disk size or tier must be omitted so the plan's disk and the zone's tier apply: %s", body)
+	}
+}
+
+func TestAnkraCloudCreateRefusesAnUnknownDiskTier(t *testing.T) {
+	for _, verb := range []string{"create", "preflight"} {
+		mock := &ankraCloudClusterMock{}
+		arguments := append(append([]string{verb}, ankraCloudRequiredCreateArguments...), "--worker-disk-tier", "ceph")
+		_, runError := runAnkraCloudCommand(t, mock, arguments...)
+		if exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "local-nvme, standard, maxiops, hdd") {
+			t.Fatalf("%s: error = %v, want a usage error naming the tiers", verb, runError)
+		}
+		if len(mock.createRequests)+len(mock.preflightRequests) != 0 {
+			t.Fatalf("%s: a request was sent", verb)
+		}
 	}
 }
 
@@ -96,10 +114,10 @@ func runNodeGroupAddWithDisk(t *testing.T, mock *nodeGroupAddDiskMock, extra ...
 
 func TestClusterNodeGroupAddSendsTheDiskSizeOnAnkraCloud(t *testing.T) {
 	mock := &nodeGroupAddDiskMock{kind: "ankracloud"}
-	if runError := runNodeGroupAddWithDisk(t, mock, "--disk-gib", "30"); runError != nil {
+	if runError := runNodeGroupAddWithDisk(t, mock, "--disk-gib", "30", "--disk-tier", "local-nvme"); runError != nil {
 		t.Fatalf("add: %v", runError)
 	}
-	if mock.gotRequest == nil || mock.gotRequest.DiskGibibytes != 30 {
+	if mock.gotRequest == nil || mock.gotRequest.DiskGibibytes != 30 || mock.gotRequest.DiskTier != "local-nvme" {
 		t.Fatalf("request = %+v", mock.gotRequest)
 	}
 }
@@ -110,8 +128,8 @@ func TestClusterNodeGroupAddOmitsAnUnsetDiskSize(t *testing.T) {
 		t.Fatalf("add: %v", runError)
 	}
 	body, _ := json.Marshal(mock.gotRequest)
-	if strings.Contains(string(body), "disk_gibibytes") {
-		t.Fatalf("an unset disk size must be omitted: %s", body)
+	if strings.Contains(string(body), "disk_") {
+		t.Fatalf("an unset disk size or tier must be omitted: %s", body)
 	}
 }
 
@@ -119,6 +137,28 @@ func TestClusterNodeGroupAddRefusesTheDiskSizeOffAnkraCloud(t *testing.T) {
 	mock := &nodeGroupAddDiskMock{kind: "hetzner"}
 	runError := runNodeGroupAddWithDisk(t, mock, "--disk-gib", "30")
 	if exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "only on Ankra Cloud") {
+		t.Fatalf("error = %v, want a usage error", runError)
+	}
+	if mock.gotRequest != nil {
+		t.Fatalf("a request was sent: %+v", mock.gotRequest)
+	}
+}
+
+func TestClusterNodeGroupAddRefusesTheDiskTierOffAnkraCloud(t *testing.T) {
+	mock := &nodeGroupAddDiskMock{kind: "hetzner"}
+	runError := runNodeGroupAddWithDisk(t, mock, "--disk-tier", "local-nvme")
+	if exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "only on Ankra Cloud") {
+		t.Fatalf("error = %v, want a usage error", runError)
+	}
+	if mock.gotRequest != nil {
+		t.Fatalf("a request was sent: %+v", mock.gotRequest)
+	}
+}
+
+func TestClusterNodeGroupAddRefusesAnUnknownDiskTier(t *testing.T) {
+	mock := &nodeGroupAddDiskMock{kind: "ankracloud"}
+	runError := runNodeGroupAddWithDisk(t, mock, "--disk-tier", "ceph")
+	if exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "--disk-tier") {
 		t.Fatalf("error = %v, want a usage error", runError)
 	}
 	if mock.gotRequest != nil {
@@ -141,7 +181,18 @@ func TestNodeGroupDiskSuffix(t *testing.T) {
 	if suffix := nodeGroupDiskSuffix(client.NodeGroupInfo{}); suffix != "" {
 		t.Fatalf("suffix = %q", suffix)
 	}
-	if suffix := nodeGroupDiskSuffix(client.NodeGroupInfo{DiskGibibytes: 30}); suffix != "  disk=30GiB" {
-		t.Fatalf("suffix = %q", suffix)
+	cases := []struct {
+		nodeGroup client.NodeGroupInfo
+		want      string
+	}{
+		{client.NodeGroupInfo{DiskGibibytes: 30}, "  disk=30GiB"},
+		{client.NodeGroupInfo{DiskTier: "local-nvme"}, "  disk=local-nvme"},
+		{client.NodeGroupInfo{DiskGibibytes: 30, DiskTier: "maxiops"}, "  disk=30GiB/maxiops"},
 	}
+	for _, testCase := range cases {
+		if suffix := nodeGroupDiskSuffix(testCase.nodeGroup); suffix != testCase.want {
+			t.Fatalf("suffix = %q, want %q", suffix, testCase.want)
+		}
+	}
+
 }

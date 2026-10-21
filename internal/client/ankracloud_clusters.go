@@ -49,7 +49,10 @@ const (
 // The *_disk_gibibytes members size each role's root disk in GiB (a node
 // group's disk_gibibytes wins over worker_disk_gibibytes). Omitted, a server
 // takes its plan's included disk; Ankra Cloud refuses a size below the
-// plan's and the template's minimum.
+// plan's and the template's minimum. The *_disk_tier members choose the root
+// disk's storage tier (local-nvme, standard, maxiops or hdd; a node group's
+// disk_tier wins over worker_disk_tier); omitted, the zone's default tier
+// applies.
 type CreateAnkraCloudClusterRequest struct {
 	Name                      string                `json:"name"`
 	Description               *string               `json:"description,omitempty"`
@@ -84,6 +87,10 @@ type CreateAnkraCloudClusterRequest struct {
 	ControlPlaneDiskGibibytes int                   `json:"control_plane_disk_gibibytes,omitempty"`
 	EtcdDiskGibibytes         int                   `json:"etcd_disk_gibibytes,omitempty"`
 	WorkerDiskGibibytes       int                   `json:"worker_disk_gibibytes,omitempty"`
+	BastionDiskTier           string                `json:"bastion_disk_tier,omitempty"`
+	ControlPlaneDiskTier      string                `json:"control_plane_disk_tier,omitempty"`
+	EtcdDiskTier              string                `json:"etcd_disk_tier,omitempty"`
+	WorkerDiskTier            string                `json:"worker_disk_tier,omitempty"`
 }
 
 type CreateAnkraCloudClusterResponse struct {

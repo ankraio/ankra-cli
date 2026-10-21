@@ -287,6 +287,9 @@ type NodeGroupInfo struct {
 	// with (Ankra Cloud). Omitted when the group chose none and its servers
 	// take their plan's included disk.
 	DiskGibibytes int `json:"disk_gibibytes,omitempty"`
+	// DiskTier is the storage tier of the group's servers' root disks
+	// (Ankra Cloud). Omitted when the group chose none.
+	DiskTier string `json:"disk_tier,omitempty"`
 }
 
 type NodeGroupListResult struct {
@@ -316,6 +319,10 @@ type AddNodeGroupRequest struct {
 	// for other providers). Omitted, each server takes its plan's included
 	// disk.
 	DiskGibibytes int `json:"disk_gibibytes,omitempty"`
+	// DiskTier is the storage tier of every server's root disk the group
+	// creates, scale-ups included (Ankra Cloud clusters only): local-nvme,
+	// standard, maxiops or hdd. Omitted, the zone's default tier applies.
+	DiskTier string `json:"disk_tier,omitempty"`
 }
 
 type AddNodeGroupResult struct {
