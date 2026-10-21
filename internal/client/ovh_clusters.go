@@ -59,6 +59,8 @@ type CreateOvhClusterRequest struct {
 	// region. Omitted leaves placement to OVH, which puts every instance of
 	// the cluster in one zone.
 	AvailabilityZones []string `json:"availability_zones,omitempty"`
+	Environment       *string  `json:"environment,omitempty"`
+	Criticality       *string  `json:"criticality,omitempty"`
 }
 
 type CreateOvhClusterResponse struct {

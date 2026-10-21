@@ -88,6 +88,13 @@ var ovhCreateCmd = &cobra.Command{
 			}
 		}
 
+		environment, criticality, classificationError := clusterClassificationFromFlags(cmd)
+		if classificationError != nil {
+			return classificationError
+		}
+		req.Environment = environment
+		req.Criticality = criticality
+
 		result, err := apiClient.CreateOvhCluster(req)
 		if err != nil {
 			return fmt.Errorf("creating OVH cluster: %w", err)
@@ -970,6 +977,7 @@ func init() {
 	ovhCreateCmd.Flags().Bool("external-cloud-provider", true, "Install the OpenStack CCM and Cinder CSI (cloud-provider=external) for LoadBalancers and persistent volumes (default on; pass --external-cloud-provider=false to skip, which also disables --include-networking)")
 	ovhCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
 	registerIncludeDNSFlag(ovhCreateCmd)
+	registerClusterClassificationFlags(ovhCreateCmd)
 	ovhCreateCmd.Flags().String("gitops-credential-name", "", "GitOps GitHub credential name; when set with --gitops-repository, the generated ovh-cloud stack is committed to Git (optional)")
 	ovhCreateCmd.Flags().String("gitops-repository", "", "GitOps repository (e.g. org/repo) to commit the generated stack to (optional)")
 	ovhCreateCmd.Flags().String("gitops-branch", "master", "GitOps branch to commit to")

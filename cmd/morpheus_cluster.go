@@ -76,6 +76,13 @@ var morpheusCreateCmd = &cobra.Command{
 			request.EtcdPlanID = &etcdPlanID
 		}
 
+		environment, criticality, classificationError := clusterClassificationFromFlags(cmd)
+		if classificationError != nil {
+			return classificationError
+		}
+		request.Environment = environment
+		request.Criticality = criticality
+
 		result, createError := apiClient.CreateMorpheusCluster(request)
 		if createError != nil {
 			return fmt.Errorf("creating HPE Morpheus cluster: %w", createError)
@@ -386,6 +393,7 @@ func init() {
 	morpheusCreateCmd.Flags().String("cni", "", "CNI plugin (optional; the platform default is used when omitted)")
 	morpheusCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager as Ankra-managed stacks for ingress (exposed via the built-in k3s service load balancer; default on)")
 	registerIncludeDNSFlag(morpheusCreateCmd)
+	registerClusterClassificationFlags(morpheusCreateCmd)
 
 	_ = morpheusCreateCmd.MarkFlagRequired("name")
 	_ = morpheusCreateCmd.MarkFlagRequired("credential-id")

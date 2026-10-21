@@ -100,6 +100,13 @@ var proxmoxCreateCmd = &cobra.Command{
 			request.KubernetesVersion = &kubernetesVersion
 		}
 
+		environment, criticality, classificationError := clusterClassificationFromFlags(cmd)
+		if classificationError != nil {
+			return classificationError
+		}
+		request.Environment = environment
+		request.Criticality = criticality
+
 		result, createError := apiClient.CreateProxmoxCluster(request)
 		if createError != nil {
 			return fmt.Errorf("creating Proxmox VE cluster: %w", createError)
@@ -404,6 +411,7 @@ func init() {
 	proxmoxCreateCmd.Flags().String("site-public-ip", "", "Public address other sites dial this cluster's bastion on for the overlay (required with --network-mode wireguard_mesh); the site forwards the overlay UDP port range from it to the bastion")
 	proxmoxCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager as Ankra-managed stacks for ingress (exposed via the built-in k3s service load balancer; default on)")
 	registerIncludeDNSFlag(proxmoxCreateCmd)
+	registerClusterClassificationFlags(proxmoxCreateCmd)
 
 	_ = proxmoxCreateCmd.MarkFlagRequired("name")
 	_ = proxmoxCreateCmd.MarkFlagRequired("credential-id")

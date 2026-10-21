@@ -51,6 +51,8 @@ type CreateScalewayClusterRequest struct {
 	IncludeNetworking    *bool                 `json:"include_networking,omitempty"`
 	IncludeDNS           *bool                 `json:"include_dns,omitempty"`
 	RetentionPolicy      string                `json:"retention_policy,omitempty"`
+	Environment          *string               `json:"environment,omitempty"`
+	Criticality          *string               `json:"criticality,omitempty"`
 }
 
 type CreateScalewayClusterResponse struct {

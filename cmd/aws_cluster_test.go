@@ -168,7 +168,7 @@ func TestAwsCreateSerialisesTheRequest(t *testing.T) {
 		"--gitops-branch", "main",
 		"--retention-policy", "delete",
 		"--environment", "production",
-		"--criticality", "high",
+		"--criticality", "staging",
 	)...)
 	if runError != nil {
 		t.Fatalf("create failed: %v", runError)
@@ -227,7 +227,7 @@ func TestAwsCreateSerialisesTheRequest(t *testing.T) {
 		"gitops_repository":      {request.GitopsRepository, stringPointer("acme/platform")},
 		"gitops_branch":          {request.GitopsBranch, stringPointer("main")},
 		"environment":            {request.Environment, stringPointer("production")},
-		"criticality":            {request.Criticality, stringPointer("high")},
+		"criticality":            {request.Criticality, stringPointer("staging")},
 	} {
 		if pair[0] == nil || *pair[0] != *pair[1] {
 			t.Errorf("%s = %v, want %q", field, pair[0], *pair[1])

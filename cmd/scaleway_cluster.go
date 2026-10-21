@@ -124,7 +124,7 @@ func init() {
 // `preflight`. Flags left at their zero value are omitted so the server's
 // documented defaults apply (gateway type VPC-GW-S, bastion port 61000,
 // DEV1-M instance types, k3s, stacked etcd, retain).
-func scalewayCreateRequestFromFlags(cmd *cobra.Command) client.CreateScalewayClusterRequest {
+func scalewayCreateRequestFromFlags(cmd *cobra.Command) (client.CreateScalewayClusterRequest, error) {
 	name, _ := cmd.Flags().GetString("name")
 	description, _ := cmd.Flags().GetString("description")
 	credentialID, _ := cmd.Flags().GetString("credential-id")
@@ -196,7 +196,13 @@ func scalewayCreateRequestFromFlags(cmd *cobra.Command) client.CreateScalewayClu
 	if kubernetesVersion != "" {
 		request.KubernetesVersion = &kubernetesVersion
 	}
-	return request
+	environment, criticality, classificationError := clusterClassificationFromFlags(cmd)
+	if classificationError != nil {
+		return client.CreateScalewayClusterRequest{}, classificationError
+	}
+	request.Environment = environment
+	request.Criticality = criticality
+	return request, nil
 }
 
 var scalewayCreateCmd = &cobra.Command{
@@ -213,7 +219,11 @@ Examples:
   ankra cluster scaleway create --name prod --credential-id <id> \
     --ssh-key-credential-id <id> --region fr-par --zone fr-par-1`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		result, createError := apiClient.CreateScalewayCluster(scalewayCreateRequestFromFlags(cmd))
+		request, requestError := scalewayCreateRequestFromFlags(cmd)
+		if requestError != nil {
+			return requestError
+		}
+		result, createError := apiClient.CreateScalewayCluster(request)
 		if createError != nil {
 			return fmt.Errorf("creating Scaleway cluster: %w", createError)
 		}
@@ -241,7 +251,11 @@ visible, not that project hard-quota headroom was proven.
 
 Takes the same flags as 'create'.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		result, preflightError := apiClient.PreflightScalewayCluster(scalewayCreateRequestFromFlags(cmd))
+		request, requestError := scalewayCreateRequestFromFlags(cmd)
+		if requestError != nil {
+			return requestError
+		}
+		result, preflightError := apiClient.PreflightScalewayCluster(request)
 		if preflightError != nil {
 			return fmt.Errorf("running Scaleway preflight: %w", preflightError)
 		}
@@ -527,6 +541,7 @@ var scalewayNetworksCmd = &cobra.Command{
 // registerScalewayCreateFlags declares the create/preflight flag set once so
 // the two commands can never drift.
 func registerScalewayCreateFlags(commands ...*cobra.Command) {
+	registerClusterClassificationFlags(commands...)
 	for _, command := range commands {
 		command.Flags().String("name", "", "Cluster name (required)")
 		command.Flags().String("description", "", "Cluster description")
