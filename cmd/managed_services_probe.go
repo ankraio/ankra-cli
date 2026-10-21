@@ -302,3 +302,76 @@ func printConnectionProbe(out io.Writer, probe client.StackProfileDemoConnection
 		_, _ = fmt.Fprintf(out, "  %s\n", probe.Reason)
 	}
 }
+
+func newServicesPackagesCollisionsCommand() *cobra.Command {
+	var profileID, workspaceID string
+	command := &cobra.Command{
+		Use:   "collisions",
+		Short: "Check that two services from a package could share a cluster",
+		Long: `Read a running demo of a stack profile and check whether two services set up
+from a package built on it could run on the same cluster: a cluster-scoped
+object (a ClusterRole, a CRD, a webhook, a StorageClass) whose name does not
+change with the service's namespace would be claimed by both. It also lists
+the Services and Secrets whose names do change with it, which a package's
+connection cannot name as fixed values.
+
+Exits 0 only when every kind was read and nothing collides; collisions exit 1
+with the objects named, and a check that could not read everything (the
+verdict unknown) exits 1 with the reason, so it never reads as no collision.`,
+		Example: `  ankra services packages collisions --profile <profile-id> --demo <workspace-id>`,
+		Args:    cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
+				return formatError
+			}
+			check, readError := apiClient.GetStackProfileDemoCollisionCheck(command.Context(), profileID, workspaceID)
+			if readError != nil {
+				return fmt.Errorf("reading the demo's collision check: %w", readError)
+			}
+			if rendered, renderError := renderStructured(command, check); renderError != nil {
+				return renderError
+			} else if !rendered {
+				printCollisionCheck(command.OutOrStdout(), *check)
+			}
+			switch check.Verdict {
+			case "no_collision":
+				return nil
+			case "collisions":
+				return fmt.Errorf("%d object(s) would collide between two services from this package", len(check.Collisions))
+			default:
+				return fmt.Errorf("the check could not tell (verdict %s): %s", valueOr(&check.Verdict, "none"), valueOr(&check.Reason, "no reason given"))
+			}
+		},
+	}
+	command.Flags().StringVar(&profileID, "profile", "", "id of the stack profile the demo runs")
+	command.Flags().StringVar(&workspaceID, "demo", "", "id of the running demo (its workspace id)")
+	for _, required := range []string{"profile", "demo"} {
+		_ = command.MarkFlagRequired(required)
+	}
+	registerStructuredOutputFlags(command)
+	return command
+}
+
+func printCollisionCheck(out io.Writer, check client.StackProfileDemoCollisionCheck) {
+	_, _ = fmt.Fprintf(out, "Demo %s: %s\n", check.DemoStatus, strings.ReplaceAll(check.Verdict, "_", " "))
+	if check.Reason != "" {
+		_, _ = fmt.Fprintf(out, "  %s\n", check.Reason)
+	}
+	printFindings := func(title string, findings []client.ServiceInstanceFinding) {
+		if len(findings) == 0 {
+			return
+		}
+		_, _ = fmt.Fprintf(out, "\n%s:\n", title)
+		for _, finding := range findings {
+			_, _ = fmt.Fprintf(out, "  %s %s: %s\n", finding.Kind, finding.Name, finding.Reason)
+		}
+	}
+	printFindings("Would collide", check.Collisions)
+	printFindings("Named after the service (do not name them as fixed values)", check.InstanceSpecificNames)
+	if len(check.UnreadableKinds) > 0 {
+		_, _ = fmt.Fprintf(out, "\nNot read: %s\n", strings.Join(check.UnreadableKinds, ", "))
+	}
+	if check.Note != "" {
+		_, _ = fmt.Fprintf(out, "\n%s\n", check.Note)
+	}
+}
