@@ -45,6 +45,7 @@ func newApplicationCommand() *cobra.Command {
 	applicationCommand.AddCommand(newApplicationAddCommand())
 	applicationCommand.AddCommand(newApplicationShipCommand())
 	applicationCommand.AddCommand(newApplicationImportCommand())
+	applicationCommand.AddCommand(newApplicationDataMigrationCommand())
 	registerApplicationResourceCommands(applicationCommand)
 	return applicationCommand
 }

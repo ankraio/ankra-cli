@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra application data-migration` follows and rolls back the data
+  migration of an application's Launch Plan.** `list` shows the
+  application's runs and when each one's rollback window closes, and `get`
+  shows a run step by step: the copies, the freeze of each vendor source, the
+  switch of the application's environment, and why a run stopped. `rollback`
+  puts the environment back as it was before the cutover and makes the vendor
+  sources writable again, after a confirmation (`--yes` skips it). It is
+  accepted from the start of the cutover until the rollback window closes, and
+  the platform carries it out on its next pass, so `get` shows it move from
+  "rolling-back" to "rolled-back". Nothing is deleted at the vendor. All three
+  take `-o json|yaml`.
+
 ## v0.45.0 - 2026-10-21
 
 The headline is checking a managed service's connection before you publish
