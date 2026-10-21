@@ -108,8 +108,14 @@ func TestAnkraCloudQuotaOnAnotherKindOfClusterSaysSoAndExitsTwo(t *testing.T) {
 		if strings.Contains(runError.Error(), "404") {
 			t.Fatalf("the refusal must not carry the raw 404: %v", runError)
 		}
-		if structured && strings.TrimSpace(output) != "" {
-			t.Fatalf("-o json must leave stdout empty on a refusal (the error goes to stderr), got:\n%s", output)
+		// The harness returns stdout together with cobra's own "Error:" line,
+		// so anything beyond that line would be a document written to stdout.
+		if structured {
+			for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+				if line != "" && !strings.HasPrefix(line, "Error: ") {
+					t.Fatalf("-o json must write no document on a refusal (the error goes to stderr), got:\n%s", output)
+				}
+			}
 		}
 	}
 }
