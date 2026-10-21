@@ -125,7 +125,7 @@ func TestParseGeneratedKeysReadsRandomSizedAndFixedKeys(t *testing.T) {
 		keys[2] != (client.GeneratedServiceSecretKey{Key: "username", Value: "app"}) {
 		t.Fatalf("%+v %v", keys, parseError)
 	}
-	for _, refused := range []string{"", ":32", "password:x", "password:0", "=app", "username="} {
+	for _, refused := range []string{"", ":32", "password:x", "password:0", "=app", "username=", "password:48=secret"} {
 		if _, parseError := parseGeneratedKeys([]string{refused}); parseError == nil {
 			t.Fatalf("%q must be refused", refused)
 		}

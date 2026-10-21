@@ -109,6 +109,9 @@ func parseGeneratedKeys(specifications []string) ([]client.GeneratedServiceSecre
 	keys := make([]client.GeneratedServiceSecretKey, 0, len(specifications))
 	for _, specification := range specifications {
 		if key, value, isFixed := strings.Cut(specification, "="); isFixed {
+			if strings.Contains(key, ":") {
+				return nil, fmt.Errorf("--generate-key %q: choose key:length for a random value or key=value for a fixed one, not both", specification)
+			}
 			if key == "" || value == "" {
 				return nil, fmt.Errorf("--generate-key %q: write key=value for a fixed value", specification)
 			}
