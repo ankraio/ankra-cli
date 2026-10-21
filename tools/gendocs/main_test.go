@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestRenderHelpTextFencesIndentedExamples(t *testing.T) {
@@ -130,5 +132,51 @@ func TestEscapeMDXCodeSpansFlags(t *testing.T) {
 		if got := escapeMDX(in); got != want {
 			t.Errorf("escapeMDX(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestRenderExampleDedentsTheWholeBlock(t *testing.T) {
+	// Cobra examples indent every line for the terminal. Trimming the whole
+	// string left the first line flush and the rest two spaces in, so every
+	// multi-line fence on docs.ankra.ai rendered ragged (ankra-7qk1wu).
+	example := `
+  # Bump the image tag
+  ankra cluster manifests upgrade web \
+    --set 'spec.image=nginx:1.27'
+
+  ankra cluster manifests get web -o yaml
+`
+	want := "# Bump the image tag\n" +
+		"ankra cluster manifests upgrade web \\\n" +
+		"  --set 'spec.image=nginx:1.27'\n" +
+		"\n" +
+		"ankra cluster manifests get web -o yaml"
+	if got := renderExample(example); got != want {
+		t.Fatalf("renderExample mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+
+	if got := renderExample("  ankra cluster list\r\n  ankra cluster get web\r\n"); got != "ankra cluster list\nankra cluster get web" {
+		t.Fatalf("CRLF example kept carriage returns or indent: %q", got)
+	}
+	if got := renderExample("ankra version"); got != "ankra version" {
+		t.Fatalf("an unindented one-liner changed: %q", got)
+	}
+	if got := renderExample("  \n\n  "); got != "" {
+		t.Fatalf("a blank example rendered %q, want empty", got)
+	}
+}
+
+func TestRenderCommandFencesDedentedExample(t *testing.T) {
+	cmd := &cobra.Command{
+		Use:     "lanes",
+		Short:   "Set a lane",
+		Run:     func(*cobra.Command, []string) {},
+		Example: "  ankra ai lanes set chat z-ai/glm-5.2\n  ankra ai lanes list",
+	}
+	var b strings.Builder
+	renderCommand(&b, cmd)
+	want := "**Examples**\n\n```bash\nankra ai lanes set chat z-ai/glm-5.2\nankra ai lanes list\n```"
+	if !strings.Contains(b.String(), want) {
+		t.Fatalf("example fence not dedented:\n%s", b.String())
 	}
 }
