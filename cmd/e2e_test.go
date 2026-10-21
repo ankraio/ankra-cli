@@ -167,6 +167,10 @@ func (m baseMock) ImportStackProfile(importRequest client.ImportStackProfileRequ
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) CreateChartServiceProfile(chartRequest client.ChartServiceProfileRequest) (*client.CreateStackProfileResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ImportStackProfileAsDraft(importRequest client.ImportStackProfileDraftRequest) (*client.ImportStackProfileDraftResult, error) {
 	return nil, errors.New("not implemented")
 }

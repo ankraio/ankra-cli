@@ -274,6 +274,69 @@ type CreatedStackProfileVersion struct {
 	Version int    `json:"version"`
 }
 
+// ChartServiceProfileRequest asks the platform to make one Helm chart, from a
+// registry the organisation can use, into a stack profile for a managed
+// service (POST /api/v1/org/stack-profiles/from-chart). The platform builds
+// the profile document itself and publishes its first version.
+type ChartServiceProfileRequest struct {
+	Name            string                  `json:"name"`
+	Description     string                  `json:"description,omitempty"`
+	ChartName       string                  `json:"chart_name"`
+	ChartVersion    string                  `json:"chart_version"`
+	RegistryName    string                  `json:"registry_name"`
+	ValuesYAML      string                  `json:"values_yaml,omitempty"`
+	GeneratedSecret *GeneratedServiceSecret `json:"generated_secret,omitempty"`
+}
+
+// GeneratedServiceSecret is a Secret the profile generates in each service's
+// namespace on its first install and keeps across upgrades. Its values are
+// never seen or stored by Ankra.
+type GeneratedServiceSecret struct {
+	Name string                      `json:"name"`
+	Keys []GeneratedServiceSecretKey `json:"keys"`
+}
+
+// GeneratedServiceSecretKey is one key: random of Length characters (0 means
+// the platform's default), or the fixed Value, never both.
+type GeneratedServiceSecretKey struct {
+	Key    string `json:"key"`
+	Length int    `json:"length,omitempty"`
+	Value  string `json:"value,omitempty"`
+}
+
+// CreateChartServiceProfile makes one Helm chart into a service profile and
+// answers the profile and the version it published.
+func (c *Client) CreateChartServiceProfile(chartRequest ChartServiceProfileRequest) (*CreateStackProfileResult, error) {
+	requestURL := fmt.Sprintf("%s/api/v1/org/stack-profiles/from-chart", c.BaseURL)
+	payload, err := json.Marshal(chartRequest)
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, requestURL, bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Authorization", "Bearer "+c.Token)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := c.HTTP.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer closeBody(response)
+	body, err := readResponseBody(response)
+	if err != nil {
+		return nil, err
+	}
+	if response.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("create chart service profile failed (%d): %s", response.StatusCode, redactedBodyForError(body, 512))
+	}
+	var result CreateStackProfileResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("decoding chart service profile result: %w", err)
+	}
+	return &result, nil
+}
+
 // ImportStackProfileDraftRequest opens an imported IaC document as a
 // builder draft instead of publishing a version (`import --as-draft`).
 // Category and tags are omitted when unset: a draft attaching to an

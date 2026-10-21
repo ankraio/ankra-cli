@@ -1,17 +1,16 @@
 package cmd
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 
 	"ankra/internal/client"
 )
@@ -102,71 +101,68 @@ func servicePackageSkeleton(name string, version string, capability string, prot
 	}
 }
 
-// addonProfileDocument is the stack profile a single Helm chart becomes when a
-// package is made from it: one stack named like the package, holding the
-// chart as its only add-on. The add-on's namespace is the stack's name, as in
-// Ankra's own service profiles, so every instance of the service installs
-// into the namespace named after it and the connection's Service and Secret
-// are found there.
-func addonProfileDocument(name string, chart string, chartVersion string, registry client.HelmRegistryDetail, values []byte) ([]byte, error) {
-	addon := map[string]any{
-		"name":          chart,
-		"chart_name":    chart,
-		"chart_version": chartVersion,
-		"registry_name": registry.Name,
-		"registry_url":  registry.URL,
-		"namespace":     "${{ ankra.stack_name }}",
+// parseGeneratedKeys reads --generate-key values: "key" for a random value of
+// the platform's default length, "key:length" for a random value of that
+// many characters, and "key=value" for a fixed value (a user or database name
+// the chart is told to create). The platform validates names and bounds.
+func parseGeneratedKeys(specifications []string) ([]client.GeneratedServiceSecretKey, error) {
+	keys := make([]client.GeneratedServiceSecretKey, 0, len(specifications))
+	for _, specification := range specifications {
+		if key, value, isFixed := strings.Cut(specification, "="); isFixed {
+			if key == "" || value == "" {
+				return nil, fmt.Errorf("--generate-key %q: write key=value for a fixed value", specification)
+			}
+			keys = append(keys, client.GeneratedServiceSecretKey{Key: key, Value: value})
+			continue
+		}
+		key, lengthText, hasLength := strings.Cut(specification, ":")
+		if key == "" {
+			return nil, fmt.Errorf("--generate-key %q: name the key", specification)
+		}
+		generated := client.GeneratedServiceSecretKey{Key: key}
+		if hasLength {
+			length, parseError := strconv.Atoi(lengthText)
+			if parseError != nil || length <= 0 {
+				return nil, fmt.Errorf("--generate-key %q: the length after : must be a whole number of characters", specification)
+			}
+			generated.Length = length
+		}
+		keys = append(keys, generated)
 	}
-	if len(values) > 0 {
-		addon["configuration"] = map[string]any{"values_base64": base64.StdEncoding.EncodeToString(values)}
-	}
-	return yaml.Marshal(map[string]any{
-		"apiVersion": "v1",
-		"kind":       "ImportCluster",
-		"metadata": map[string]any{
-			"name":        name,
-			"description": fmt.Sprintf("The %s chart from %s, made into a managed service by ankra services packages init --addon.", chart, registry.Name),
-		},
-		"spec": map[string]any{"stacks": []any{map[string]any{"name": name, "addons": []any{addon}}}},
-	})
+	return keys, nil
 }
 
-// profileFromAddon creates the stack profile a chart becomes (addonProfileDocument)
-// and answers the profile and the version the import published.
-func profileFromAddon(name string, chart string, chartVersion string, registryName string, valuesPath string) (string, string, error) {
-	registry, registryError := apiClient.GetHelmRegistry(registryName, 0, 1)
-	if registryError != nil {
-		return "", "", fmt.Errorf("reading the Helm registry %q: %w", registryName, registryError)
+// profileFromAddon asks the platform to make one Helm chart into a stack
+// profile (POST /api/v1/org/stack-profiles/from-chart) and answers the
+// profile and the version it published. The platform resolves the registry
+// and builds the profile document, with a credentials release first when
+// generated names a Secret.
+func profileFromAddon(name string, chart string, chartVersion string, registryName string, valuesPath string,
+	generated *client.GeneratedServiceSecret) (string, string, error) {
+	chartRequest := client.ChartServiceProfileRequest{
+		Name: name, ChartName: chart, ChartVersion: chartVersion, RegistryName: registryName, GeneratedSecret: generated,
 	}
-	var values []byte
 	if valuesPath != "" {
-		read, readError := os.ReadFile(valuesPath)
+		values, readError := os.ReadFile(valuesPath)
 		if readError != nil {
 			return "", "", fmt.Errorf("reading the chart values: %w", readError)
 		}
-		values = read
+		chartRequest.ValuesYAML = string(values)
 	}
-	document, documentError := addonProfileDocument(name, chart, chartVersion, registry.Registry, values)
-	if documentError != nil {
-		return "", "", documentError
+	created, createError := apiClient.CreateChartServiceProfile(chartRequest)
+	if createError != nil {
+		return "", "", fmt.Errorf("creating a stack profile from the %s chart: %w", chart, createError)
 	}
-	changelog := "Created from the " + chart + " chart " + chartVersion + " to publish it as a managed service."
-	imported, importError := apiClient.ImportStackProfile(client.ImportStackProfileRequest{
-		Name: &name, Category: "managed-service", Tags: []string{"managed-service", chart},
-		ContentBase64: base64.StdEncoding.EncodeToString(document), Changelog: &changelog,
-	})
-	if importError != nil {
-		return "", "", fmt.Errorf("creating a stack profile from the %s chart: %w", chart, importError)
-	}
-	if imported.Version == nil || imported.Profile.ID == "" || imported.Version.ID == "" {
+	if created.Version == nil || created.Profile.ID == "" || created.Version.ID == "" {
 		return "", "", errors.New("the platform created the stack profile but did not say which version it published; run init again with --profile and --profile-version")
 	}
-	return imported.Profile.ID, imported.Version.ID, nil
+	return created.Profile.ID, created.Version.ID, nil
 }
 
 func newServicesPackagesInitCommand() *cobra.Command {
 	var profileID, profileVersionID, name, version, capability, protocolName, outputPath string
-	var addonChart, addonRegistry, addonChartVersion, addonValuesPath string
+	var addonChart, addonRegistry, addonChartVersion, addonValuesPath, generatedSecretName string
+	var generatedKeySpecifications []string
 	initCommand := &cobra.Command{
 		Use:   "init",
 		Short: "Write a package skeleton for one of your stack profiles",
@@ -189,11 +185,22 @@ To make a service from one Helm chart rather than a stack profile, pass
 --addon with --registry and --chart-version instead of --profile and
 --profile-version: init first creates a stack profile holding that chart
 alone (installed into a namespace named after each service), then writes the
-package pinned to it.`,
+package pinned to it.
+
+With --generate-secret, that profile also generates the service's
+credentials: a Secret of that name in each service's namespace, created on
+the first install and kept unchanged across upgrades, whose values Ankra
+never sees. Name its keys with --generate-key: "password" for a random
+value, "password:48" for a random value of 48 characters, "username=app" for
+a fixed value. Point the chart at the Secret in --values (most charts take
+an existing-secret setting); the package's connection names it already.`,
 		Example: `  ankra services packages init --profile <profile-id> --profile-version <version-id> \
     --name dragonfly-cache --protocol redis -f dragonfly-cache.json
   ankra services packages init --addon dragonfly --registry dragonfly --chart-version 1.2.0 \
     --values dragonfly-values.yaml --name dragonfly-cache --protocol redis -f dragonfly-cache.json
+  ankra services packages init --addon postgresql --registry bitnami --chart-version 16.4.2 \
+    --generate-secret orders-db-auth --generate-key username=app --generate-key password \
+    --values orders-db-values.yaml --name orders-db --protocol postgres -f orders-db.json
   ankra services packages publish -f dragonfly-cache.json`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
@@ -212,6 +219,12 @@ package pinned to it.`,
 				return errors.New("--addon needs --registry and --chart-version")
 			case !fromAddon && (profileID == "" || profileVersionID == ""):
 				return errors.New("pass --profile and --profile-version, or --addon with --registry and --chart-version")
+			case !fromAddon && (generatedSecretName != "" || len(generatedKeySpecifications) > 0):
+				return errors.New("--generate-secret and --generate-key go with --addon")
+			case generatedSecretName == "" && len(generatedKeySpecifications) > 0:
+				return errors.New("--generate-key needs --generate-secret, the Secret its keys go into")
+			case generatedSecretName != "" && len(generatedKeySpecifications) == 0:
+				return errors.New("--generate-secret needs at least one --generate-key")
 			case !fromAddon && (addonRegistry != "" || addonChartVersion != "" || addonValuesPath != ""):
 				return errors.New("--registry, --chart-version and --values go with --addon")
 			}
@@ -234,7 +247,15 @@ package pinned to it.`,
 				}()
 			}
 			if fromAddon {
-				createdProfile, createdVersion, createError := profileFromAddon(name, addonChart, addonChartVersion, addonRegistry, addonValuesPath)
+				var generated *client.GeneratedServiceSecret
+				if generatedSecretName != "" {
+					keys, keysError := parseGeneratedKeys(generatedKeySpecifications)
+					if keysError != nil {
+						return keysError
+					}
+					generated = &client.GeneratedServiceSecret{Name: generatedSecretName, Keys: keys}
+				}
+				createdProfile, createdVersion, createError := profileFromAddon(name, addonChart, addonChartVersion, addonRegistry, addonValuesPath, generated)
 				if createError != nil {
 					return createError
 				}
@@ -245,7 +266,11 @@ package pinned to it.`,
 			if pinError != nil {
 				return fmt.Errorf("reading the stack profile version to pin: %w", pinError)
 			}
-			encoded, encodeError := json.MarshalIndent(servicePackageSkeleton(name, version, capability, protocolName, *pin), "", "  ")
+			skeleton := servicePackageSkeleton(name, version, capability, protocolName, *pin)
+			if generatedSecretName != "" {
+				skeleton.Connection.SecretName = generatedSecretName
+			}
+			encoded, encodeError := json.MarshalIndent(skeleton, "", "  ")
 			if encodeError != nil {
 				return encodeError
 			}
@@ -282,6 +307,8 @@ package pinned to it.`,
 	initCommand.Flags().StringVar(&addonRegistry, "registry", "", "the Helm registry --addon comes from (as named in Ankra)")
 	initCommand.Flags().StringVar(&addonChartVersion, "chart-version", "", "the chart version --addon pins")
 	initCommand.Flags().StringVar(&addonValuesPath, "values", "", "a values file for the --addon chart")
+	initCommand.Flags().StringVar(&generatedSecretName, "generate-secret", "", "with --addon, a Secret of this name the profile generates in each service's namespace")
+	initCommand.Flags().StringArrayVar(&generatedKeySpecifications, "generate-key", nil, "a key of --generate-secret: key (random), key:length (random of that length) or key=value (fixed); repeatable")
 	for _, required := range []string{"name", "protocol"} {
 		_ = initCommand.MarkFlagRequired(required)
 	}
