@@ -56,9 +56,11 @@ func TestCommandsOnAClusterOfTheWrongKindExitTwoNamingTheKind(t *testing.T) {
 		"ssh-keys resync":            {"cluster", "ssh-keys", "resync", testClusterID},
 		"scale":                      {"cluster", "scale", testClusterID, "3"},
 		"upgrade":                    {"cluster", "upgrade", testClusterID, "v1.33.2"},
-		"node-group autoscaling set": {"cluster", "node-group", "autoscaling", "set", testClusterID, "workers", "--enabled=false"},
-		"node-group delete (--yes)":  {"cluster", "node-group", "delete", testClusterID, "workers", "--yes"},
+		"node-group autoscaling set": {"cluster", "node-group", "autoscaling", "set", testClusterID, "workers"},
+		"node-group delete":          {"cluster", "node-group", "delete", testClusterID, "workers"},
 	} {
+		// No flags (no --yes on delete): the kind is refused before any is read,
+		// and a flag set here would leak into later tests through the shared tree.
 		setMockClient(t, &wrongKindMock{cluster: imported})
 		_, runError := executeCommand(arguments...)
 		if runError == nil || exitCodeFor(runError) != exitUsage {
