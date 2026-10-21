@@ -103,8 +103,9 @@ func servicePackageSkeleton(name string, version string, capability string, prot
 
 // parseGeneratedKeys reads --generate-key values: "key" for a random value of
 // the platform's default length, "key:length" for a random value of that
-// many characters, and "key=value" for a fixed value (a user or database name
-// the chart is told to create). The platform validates names and bounds.
+// many characters, and "key=value" for a fixed value. A fixed value is stored
+// in the profile, so it is for a name (a user or database name the chart is
+// told to create), never a secret. The platform validates names and bounds.
 func parseGeneratedKeys(specifications []string) ([]client.GeneratedServiceSecretKey, error) {
 	keys := make([]client.GeneratedServiceSecretKey, 0, len(specifications))
 	for _, specification := range specifications {
@@ -192,11 +193,14 @@ package pinned to it.
 
 With --generate-secret, that profile also generates the service's
 credentials: a Secret of that name in each service's namespace, created on
-the first install and kept unchanged across upgrades, whose values Ankra
-never sees. Name its keys with --generate-key: "password" for a random
-value, "password:48" for a random value of 48 characters, "username=app" for
-a fixed value. Point the chart at the Secret in --values (most charts take
-an existing-secret setting); the package's connection names it already.`,
+the first install and kept unchanged across upgrades. Name its keys with
+--generate-key: "password" for a random value, "password:48" for a random
+value of 48 characters. Random values are generated in the cluster and Ankra
+never sees them. "username=app" sets a fixed value, which is stored in the
+profile and visible on the command line, so use it only for names (a user or
+database name), never for a password. Point the chart at the Secret in
+--values (most charts take an existing-secret setting); the package's
+connection names it already.`,
 		Example: `  ankra services packages init --profile <profile-id> --profile-version <version-id> \
     --name dragonfly-cache --protocol redis -f dragonfly-cache.json
   ankra services packages init --addon dragonfly --registry dragonfly --chart-version 1.2.0 \
@@ -313,7 +317,7 @@ an existing-secret setting); the package's connection names it already.`,
 	initCommand.Flags().StringVar(&addonChartVersion, "chart-version", "", "the chart version --addon pins")
 	initCommand.Flags().StringVar(&addonValuesPath, "values", "", "a values file for the --addon chart")
 	initCommand.Flags().StringVar(&generatedSecretName, "generate-secret", "", "with --addon, a Secret of this name the profile generates in each service's namespace")
-	initCommand.Flags().StringArrayVar(&generatedKeySpecifications, "generate-key", nil, "a key of --generate-secret: key (random), key:length (random of that length) or key=value (fixed); repeatable")
+	initCommand.Flags().StringArrayVar(&generatedKeySpecifications, "generate-key", nil, "a key of --generate-secret: key (random), key:length (random of that length) or key=value (a fixed, non-secret name such as a user); repeatable")
 	for _, required := range []string{"name", "protocol"} {
 		_ = initCommand.MarkFlagRequired(required)
 	}
