@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **`ankra stack-profiles summary` reads and reviews evidence-backed summaries.** `get` and `evidence` inspect one exact published version; `generation`, `edit` and `review` inspect and decide an existing candidate with explicit source, candidate and approval revision counters. `withdraw` hides an approval without deleting its history or changing a workload version. All commands support JSON/YAML, and no command starts AI generation. These commands require the profile summary API on the platform.
+
 ## v0.46.0 - 2026-10-22
 
 A minor release that adds `ankra secrets`, so an organisation's secrets can be

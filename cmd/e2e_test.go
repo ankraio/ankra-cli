@@ -5534,3 +5534,22 @@ func TestClusterAgentStatusSecurityNoteNeverRepeatsTheUpgradeCommand(t *testing.
 		})
 	}
 }
+
+func (m baseMock) GetProfileSummary(context.Context, string, int) (json.RawMessage, error) {
+	return nil, nil
+}
+func (m baseMock) GetProfileSummaryEvidence(context.Context, string, int, string) (json.RawMessage, error) {
+	return nil, nil
+}
+func (m baseMock) GetProfileSummaryGeneration(context.Context, string) (json.RawMessage, error) {
+	return nil, nil
+}
+func (m baseMock) EditProfileSummaryCandidate(context.Context, string, client.ProfileSummaryCandidateRequest) (json.RawMessage, error) {
+	return nil, nil
+}
+func (m baseMock) ReviewProfileSummary(context.Context, string, client.ProfileSummaryReviewRequest) (json.RawMessage, error) {
+	return nil, nil
+}
+func (m baseMock) WithdrawProfileSummary(context.Context, string, int, client.ProfileSummaryWithdrawalRequest) (json.RawMessage, error) {
+	return nil, nil
+}
