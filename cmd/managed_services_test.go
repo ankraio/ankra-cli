@@ -1299,6 +1299,15 @@ func TestServicesDeleteWaitsForTheRetirementToSettle(t *testing.T) {
 	if strings.Contains(stdout, "kubectl") {
 		t.Errorf("the next step must use the Ankra CLI, never kubectl:\n%s", stdout)
 	}
+
+	// An outcome this CLI does not know claims nothing about the name.
+	platform = newFakeServicesPlatform(t)
+	platform.retirementStates = []string{"settled"}
+	platform.settledOutcome = "retired_somehow_else"
+	_, _, runError = runServicesCommand(t, platform, "", "delete", "orders-db", "--acknowledge-data-loss", "--yes", "--wait")
+	if runError == nil || !strings.Contains(runError.Error(), "does not recognise") || strings.Contains(runError.Error(), "stay in place") {
+		t.Fatalf("an unknown outcome must not be reported as keeping the name, got %v", runError)
+	}
 }
 
 // An outcome that says the data may remain is said even when the details
@@ -1308,6 +1317,14 @@ func TestServiceKeptDataIsSaidForEveryOutcomeThatMayLeaveData(t *testing.T) {
 	printServiceKeptData(&out, "retired_disposal_unconfirmed", nil, "")
 	if !strings.Contains(out.String(), "DATA NOT CONFIRMED GONE") || !strings.Contains(out.String(), "Check the service's cluster") {
 		t.Fatalf("unreadable details: %q", out.String())
+	}
+	// A partial list is never printed as the whole answer, and no command
+	// is offered for a cluster nobody could read.
+	out.Reset()
+	printServiceKeptData(&out, "retired_disposal_unconfirmed", &client.ServiceRetirementKeptData{Namespace: "orders-db", Complete: false}, "")
+	if !strings.Contains(out.String(), "could not name every volume") || !strings.Contains(out.String(), "Cluster not known") ||
+		!strings.Contains(out.String(), "No command is offered") {
+		t.Fatalf("partial details: %q", out.String())
 	}
 	for _, outcome := range []string{"retired", "disposal_unknown", "removal_failed", "refused", "interrupted"} {
 		out.Reset()

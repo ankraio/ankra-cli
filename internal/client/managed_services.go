@@ -457,6 +457,17 @@ func ServiceRetirementReleasedName(outcome string) bool {
 	return outcome == ServiceRetirementRetired || ServiceRetirementDataMayRemain(outcome)
 }
 
+// ServiceRetirementKeepsName reports whether a retirement outcome is one the
+// platform documents as leaving the service and its name in place. An
+// outcome this CLI does not know is neither released nor kept.
+func ServiceRetirementKeepsName(outcome string) bool {
+	switch outcome {
+	case "removal_failed", "disposal_unknown", "refused", "interrupted":
+		return true
+	}
+	return false
+}
+
 // ServiceRetirementDataMayRemain reports whether a retirement released the
 // name while the service's data may remain.
 func ServiceRetirementDataMayRemain(outcome string) bool {
