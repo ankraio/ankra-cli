@@ -412,6 +412,8 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		if state == "settled" {
 			retirement["outcome"] = platform.settledOutcome
 			switch platform.settledOutcome {
+			case "":
+				retirement["outcome"] = nil
 			case "retired":
 			case "retired_data_kept":
 				retirement["reason"] = "The persistent volumes pvc-123 still hold the service's data on the storage backend."
@@ -1298,6 +1300,15 @@ func TestServicesDeleteWaitsForTheRetirementToSettle(t *testing.T) {
 	}
 	if strings.Contains(stdout, "kubectl") {
 		t.Errorf("the next step must use the Ankra CLI, never kubectl:\n%s", stdout)
+	}
+
+	// Settled with no outcome is not a success.
+	platform = newFakeServicesPlatform(t)
+	platform.retirementStates = []string{"settled"}
+	platform.settledOutcome = ""
+	_, _, runError = runServicesCommand(t, platform, "", "delete", "orders-db", "--acknowledge-data-loss", "--yes", "--wait")
+	if runError == nil || !strings.Contains(runError.Error(), "without an outcome") {
+		t.Fatalf("a retirement settled without an outcome must fail, got %v", runError)
 	}
 
 	// An outcome this CLI does not know claims nothing about the name.

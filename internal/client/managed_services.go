@@ -451,6 +451,14 @@ const (
 	ServiceRetirementRetiredDisposalUnconfirmed = "retired_disposal_unconfirmed"
 )
 
+// The outcomes of a retirement that left the service and its name in place.
+const (
+	ServiceRetirementRemovalFailed   = "removal_failed"
+	ServiceRetirementDisposalUnknown = "disposal_unknown"
+	ServiceRetirementRefused         = "refused"
+	ServiceRetirementInterrupted     = "interrupted"
+)
+
 // ServiceRetirementReleasedName reports whether a retirement outcome released
 // the service's name: retired, with or without data left behind.
 func ServiceRetirementReleasedName(outcome string) bool {
@@ -462,7 +470,7 @@ func ServiceRetirementReleasedName(outcome string) bool {
 // outcome this CLI does not know is neither released nor kept.
 func ServiceRetirementKeepsName(outcome string) bool {
 	switch outcome {
-	case "removal_failed", "disposal_unknown", "refused", "interrupted":
+	case ServiceRetirementRemovalFailed, ServiceRetirementDisposalUnknown, ServiceRetirementRefused, ServiceRetirementInterrupted:
 		return true
 	}
 	return false

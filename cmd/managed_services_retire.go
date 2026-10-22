@@ -349,11 +349,15 @@ func confirmServiceRetirementAndReport(command *cobra.Command, instanceID string
 		_, _ = fmt.Fprintf(out, "Follow it with 'ankra services retirements get %s %s' (or re-run with --wait).\n", instanceID, confirmed.ID)
 		return nil
 	}
-	if confirmed.Outcome != nil && client.ServiceRetirementDataMayRemain(*confirmed.Outcome) {
+	if confirmed.Outcome == nil {
+		// Settled with no outcome recorded is not a success either.
+		return fmt.Errorf("the retirement settled without an outcome; read it with 'ankra services retirements get %s %s'", instanceID, confirmed.ID)
+	}
+	if client.ServiceRetirementDataMayRemain(*confirmed.Outcome) {
 		return fmt.Errorf("the retirement settled %s: the service's name is released, but its data may remain on the cluster; see the volumes and commands above",
 			*confirmed.Outcome)
 	}
-	if confirmed.Outcome != nil && !client.ServiceRetirementReleasedName(*confirmed.Outcome) {
+	if !client.ServiceRetirementReleasedName(*confirmed.Outcome) {
 		if !client.ServiceRetirementKeepsName(*confirmed.Outcome) {
 			// An outcome this CLI does not know is neither a success nor a
 			// claim about the name.
