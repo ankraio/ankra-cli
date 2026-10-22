@@ -14,6 +14,17 @@ lets Ankra Cloud clusters size and tier each server's root disk, and adds
 
 ### Added
 
+- **`ankra application data-migration` follows and rolls back the data
+  migration of an application's Launch Plan.** `list` shows the
+  application's runs and when each one's rollback window closes, and `get`
+  shows a run step by step: the copies, the freeze of each vendor source, the
+  switch of the application's environment, and why a run stopped. `rollback`
+  puts the environment back as it was before the cutover and makes the vendor
+  sources writable again, after a confirmation (`--yes` skips it). It is
+  accepted from the start of the cutover until the rollback window closes, and
+  the platform carries it out on its next pass, so `get` shows it move from
+  "rolling-back" to "rolled-back". Nothing is deleted at the vendor. All three
+  take `-o json|yaml`.
 - **`ankra secrets` manages the organisation's secrets without the value ever passing through a command line, a file you commit or a model.** `create <name>` stores a value and prints its `${SECRET_SLOT:<id>}` sentinel on stdout, to put where the value belongs (at a key `encrypted_paths` declares; Ankra substitutes the value when it seals the file). The value comes from `--generate` (Ankra creates it and nobody sees it), `--from-file` (byte for byte) or stdin (a masked prompt on a terminal); a value given as an argument is refused with exit 2, without echoing it. `list` shows each secret's name, id, whether a person or Ankra supplied it, the resources that reference it, when it was last read and when it expires, never a value. `set` and `rotate [--generate]` replace a value in place, so the sentinel and everything that references it stay valid. `delete` asks first, and a secret that deployed resources still reference is refused with each of them named (exit 1); there is no force. Every command takes `--org` and `-o json`.
 - **The agent skills recommend `ankra secrets` for values that must not live in Git.** `ankra-sops-secrets`, `ankra-security`, `ankra-app-integrations` and `ankra-cli` now say when a secret slot is the right home, how to reference its sentinel, and that a generated slot expires unless a deployed resource references it.
 - **Ankra Cloud clusters can size each server's root disk and choose its storage tier.** `ankra cluster ankracloud create` and `preflight` take `--bastion-disk-gib`, `--control-plane-disk-gib`, `--etcd-disk-gib` and `--worker-disk-gib`, and the matching `--*-disk-tier` flags (`local-nvme`, `standard`, `maxiops` or `hdd`). `ankra cluster node-group add` takes `--disk-gib` and `--disk-tier`, which apply to every server a node group creates, scale-ups included. A size or tier you leave unset is not sent, so the server takes its plan's included disk on the zone's default tier. Put CI workers on small `local-nvme` disks when their data lives on persistent volumes. The preflight counts the chosen sizes against the account's storage quota, and Ankra Cloud refuses a size below the plan's and the template's minimum. The disk flags are refused on other providers, and `node-group list` shows `disk=<n>GiB/<tier>` for a group that chose either.
