@@ -411,7 +411,19 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		retirement := fakeServiceRetirement(state)
 		if state == "settled" {
 			retirement["outcome"] = platform.settledOutcome
-			if platform.settledOutcome != "retired" {
+			switch platform.settledOutcome {
+			case "retired":
+			case "retired_data_kept":
+				retirement["reason"] = "The persistent volumes pvc-123 still hold the service's data on the storage backend."
+				retirement["kept_data"] = map[string]any{"cluster_id": fakeServiceClusterID, "namespace": "orders-db",
+					"retained_volumes": []any{"pvc-123"}, "unconfirmed_volumes": []any{}, "complete": true,
+					"next_step": "The persistent volumes pvc-123 on the service's cluster still hold its data.",
+					"commands": []any{
+						map[string]any{"purpose": "inspect", "volume": "pvc-123", "command": "ankra cluster describe pv pvc-123 --cluster " + fakeServiceClusterID},
+						map[string]any{"purpose": "erase", "volume": "pvc-123", "command": "ankra cluster patch pv pvc-123 --cluster " + fakeServiceClusterID +
+							` --type merge --patch '{"spec":{"persistentVolumeReclaimPolicy":"Delete"}}'`},
+					}}
+			default:
 				retirement["reason"] = "another workload deploys into orders-db"
 			}
 		}
@@ -1266,6 +1278,48 @@ func TestServicesDeleteWaitsForTheRetirementToSettle(t *testing.T) {
 	if runError == nil || !strings.Contains(runError.Error(), "disposal_unknown") || exitCodeFor(runError) != exitError {
 		t.Fatalf("a retirement that did not settle retired must fail, got %v", runError)
 	}
+
+	// Released, but the data remains (cluster ankra-otrxtu.2): never read as
+	// a plain retirement. The volumes and the Ankra CLI commands are printed,
+	// and the command exits non-zero without claiming the name stayed.
+	platform = newFakeServicesPlatform(t)
+	platform.retirementStates = []string{"settled"}
+	platform.settledOutcome = "retired_data_kept"
+	stdout, _, runError = runServicesCommand(t, platform, "", "delete", "orders-db", "--acknowledge-data-loss", "--yes", "--wait")
+	if runError == nil || !strings.Contains(runError.Error(), "name is released, but its data may remain") ||
+		strings.Contains(runError.Error(), "stay in place") || exitCodeFor(runError) != exitError {
+		t.Fatalf("a retirement that kept the data must fail without claiming the name stayed, got %v", runError)
+	}
+	for _, expected := range []string{"DATA KEPT", "Still holding data: pvc-123", "Cluster " + fakeServiceClusterID + ", namespace orders-db",
+		"ankra cluster describe pv pvc-123 --cluster " + fakeServiceClusterID, "persistentVolumeReclaimPolicy"} {
+		if !strings.Contains(stdout, expected) {
+			t.Errorf("a retirement that kept the data must print %q:\n%s", expected, stdout)
+		}
+	}
+	if strings.Contains(stdout, "kubectl") {
+		t.Errorf("the next step must use the Ankra CLI, never kubectl:\n%s", stdout)
+	}
+}
+
+// An outcome that says the data may remain is said even when the details
+// could not be read, and nothing is said for any other outcome.
+func TestServiceKeptDataIsSaidForEveryOutcomeThatMayLeaveData(t *testing.T) {
+	var out strings.Builder
+	printServiceKeptData(&out, "retired_disposal_unconfirmed", nil, "")
+	if !strings.Contains(out.String(), "DATA NOT CONFIRMED GONE") || !strings.Contains(out.String(), "Check the service's cluster") {
+		t.Fatalf("unreadable details: %q", out.String())
+	}
+	for _, outcome := range []string{"retired", "disposal_unknown", "removal_failed", "refused", "interrupted"} {
+		out.Reset()
+		printServiceKeptData(&out, outcome, &client.ServiceRetirementKeptData{RetainedVolumes: []string{"pvc-123"}}, "")
+		if out.Len() != 0 {
+			t.Errorf("%s printed kept data: %q", outcome, out.String())
+		}
+	}
+	if !client.ServiceRetirementReleasedName("retired_data_kept") || !client.ServiceRetirementReleasedName("retired") ||
+		client.ServiceRetirementReleasedName("disposal_unknown") {
+		t.Error("released-name outcomes")
+	}
 }
 
 // retirements confirm needs the acknowledgement too, refuses a digest that is
@@ -1801,6 +1855,13 @@ func TestServiceDeploymentViewMirrorsThePortal(t *testing.T) {
 		instance := client.ServiceInstance{DeploymentState: testCase.state, Readiness: testCase.readiness, Health: testCase.health}
 		if view := serviceDeploymentView(instance); view != testCase.expected {
 			t.Errorf("%s: view = %q, want %q", testCase.name, view, testCase.expected)
+		}
+	}
+	for outcome, expected := range map[string]string{"retired": "released", "retired_data_kept": "released, data may remain",
+		"retired_disposal_unconfirmed": "released, data may remain"} {
+		released := client.ServiceInstance{DeploymentState: "released", Retirement: &client.ServiceInstanceRetirement{State: "settled", Outcome: &outcome}}
+		if view := serviceDeploymentView(released); view != expected {
+			t.Errorf("released %s: view = %q, want %q", outcome, view, expected)
 		}
 	}
 }

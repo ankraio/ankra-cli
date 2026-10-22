@@ -436,6 +436,52 @@ type ServiceInstanceRetirement struct {
 	SettledAt   *string `json:"settled_at" yaml:"settled_at"`
 	Outcome     *string `json:"outcome" yaml:"outcome"`
 	Reason      *string `json:"reason" yaml:"reason"`
+	// KeptData is set when the outcome is retired_data_kept or
+	// retired_disposal_unconfirmed: the name is released but the service's
+	// data may remain.
+	KeptData *ServiceRetirementKeptData `json:"kept_data,omitempty" yaml:"kept_data,omitempty"`
+}
+
+// The outcomes of a retirement that released the service's name while its
+// data may remain (cluster ankra-otrxtu.2): a volume was observed still
+// holding it, or Ankra could not confirm it gone.
+const (
+	ServiceRetirementRetired                    = "retired"
+	ServiceRetirementRetiredDataKept            = "retired_data_kept"
+	ServiceRetirementRetiredDisposalUnconfirmed = "retired_disposal_unconfirmed"
+)
+
+// ServiceRetirementReleasedName reports whether a retirement outcome released
+// the service's name: retired, with or without data left behind.
+func ServiceRetirementReleasedName(outcome string) bool {
+	return outcome == ServiceRetirementRetired || ServiceRetirementDataMayRemain(outcome)
+}
+
+// ServiceRetirementDataMayRemain reports whether a retirement released the
+// name while the service's data may remain.
+func ServiceRetirementDataMayRemain(outcome string) bool {
+	return outcome == ServiceRetirementRetiredDataKept || outcome == ServiceRetirementRetiredDisposalUnconfirmed
+}
+
+// ServiceRetirementKeptData is what a retirement that released the name left
+// of the service's data, or could not rule out: the volumes, the cluster they
+// are on, the next step in words and the Ankra CLI commands for it.
+type ServiceRetirementKeptData struct {
+	ClusterID          *string                        `json:"cluster_id" yaml:"cluster_id"`
+	Namespace          string                         `json:"namespace" yaml:"namespace"`
+	RetainedVolumes    []string                       `json:"retained_volumes" yaml:"retained_volumes"`
+	UnconfirmedVolumes []string                       `json:"unconfirmed_volumes" yaml:"unconfirmed_volumes"`
+	Complete           bool                           `json:"complete" yaml:"complete"`
+	NextStep           string                         `json:"next_step" yaml:"next_step"`
+	Commands           []ServiceRetirementDataCommand `json:"commands" yaml:"commands"`
+}
+
+// ServiceRetirementDataCommand is one Ankra CLI command of the next step:
+// inspect or erase one volume, or find the cluster's volumes.
+type ServiceRetirementDataCommand struct {
+	Purpose string  `json:"purpose" yaml:"purpose"`
+	Volume  *string `json:"volume" yaml:"volume"`
+	Command string  `json:"command" yaml:"command"`
 }
 
 // ServiceInstance is one service in the organisation's durable inventory.
@@ -622,6 +668,9 @@ type ServiceRetirement struct {
 	Outcome        *string                `json:"outcome" yaml:"outcome"`
 	Reason         *string                `json:"reason" yaml:"reason"`
 	VolumeDisposal *ServiceVolumeDisposal `json:"volume_disposal" yaml:"volume_disposal"`
+	// KeptData is set when the outcome is retired_data_kept or
+	// retired_disposal_unconfirmed.
+	KeptData *ServiceRetirementKeptData `json:"kept_data,omitempty" yaml:"kept_data,omitempty"`
 }
 
 // ServiceRetirementPage is one page of the caller's own retirements of an
