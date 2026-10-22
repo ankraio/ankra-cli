@@ -26,23 +26,34 @@ jobs:
     # ~6h before a human cancelled it. Fail fast and give the runner back.
     timeout-minutes: 45
     env:
-      # ankra/cmd is one 105k-line package, and the two heavy steps both hold
-      # it in memory whole: golangci-lint's type-check, and the race+coverage
-      # test compile, which is a single `compile` process. Measured cold, that
-      # compile peaks near 10GB and reaches 11.5GB given room, against this
-      # runner's 8GB. Over budget it thrashes (29m41s to reach
-      # `ok ankra/cmd 7.879s` in run 34061025005, versus 25s warm in run
-      # 33973454824) or the runner is killed outright ("the self-hosted runner
-      # lost communication with the server ... starves it for CPU/Memory",
-      # runs 34059805725 and 34061027039).
+      # ankra/cmd is one package, and the two heavy steps both compile its
+      # test variant whole in a single `compile` process: golangci-lint (its
+      # `go list -export` type-check) and the race+coverage test compile.
+      # That compile, not any linter, is what kills this job (ankra-7ki7q3):
+      # 233 test mocks embed baseMock, which implements all ~990 APIClient
+      # methods, so the compiler builds a promoted-method wrapper per method
+      # per mock: 538,496 functions for 211k source lines (a heap profile puts
+      # the retained memory in noder.MakeWrappers and per-function SSA/DWARF
+      # state). The non-test package alone compiles in 0.8GB. The wrapper
+      # count is mocks x methods, so every new mock or client method adds to
+      # it; ankra-fx8c23 removes the embedding.
+      # Measured cold on ubuntu-latest (4 vCPU, 16GB) with GOMEMLIMIT=5GiB:
+      # 15.7GB RSS plus ~8GB of swap, so with the stock 3GB swap the runner is
+      # killed ("The runner has received a shutdown signal", runs 39756169469,
+      # 39667479691; probe run 39759032594). staticcheck itself needs 0.9GB.
       # GOMEMLIMIT is a soft ceiling, inherited by every Go child process: it
       # costs nothing until the heap approaches it, then trades CPU for
-      # footprint. Measured cold on ./...: 9886MiB peak in 82s unset, 7381MiB
-      # in 160s at 5GiB. Job-scoped so golangci-lint gets the same ceiling.
-      # -p/GOMAXPROCS deliberately not used: they bound how many packages build
-      # at once, not one package's compile. Measured, `-p 1` still peaked at
-      # 10037MiB, and the runner's 2 vCPUs already make -p 2 the default.
+      # footprint. Job-scoped so golangci-lint's compile gets it too.
       GOMEMLIMIT: 5GiB
+      # -dwarf=false drops debug info from the compiled objects, which nothing
+      # here reads: lint uses export data, and race reports and coverage use
+      # the runtime's own line tables. It takes the cmd test compile from
+      # 15.7GB + 8GB swap to a 12.8GB peak with no swap, and golangci-lint from
+      # 11-12 minutes (or a dead runner) to about 5 (probe run 39764001667).
+      # GOFLAGS reaches `go test`, `go build` and the `go list` that
+      # golangci-lint and govulncheck run. A -gcflags given on a command line
+      # replaces this one, so add -dwarf=false to any such flag.
+      GOFLAGS: -gcflags=all=-dwarf=false
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -50,9 +61,24 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      # The headroom left by -dwarf=false is ~1.5GB and the cmd test compile
+      # keeps growing, so give it swap to fall back on: past RAM the compile
+      # slows down instead of the runner being killed. /mnt is the hosted
+      # runner's spare disk; a runner without passwordless sudo skips this.
+      - name: Add swap
+        run: |
+          if sudo -n true 2>/dev/null; then
+            sudo fallocate -l 16G /mnt/ci.swap && sudo chmod 600 /mnt/ci.swap \
+              && sudo mkswap /mnt/ci.swap >/dev/null && sudo swapon /mnt/ci.swap \
+              || echo "::warning::could not add swap; the cmd test compile has ~1.5GB of headroom"
+          fi
+          free -m
       - name: Verify embedded skills are in sync
         run: make verify-skills
       - name: Run golangci-lint
+        # Lint findings and test failures are reported together: the steps
+        # after this one run whether or not it passed.
+        if: ${{ !cancelled() }}
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
@@ -63,6 +89,7 @@ jobs:
       # Contents access to ankraio/cluster.
       - name: Fetch cluster routes.json
         id: routes_fetch
+        if: ${{ !cancelled() }}
         env:
           CLUSTER_REPO: ankraio/cluster
           CLUSTER_ROUTES_REF: main
@@ -90,16 +117,21 @@ jobs:
           fi
           echo "fetched=true" >> "$GITHUB_OUTPUT"
       - name: Run tests
+        id: tests
+        if: ${{ !cancelled() && steps.routes_fetch.outcome == 'success' }}
         env:
           # Set only when the census was fetched; otherwise the route test skips
           # visibly instead of failing on a file that was never there.
           ANKRA_CLUSTER_ROUTES_JSON: ${{ steps.routes_fetch.outputs.fetched == 'true' && format('{0}/routes.json', github.workspace) || '' }}
         run: go test -race -count=1 -timeout=120s -coverprofile=coverage.out ./...
       - name: Check coverage
+        if: ${{ !cancelled() && steps.tests.outcome == 'success' }}
         run: go tool cover -func=coverage.out
       - name: Dry run build
+        if: ${{ !cancelled() }}
         run: go build -o /dev/null ./...
       - name: Run govulncheck
+        if: ${{ !cancelled() }}
         env:
           GOTOOLCHAIN: local
         run: |
