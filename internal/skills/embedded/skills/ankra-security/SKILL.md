@@ -208,11 +208,18 @@ ankra cluster encrypt addon --name <addon> --key apiKey
 ankra cluster decrypt manifest <name>              # verify shape, never to copy values
 ankra cluster get secrets <name> -n <namespace>    # values come back as sha256 digests
 ankra application env-secrets list <application-id>
+ankra secrets list                                 # organisation secret slots: who uses each, never values
+ankra secrets create <name> --generate             # a value nobody sees; prints its sentinel
 ```
 
 - **Nothing sensitive is committed in plaintext.** Encrypt with SOPS and declare `encrypted_paths`
   so Ankra decrypts the right fields — an encrypted value with no declared path deploys as
   ciphertext.
+- **Values that must not live in Git go in `ankra secrets`.** A secret slot keeps the value in
+  Ankra's vault; the stack carries only `${SECRET_SLOT:<id>}` at a key `encrypted_paths` declares,
+  and Ankra substitutes it when it seals the file. `--generate` means no person or model ever sees
+  the value; otherwise pipe it on stdin or use `--from-file`, never argv. `rotate` replaces it in
+  place, and `delete` is refused while anything references the slot (see `ankra-sops-secrets`).
 - **Never print a decrypted value** into a terminal transcript, a pull request, a commit message,
   an issue, or chat. Report the key name and its state.
 - **Live Secret values are digests by default.** `ankra cluster get secrets` shows keys and
@@ -398,7 +405,8 @@ closes it. Do not change anything in a review pass without asking, and never pri
 - **`view` before `edit`, `edit` before `admin`**, namespace-scoped before cluster-wide.
 - **Access above `view` is time-boxed** with `--expires` and `--reason`, or taken through
   `elevate`. Standing `admin` and `cluster-admin` grants are findings.
-- **Plaintext secrets never reach Git**, and decrypted values never reach a transcript.
+- **Plaintext secrets never reach Git**, and decrypted values never reach a transcript; a value
+  nobody needs to see is generated with `ankra secrets create --generate`.
 - **Pin every artefact.** Unpinned images and charts make review meaningless.
 - **Ask mode by default**; promote a binding to Agent deliberately, per binding.
 - **Destructive commands confirm first** (`delete`, `uninstall`, `deprovision`, `revoke`) — check

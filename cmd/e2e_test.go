@@ -1090,6 +1090,14 @@ func (m baseMock) CreateSecretSlot(ctx context.Context, label, value string) (*c
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) CreateSecretSlotWith(ctx context.Context, request client.SecretSlotCreateRequest) (*client.SecretSlot, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ReplaceSecretSlot(ctx context.Context, slotID string, request client.SecretSlotReplaceRequest) (*client.SecretSlot, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListSecretSlots(ctx context.Context) (*client.SecretSlotListResult, error) {
 	return nil, errors.New("not implemented")
 }
