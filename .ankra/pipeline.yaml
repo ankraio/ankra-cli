@@ -54,11 +54,12 @@ defaults:
   network: "egress-https"
   env:
     # The images' defaults are on a read-only root or a small /tmp, so every
-    # Go cache lives on the run's workspace.
+    # Go cache lives on the run's workspace. HOME is not set here: Ankra owns
+    # it and gives each run step a writable one, and nothing below keeps
+    # more than small state under it.
     GOPATH: "/workspace/.ankra-go/gopath"
     GOMODCACHE: "/workspace/.ankra-go/mod"
     GOTMPDIR: "/workspace/.ankra-go/tmp"
-    HOME: "/workspace/.ankra-go/home"
     # Steps run as a non-root uid while /workspace belongs to root, so git
     # refuses the checkout as "dubious ownership" without this, and go cannot
     # stamp VCS information into binaries.
@@ -134,7 +135,7 @@ stages:
           export GOMEMLIMIT=$((limit / 10 * 8))
           ;;
       esac
-      mkdir -p "$GOTMPDIR" "$HOME" "$GOCACHE"
+      mkdir -p "$GOTMPDIR" "$GOCACHE"
       golangci-lint version
       golangci-lint run --timeout 30m ./...
       if [ "$GO_CACHE_WRITER" = "true" ]; then
@@ -175,7 +176,7 @@ stages:
           export GOMEMLIMIT=$((limit / 10 * 8))
           ;;
       esac
-      mkdir -p "$GOTMPDIR" "$HOME" "$GOCACHE"
+      mkdir -p "$GOTMPDIR" "$GOCACHE"
       status=0
       echo "--- make verify-skills"
       make verify-skills || status=1
@@ -227,7 +228,7 @@ stages:
           export GOMEMLIMIT=$((limit / 10 * 8))
           ;;
       esac
-      mkdir -p "$GOTMPDIR" "$HOME" "$GOCACHE"
+      mkdir -p "$GOTMPDIR" "$GOCACHE"
       # Every /api/v1 path the CLI builds is checked against the cluster
       # repository's route census. Without a credential (a fork's pull
       # request, or a definition not yet approved) TestClusterRoutesAreRegistered
