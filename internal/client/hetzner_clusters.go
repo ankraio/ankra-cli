@@ -487,7 +487,7 @@ func (c *Client) UpdateHetznerNodeGroupAutoscaling(ctx context.Context, clusterI
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doUpdateNodeGroupAutoscaling(ctx, url, payload, wait)
+	return c.doUpdateNodeGroupAutoscaling(ctx, url, payload, groupName, req, wait)
 }
 
 func (c *Client) doGetNodeGroupAutoscaling(url string) (*NodeGroupAutoscalingResult, error) {
@@ -501,8 +501,11 @@ func (c *Client) doGetNodeGroupAutoscaling(url string) (*NodeGroupAutoscalingRes
 // doUpdateNodeGroupAutoscaling answers the write's result, or, for a write
 // the platform accepted without waiting, nil and true - unless the accepted
 // answer already says what the write does (a platform that finished it
-// inside its verdict window), which is then answered with true.
-func (c *Client) doUpdateNodeGroupAutoscaling(ctx context.Context, url string, payload []byte, wait bool) (*NodeGroupAutoscalingResult, bool, error) {
+// inside its verdict window), which is then answered with true and the
+// group name and bounds of the request that was accepted, so a structured
+// rendering of it never shows zero bounds.
+func (c *Client) doUpdateNodeGroupAutoscaling(ctx context.Context, url string, payload []byte, groupName string,
+	request NodeGroupAutoscalingRequest, wait bool) (*NodeGroupAutoscalingResult, bool, error) {
 	var result NodeGroupAutoscalingResult
 	accepted, writeError := c.doJSONWriteRequestAccepted(ctx, http.MethodPut, url, payload, wait, &result)
 	if writeError != nil {
@@ -513,6 +516,10 @@ func (c *Client) doUpdateNodeGroupAutoscaling(ctx context.Context, url string, p
 			return nil, true, nil
 		}
 		acceptedResult := &NodeGroupAutoscalingResult{
+			GroupName:   groupName,
+			Enabled:     request.Enabled,
+			MinCount:    request.MinCount,
+			MaxCount:    request.MaxCount,
 			NodeCount:   accepted.NodeCount,
 			TargetCount: accepted.TargetCount,
 			Message:     accepted.Message,

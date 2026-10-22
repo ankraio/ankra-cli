@@ -221,3 +221,36 @@ func TestClusterNodeGroupAutoscalingSetSubmittedSaysWhatHappens(t *testing.T) {
 		t.Fatalf("without --wait the operation must not be polled, read it %d times", mock.operationReads)
 	}
 }
+
+// inBoundsAutoscalingMock answers a write that leaves the node count alone,
+// with the platform's message about it.
+type inBoundsAutoscalingMock struct {
+	autoscalingMock
+}
+
+func (m *inBoundsAutoscalingMock) UpdateHetznerNodeGroupAutoscaling(ctx context.Context, clusterID, groupName string, req client.NodeGroupAutoscalingRequest, wait bool) (*client.NodeGroupAutoscalingResult, bool, error) {
+	m.setCalls = append(m.setCalls, req)
+	nodeCount := 2
+	return &client.NodeGroupAutoscalingResult{
+		GroupName: groupName, Enabled: req.Enabled, MinCount: req.MinCount, MaxCount: req.MaxCount,
+		NodeCount: &nodeCount, TargetCount: &nodeCount,
+		Message: "Node group 'ci-large' autoscaling enabled (min 1, max 3); its node count of 2 is within the bounds.",
+	}, false, nil
+}
+
+// The platform's message is printed whenever it sends one, not only when the
+// node count moves.
+func TestClusterNodeGroupAutoscalingSetPrintsThePlatformMessageWhenNothingMoves(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &inBoundsAutoscalingMock{autoscalingMock: autoscalingMock{clusterKind: "hetzner"}}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "node-group", "autoscaling", "set", testClusterID, "ci-large",
+			"--enabled", "--min", "1", "--max", "3", "--wait")
+	})
+
+	if !strings.Contains(stdoutOutput, "its node count of 2 is within the bounds") {
+		t.Errorf("expected the platform's message, got: %s", stdoutOutput)
+	}
+}

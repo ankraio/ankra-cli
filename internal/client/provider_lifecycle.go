@@ -434,5 +434,5 @@ func (c *Client) updateProviderNodeGroupAutoscaling(ctx context.Context, kind, c
 		return nil, false, fmt.Errorf("marshal request: %w", marshalError)
 	}
 	endpoint := c.providerClusterURL(kind, clusterID, "node-groups") + "/" + url.PathEscape(groupName) + "/autoscaling"
-	return c.doUpdateNodeGroupAutoscaling(ctx, endpoint, payload, wait)
+	return c.doUpdateNodeGroupAutoscaling(ctx, endpoint, payload, groupName, request, wait)
 }

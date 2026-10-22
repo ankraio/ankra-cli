@@ -812,7 +812,7 @@ func printNodeGroupAutoscalingResult(result *client.NodeGroupAutoscalingResult, 
 			fmt.Printf("Node group '%s' autoscaling disabled.\n", result.GroupName)
 		}
 	}
-	if result.Message != "" && (submitted || result.ChangesNodeCount()) {
+	if result.Message != "" {
 		fmt.Println(result.Message)
 	}
 	if result.OperationID != nil {

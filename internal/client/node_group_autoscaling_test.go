@@ -18,7 +18,7 @@ func TestUpdateNodeGroupAutoscalingReadsTheOutcomeOfAnAcceptedWrite(t *testing.T
 		wantOperationID string
 	}{
 		"the platform says what happens": {map[string]any{"status": "accepted", "operation_id": "op-1",
-			"message": "Node group 'ci-large' will scale down from 5 to 3 nodes as running pipeline steps finish.",
+			"message":    "Node group 'ci-large' will scale down from 5 to 3 nodes as running pipeline steps finish.",
 			"node_count": 5, "target_count": 3}, true, "op-1"},
 		"an older platform answers a bare acceptance": {map[string]any{"status": "accepted"}, false, ""},
 	} {
@@ -44,6 +44,9 @@ func TestUpdateNodeGroupAutoscalingReadsTheOutcomeOfAnAcceptedWrite(t *testing.T
 			if result == nil || result.OperationID == nil || *result.OperationID != testCase.wantOperationID ||
 				!result.ChangesNodeCount() || *result.TargetCount != 3 || result.Message == "" {
 				t.Fatalf("unexpected result %+v", result)
+			}
+			if result.GroupName != "ci-large" || !result.Enabled || result.MinCount != 1 || result.MaxCount != 3 {
+				t.Fatalf("the accepted result must carry the request's group and bounds, got %+v", result)
 			}
 		})
 	}
