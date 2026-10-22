@@ -130,3 +130,21 @@ func (c *Client) DequeuePipelineMergeTrain(ctx context.Context, selector Pipelin
 	}
 	return &result, nil
 }
+
+// MovePipelineMergeTrainToFront puts an entry ahead of every car in the train
+// that is still queued, building or testing, and answers it. The platform
+// allows it to organisation administrators only.
+func (c *Client) MovePipelineMergeTrainToFront(ctx context.Context, selector PipelineSelector,
+	entryID string) (*PipelineMergeTrainEntry, error) {
+	base, selectorError := selector.basePath()
+	if selectorError != nil {
+		return nil, selectorError
+	}
+	var result PipelineMergeTrainEntry
+	if requestError := c.doPipelineRequest(ctx, http.MethodPost,
+		fmt.Sprintf("%s%s/merge-train/entries/%s/front", c.BaseURL, base, neturl.PathEscape(entryID)),
+		nil, &result); requestError != nil {
+		return nil, requestError
+	}
+	return &result, nil
+}

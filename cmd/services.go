@@ -1014,6 +1014,7 @@ type APIClient interface {
 	SetPipelineMergeTrainSettings(ctx context.Context, selector client.PipelineSelector, request client.SetPipelineMergeTrainSettingsRequest) (*client.PipelineMergeTrainSettings, error)
 	EnqueuePipelineMergeTrain(ctx context.Context, selector client.PipelineSelector, request client.EnqueuePipelineMergeTrainRequest) (*client.PipelineMergeTrainEntry, error)
 	DequeuePipelineMergeTrain(ctx context.Context, selector client.PipelineSelector, entryID string) (*client.PipelineMergeTrainEntry, error)
+	MovePipelineMergeTrainToFront(ctx context.Context, selector client.PipelineSelector, entryID string) (*client.PipelineMergeTrainEntry, error)
 
 	ListPipelineRepositories(ctx context.Context, options client.ListPipelineRepositoriesOptions) (*client.PipelineRepositoryList, error)
 	GetPipelineRepository(ctx context.Context, repositoryID string) (*client.PipelineRepository, error)

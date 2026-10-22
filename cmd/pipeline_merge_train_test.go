@@ -19,6 +19,7 @@ type pipelineTrainMock struct {
 	settingsRequest *client.SetPipelineMergeTrainSettingsRequest
 	enqueueRequest  *client.EnqueuePipelineMergeTrainRequest
 	dequeuedEntryID string
+	movedEntryID    string
 
 	// repositoryPages answers ListPipelineRepositories one page per call, in
 	// order; repositoryListings records what each call asked for.
@@ -79,6 +80,13 @@ func (mock *pipelineTrainMock) DequeuePipelineMergeTrain(_ context.Context, sele
 	mock.lastSelector = selector
 	mock.dequeuedEntryID = entryID
 	return &client.PipelineMergeTrainEntry{ID: entryID, PullRequestNumber: 7, Status: "cancelled"}, nil
+}
+
+func (mock *pipelineTrainMock) MovePipelineMergeTrainToFront(_ context.Context, selector client.PipelineSelector,
+	entryID string) (*client.PipelineMergeTrainEntry, error) {
+	mock.lastSelector = selector
+	mock.movedEntryID = entryID
+	return &client.PipelineMergeTrainEntry{ID: entryID, PullRequestNumber: 776, Status: "queued"}, nil
 }
 
 func runPipelineTrainCommand(t *testing.T, mock *pipelineTrainMock, arguments ...string) (string, error) {
@@ -320,5 +328,52 @@ func TestPipelineTrainOutsideACheckoutStillAsksForAFlag(t *testing.T) {
 	}
 	if len(mock.repositoryListings) != 0 {
 		t.Fatal("the repository listing must not be read without an origin")
+	}
+}
+
+func TestPipelineTrainFrontFindsThePullRequestsEntryByNumber(t *testing.T) {
+	mock := &pipelineTrainMock{train: &client.PipelineMergeTrain{Entries: []client.PipelineMergeTrainEntry{
+		{ID: "entry-767", PullRequestNumber: 767, Status: "testing"},
+		{ID: "entry-776", PullRequestNumber: 776, Status: "queued"},
+	}}}
+	output, runError := runPipelineTrainCommand(t, mock, "front", "#776", "--repository", testPipelineRepositoryID)
+	if runError != nil || mock.movedEntryID != "entry-776" {
+		t.Fatalf("front = %q %v", mock.movedEntryID, runError)
+	}
+	if mock.lastSelector.RepositoryID != testPipelineRepositoryID {
+		t.Fatalf("selector = %+v", mock.lastSelector)
+	}
+	if !strings.Contains(output, "Pull request #776 is at the front of the merge train") {
+		t.Fatalf("output = %q", output)
+	}
+}
+
+func TestPipelineTrainFrontPassesAnEntryIDThrough(t *testing.T) {
+	mock := &pipelineTrainMock{}
+	if _, runError := runPipelineTrainCommand(t, mock, "front", "59a73935-a162-4c30-8a17-616a1cfcedee",
+		"--repository", testPipelineRepositoryID); runError != nil ||
+		mock.movedEntryID != "59a73935-a162-4c30-8a17-616a1cfcedee" {
+		t.Fatalf("front = %q %v", mock.movedEntryID, runError)
+	}
+}
+
+func TestPipelineTrainFrontSaysWhenThePullRequestIsNotInTheTrain(t *testing.T) {
+	mock := &pipelineTrainMock{train: &client.PipelineMergeTrain{Entries: []client.PipelineMergeTrainEntry{
+		{ID: "entry-767", PullRequestNumber: 767, Status: "testing"},
+	}}}
+	_, runError := runPipelineTrainCommand(t, mock, "front", "776", "--repository", testPipelineRepositoryID)
+	if runError == nil || exitCodeFor(runError) != exitNotFound || !strings.Contains(runError.Error(), "not in the merge train") {
+		t.Fatalf("expected not found, got %v", runError)
+	}
+	if mock.movedEntryID != "" {
+		t.Fatal("nothing is moved for a pull request outside the train")
+	}
+}
+
+func TestPipelineTrainFrontRefusesAPullRequestNumberBelowOne(t *testing.T) {
+	mock := &pipelineTrainMock{}
+	if _, runError := runPipelineTrainCommand(t, mock, "front", "0", "--repository",
+		testPipelineRepositoryID); runError == nil || exitCodeFor(runError) != exitUsage {
+		t.Fatalf("expected a usage error, got %v", runError)
 	}
 }

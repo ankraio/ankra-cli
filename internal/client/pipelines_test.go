@@ -937,3 +937,24 @@ func TestApprovePipelineDefinitionForbidden(t *testing.T) {
 		t.Errorf("decoded as *PermissionDeniedError: %+v, want the plain sentinel error", permissionDenied)
 	}
 }
+
+func TestMovePipelineMergeTrainToFrontPostsToTheEntrysFrontPath(t *testing.T) {
+	var capturedMethod, capturedPath string
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		capturedMethod = r.Method
+		capturedPath = r.URL.Path
+		_, _ = fmt.Fprint(w, `{"id":"entry-1","pull_request_number":776,"status":"queued","position":4}`)
+	})
+	entry, err := testClient.MovePipelineMergeTrainToFront(context.Background(),
+		PipelineSelector{RepositoryID: "repo-1"}, "entry-1")
+	if err != nil {
+		t.Fatalf("MovePipelineMergeTrainToFront error = %v", err)
+	}
+	if capturedMethod != http.MethodPost ||
+		capturedPath != "/api/v1/org/pipeline-repositories/repo-1/merge-train/entries/entry-1/front" {
+		t.Errorf("request = %s %s", capturedMethod, capturedPath)
+	}
+	if entry.PullRequestNumber != 776 || entry.Position != 4 {
+		t.Fatalf("entry = %+v", entry)
+	}
+}

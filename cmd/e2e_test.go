@@ -3498,6 +3498,10 @@ func (m baseMock) DequeuePipelineMergeTrain(ctx context.Context, selector client
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) MovePipelineMergeTrainToFront(ctx context.Context, selector client.PipelineSelector, entryID string) (*client.PipelineMergeTrainEntry, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) UpWorkspace(ctx context.Context, request client.WorkspaceUpRequest) (*client.Workspace, bool, error) {
 	return nil, false, errors.New("not implemented")
 }
