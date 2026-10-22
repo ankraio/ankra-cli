@@ -1,6 +1,6 @@
 ---
 name: ankra-sops-secrets
-description: Encrypt Kubernetes Secrets and sensitive addon values with SOPS and AGE so they can live in an Ankra GitOps repo, using `ankra cluster encrypt`/`decrypt` in cluster mode or file mode, glob key patterns that keep covering keys added later, `--all-data` for a whole Secret, and `encrypted_paths` so Ankra decrypts at deploy time. Use when the user needs to store a secret in Git, mentions SOPS, AGE, `encrypted_paths`, `ankra cluster encrypt`/`decrypt`/`sops-config`, or asks how to change a secret value without committing plaintext.
+description: Encrypt Kubernetes Secrets and sensitive addon values with SOPS and AGE so they can live in an Ankra GitOps repo, using `ankra cluster encrypt`/`decrypt` in cluster mode or file mode, glob key patterns that keep covering keys added later, `--all-data` for a whole Secret, and `encrypted_paths` so Ankra decrypts at deploy time. Use when the user needs to store a secret in Git, mentions SOPS, AGE, `encrypted_paths`, `ankra cluster encrypt`/`decrypt`/`sops-config`, or asks how to change a secret value without committing plaintext. Also covers `ankra secrets` (organisation secret slots), the home for a value that must never pass through a terminal, a committed file or a model: generated or piped in, referenced by a `${SECRET_SLOT:<id>}` sentinel, rotated in place.
 ---
 
 # Ankra secrets with SOPS
@@ -14,8 +14,13 @@ description: Encrypt Kubernetes Secrets and sensitive addon values with SOPS and
   is the source of truth, or in cluster mode for a stack that already runs.
 - To change a value, use `encrypt --set` so the plaintext never reaches Git. Repository layout is
   `ankra-gitops`; a secret only one application reads belongs in `ankra application env-secrets`.
+- A value nobody needs to see or type (a database password, an internal token, anything an agent
+  sets up): `ankra secrets create <name> --generate`, then put the printed `${SECRET_SLOT:<id>}`
+  sentinel where the value belongs, at a key `encrypted_paths` declares. The value never passes
+  through a terminal, a file you commit, or a model. See "Secret slots" below.
 - Anti-patterns: a plaintext commit "to encrypt later", a structural key name (`key`, `name`,
-  `host`) in `encrypted_paths`, and decrypted output in a transcript.
+  `host`) in `encrypted_paths`, decrypted output in a transcript, and a secret value typed into a
+  command line or a chat.
 
 Never commit a plaintext Secret. Ankra integrates SOPS (with AGE keys) so sensitive manifest and
 addon values are ciphertext in Git and decrypted only at deploy time — while the surrounding YAML
@@ -165,6 +170,50 @@ Ankra syncs, the declaration is derived from the sealed file's `sops` metadata.
 **Who decrypts.** On the native engine (the default) the Ankra agent fetches the organisation's
 private key at deploy time and decrypts inside the cluster; nothing is installed beforehand.
 
+## Secret slots: values that never pass through you
+
+`ankra secrets` manages the organisation's secret slots. A slot holds one value in Ankra's vault;
+the stack carries only its sentinel, `${SECRET_SLOT:<id>}`, and Ankra substitutes the value only
+when it SOPS-seals the file for delivery. The cluster YAML you write, review and commit holds the
+sentinel, never the value, so this is the home for a value that must not live in Git even
+encrypted by hand, and for any secret an AI agent creates for you.
+
+```bash
+ankra secrets create db-password --generate            # Ankra creates the value; prints the sentinel
+SENTINEL="$(ankra secrets create db-password --generate)"   # stdout is the sentinel alone
+printf '%s' "$STRIPE_KEY" | ankra secrets create stripe-key  # a value you have, on stdin
+ankra secrets create tls-key --from-file ./tls.key     # a file, byte for byte
+ankra secrets list                                     # names, ids, who uses each, last read; never values
+ankra secrets set stripe-key --from-file ./new.key     # replace in place; the sentinel stays valid
+ankra secrets rotate db-password --generate            # a new generated value, in place
+ankra secrets delete stripe-key                        # refused while anything references it
+```
+
+Use the sentinel at a key the resource seals:
+
+```yaml
+addons:
+  - name: grafana
+    configuration:
+      from_file: "values/grafana.yaml"     # adminPassword: ${SECRET_SLOT:0b6f2c1e-...}
+      encrypted_paths:
+        - adminPassword
+```
+
+- **The value is never a command-line argument.** `ankra secrets` refuses one: shell history and
+  the process list keep argv. Use `--generate`, stdin or `--from-file`.
+- **The sentinel only resolves inside a sealed key.** A sentinel at a key `encrypted_paths` does
+  not declare is refused at push time, and an organisation without SOPS configured refuses the
+  save. Run `ankra cluster sops-config` first.
+- **A generated slot expires** (after a day by default, `--ttl` up to a week) unless a deployed
+  resource references its sentinel, which keeps it for as long as it is referenced. Reference it
+  promptly, and check `ankra secrets list` (EXPIRES `never (in use)`).
+- **Rotation keeps the id.** `set` and `rotate` replace the value in place, so nothing that
+  references the sentinel changes; Ankra re-delivers the resources that use it.
+- **Delete is guarded.** A slot that deployed resources reference is refused and the resources are
+  named; remove the sentinel from them first. There is no force.
+- `--org <id>` scopes every command to one organisation; `-o json` gives sentinels and references.
+
 ## Where a secret should live
 
 SOPS in Git is one of three homes, and picking the wrong one is a common mistake:
@@ -172,6 +221,7 @@ SOPS in Git is one of three homes, and picking the wrong one is a common mistake
 | Value | Home |
 |-------|------|
 | A Secret or addon value a stack deploys | SOPS-encrypted in the GitOps repo, `encrypted_paths` declared |
+| A value nobody should see, type or commit (generated passwords, tokens an agent sets up) | `ankra secrets create --generate`; the stack carries the sentinel at a declared `encrypted_paths` key |
 | A secret only one application needs | `ankra application env-secrets set` (then `apply`) |
 | A non-secret that varies per environment | A cluster / organisation / stack variable |
 
@@ -192,6 +242,8 @@ See `ankra-app-integrations` for the full split.
 ## Rules
 
 - **Plaintext never reaches Git.** Encrypt first, or use `encrypt --set` to do both at once.
+- **A value that should never pass through a person or a model goes in `ankra secrets`**, and
+  only its sentinel goes in the stack.
 - **Declare `encrypted_paths`** for every encrypted value.
 - **Encrypt values, not whole files**, so reviews stay meaningful.
 - **Never log or paste decrypted output.**

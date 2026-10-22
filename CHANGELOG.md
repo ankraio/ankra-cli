@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra secrets` manages the organisation's secrets without the value ever passing through a command line, a file you commit or a model.** `create <name>` stores a value and prints its `${SECRET_SLOT:<id>}` sentinel on stdout, to put where the value belongs (at a key `encrypted_paths` declares; Ankra substitutes the value when it seals the file). The value comes from `--generate` (Ankra creates it and nobody sees it), `--from-file` (byte for byte) or stdin (a masked prompt on a terminal); a value given as an argument is refused with exit 2, without echoing it. `list` shows each secret's name, id, whether a person or Ankra supplied it, the resources that reference it, when it was last read and when it expires, never a value. `set` and `rotate [--generate]` replace a value in place, so the sentinel and everything that references it stay valid. `delete` asks first, and a secret that deployed resources still reference is refused with each of them named (exit 1); there is no force. Every command takes `--org` and `-o json`.
+- **The agent skills recommend `ankra secrets` for values that must not live in Git.** `ankra-sops-secrets`, `ankra-security`, `ankra-app-integrations` and `ankra-cli` now say when a secret slot is the right home, how to reference its sentinel, and that a generated slot expires unless a deployed resource references it.
+
 ## v0.45.1 - 2026-10-21
 
 A patch release that makes `ankra delete cluster` and `ankra cluster
