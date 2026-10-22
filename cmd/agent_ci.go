@@ -29,6 +29,10 @@ import (
 	"ankra/internal/client"
 )
 
+// defaultAgentCIWorkerCount is the worker count a bare `set` turns pipeline
+// steps on with, on a cluster whose agent runs none (0 workers).
+const defaultAgentCIWorkerCount = 50
+
 // The sentences the platform's three apply states are reported with. They
 // are frozen by the agent CI settings contract and shared by both verbs, so
 // the state a `set` reports and the state a later `get` reports cannot drift
@@ -203,6 +207,10 @@ and is never held to the organisation's runs_on allow-lists. --clear-placement
 removes it. --workers is optional when only the storage class or the placement
 changes.
 
+On a cluster with pipeline steps off (0 workers), 'set' with no flags turns
+them on with 50 workers. On a cluster that already runs steps, it names
+nothing to change and asks for a flag.
+
 --run-reservation off|shadow|on decides whether each run first reserves, on
 its node, the room its later steps will need, held by one placeholder pod per
 run, so another run's pods cannot take that room between two steps. off (every
@@ -236,8 +244,8 @@ subdomain other than unconfined; pass an empty value to go back to the
 runtime's default. It needs an agent that advertises the capability, applies
 to the next build dispatched with no agent restart, and the next build is
 probed in-cluster again even if the cluster was known to confine the builder.`,
-		Example: `  ankra cluster agent ci set --workers 2
-  ankra cluster agent ci set --workers 4 --storage-class proxmox-csi
+		Example: `  ankra cluster agent ci set
+  ankra cluster agent ci set --workers 50 --storage-class proxmox-csi
   ankra cluster agent ci set --workers 0 --cluster edge-01
   ankra cluster agent ci set --node-group pipelines
   ankra cluster agent ci set --node-selector pool=ci --toleration dedicated=ci:NoSchedule --placement preferred
@@ -252,7 +260,8 @@ probed in-cluster again even if the cluster was known to confine the builder.`,
 	}
 	setCommand.Flags().Int("workers", 0,
 		"CI slots: pipeline steps the agent watches at once, not nodes (nodes come from the node group "+
-			"autoscaler); up to 128 on agents that support live resize, 32 otherwise; 0 disables the scheduler")
+			"autoscaler); up to 128 on agents that support live resize, 32 otherwise; 0 disables the scheduler; "+
+			"omitted with no other flag on a cluster with pipeline steps off, 50")
 	setCommand.Flags().String("storage-class", "",
 		"Storage class for pipeline step workspaces; pass empty to use the cluster default (omit the flag to keep the stored value)")
 	setCommand.Flags().String("node-group", "",
@@ -464,8 +473,20 @@ func runClusterAgentCISet(command *cobra.Command) error {
 		CIImagePrepull:         imagePrepull,
 		CIBuildAppArmorProfile: buildAppArmorProfile,
 	}
-	if !update.NamesChartSetting() && placement == nil && !isClearingPlacement && runReservation == nil &&
-		imagePrepull == nil && buildAppArmorProfile == nil {
+	isNamingNothing := !update.NamesChartSetting() && placement == nil && !isClearingPlacement && runReservation == nil &&
+		imagePrepull == nil && buildAppArmorProfile == nil
+	if isNamingNothing {
+		current, getError := apiClient.GetAgentCISettings(command.Context(), cluster.ID)
+		if getError != nil {
+			return getError
+		}
+		if current != nil && current.CIWorkerCount == 0 {
+			workerCount := defaultAgentCIWorkerCount
+			update.CIWorkerCount = &workerCount
+			isNamingNothing = false
+		}
+	}
+	if isNamingNothing {
 		return withExitCode(exitUsage, fmt.Errorf(`required flag(s) "workers" not set: pass --workers, `+
 			`--storage-class, --run-reservation, --image-prepull, --build-apparmor-profile, or a placement flag (--node-group, `+
 			`--node-selector, --toleration, --placement, --clear-placement)`))

@@ -467,6 +467,18 @@ func (m baseMock) RemoveApplicationDeployment(requestContext context.Context, ap
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListApplicationDataMigrationRuns(requestContext context.Context, applicationID string) (*client.DataMigrationRunList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationDataMigrationRun(requestContext context.Context, applicationID string, runID string) (*client.DataMigrationRun, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RollbackApplicationDataMigrationRun(requestContext context.Context, applicationID string, runID string) (*client.DataMigrationRun, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetApplicationChartVersions(requestContext context.Context, applicationID string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
