@@ -251,6 +251,8 @@ type APIClient interface {
 	GrantMCPTool(ctx context.Context, serverID, toolName, role string) (*client.MCPToolGrant, error)
 	RevokeMCPToolGrant(ctx context.Context, serverID, toolName, role string) (*client.MCPToolGrantRevokeResult, error)
 	CreateSecretSlot(ctx context.Context, label, value string) (*client.SecretSlot, error)
+	CreateSecretSlotWith(ctx context.Context, request client.SecretSlotCreateRequest) (*client.SecretSlot, error)
+	ReplaceSecretSlot(ctx context.Context, slotID string, request client.SecretSlotReplaceRequest) (*client.SecretSlot, error)
 	ListSecretSlots(ctx context.Context) (*client.SecretSlotListResult, error)
 	DeleteSecretSlot(ctx context.Context, slotID string) (*client.SecretSlotDeleteResult, error)
 

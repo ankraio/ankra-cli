@@ -186,33 +186,46 @@ type MCPToolGrantRevokeResult struct {
 }
 
 // SecretSlot is a stored secret value referenced by its sentinel. The value
-// itself is write-only: only the label, a hint, and access metadata come
-// back.
+// itself is write-only: only the label, a hint, access metadata and the live
+// resources that carry the sentinel come back.
 type SecretSlot struct {
-	SlotID         string  `json:"slot_id"`
-	Label          string  `json:"label"`
-	Hint           string  `json:"hint"`
-	CreatedAt      string  `json:"created_at"`
-	ExpiresAt      *string `json:"expires_at,omitempty"`
-	LastAccessedAt *string `json:"last_accessed_at,omitempty"`
-	AccessCount    int     `json:"access_count"`
-	Sentinel       string  `json:"sentinel"`
+	SlotID         string  `json:"slot_id" yaml:"slot_id"`
+	Label          string  `json:"label" yaml:"label"`
+	Hint           *string `json:"hint" yaml:"hint"`
+	CreatedAt      string  `json:"created_at" yaml:"created_at"`
+	ExpiresAt      *string `json:"expires_at" yaml:"expires_at"`
+	LastAccessedAt *string `json:"last_accessed_at" yaml:"last_accessed_at"`
+	AccessCount    int     `json:"access_count" yaml:"access_count"`
+	Sentinel       string  `json:"sentinel" yaml:"sentinel"`
+	// CreatedVia is "user" when a person supplied the current value and
+	// "generated" when Ankra created it.
+	CreatedVia string `json:"created_via" yaml:"created_via"`
+	// PinnedAt is set once a deployed resource references the slot, which
+	// stops it expiring.
+	PinnedAt        *string               `json:"pinned_at" yaml:"pinned_at"`
+	References      []SecretSlotReference `json:"references" yaml:"references"`
+	CreatedByUserID *string               `json:"created_by_user_id" yaml:"created_by_user_id"`
+}
+
+// SecretSlotReference is one live resource that carries a slot's sentinel.
+type SecretSlotReference struct {
+	ClusterID    string `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName  string `json:"cluster_name" yaml:"cluster_name"`
+	ResourceID   string `json:"resource_id" yaml:"resource_id"`
+	ResourceKind string `json:"resource_kind" yaml:"resource_kind"`
+	ResourceName string `json:"resource_name" yaml:"resource_name"`
+	DocumentPath string `json:"document_path" yaml:"document_path"`
+	LastSeenAt   string `json:"last_seen_at" yaml:"last_seen_at"`
 }
 
 // SecretSlotListResult wraps the secret-slot listing.
 type SecretSlotListResult struct {
-	Slots []SecretSlot `json:"slots"`
+	Slots []SecretSlot `json:"slots" yaml:"slots"`
 }
 
 // SecretSlotDeleteResult acknowledges a slot deletion.
 type SecretSlotDeleteResult struct {
-	Deleted bool `json:"deleted"`
-}
-
-// createSecretSlotRequest is the wire shape for storing a secret value.
-type createSecretSlotRequest struct {
-	Label string `json:"label"`
-	Value string `json:"value"`
+	Deleted bool `json:"deleted" yaml:"deleted"`
 }
 
 // ErrMCPServerNotFound is returned when the backend reports 404 for a server
@@ -396,59 +409,32 @@ func (c *Client) RevokeMCPToolGrant(ctx context.Context, serverID, toolName, rol
 	return &result, nil
 }
 
-// CreateSecretSlot stores a secret value server-side and returns the slot,
-// whose Sentinel ("${SECRET_SLOT:<id>}") is what an MCP server env value
-// should carry instead of the plaintext.
-func (c *Client) CreateSecretSlot(ctx context.Context, label, value string) (*SecretSlot, error) {
-	encoded, marshalError := json.Marshal(createSecretSlotRequest{Label: label, Value: value})
-	if marshalError != nil {
-		return nil, fmt.Errorf("marshal request: %w", marshalError)
-	}
-	body, requestError := c.doMCPRequest(ctx, http.MethodPost, c.BaseURL+"/api/v1/org/secret-slots", encoded)
-	if requestError != nil {
-		return nil, requestError
-	}
-	var slot SecretSlot
-	if decodeError := decodeMCPResponse(body, &slot, false); decodeError != nil {
-		return nil, decodeError
-	}
-	return &slot, nil
-}
-
-// ListSecretSlots lists the organisation's secret slots (labels and access
-// metadata only; values never come back).
-func (c *Client) ListSecretSlots(ctx context.Context) (*SecretSlotListResult, error) {
-	body, requestError := c.doMCPRequest(ctx, http.MethodGet, c.BaseURL+"/api/v1/org/secret-slots", nil)
-	if requestError != nil {
-		return nil, requestError
-	}
-	var slots SecretSlotListResult
-	if decodeError := decodeMCPResponse(body, &slots, false); decodeError != nil {
-		return nil, decodeError
-	}
-	return &slots, nil
-}
-
-// DeleteSecretSlot removes a secret slot. Servers still referencing its
-// sentinel will fail their next connection, so re-point them first.
-func (c *Client) DeleteSecretSlot(ctx context.Context, slotID string) (*SecretSlotDeleteResult, error) {
-	body, requestError := c.doMCPRequest(ctx, http.MethodDelete, c.BaseURL+"/api/v1/org/secret-slots/"+neturl.PathEscape(slotID), nil)
-	if requestError != nil {
-		return nil, requestError
-	}
-	var result SecretSlotDeleteResult
-	if decodeError := decodeMCPResponse(body, &result, true); decodeError != nil {
-		return nil, decodeError
-	}
-	return &result, nil
-}
-
 // doMCPRequest sends an authenticated JSON request to the MCP server and
 // secret-slot routes. 404 maps to ErrMCPServerNotFound; RBAC 403s map to
 // PermissionDeniedError; other refusals (409 duplicate name or grant, 422
 // validation such as an SSRF-refused URL or a plaintext secret env value)
 // surface the backend's detail - those texts are user-actionable.
 func (c *Client) doMCPRequest(ctx context.Context, method, url string, payload []byte) ([]byte, error) {
+	return c.doOrgRouteRequest(ctx, method, url, payload, ErrMCPServerNotFound, "MCP server request failed")
+}
+
+// orgRouteRefusal is a refusal the org routes answered with a detail the
+// user can act on. Its message is the backend's detail alone, so callers
+// that only print it see exactly what the platform said; StatusCode lets a
+// caller that needs to tell refusals apart (a referenced secret slot's 409)
+// do so without matching text.
+type orgRouteRefusal struct {
+	StatusCode int
+	Detail     string
+}
+
+func (refusal *orgRouteRefusal) Error() string { return refusal.Detail }
+
+// doOrgRouteRequest is doMCPRequest with the not-found error and the
+// unexpected-response label chosen by the caller, shared by the MCP server
+// and secret-slot routes.
+func (c *Client) doOrgRouteRequest(ctx context.Context, method, url string, payload []byte,
+	notFound error, failureLabel string) ([]byte, error) {
 	var bodyReader *bytes.Reader
 	if payload != nil {
 		bodyReader = bytes.NewReader(payload)
@@ -485,15 +471,15 @@ func (c *Client) doMCPRequest(ctx context.Context, method, url string, payload [
 	case http.StatusUnauthorized:
 		return nil, ErrUnauthorized
 	case http.StatusNotFound:
-		return nil, ErrMCPServerNotFound
+		return nil, notFound
 	default:
 		if denied := PermissionDeniedFromResponse(response.StatusCode, responseBody); denied != nil {
 			return nil, denied
 		}
 		if detail := mcpDetailFromBody(responseBody); detail != "" {
-			return nil, errors.New(detail)
+			return nil, &orgRouteRefusal{StatusCode: response.StatusCode, Detail: detail}
 		}
-		return nil, newUnexpectedResponseError("MCP server request failed",
+		return nil, newUnexpectedResponseError(failureLabel,
 			response.StatusCode, redactedBodyForError(responseBody, 500))
 	}
 }
