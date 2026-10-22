@@ -86,6 +86,7 @@ jobs:
             elif sudo fallocate -l "${size_mb}M" "$swapfile" && sudo chmod 600 "$swapfile" \
               && sudo mkswap "$swapfile" >/dev/null && sudo swapon "$swapfile"; then
               echo "added ${size_mb}MB of swap at $swapfile"
+              echo "created=true" >> "$GITHUB_OUTPUT"
             else
               sudo rm -f "$swapfile"
               echo "::warning::could not add swap at $swapfile: the cmd test compile has ~1.5GB of headroom"
@@ -158,10 +159,12 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
       # A hosted runner is thrown away after the job; a reused one would keep
-      # the swap file active and on disk.
+      # the swap file active and on disk. Only the job that created the file
+      # removes it (one it found already active may belong to another job),
+      # and a failed cleanup never decides the job's result.
       - name: Remove swap
-        if: ${{ always() && steps.swap.outcome == 'success' && runner.environment != 'github-hosted' }}
+        if: ${{ always() && steps.swap.outputs.created == 'true' && runner.environment != 'github-hosted' }}
+        continue-on-error: true
         run: |
-          if swapon --show=NAME --noheadings | grep -qx /mnt/ci.swap; then
-            sudo swapoff /mnt/ci.swap && sudo rm -f /mnt/ci.swap
-          fi
+          sudo swapoff /mnt/ci.swap && sudo rm -f /mnt/ci.swap \
+            || echo "::warning::could not remove /mnt/ci.swap; it stays on this runner"
