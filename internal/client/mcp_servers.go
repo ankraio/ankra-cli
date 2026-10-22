@@ -415,7 +415,7 @@ func (c *Client) RevokeMCPToolGrant(ctx context.Context, serverID, toolName, rol
 // validation such as an SSRF-refused URL or a plaintext secret env value)
 // surface the backend's detail - those texts are user-actionable.
 func (c *Client) doMCPRequest(ctx context.Context, method, url string, payload []byte) ([]byte, error) {
-	return c.doOrgRouteRequest(ctx, method, url, payload, ErrMCPServerNotFound)
+	return c.doOrgRouteRequest(ctx, method, url, payload, ErrMCPServerNotFound, "MCP server request failed")
 }
 
 // orgRouteRefusal is a refusal the org routes answered with a detail the
@@ -430,9 +430,11 @@ type orgRouteRefusal struct {
 
 func (refusal *orgRouteRefusal) Error() string { return refusal.Detail }
 
-// doOrgRouteRequest is doMCPRequest with the not-found error chosen by the
-// caller, shared by the MCP server and secret-slot routes.
-func (c *Client) doOrgRouteRequest(ctx context.Context, method, url string, payload []byte, notFound error) ([]byte, error) {
+// doOrgRouteRequest is doMCPRequest with the not-found error and the
+// unexpected-response label chosen by the caller, shared by the MCP server
+// and secret-slot routes.
+func (c *Client) doOrgRouteRequest(ctx context.Context, method, url string, payload []byte,
+	notFound error, failureLabel string) ([]byte, error) {
 	var bodyReader *bytes.Reader
 	if payload != nil {
 		bodyReader = bytes.NewReader(payload)
@@ -477,7 +479,7 @@ func (c *Client) doOrgRouteRequest(ctx context.Context, method, url string, payl
 		if detail := mcpDetailFromBody(responseBody); detail != "" {
 			return nil, &orgRouteRefusal{StatusCode: response.StatusCode, Detail: detail}
 		}
-		return nil, newUnexpectedResponseError("MCP server request failed",
+		return nil, newUnexpectedResponseError(failureLabel,
 			response.StatusCode, redactedBodyForError(responseBody, 500))
 	}
 }

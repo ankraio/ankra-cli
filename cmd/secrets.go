@@ -33,6 +33,14 @@ import (
 // instead of being shipped to the platform.
 const maxSecretValueBytes = 1024 * 1024
 
+// maxSecretHintLength and maxGeneratedSecretTTL are the platform's limits
+// (openapi SecretSlotCreateRequest), checked here so the mistake is named
+// before anything is sent.
+const (
+	maxSecretHintLength   = 240
+	maxGeneratedSecretTTL = 7 * 24 * time.Hour
+)
+
 // errSecretValueInArgv refuses a value passed as a positional argument. The
 // message never repeats the argument: it is the value.
 var errSecretValueInArgv = withExitCode(exitUsage, errors.New(
@@ -110,9 +118,11 @@ The value comes from exactly one of:
   --generate          Ankra creates a random value nobody sees
   --from-file <path>  the file's bytes, exactly as stored
   stdin               piped input, without the one line ending the pipe adds;
-                      on a terminal, a masked prompt
+                      on a terminal, a masked prompt (surrounding spaces are
+                      dropped there, since a typed one is a typo)
 
-It is never accepted as a command-line argument.
+It is never accepted as a command-line argument. --generate ignores stdin:
+pipe a value without --generate to store it.
 
 A generated secret expires (after one day by default, --ttl up to a week)
 unless a deployed resource references its sentinel, which keeps it for as
@@ -138,16 +148,22 @@ The sentinel alone goes to stdout, so it can be captured:
 		}
 		request := client.SecretSlotCreateRequest{Label: name}
 		request.Hint, _ = cmd.Flags().GetString("hint")
+		if len([]rune(request.Hint)) > maxSecretHintLength {
+			return withExitCode(exitUsage, fmt.Errorf("--hint is at most %d characters", maxSecretHintLength))
+		}
+		generate, generateError := secretSlotGenerateFromFlags(cmd)
+		if generateError != nil {
+			return generateError
+		}
 		ttl, _ := cmd.Flags().GetDuration("ttl")
 		if cmd.Flags().Changed("ttl") {
 			if ttl < time.Second {
 				return withExitCode(exitUsage, errors.New("--ttl must be at least 1s"))
 			}
+			if generate != nil && ttl > maxGeneratedSecretTTL {
+				return withExitCode(exitUsage, errors.New("--ttl for a generated secret is at most 168h (a week)"))
+			}
 			request.TTLSeconds = int(ttl / time.Second)
-		}
-		generate, generateError := secretSlotGenerateFromFlags(cmd)
-		if generateError != nil {
-			return generateError
 		}
 		if generate != nil {
 			request.Generate = generate
@@ -185,7 +201,7 @@ reference it receive the new value when Ankra next delivers them.
 
 The value comes from --from-file (the file's bytes, exactly as stored) or
 stdin (without the one line ending the pipe adds; on a terminal, a masked
-prompt). It is never accepted as a command-line argument. To have Ankra
+prompt that drops surrounding spaces). It is never accepted as a command-line argument. To have Ankra
 generate the new value, use 'ankra secrets rotate --generate'.`,
 	Example: `  ankra secrets set stripe-key --from-file ./stripe-new.key
   printf '%s' "$NEW_TOKEN" | ankra secrets set ci-token`,
@@ -203,8 +219,9 @@ and every reference to it stay valid; the resources that reference it receive
 the new value when Ankra next delivers them.
 
 With --generate Ankra creates the new random value and nobody sees it.
-Without it the new value comes from --from-file or stdin, as for 'set'. It
-is never accepted as a command-line argument.`,
+Without it the new value comes from --from-file or stdin, as for 'set';
+with it, stdin is ignored. The value is never accepted as a command-line
+argument.`,
 	Example: `  ankra secrets rotate db-password --generate
   ankra secrets rotate db-password --generate --length 64 --prefix pw_
   ankra secrets rotate stripe-key --from-file ./stripe-new.key`,
@@ -225,7 +242,12 @@ first. There is no --force: the platform refuses to delete a referenced
 secret, because the next delivery of those resources would fail.`,
 	Example: `  ankra secrets delete ci-token
   ankra secrets delete 0b6f2c1e-3c44-4b9e-9a51-2f1f6f0f9a10 --yes`,
-	Args: cobra.ExactArgs(1),
+	Args: func(_ *cobra.Command, args []string) error {
+		if len(args) != 1 {
+			return withExitCode(exitUsage, errors.New("delete takes exactly one secret name or id"))
+		}
+		return nil
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		format, formatError := structuredFormatFromFlags(cmd)
 		if formatError != nil {

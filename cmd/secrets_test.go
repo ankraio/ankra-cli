@@ -293,6 +293,37 @@ func TestSecretsCreateGenerateFlagsNeedGenerate(t *testing.T) {
 	}
 }
 
+func TestSecretsCreateValidatesHintAndTTL(t *testing.T) {
+	mock := &secretsMock{}
+	setMockClient(t, mock)
+	for _, args := range [][]string{
+		{"secrets", "create", "x", "--generate", "--ttl", "200h"},
+		{"secrets", "create", "x", "--generate", "--hint", strings.Repeat("h", 241)},
+		{"secrets", "create", "x", "--generate", "--ttl", "0s"},
+	} {
+		_, _, executeError := executeSecrets(t, "", args...)
+		if executeError == nil || exitCodeFor(executeError) != exitUsage {
+			t.Errorf("%v: error = %v, want a usage error", args, executeError)
+		}
+	}
+	if len(mock.created) != 0 {
+		t.Error("the platform was called")
+	}
+}
+
+func TestSecretsDeleteRefusesASecondArgument(t *testing.T) {
+	mock := &secretsMock{slots: []client.SecretSlot{secretSlotFixture(secretTestSlotID, "ci-token", "user")}}
+	setMockClient(t, mock)
+	stdout, stderr, executeError := executeSecrets(t, "", "secrets", "delete", "ci-token", secretTestValue, "--yes")
+	if executeError == nil || exitCodeFor(executeError) != exitUsage {
+		t.Errorf("error = %v, want a usage error", executeError)
+	}
+	assertNoSecretValue(t, stdout, stderr, executeError.Error())
+	if len(mock.deletedIDs) != 0 {
+		t.Error("the delete was sent")
+	}
+}
+
 func TestSecretsSetResolvesTheNameAndReplacesFromStdin(t *testing.T) {
 	mock := &secretsMock{slots: []client.SecretSlot{
 		secretSlotFixture(secretTestOther, "other", "user"),

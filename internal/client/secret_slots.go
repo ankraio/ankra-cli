@@ -145,7 +145,7 @@ func (c *Client) DeleteSecretSlot(ctx context.Context, slotID string) (*SecretSl
 // ErrSecretSlotNotFound and 409 to *SecretSlotReferencedError (the only 409
 // a slot id route answers); every other refusal is the platform's detail.
 func (c *Client) doSecretSlotRequest(ctx context.Context, method, url string, payload []byte) ([]byte, error) {
-	body, requestError := c.doOrgRouteRequest(ctx, method, url, payload, ErrSecretSlotNotFound)
+	body, requestError := c.doOrgRouteRequest(ctx, method, url, payload, ErrSecretSlotNotFound, "secret slot request failed")
 	var refusal *orgRouteRefusal
 	if method == http.MethodDelete && errors.As(requestError, &refusal) && refusal.StatusCode == http.StatusConflict {
 		return nil, &SecretSlotReferencedError{Detail: refusal.Detail}
