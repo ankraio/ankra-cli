@@ -68,6 +68,7 @@ Rules that matter more than convenience:
 | Secret only this application needs, same in every environment | Application environment secret (sealed into **every** deployment of the application) | `ankra application env-secrets set` |
 | Secret that differs per environment (a test and a live payment key) | SOPS-encrypted Secret manifest in each cluster's Stack | `ankra cluster encrypt manifest` |
 | Secret a stack deploys (a Secret manifest, an addon value) | SOPS-encrypted in the GitOps repo, with `encrypted_paths` | `ankra cluster encrypt manifest` / `... addon` |
+| Secret nobody should see or type (a generated database password, a token an agent wires up) | Organisation secret slot; the stack carries its `${SECRET_SLOT:<id>}` sentinel at a declared `encrypted_paths` key | `ankra secrets create <name> --generate` |
 | Non-secret, differs per cluster (base URLs, sizes, model names) | Cluster variable | `ankra cluster variables set` |
 | Non-secret, same across the organisation | Organisation variable | `ankra org variables set` |
 | Non-secret, differs per stack instance | Stack variable | `ankra cluster stacks variables set` |

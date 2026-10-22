@@ -62,6 +62,7 @@ never rely on the selection - pass both explicitly.
 | Domains and DNS | `ankra cluster domain`, `ankra org domain\|dns\|custom-dns-zones\|cloudflare ...`, `ankra cluster custom-dns-zones` | `ankra-domains-dns` |
 | Helm chart sources | `ankra helm registries\|credentials ...`, `ankra charts` | `ankra-helm-registries` |
 | Secrets in Git | `ankra cluster encrypt\|decrypt\|sops-config` | `ankra-sops-secrets` |
+| Organisation secrets referenced by sentinel (values never in Git, argv or a model) | `ankra secrets list\|create\|set\|rotate\|delete` | `ankra-sops-secrets`, `ankra-security` |
 | Alerts and routing | `ankra alerts destinations\|routes\|ingest-credentials ...` | `ankra-alerts-webhooks` |
 | Metrics and logs | `ankra cluster metrics\|top\|logs\|events\|logs-ship` | `ankra-observability`, `ankra-troubleshooting` |
 | Debugging inside a cluster | `ankra cluster exec\|terminal\|debug ...` | `ankra-troubleshooting` |
@@ -362,7 +363,8 @@ ankra tokens rotate <token-id>              # renew before expiry; the old value
   `ankra cluster exec <pod> -n <namespace> -- <command>` to run one command in a container.
   Changes belong in the GitOps repo or `ankra cluster apply`. If the CLI has no command for
   something, report that gap and stop; do not suggest `kubectl` in its place.
-- **Never paste secrets** into a command line - use stdin, a prompt, `--set-file` or `--set-env`.
+- **Never paste secrets** into a command line - use stdin, a prompt, `--set-file` or `--set-env`,
+  or `ankra secrets create <name> --generate` so nobody handles the value at all.
 
 ## Related skills
 
