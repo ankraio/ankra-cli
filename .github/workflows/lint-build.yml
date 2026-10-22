@@ -58,27 +58,47 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
       - name: Set up Go
+        id: setup_go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       # The headroom left by -dwarf=false is ~1.5GB and the cmd test compile
       # keeps growing, so give it swap to fall back on: past RAM the compile
       # slows down instead of the runner being killed. /mnt is the hosted
-      # runner's spare disk; a runner without passwordless sudo skips this.
+      # runner's spare disk (~80GB free); the file is sized to what is free
+      # there, keeping 4GB back, up to 16GB. Without passwordless sudo, or
+      # with too little disk, the job runs on the runner's own swap and says so.
       - name: Add swap
+        id: swap
+        if: ${{ steps.setup_go.outcome == 'success' }}
         run: |
-          if sudo -n true 2>/dev/null; then
-            sudo fallocate -l 16G /mnt/ci.swap && sudo chmod 600 /mnt/ci.swap \
-              && sudo mkswap /mnt/ci.swap >/dev/null && sudo swapon /mnt/ci.swap \
-              || echo "::warning::could not add swap; the cmd test compile has ~1.5GB of headroom"
+          swapfile=/mnt/ci.swap
+          if ! sudo -n true 2>/dev/null; then
+            echo "::warning::no passwordless sudo, so no extra swap: the cmd test compile has ~1.5GB of headroom"
+          elif swapon --show=NAME --noheadings | grep -qx "$swapfile"; then
+            echo "$swapfile is already active (a reused runner); keeping it"
+          else
+            avail_mb=$(df --output=avail -m /mnt | tail -1 | tr -d ' ')
+            size_mb=$(( avail_mb - 4096 ))
+            [ "$size_mb" -gt 16384 ] && size_mb=16384
+            if [ "$size_mb" -lt 1024 ]; then
+              echo "::warning::only ${avail_mb}MB free on /mnt, so no extra swap: the cmd test compile has ~1.5GB of headroom"
+            elif sudo fallocate -l "${size_mb}M" "$swapfile" && sudo chmod 600 "$swapfile" \
+              && sudo mkswap "$swapfile" >/dev/null && sudo swapon "$swapfile"; then
+              echo "added ${size_mb}MB of swap at $swapfile"
+            else
+              sudo rm -f "$swapfile"
+              echo "::warning::could not add swap at $swapfile: the cmd test compile has ~1.5GB of headroom"
+            fi
           fi
           free -m
       - name: Verify embedded skills are in sync
         run: make verify-skills
       - name: Run golangci-lint
         # Lint findings and test failures are reported together: the steps
-        # after this one run whether or not it passed.
-        if: ${{ !cancelled() }}
+        # after this one run whether or not it (or the skills check) passed,
+        # but not without a checkout and a Go toolchain.
+        if: ${{ !cancelled() && steps.setup_go.outcome == 'success' }}
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
@@ -89,7 +109,7 @@ jobs:
       # Contents access to ankraio/cluster.
       - name: Fetch cluster routes.json
         id: routes_fetch
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.setup_go.outcome == 'success' }}
         env:
           CLUSTER_REPO: ankraio/cluster
           CLUSTER_ROUTES_REF: main
@@ -128,12 +148,20 @@ jobs:
         if: ${{ !cancelled() && steps.tests.outcome == 'success' }}
         run: go tool cover -func=coverage.out
       - name: Dry run build
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.setup_go.outcome == 'success' }}
         run: go build -o /dev/null ./...
       - name: Run govulncheck
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.setup_go.outcome == 'success' }}
         env:
           GOTOOLCHAIN: local
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
+      # A hosted runner is thrown away after the job; a reused one would keep
+      # the swap file active and on disk.
+      - name: Remove swap
+        if: ${{ always() && steps.swap.outcome == 'success' && runner.environment != 'github-hosted' }}
+        run: |
+          if swapon --show=NAME --noheadings | grep -qx /mnt/ci.swap; then
+            sudo swapoff /mnt/ci.swap && sudo rm -f /mnt/ci.swap
+          fi
