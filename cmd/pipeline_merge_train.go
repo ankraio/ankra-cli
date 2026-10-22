@@ -36,7 +36,8 @@ rebuilding it.
 The train is off by default: 'ankra pipeline train enable' switches it on
 (pipelines.manage). 'ankra pipeline train add <pull request>' puts a pull
 request at the end of it, 'list' shows it in order and 'remove' takes one out.
-GitHub repositories only.
+An organisation administrator can move a pull request to the front with
+'front'. GitHub repositories only.
 
 The train merges under the Ankra GitHub App's identity, so adding or removing
 a pull request needs pipelines.operate and, on top of it, one of: you are an
@@ -52,6 +53,7 @@ refused and nothing changes.`,
 		newPipelineTrainListCommand(),
 		newPipelineTrainAddCommand(),
 		newPipelineTrainRemoveCommand(),
+		newPipelineTrainFrontCommand(),
 		newPipelineTrainSettingsCommand("enable", "Switch the merge train on", true),
 		newPipelineTrainSettingsCommand("disable", "Switch the merge train off and empty it", false),
 	)
@@ -314,6 +316,83 @@ pipelines.operate.`,
 	registerPipelineSelectorFlags(removeCommand)
 	registerStructuredOutputFlags(removeCommand)
 	return removeCommand
+}
+
+func newPipelineTrainFrontCommand() *cobra.Command {
+	frontCommand := &cobra.Command{
+		Use:   "front <pull request number | entry id>",
+		Short: "Move a pull request to the front of the merge train",
+		Long: `Move a pull request to the front of the merge train.
+
+The pull request goes ahead of every car that is still queued, building or
+testing. Cars that already passed or are being merged stay ahead of it. Every
+car it passes is built again on top of it and its running test is stopped, so
+those pull requests wait longer.
+
+Name the pull request by its number, as 'ankra pipeline train list' shows it,
+or by its entry id. Only a pull request that is queued, building or testing
+can move.
+
+You must be an organisation administrator, as well as hold pipelines.operate.
+Being the pull request's author or having write access is not enough, because
+moving it delays pull requests other people added.`,
+		Example: `  ankra pipeline train front 776
+  ankra pipeline train front 59a73935-a162-4c30-8a17-616a1cfcedee`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			selector, selectorError := resolvePipelineTrainSelector(command)
+			if selectorError != nil {
+				return selectorError
+			}
+			entryID, resolveError := resolvePipelineTrainEntryID(command.Context(), selector, arguments[0])
+			if resolveError != nil {
+				return resolveError
+			}
+			entry, moveError := apiClient.MovePipelineMergeTrainToFront(command.Context(), selector, entryID)
+			if moveError != nil {
+				return moveError
+			}
+			if isStructured, renderError := renderStructured(command, entry); isStructured || renderError != nil {
+				return renderError
+			}
+			_, _ = fmt.Fprintf(command.OutOrStdout(),
+				"Pull request #%d is at the front of the merge train (%s, entry %s).\n",
+				entry.PullRequestNumber, pipelineTrainStatusLabel(*entry), entry.ID)
+			return nil
+		},
+	}
+	registerPipelineSelectorFlags(frontCommand)
+	registerStructuredOutputFlags(frontCommand)
+	return frontCommand
+}
+
+// resolvePipelineTrainEntryID answers the entry id a person named: an entry id
+// as given, or the entry of the pull request whose number they typed (with or
+// without a leading #), read from the train.
+func resolvePipelineTrainEntryID(ctx context.Context, selector client.PipelineSelector,
+	argument string) (string, error) {
+	trimmed := strings.TrimSpace(argument)
+	number, parseError := strconv.ParseInt(strings.TrimPrefix(trimmed, "#"), 10, 64)
+	if parseError != nil {
+		if trimmed == "" {
+			return "", withExitCode(exitUsage, errors.New("name a pull request number or an entry id"))
+		}
+		return trimmed, nil
+	}
+	if number <= 0 {
+		return "", withExitCode(exitUsage, fmt.Errorf("%q is not a pull request number", argument))
+	}
+	train, readError := apiClient.GetPipelineMergeTrain(ctx, selector)
+	if readError != nil {
+		return "", readError
+	}
+	for _, entry := range train.Entries {
+		if entry.PullRequestNumber == number {
+			return entry.ID, nil
+		}
+	}
+	return "", withExitCode(exitNotFound, fmt.Errorf("pull request #%d is not in the merge train; add it with "+
+		"'ankra pipeline train add %d'", number, number))
 }
 
 func newPipelineTrainSettingsCommand(use string, short string, isEnabled bool) *cobra.Command {
