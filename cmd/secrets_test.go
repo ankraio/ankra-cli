@@ -459,10 +459,10 @@ func TestSecretsAgainstAFakeAPI(t *testing.T) {
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case r.Method == http.MethodGet:
+		switch r.Method {
+		case http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"slots": []any{slot}})
-		case r.Method == http.MethodDelete:
+		case http.MethodDelete:
 			_ = json.NewEncoder(w).Encode(map[string]any{"deleted": true})
 		default:
 			_ = json.NewEncoder(w).Encode(slot)
