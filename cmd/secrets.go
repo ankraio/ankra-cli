@@ -463,8 +463,10 @@ func resolveSecretSlot(ctx context.Context, reference string) (*client.SecretSlo
 			return &listing.Slots[index], nil
 		}
 	}
-	return nil, withExitCode(exitNotFound, fmt.Errorf(
-		"no secret named or with id %q in this organisation; 'ankra secrets list' shows them", wanted))
+	// The reference is not repeated: a value typed where the name belongs
+	// would otherwise be echoed into the terminal and any transcript.
+	return nil, withExitCode(exitNotFound, errors.New(
+		"no secret with the given name or id in this organisation; 'ankra secrets list' shows them"))
 }
 
 // secretSlotReferencedRefusal names every resource that still carries the

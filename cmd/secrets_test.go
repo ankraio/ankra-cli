@@ -372,10 +372,12 @@ func TestSecretsRotateGenerateBySentinel(t *testing.T) {
 func TestSecretsRotateUnknownIsNotFound(t *testing.T) {
 	mock := &secretsMock{slots: []client.SecretSlot{secretSlotFixture(secretTestSlotID, "stripe-key", "user")}}
 	setMockClient(t, mock)
-	_, _, executeError := executeSecrets(t, secretTestValue, "secrets", "rotate", "nope", "--generate")
+	stdout, stderr, executeError := executeSecrets(t, "", "secrets", "rotate", secretTestValue, "--generate")
 	if executeError == nil || exitCodeFor(executeError) != exitNotFound {
-		t.Errorf("error = %v, want not found", executeError)
+		t.Fatalf("error = %v, want not found", executeError)
 	}
+	// A value typed where the name belongs is not echoed back.
+	assertNoSecretValue(t, stdout, stderr, executeError.Error())
 	if len(mock.replaced) != 0 {
 		t.Error("the platform was called")
 	}
