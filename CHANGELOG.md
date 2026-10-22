@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.46.0 - 2026-10-22
+
+A minor release that adds `ankra secrets`, so an organisation's secrets can be
+created, replaced, rotated and deleted from a terminal or a script without the
+value ever appearing on a command line, in a file you commit or in a model's
+context. A stack, add-on or application references a secret by its
+`${SECRET_SLOT:<id>}` sentinel, and Ankra resolves it at deploy time.
+
 ### Added
 
 - **`ankra secrets` manages the organisation's secrets without the value ever passing through a command line, a file you commit or a model.** `create <name>` stores a value and prints its `${SECRET_SLOT:<id>}` sentinel on stdout, to put where the value belongs (at a key `encrypted_paths` declares; Ankra substitutes the value when it seals the file). The value comes from `--generate` (Ankra creates it and nobody sees it), `--from-file` (byte for byte) or stdin (a masked prompt on a terminal); a value given as an argument is refused with exit 2, without echoing it. `list` shows each secret's name, id, whether a person or Ankra supplied it, the resources that reference it, when it was last read and when it expires, never a value. `set` and `rotate [--generate]` replace a value in place, so the sentinel and everything that references it stay valid. `delete` asks first, and a secret that deployed resources still reference is refused with each of them named (exit 1); there is no force. Every command takes `--org` and `-o json`.
