@@ -25,8 +25,8 @@
 #
 # runs_on, resources, timeout, cache and credentials are protected sections:
 # they apply only once an organisation administrator has approved master's
-# definition. Until then every step runs at the 1Gi default, which lint and
-# test refuse by name (see the memory guard) instead of being OOM-killed.
+# definition. Until then every step runs at the 1Gi default, which lint, test
+# and checks refuse by name (see the memory guard) instead of being OOM-killed.
 apiVersion: ankra.io/v1
 kind: Pipeline
 metadata:
@@ -156,8 +156,25 @@ stages:
     env:
       GOCACHE: "/workspace/.ankra-go/checks/build"
       GOTOOLCHAIN: "local"
+      MINIMUM_MEMORY_GIB: "3"
     run: |
       set -eu
+      limit=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo unreadable)
+      case "$limit" in
+        max) ;;
+        "" | *[!0-9]*)
+          echo "FAILED: cannot read this container's memory limit (/sys/fs/cgroup/memory.max: $limit)."
+          exit 1
+          ;;
+        *)
+          if [ "$limit" -lt $((MINIMUM_MEMORY_GIB * 1024 * 1024 * 1024)) ]; then
+            echo "FAILED: building ankra and running govulncheck needs at least ${MINIMUM_MEMORY_GIB} GiB but this container has $((limit / 1024 / 1024)) MiB."
+            echo "This run's resources come from a pipeline definition that does not grant them: an administrator approves master's current one (ankra pipeline definitions approve <id>), then rerun."
+            exit 1
+          fi
+          export GOMEMLIMIT=$((limit / 10 * 8))
+          ;;
+      esac
       mkdir -p "$GOTMPDIR" "$HOME" "$GOCACHE"
       status=0
       echo "--- make verify-skills"
