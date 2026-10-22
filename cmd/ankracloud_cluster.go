@@ -176,6 +176,23 @@ func ankraCloudCreateRequestFromFlags(cmd *cobra.Command) (client.CreateAnkraClo
 			fmt.Errorf("invalid --network-mode %q: must be one of %s (omit it for the server default)", networkMode, strings.Join(ankraCloudNetworkModes, ", ")))
 	}
 
+	diskSizes := map[string]int{}
+	for _, flagName := range ankraCloudDiskFlags {
+		diskGibibytes, diskError := ankraCloudDiskFlag(cmd, flagName)
+		if diskError != nil {
+			return client.CreateAnkraCloudClusterRequest{}, diskError
+		}
+		diskSizes[flagName] = diskGibibytes
+	}
+	diskTiers := map[string]string{}
+	for _, flagName := range ankraCloudDiskTierFlags {
+		diskTier, tierError := ankraCloudDiskTierFlag(cmd, flagName)
+		if tierError != nil {
+			return client.CreateAnkraCloudClusterRequest{}, tierError
+		}
+		diskTiers[flagName] = diskTier
+	}
+
 	request := client.CreateAnkraCloudClusterRequest{
 		Name:               name,
 		CredentialID:       credentialID,
@@ -194,6 +211,15 @@ func ankraCloudCreateRequestFromFlags(cmd *cobra.Command) (client.CreateAnkraClo
 		EtcdPlan:           etcdPlan,
 		CNI:                cni,
 		RetentionPolicy:    retentionPolicy,
+
+		BastionDiskGibibytes:      diskSizes["bastion-disk-gib"],
+		ControlPlaneDiskGibibytes: diskSizes["control-plane-disk-gib"],
+		EtcdDiskGibibytes:         diskSizes["etcd-disk-gib"],
+		WorkerDiskGibibytes:       diskSizes["worker-disk-gib"],
+		BastionDiskTier:           diskTiers["bastion-disk-tier"],
+		ControlPlaneDiskTier:      diskTiers["control-plane-disk-tier"],
+		EtcdDiskTier:              diskTiers["etcd-disk-tier"],
+		WorkerDiskTier:            diskTiers["worker-disk-tier"],
 	}
 	if cmd.Flags().Changed("worker-count") {
 		workerCount, _ := cmd.Flags().GetInt("worker-count")
@@ -255,13 +281,18 @@ is reached over IPv6 through the Cloud's port forward, and the nodes reach
 IPv4 through the zone's NAT64. The preflight names the mode a zone needs.
 
 Servers are sized by plan: list them with 'ankra cluster ankracloud plans'.
-Run 'preflight' first to check the zone, plans and network.
+Each server's root disk is its plan's included disk unless a --*-disk-gib
+flag sizes it, on the zone's default storage tier unless a --*-disk-tier flag
+chooses one (local-nvme, standard, maxiops or hdd). CI workers belong on
+small local-nvme disks when their data lives on persistent volumes. Run 'preflight' first to check the zone, plans, network
+and quota, which counts the chosen disk sizes against the account's storage.
 
 Examples:
   ankra cluster ankracloud create --name prod --credential-id <id> \
     --ssh-key-credential-id <id> --zone <zone> \
     --bastion-plan <plan> --control-plane-plan <plan> --worker-plan <plan>
   ankra cluster ankracloud create --name edge --distribution k3s ...
+  ankra cluster ankracloud create --name ci --worker-plan starter-16c-32g --worker-disk-gib 40 --worker-disk-tier local-nvme ...
   ankra cluster ankracloud create --name fsn --zone de-fsn3 --network-mode ipv6_only ...`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Refuse a bad -o before the create: rejected after it, the error
@@ -676,6 +707,14 @@ func registerAnkraCloudCreateFlags(commands ...*cobra.Command) {
 		command.Flags().String("gitops-credential-name", "", "GitOps credential name (optional)")
 		command.Flags().String("gitops-repository", "", "GitOps repository URL (optional)")
 		command.Flags().String("gitops-branch", "", "GitOps branch (server default: master)")
+		command.Flags().Int("bastion-disk-gib", 0, "Bastion root disk size in GiB (default: the plan's included disk)")
+		command.Flags().Int("control-plane-disk-gib", 0, "Control plane root disk size in GiB (default: the plan's included disk)")
+		command.Flags().Int("etcd-disk-gib", 0, "External etcd node root disk size in GiB (default: the plan's included disk)")
+		command.Flags().Int("worker-disk-gib", 0, "Worker root disk size in GiB (default: the plan's included disk). Ankra Cloud refuses a size below the plan's and the template's minimum")
+		command.Flags().String("bastion-disk-tier", "", ankraCloudDiskTierUsage("Bastion"))
+		command.Flags().String("control-plane-disk-tier", "", ankraCloudDiskTierUsage("Control plane"))
+		command.Flags().String("etcd-disk-tier", "", ankraCloudDiskTierUsage("External etcd node"))
+		command.Flags().String("worker-disk-tier", "", ankraCloudDiskTierUsage("Worker"))
 		command.Flags().Bool("include-networking", true, "Provision the networking stack")
 		command.Flags().Bool("include-dns", true, "Provision the DNS zone")
 		for _, required := range []string{"name", "credential-id", "ssh-key-credential-id", "zone", "bastion-plan", "control-plane-plan"} {
