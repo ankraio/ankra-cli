@@ -1,0 +1,264 @@
+# ankraio/ankra-cli's checks on Ankra Pipelines, reported as the one
+# `Ankra pipeline` check. It runs what .github/workflows/lint-build.yml runs,
+# with the same tool versions:
+#   lint     golangci-lint v2.12.2 over ./..., the standard linter set and
+#            .golangci.yml, staticcheck included
+#   test     go test -race with coverage over ./..., against the cluster
+#            repository's route census, then the coverage summary
+#   checks   make verify-skills, go build ./... and govulncheck
+# The workflow stays until this pipeline has proven green on master; then it
+# is removed and branch protection requires `Ankra pipeline` instead.
+#
+# Why this needs a large node: ankra/cmd is one package, and both lint (the
+# type-check behind `go list -export`) and the race+coverage test compile
+# build its test variant in a single compile process. Its test mocks embed a
+# stub of the whole API client interface, so the compiler generates a wrapper
+# per method per mock, and that compile peaks above 15 GB cold. A GitHub
+# hosted runner has 16 GB. Here lint and test each get 20Gi on a
+# `ci-class: large` node, and debug info is not generated (nothing here reads
+# it), which takes the peak to about 13 GB.
+#
+# All steps of a run share the node its workspace is attached to, so lint and
+# test (20Gi each) run one after the other rather than side by side; checks
+# (4Gi) runs beside lint. test runs whether or not lint passed, so one run
+# reports both.
+#
+# runs_on, resources, timeout, cache and credentials are protected sections:
+# they apply only once an organisation administrator has approved master's
+# definition. Until then every step runs at the 1Gi default, which lint, test
+# and checks refuse by name (see the memory guard) instead of being OOM-killed.
+apiVersion: ankra.io/v1
+kind: Pipeline
+metadata:
+  name: "ankra-cli"
+on:
+  push:
+    branches:
+      - "master"
+  pull_request:
+    fork_policy: "read_only"
+  manual: {}
+concurrency:
+  # A pull request run's ankra.ref is its base branch, so pull requests are
+  # keyed by commit; keyed by ref, every open pull request would share one
+  # group and cancel each other's runs.
+  group: "${{ event.kind == 'pull_request' ? format('ankra-cli-pr-{0}', ankra.sha) : format('ankra-cli-{0}', ankra.ref) }}"
+  cancel_in_progress: true
+workspace:
+  # The module cache, one build cache per stage (the race build of ankra/cmd
+  # is several GiB) and the downloaded Go toolchain.
+  size: "40Gi"
+  access: "rwo"
+defaults:
+  timeout: "20m"
+  network: "egress-https"
+  env:
+    # The images' defaults are on a read-only root or a small /tmp, so every
+    # Go cache lives on the run's workspace. HOME is not set here: Ankra owns
+    # it and gives each run step a writable one, and nothing below keeps
+    # more than small state under it.
+    GOPATH: "/workspace/.ankra-go/gopath"
+    GOMODCACHE: "/workspace/.ankra-go/mod"
+    GOTMPDIR: "/workspace/.ankra-go/tmp"
+    # Steps run as a non-root uid while /workspace belongs to root, so git
+    # refuses the checkout as "dubious ownership" without this, and go cannot
+    # stamp VCS information into binaries.
+    GIT_CONFIG_COUNT: "1"
+    GIT_CONFIG_KEY_0: "safe.directory"
+    GIT_CONFIG_VALUE_0: "/workspace"
+    # No DWARF: lint reads export data and race reports and coverage use the
+    # runtime's own line tables. It is the largest saving on the cmd compile.
+    GOFLAGS: "-buildvcs=false -gcflags=all=-dwarf=false"
+    # Only a push to master writes the Go caches; every other run reads
+    # master's and saves nothing.
+    GO_CACHE_WRITER: "${{ event.kind == 'push' && ankra.ref == 'refs/heads/master' }}"
+permissions:
+  contents: "read"
+# The cluster repository's route census (routes.json) is private; the test
+# stage reads it with the organisation's GitHub App login, an installation
+# token minted per step. A fork's pull request gets no credential and the
+# route test skips visibly, as in the workflow.
+credentials:
+  - name: "github-app-ankraio"
+    from: "git"
+    as: "cluster_routes_git"
+stages:
+  - name: "checkout"
+    kind: "checkout"
+    runs_on: &ci_large
+      node_selector:
+        ankra.cloud/ci-class: "large"
+
+  - name: "lint"
+    kind: "run"
+    image: "golangci/golangci-lint:v2.12.2@sha256:5cceeef04e53efe1470638d4b4b4f5ceefd574955ab3941b2d9a68a8c9ad5240"
+    needs:
+      - "checkout"
+    runs_on: *ci_large
+    resources:
+      cpu: "8"
+      memory: "20Gi"
+    # A cold lint of ankra/cmd took 5-12 minutes on a 4 CPU runner.
+    timeout: "40m"
+    cache:
+      - key: "lint-build-v1"
+        paths:
+          - ".ankra-go/lint/build"
+        fallback: "none"
+      - key: "lint-golangci-v1"
+        paths:
+          - ".ankra-go/lint/golangci-lint"
+        fallback: "none"
+    env:
+      GOCACHE: "/workspace/.ankra-go/lint/build"
+      GOLANGCI_LINT_CACHE: "/workspace/.ankra-go/lint/golangci-lint"
+      MINIMUM_MEMORY_GIB: "16"
+    run: |
+      set -eu
+      # resources is a protected section: a run whose authority does not
+      # grant it gets the 1Gi default and the cmd compile is OOM-killed
+      # (exit 137). Refuse that here, by name.
+      limit=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo unreadable)
+      case "$limit" in
+        max) ;;
+        "" | *[!0-9]*)
+          echo "FAILED: cannot read this container's memory limit (/sys/fs/cgroup/memory.max: $limit)."
+          exit 1
+          ;;
+        *)
+          if [ "$limit" -lt $((MINIMUM_MEMORY_GIB * 1024 * 1024 * 1024)) ]; then
+            echo "FAILED: compiling ankra/cmd's tests needs at least ${MINIMUM_MEMORY_GIB} GiB but this container has $((limit / 1024 / 1024)) MiB."
+            echo "This run's resources come from a pipeline definition that does not grant them: an administrator approves master's current one (ankra pipeline definitions approve <id>), then rerun."
+            exit 1
+          fi
+          # The Go GC works to stay under 80% of the limit instead of meeting it.
+          export GOMEMLIMIT=$((limit / 10 * 8))
+          ;;
+      esac
+      mkdir -p "$GOTMPDIR" "$GOCACHE"
+      golangci-lint version
+      golangci-lint run --timeout 30m ./...
+      if [ "$GO_CACHE_WRITER" = "true" ]; then
+        find "$GOCACHE" "$GOLANGCI_LINT_CACHE" -mindepth 2 -type f -mmin +90 -delete
+      else
+        rm -rf "$GOCACHE" "$GOLANGCI_LINT_CACHE"
+      fi
+
+  - name: "checks"
+    kind: "run"
+    image: &golang_image "golang:1.26.10@sha256:672c944cfd07599b5f1bb179869270cdc94c6254e41db4d431259693cb286b82"
+    needs:
+      - "checkout"
+    runs_on: *ci_large
+    resources:
+      cpu: "2"
+      memory: "4Gi"
+    timeout: "20m"
+    env:
+      GOCACHE: "/workspace/.ankra-go/checks/build"
+      GOTOOLCHAIN: "local"
+      MINIMUM_MEMORY_GIB: "3"
+    run: |
+      set -eu
+      limit=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo unreadable)
+      case "$limit" in
+        max) ;;
+        "" | *[!0-9]*)
+          echo "FAILED: cannot read this container's memory limit (/sys/fs/cgroup/memory.max: $limit)."
+          exit 1
+          ;;
+        *)
+          if [ "$limit" -lt $((MINIMUM_MEMORY_GIB * 1024 * 1024 * 1024)) ]; then
+            echo "FAILED: building ankra and running govulncheck needs at least ${MINIMUM_MEMORY_GIB} GiB but this container has $((limit / 1024 / 1024)) MiB."
+            echo "This run's resources come from a pipeline definition that does not grant them: an administrator approves master's current one (ankra pipeline definitions approve <id>), then rerun."
+            exit 1
+          fi
+          export GOMEMLIMIT=$((limit / 10 * 8))
+          ;;
+      esac
+      mkdir -p "$GOTMPDIR" "$GOCACHE"
+      status=0
+      echo "--- make verify-skills"
+      make verify-skills || status=1
+      echo "--- go build ./..."
+      go build -o /dev/null ./... || status=1
+      echo "--- govulncheck ./..."
+      go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./... || status=1
+      rm -rf "$GOCACHE"
+      exit "$status"
+
+  - name: "test"
+    kind: "run"
+    image: *golang_image
+    # After lint, not beside it: the two 20Gi steps do not fit one node.
+    needs:
+      - "checkout"
+      - "lint"
+    if: "${{ !cancelled() && needs.checkout.result == 'success' }}"
+    runs_on: *ci_large
+    resources:
+      cpu: "8"
+      memory: "20Gi"
+    timeout: "40m"
+    cache:
+      - key: "test-build-v1"
+        paths:
+          - ".ankra-go/test/build"
+        fallback: "none"
+    env:
+      GOCACHE: "/workspace/.ankra-go/test/build"
+      GOTOOLCHAIN: "local"
+      MINIMUM_MEMORY_GIB: "16"
+      CLUSTER_ROUTES_CREDENTIAL_FILE: "/run/agent-secrets/cluster_routes_git"
+    run: |
+      set -eu
+      limit=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo unreadable)
+      case "$limit" in
+        max) ;;
+        "" | *[!0-9]*)
+          echo "FAILED: cannot read this container's memory limit (/sys/fs/cgroup/memory.max: $limit)."
+          exit 1
+          ;;
+        *)
+          if [ "$limit" -lt $((MINIMUM_MEMORY_GIB * 1024 * 1024 * 1024)) ]; then
+            echo "FAILED: compiling ankra/cmd's tests needs at least ${MINIMUM_MEMORY_GIB} GiB but this container has $((limit / 1024 / 1024)) MiB."
+            echo "This run's resources come from a pipeline definition that does not grant them: an administrator approves master's current one (ankra pipeline definitions approve <id>), then rerun."
+            exit 1
+          fi
+          export GOMEMLIMIT=$((limit / 10 * 8))
+          ;;
+      esac
+      mkdir -p "$GOTMPDIR" "$GOCACHE"
+      # Every /api/v1 path the CLI builds is checked against the cluster
+      # repository's route census. Without a credential (a fork's pull
+      # request, or a definition not yet approved) TestClusterRoutesAreRegistered
+      # skips, and says so; with one, a failed fetch fails the stage.
+      routes_file="/workspace/.ankra-go/tmp/routes.json"
+      if [ -r "$CLUSTER_ROUTES_CREDENTIAL_FILE" ]; then
+        token=$(grep -o '"token": *"[^"]*"' "$CLUSTER_ROUTES_CREDENTIAL_FILE" | cut -d'"' -f4 || true)
+        if [ -z "$token" ]; then
+          echo "FAILED: the GitHub login delivered to this step carries no token, so the route census cannot be fetched."
+          exit 1
+        fi
+        http_status=$(curl --silent --show-error --retry 3 --retry-all-errors \
+          --header "Authorization: Bearer ${token}" \
+          --header "Accept: application/vnd.github.raw+json" \
+          --write-out "%{http_code}" \
+          --output "$routes_file" \
+          "https://api.github.com/repos/ankraio/cluster/contents/routes.json?ref=main")
+        unset token
+        if [ "$http_status" != "200" ]; then
+          echo "FAILED: fetching the cluster repository's routes.json returned HTTP $http_status (401/403/404: the GitHub App login cannot read ankraio/cluster, or the census moved)."
+          exit 1
+        fi
+        export ANKRA_CLUSTER_ROUTES_JSON="$routes_file"
+      else
+        echo "WARNING: no GitHub login was delivered to this step, so the route census was not fetched and TestClusterRoutesAreRegistered will skip, not pass."
+      fi
+      go test -race -count=1 -timeout=120s -coverprofile=/workspace/coverage.out ./...
+      go tool cover -func=/workspace/coverage.out
+      if [ "$GO_CACHE_WRITER" = "true" ]; then
+        find "$GOCACHE" -mindepth 2 -type f -mmin +90 -delete
+      else
+        rm -rf "$GOCACHE"
+      fi

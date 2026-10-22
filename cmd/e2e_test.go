@@ -467,6 +467,18 @@ func (m baseMock) RemoveApplicationDeployment(requestContext context.Context, ap
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListApplicationDataMigrationRuns(requestContext context.Context, applicationID string) (*client.DataMigrationRunList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationDataMigrationRun(requestContext context.Context, applicationID string, runID string) (*client.DataMigrationRun, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RollbackApplicationDataMigrationRun(requestContext context.Context, applicationID string, runID string) (*client.DataMigrationRun, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetApplicationChartVersions(requestContext context.Context, applicationID string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
@@ -3483,6 +3495,10 @@ func (m baseMock) EnqueuePipelineMergeTrain(ctx context.Context, selector client
 }
 
 func (m baseMock) DequeuePipelineMergeTrain(ctx context.Context, selector client.PipelineSelector, entryID string) (*client.PipelineMergeTrainEntry, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) MovePipelineMergeTrainToFront(ctx context.Context, selector client.PipelineSelector, entryID string) (*client.PipelineMergeTrainEntry, error) {
 	return nil, errors.New("not implemented")
 }
 

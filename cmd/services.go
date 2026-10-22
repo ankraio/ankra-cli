@@ -331,6 +331,9 @@ type APIClient interface {
 	GetApplicationDeployments(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationInstallations(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	RemoveApplicationDeployment(requestContext context.Context, applicationID string, removeRequest client.RemoveApplicationDeploymentRequest) (*client.RemoveApplicationDeploymentResult, error)
+	ListApplicationDataMigrationRuns(requestContext context.Context, applicationID string) (*client.DataMigrationRunList, error)
+	GetApplicationDataMigrationRun(requestContext context.Context, applicationID string, runID string) (*client.DataMigrationRun, error)
+	RollbackApplicationDataMigrationRun(requestContext context.Context, applicationID string, runID string) (*client.DataMigrationRun, error)
 	GetApplicationChartVersions(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationExistingPlatform(requestContext context.Context, applicationID string, clusterID string) (json.RawMessage, error)
 	GetApplicationWorkflowRuns(requestContext context.Context, applicationID string, status string, page int, pageSize int) (json.RawMessage, error)
@@ -1011,6 +1014,7 @@ type APIClient interface {
 	SetPipelineMergeTrainSettings(ctx context.Context, selector client.PipelineSelector, request client.SetPipelineMergeTrainSettingsRequest) (*client.PipelineMergeTrainSettings, error)
 	EnqueuePipelineMergeTrain(ctx context.Context, selector client.PipelineSelector, request client.EnqueuePipelineMergeTrainRequest) (*client.PipelineMergeTrainEntry, error)
 	DequeuePipelineMergeTrain(ctx context.Context, selector client.PipelineSelector, entryID string) (*client.PipelineMergeTrainEntry, error)
+	MovePipelineMergeTrainToFront(ctx context.Context, selector client.PipelineSelector, entryID string) (*client.PipelineMergeTrainEntry, error)
 
 	ListPipelineRepositories(ctx context.Context, options client.ListPipelineRepositoriesOptions) (*client.PipelineRepositoryList, error)
 	GetPipelineRepository(ctx context.Context, repositoryID string) (*client.PipelineRepository, error)
