@@ -285,6 +285,13 @@ type NodeGroupInfo struct {
 	// UnregisteredWorkers names the counted workers that have no
 	// Kubernetes node behind them.
 	UnregisteredWorkers []string `json:"unregistered_workers,omitempty"`
+	// DiskGibibytes is the root disk size the group's servers are created
+	// with (Ankra Cloud). Omitted when the group chose none and its servers
+	// take their plan's included disk.
+	DiskGibibytes int `json:"disk_gibibytes,omitempty"`
+	// DiskTier is the storage tier of the group's servers' root disks
+	// (Ankra Cloud). Omitted when the group chose none.
+	DiskTier string `json:"disk_tier,omitempty"`
 }
 
 type NodeGroupListResult struct {
@@ -309,6 +316,15 @@ type AddNodeGroupRequest struct {
 	// ever creates, replacements included. The platform sends no cloud-init
 	// of its own, and refuses documents over 65535 bytes.
 	UserData string `json:"user_data,omitempty"`
+	// DiskGibibytes is the root disk size of every server the group creates,
+	// scale-ups included (Ankra Cloud clusters only; the platform refuses it
+	// for other providers). Omitted, each server takes its plan's included
+	// disk.
+	DiskGibibytes int `json:"disk_gibibytes,omitempty"`
+	// DiskTier is the storage tier of every server's root disk the group
+	// creates, scale-ups included (Ankra Cloud clusters only): local-nvme,
+	// standard, maxiops or hdd. Omitted, the zone's default tier applies.
+	DiskTier string `json:"disk_tier,omitempty"`
 }
 
 type AddNodeGroupResult struct {
