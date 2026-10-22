@@ -141,11 +141,11 @@ Requires permission to deploy applications on the run's cluster.`,
 			if rendered, renderError := renderStructured(command, run); rendered || renderError != nil {
 				return renderError
 			}
-			_, _ = fmt.Fprintf(command.OutOrStdout(), "Rollback of data migration %s requested.\n", run.ID)
+			_, _ = fmt.Fprintf(command.OutOrStdout(), "Rollback of data migration %s requested.\n", runID)
 			_, _ = fmt.Fprintf(command.OutOrStdout(), "Follow it with 'ankra application data-migration get %s %s': "+
 				"it reads \"rolling-back\", then \"rolled-back\" once the environment is back and the vendor sources "+
 				"accept writes, or \"rollback-failed\" with the step that could not finish.\n",
-				strings.TrimSpace(arguments[0]), run.ID)
+				strings.TrimSpace(arguments[0]), runID)
 			return nil
 		},
 	}
@@ -154,7 +154,8 @@ Requires permission to deploy applications on the run's cluster.`,
 	return rollbackCommand
 }
 
-// printDataMigrationRuns renders the runs as a table, newest first.
+// printDataMigrationRuns renders the runs as a table in the order the platform
+// returns them, which is newest first.
 func printDataMigrationRuns(out io.Writer, runs []client.DataMigrationRun) {
 	if len(runs) == 0 {
 		_, _ = fmt.Fprintln(out, "No data migration has been started for this application.")
@@ -211,9 +212,12 @@ func dataMigrationStatus(run client.DataMigrationRun) string {
 	return run.Status
 }
 
+// hasStartedStep reports whether any step is running or has finished, so a
+// rollback that never ran (every step pending, or no status at all) is not shown.
 func hasStartedStep(steps []client.DataMigrationStep) bool {
 	for _, step := range steps {
-		if step.Status != "pending" {
+		switch step.Status {
+		case "running", "succeeded", "failed":
 			return true
 		}
 	}

@@ -19,6 +19,7 @@ type applicationDataMigrationMock struct {
 	rollbackError error
 	rollbacks     int
 	readRunID     string
+	emptyRollback bool
 }
 
 func (mock *applicationDataMigrationMock) ListApplicationDataMigrationRuns(requestContext context.Context,
@@ -37,6 +38,9 @@ func (mock *applicationDataMigrationMock) RollbackApplicationDataMigrationRun(re
 	mock.rollbacks++
 	if mock.rollbackError != nil {
 		return nil, mock.rollbackError
+	}
+	if mock.emptyRollback {
+		return &client.DataMigrationRun{}, nil
 	}
 	requested := "2026-10-21T18:00:00Z"
 	run := *mock.run
@@ -68,6 +72,45 @@ func TestDataMigrationRollbackAsksFirstAndSaysHowToFollowIt(t *testing.T) {
 		"ankra application data-migration get", "rolled-back"} {
 		if !strings.Contains(output, said) {
 			t.Errorf("output does not say %q:\n%s", said, output)
+		}
+	}
+}
+
+func TestDataMigrationRollbackNamesTheRunFromTheArgumentsWhenTheResponseIsEmpty(t *testing.T) {
+	mockClient := &applicationDataMigrationMock{run: cutOverRun(), emptyRollback: true}
+	output, executeError := runApplicationCommand(t, mockClient,
+		"data-migration", "rollback", testApplicationID, dataMigrationTestRunID, "--yes")
+	if executeError != nil {
+		t.Fatalf("rollback error = %v", executeError)
+	}
+	for _, said := range []string{"Rollback of data migration " + dataMigrationTestRunID + " requested",
+		"data-migration get " + testApplicationID + " " + dataMigrationTestRunID} {
+		if !strings.Contains(output, said) {
+			t.Errorf("output does not say %q:\n%s", said, output)
+		}
+	}
+}
+
+func TestHasStartedStepIgnoresPendingAndMissingStatuses(t *testing.T) {
+	cases := []struct {
+		name     string
+		statuses []string
+		started  bool
+	}{
+		{name: "none", statuses: nil, started: false},
+		{name: "pending", statuses: []string{"pending", "pending"}, started: false},
+		{name: "missing", statuses: []string{""}, started: false},
+		{name: "running", statuses: []string{"pending", "running"}, started: true},
+		{name: "succeeded", statuses: []string{"succeeded"}, started: true},
+		{name: "failed", statuses: []string{"failed"}, started: true},
+	}
+	for _, testCase := range cases {
+		steps := make([]client.DataMigrationStep, 0, len(testCase.statuses))
+		for _, status := range testCase.statuses {
+			steps = append(steps, client.DataMigrationStep{Key: "step", Status: status})
+		}
+		if started := hasStartedStep(steps); started != testCase.started {
+			t.Errorf("%s: hasStartedStep = %v, want %v", testCase.name, started, testCase.started)
 		}
 	}
 }
