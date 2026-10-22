@@ -36,13 +36,15 @@ func newServicesCommand() *cobra.Command {
 VictoriaMetrics, VictoriaLogs and the other engines in the service catalogue,
 run on your own cluster as reviewed, health-checked platform services.
 
-A service is set up in four steps:
+A service is set up in three steps:
 
   1. Pick a package from the catalogue:   ankra services packages list
-  2. Declare where the cluster is:         ankra services policy set --cluster <c> --region <r> --data-boundary <b>
-  3. Bind the application namespace that
+  2. Bind the application namespace that
      will use the service:                 ankra services consumers bind --application <a> --cluster <c> --namespace <ns>
-  4. Review and confirm the setup:         ankra services setup <name> --package postgresql --cluster <c> --consumer <id>
+  3. Review and confirm the setup:         ankra services setup <name> --package postgresql --cluster <c> --consumer <id>
+
+Declaring where a cluster is ('ankra services policy set') is optional: do it
+when services must keep data within a data boundary.
 
 Setup and retirement are two-step on the platform. A review is prepared
 first: the platform resolves a plan, stores it with a digest for ten minutes,
@@ -51,11 +53,17 @@ sets the service up or removes it. Every confirmation asks first; --yes skips
 the question for scripts. Retiring a service deletes its data, so delete also
 needs --acknowledge-data-loss.
 
+An application namespace on the service's own cluster receives the connection
+on the application's next deploy after the service is running: a
+<service>-connection Secret in its namespace, copied inside the cluster, which
+its workloads read as environment variables (DATABASE_URL, REDIS_URL,
+NATS_URL, ...). An application on another cluster is not connected for you.
+
 'ankra services list' and 'ankra services get <name>' show each service's
-deployment state, health, readiness (for PostgreSQL, a consumer-path canary
-logs in with the generated credentials) and connection: its endpoints and the
-Secret holding its credentials. Credential values are never shown; they stay
-in the cluster.`,
+deployment state, health, readiness (a consumer-path canary connects with the
+generated credentials, for every engine) and connection: its endpoints, the
+Secret holding its credentials, and how each consumer receives them.
+Credential values are never shown; they stay in the cluster.`,
 		Example: `  ankra services packages list
   ankra services setup orders-db --package postgresql --cluster prod --consumer 5b1f0c7e-...
   ankra services list
@@ -447,9 +455,10 @@ deployment state, health and readiness.
 Deployment state is the recorded operation progress (accepted, deploying,
 verification_pending, deployment_failed, ...), not current health. Health is
 what the platform last observed from the cluster (serving, progressing,
-degraded, unknown). Readiness says whether a consumer can use the service:
-for PostgreSQL a canary logs in with the generated credentials (ready,
-verifying, degraded, stale); engines without a canary read unverified.
+degraded, unknown). Readiness says whether a consumer can use the service: a
+canary connects with the generated credentials (ready, verifying, degraded,
+stale); a service no canary covers, or whose cluster's agent is too old to
+run one, reads unverified.
 
 --application keeps the services an application uses: those whose reviewed
 plan names one of the application's namespaces as a consumer. The
@@ -558,10 +567,17 @@ func newServicesGetCommand() *cobra.Command {
 		Long: `Show one managed service by name or id: its package, cluster and location, its
 deployment state, health and readiness with the evidence behind each, how it
 is reached (endpoints and the Secret holding its credentials), the consumers
-it was set up for, and the latest retirement if one was confirmed.
+it was set up for with how each receives the connection, and the latest
+retirement if one was confirmed.
+
+A consumer on the service's cluster receives the connection on its
+application's next deploy: a <service>-connection Secret in its namespace,
+read as environment variables, whose names are listed. Its delivery reads
+delivered, pending (the next deploy delivers it), unsupported (for example a
+consumer on another cluster, which needs the values set by hand) or unknown.
 
 The connection names the Secret and its keys only. Credential values are never
-shown here; they stay in the service's namespace on the cluster.
+shown here; they stay in the cluster.
 
 A name that runs on more than one cluster needs --cluster.`,
 		Example: "  ankra services get orders-db\n  ankra services get orders-db --cluster prod -o json",
@@ -665,6 +681,7 @@ func printServiceInstance(out io.Writer, names *serviceNames, instance client.Se
 			}
 			_, _ = fmt.Fprintf(out, "    %s  application %s, cluster %s, namespace %s\n", consumer.ID,
 				names.consumerApplication(consumer.ApplicationID, consumer.ApplicationName), clusterName, consumer.Namespace)
+			printServiceConnectionDelivery(out, consumer.ConnectionDelivery)
 		}
 	}
 
@@ -681,6 +698,27 @@ func printServiceInstance(out io.Writer, names *serviceNames, instance client.Se
 		if retirement.Reason != nil && *retirement.Reason != "" {
 			_, _ = fmt.Fprintf(out, "               %s\n", *retirement.Reason)
 		}
+	}
+}
+
+// printServiceConnectionDelivery prints how one consumer receives the
+// service's connection, under its consumer line. A consumer the platform
+// reported no delivery for (a platform from before delivery) prints nothing:
+// that is not an answer either way.
+func printServiceConnectionDelivery(out io.Writer, delivery *client.ServiceConnectionDelivery) {
+	if delivery == nil || delivery.State == "" {
+		return
+	}
+	line := "      Delivery: " + delivery.State
+	if delivery.SecretName != "" {
+		line += ", Secret " + delivery.SecretName
+	}
+	if delivery.Reason != "" {
+		line += " - " + delivery.Reason
+	}
+	_, _ = fmt.Fprintln(out, line)
+	if len(delivery.Variables) > 0 {
+		_, _ = fmt.Fprintf(out, "      Variables: %s\n", strings.Join(delivery.Variables, ", "))
 	}
 }
 

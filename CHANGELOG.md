@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra services get` shows how each consumer receives the service's connection.** Under every consumer it prints the delivery state (`delivered`, `pending` until the application's next deploy, `unsupported` with the reason, for example a consumer on another cluster, or `unknown`), the `<service>-connection` Secret and the environment variables it carries, such as `DATABASE_URL`. `-o json` and `-o yaml` carry it as `connection_delivery`.
+
+### Fixed
+
+- **`ankra services` help no longer says connections are wired by hand or that a data policy is required.** An application on the service's cluster receives the connection on its next deploy, and declaring a placement policy is optional. The help also no longer says only PostgreSQL has a readiness check: every engine has one.
+
 ## v0.46.0 - 2026-10-22
 
 A minor release that adds `ankra secrets`, so an organisation's secrets can be
