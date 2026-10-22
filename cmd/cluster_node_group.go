@@ -723,7 +723,18 @@ var clusterNodeGroupAutoscalingSetCmd = &cobra.Command{
 	Long: `Enable autoscaling with --enabled --min <n> --max <n>, or disable it with
 --enabled=false. min must be at least 1 (scale-to-zero is not supported);
 enabling requires the cluster's ankra-agent to be recent enough to serve
-the autoscaler, and installs the Cluster Autoscaler on first enable.`,
+the autoscaler, and installs the Cluster Autoscaler on first enable.
+
+Enabling with bounds the group is outside moves it inside them: a --max
+below the group's node count scales it down to --max, removing the least
+busy nodes first, each cordoned and drained once the pipeline steps running
+on it finish (up to 15 minutes per node), one node at a time; a --min above
+the node count scales it up to --min. The command says what will happen and
+names the operation doing it; --wait waits for that operation to finish.
+
+Examples:
+  ankra cluster node-group autoscaling set ankra-ci ci-large --enabled --min 1 --max 3
+  ankra cluster node-group autoscaling set ankra-ci ci-large --enabled --min 1 --max 3 --wait --timeout 1h`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
@@ -756,7 +767,7 @@ the autoscaler, and installs the Cluster Autoscaler on first enable.`,
 		if setError != nil {
 			return asyncWriteError("updating node group autoscaling", wait, setError)
 		}
-		if submitted {
+		if submitted && result == nil {
 			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group autoscaling update", clusterID)); err != nil {
 				return err
 			} else if handled {
@@ -768,16 +779,45 @@ the autoscaler, and installs the Cluster Autoscaler on first enable.`,
 		if handled, err := renderStructured(cmd, result); err != nil {
 			return err
 		} else if handled {
+			if wait && result.OperationID != nil {
+				if _, waitError := waitForNodeGroupOperation(requestContext, *result.OperationID); waitError != nil {
+					return asyncWriteError("waiting for the node group autoscaling operation", wait, waitError)
+				}
+			}
 			return nil
 		}
+		printNodeGroupAutoscalingResult(result, submitted)
+		if wait && result.OperationID != nil {
+			fmt.Printf("Waiting for operation %s to finish...\n", *result.OperationID)
+			operation, waitError := waitForNodeGroupOperation(requestContext, *result.OperationID)
+			if waitError != nil {
+				return asyncWriteError("waiting for the node group autoscaling operation", wait, waitError)
+			}
+			fmt.Printf("Operation %s finished: %s.\n", operation.ID, operation.Status)
+		}
+		return nil
+	},
+}
+
+// printNodeGroupAutoscalingResult prints an autoscaling write's outcome: the
+// bounds, what happens to the group's node count, and the operation doing it.
+// submitted is a write the platform accepted without waiting, whose answer
+// carried only what it does.
+func printNodeGroupAutoscalingResult(result *client.NodeGroupAutoscalingResult, submitted bool) {
+	if !submitted {
 		if result.Enabled {
 			fmt.Printf("Node group '%s' autoscaling enabled (min %d, max %d).\n",
 				result.GroupName, result.MinCount, result.MaxCount)
 		} else {
 			fmt.Printf("Node group '%s' autoscaling disabled.\n", result.GroupName)
 		}
-		return nil
-	},
+	}
+	if result.Message != "" && (submitted || result.ChangesNodeCount()) {
+		fmt.Println(result.Message)
+	}
+	if result.OperationID != nil {
+		fmt.Printf("Operation: %s (follow it with 'ankra cluster operations list %s')\n", *result.OperationID, *result.OperationID)
+	}
 }
 
 var clusterNodeGroupLabelsCmd = &cobra.Command{
@@ -931,7 +971,7 @@ func init() {
 	registerAsyncWriteFlags(clusterNodeGroupScaleCmd)
 	registerAsyncWriteFlags(clusterNodeGroupUpgradeCmd)
 	registerAsyncWriteFlags(clusterNodeGroupDeleteCmd)
-	registerAsyncWriteFlags(clusterNodeGroupAutoscalingSetCmd)
+	registerAsyncWriteFlagsWithTimeout(clusterNodeGroupAutoscalingSetCmd, nodeGroupAutoscalingWaitTimeout)
 	registerAsyncWriteFlags(clusterNodeGroupLabelsCmd)
 	registerAsyncWriteFlags(clusterNodeGroupTaintsCmd)
 

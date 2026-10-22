@@ -16,9 +16,16 @@ import (
 // execution that records the write's outcome
 // (ankra cluster operations list <id>); a route that records none, or an
 // older platform, leaves it empty.
+//
+// Message, NodeCount and TargetCount are answered by a node-group
+// autoscaling write that finished inside the platform's verdict window: what
+// it does to the group's node count.
 type AsyncWriteAcceptedResponse struct {
 	Status      string `json:"status"`
 	OperationID string `json:"operation_id,omitempty"`
+	Message     string `json:"message,omitempty"`
+	NodeCount   *int   `json:"node_count,omitempty"`
+	TargetCount *int   `json:"target_count,omitempty"`
 }
 
 // parseAsyncWriteAccepted reads a 202 body. The body is informational: a

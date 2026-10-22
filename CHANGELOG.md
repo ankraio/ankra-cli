@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- **`ankra cluster node-group autoscaling set` moves a node group inside the bounds you set, instead of refusing.** A `--max` below the group's current node count used to fail with "scale the group down first"; it is now accepted and the platform scales the group down to `--max`, removing the least busy nodes first. Each node it removes is cordoned, waits up to 15 minutes for the pipeline steps running on it, and is then drained, one node at a time. A `--min` above the node count scales the group up to `--min`. The command says what will happen (for example "Node group 'ci-large' will scale down from 5 to 3 nodes as running pipeline steps finish") and names the operation doing it, and `--wait` now waits for that operation to finish and fails with its reason if it does not succeed. `--timeout` defaults to one hour for this command. Needs a platform that reports the new outcome; an older one answers as before.
+
 ## v0.46.0 - 2026-10-22
 
 A minor release that adds `ankra secrets`, so an organisation's secrets can be

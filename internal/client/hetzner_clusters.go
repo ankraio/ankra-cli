@@ -391,12 +391,30 @@ type NodeGroupAutoscalingRequest struct {
 	MaxCount int  `json:"max_count"`
 }
 
-// NodeGroupAutoscalingResult is the GET/PUT autoscaling response body.
+// NodeGroupAutoscalingResult is the GET/PUT autoscaling response body. The
+// members after MaxCount are the PUT's only: what the write does to the
+// group's node count. A max_count below the group's node count scales the
+// group down to it, a min_count above it scales the group up to it.
 type NodeGroupAutoscalingResult struct {
 	GroupName string `json:"group_name"`
 	Enabled   bool   `json:"enabled"`
 	MinCount  int    `json:"min_count"`
 	MaxCount  int    `json:"max_count"`
+	// NodeCount is the group's node count when the write was made.
+	NodeCount *int `json:"node_count,omitempty"`
+	// TargetCount is the node count the write moves the group to.
+	TargetCount *int `json:"target_count,omitempty"`
+	// OperationID is the operation applying the write; nil when none was
+	// created now.
+	OperationID *string `json:"operation_id,omitempty"`
+	// Message says in words what will happen to the group.
+	Message string `json:"message,omitempty"`
+}
+
+// ChangesNodeCount reports whether the write moves the group to another
+// node count.
+func (result NodeGroupAutoscalingResult) ChangesNodeCount() bool {
+	return result.NodeCount != nil && result.TargetCount != nil && *result.NodeCount != *result.TargetCount
 }
 
 func (c *Client) ListHetznerNodeGroups(clusterID string) (*NodeGroupListResult, error) {
@@ -480,14 +498,30 @@ func (c *Client) doGetNodeGroupAutoscaling(url string) (*NodeGroupAutoscalingRes
 	return &result, nil
 }
 
+// doUpdateNodeGroupAutoscaling answers the write's result, or, for a write
+// the platform accepted without waiting, nil and true - unless the accepted
+// answer already says what the write does (a platform that finished it
+// inside its verdict window), which is then answered with true.
 func (c *Client) doUpdateNodeGroupAutoscaling(ctx context.Context, url string, payload []byte, wait bool) (*NodeGroupAutoscalingResult, bool, error) {
 	var result NodeGroupAutoscalingResult
-	submitted, err := c.doJSONWriteRequest(ctx, http.MethodPut, url, payload, wait, &result)
-	if err != nil {
-		return nil, false, err
+	accepted, writeError := c.doJSONWriteRequestAccepted(ctx, http.MethodPut, url, payload, wait, &result)
+	if writeError != nil {
+		return nil, false, writeError
 	}
-	if submitted {
-		return nil, true, nil
+	if accepted != nil {
+		if accepted.Message == "" && accepted.OperationID == "" {
+			return nil, true, nil
+		}
+		acceptedResult := &NodeGroupAutoscalingResult{
+			NodeCount:   accepted.NodeCount,
+			TargetCount: accepted.TargetCount,
+			Message:     accepted.Message,
+		}
+		if accepted.OperationID != "" {
+			operationID := accepted.OperationID
+			acceptedResult.OperationID = &operationID
+		}
+		return acceptedResult, true, nil
 	}
 	return &result, false, nil
 }
