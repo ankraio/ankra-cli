@@ -217,8 +217,12 @@ stages:
       # skips, and says so; with one, a failed fetch fails the stage.
       routes_file="/workspace/.ankra-go/tmp/routes.json"
       if [ -r "$CLUSTER_ROUTES_CREDENTIAL_FILE" ]; then
-        token=$(grep -o '"token": *"[^"]*"' "$CLUSTER_ROUTES_CREDENTIAL_FILE" | cut -d'"' -f4)
-        http_status=$(curl --silent --show-error \
+        token=$(grep -o '"token": *"[^"]*"' "$CLUSTER_ROUTES_CREDENTIAL_FILE" | cut -d'"' -f4 || true)
+        if [ -z "$token" ]; then
+          echo "FAILED: the GitHub login delivered to this step carries no token, so the route census cannot be fetched."
+          exit 1
+        fi
+        http_status=$(curl --silent --show-error --retry 3 --retry-all-errors \
           --header "Authorization: Bearer ${token}" \
           --header "Accept: application/vnd.github.raw+json" \
           --write-out "%{http_code}" \
