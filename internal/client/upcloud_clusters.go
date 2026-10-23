@@ -203,7 +203,7 @@ func (c *Client) UpdateUpcloudNodeGroupAutoscaling(ctx context.Context, clusterI
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doUpdateNodeGroupAutoscaling(ctx, url, payload, wait)
+	return c.doUpdateNodeGroupAutoscaling(ctx, url, payload, groupName, req, wait)
 }
 
 func (c *Client) UpdateUpcloudNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions DrainOptions, wait bool) (*UpdateNodeGroupResult, bool, error) {
