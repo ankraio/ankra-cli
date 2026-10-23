@@ -539,7 +539,14 @@ func TestExecRetriesAPassingAgentTimeout(t *testing.T) {
 
 func TestExecIsNotRunOutsideAGitWorktree(t *testing.T) {
 	environment := newExecTestEnv(t)
-	t.Chdir(t.TempDir())
+	// CI can place temporary directories inside its checkout. A Git discovery
+	// ceiling makes this fixture independent of that parent repository.
+	directory := filepath.Join(environment.repository.top, "outside-discovery")
+	if mkdirError := os.Mkdir(directory, 0o755); mkdirError != nil {
+		t.Fatal(mkdirError)
+	}
+	t.Setenv("GIT_CEILING_DIRECTORIES", environment.repository.top)
+	t.Chdir(directory)
 	_, stderr, code := runExecCommand(t, context.Background(), "go", "test")
 	if code != execExitNotRun || !environment.notRunMarked() || !strings.Contains(stderr, "not inside a git worktree") {
 		t.Fatalf("exit = %d, marked %v, stderr %q", code, environment.notRunMarked(), stderr)
