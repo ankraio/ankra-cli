@@ -682,7 +682,7 @@ func printServiceInstance(out io.Writer, names *serviceNames, instance client.Se
 			_, _ = fmt.Fprintf(out, "               %s\n", *retirement.Reason)
 		}
 		if retirement.Outcome != nil {
-			printServiceKeptData(out, *retirement.Outcome, retirement.KeptData, "  ")
+			printServiceKeptData(out, *retirement.Outcome, retirement.DataDisposal, retirement.KeptData, "  ")
 		}
 	}
 }
@@ -702,7 +702,7 @@ func init() {
 // value untouched.
 func serviceDeploymentView(instance client.ServiceInstance) string {
 	if instance.DeploymentState == "released" && instance.Retirement != nil && instance.Retirement.Outcome != nil &&
-		client.ServiceRetirementDataMayRemain(*instance.Retirement.Outcome) {
+		client.ServiceRetirementDataMayRemain(*instance.Retirement.Outcome, instance.Retirement.DataDisposal) {
 		// Released, but never read as a plain retirement while the data may
 		// remain (cluster ankra-otrxtu.2).
 		return "released, data may remain"

@@ -199,7 +199,7 @@ func printServiceRetirementProgress(out io.Writer, retirement client.ServiceReti
 		_, _ = fmt.Fprintf(out, "  Reason:    %s\n", *retirement.Reason)
 	}
 	if retirement.Outcome != nil {
-		printServiceKeptData(out, *retirement.Outcome, retirement.KeptData, "  ")
+		printServiceKeptData(out, *retirement.Outcome, retirement.DataDisposal, retirement.KeptData, "  ")
 	}
 	disposal := retirement.VolumeDisposal
 	if disposal == nil {
@@ -221,14 +221,19 @@ func printServiceRetirementProgress(out io.Writer, retirement client.ServiceReti
 
 // printServiceKeptData says what a retirement that released the name left of
 // the service's data, or could not rule out, with the Ankra CLI commands for
-// the next step. It prints nothing for any other outcome. An outcome that says
-// the data may remain is said even when this CLI could not read the details.
-func printServiceKeptData(out io.Writer, outcome string, kept *client.ServiceRetirementKeptData, indent string) {
-	if !client.ServiceRetirementDataMayRemain(outcome) {
+// the next step. It prints nothing unless the data disposal says the data may
+// remain, and says so even when this CLI could not read the details.
+// Everything is what Ankra saw when it looked, once, never a fact about now.
+func printServiceKeptData(out io.Writer, outcome string, dataDisposal *string, kept *client.ServiceRetirementKeptData, indent string) {
+	if !client.ServiceRetirementDataMayRemain(outcome, dataDisposal) {
 		return
 	}
-	if outcome == client.ServiceRetirementRetiredDataKept {
-		_, _ = fmt.Fprintf(out, "%sDATA KEPT: the name is released, but the service's data still exists on its cluster\n", indent)
+	when := "when Ankra looked"
+	if kept != nil && kept.ObservedAt != nil {
+		when = "when Ankra looked (" + *kept.ObservedAt + ")"
+	}
+	if *dataDisposal == client.ServiceDataKept {
+		_, _ = fmt.Fprintf(out, "%sDATA KEPT: the name is released, but %s the service's data was still on its cluster\n", indent, when)
 	} else {
 		_, _ = fmt.Fprintf(out, "%sDATA NOT CONFIRMED GONE: the name is released, but Ankra could not confirm the service's data is gone\n", indent)
 	}
@@ -242,7 +247,7 @@ func printServiceKeptData(out io.Writer, outcome string, kept *client.ServiceRet
 	}
 	_, _ = fmt.Fprintf(out, "%s  Cluster %s, namespace %s\n", indent, valueOr(kept.ClusterID, "not known"), namespace)
 	if len(kept.RetainedVolumes) > 0 {
-		_, _ = fmt.Fprintf(out, "%s  Still holding data: %s\n", indent, strings.Join(kept.RetainedVolumes, ", "))
+		_, _ = fmt.Fprintf(out, "%s  Held data %s (it does not check again): %s\n", indent, when, strings.Join(kept.RetainedVolumes, ", "))
 	}
 	if len(kept.UnconfirmedVolumes) > 0 {
 		_, _ = fmt.Fprintf(out, "%s  Not confirmed gone: %s\n", indent, strings.Join(kept.UnconfirmedVolumes, ", "))
@@ -257,7 +262,7 @@ func printServiceKeptData(out io.Writer, outcome string, kept *client.ServiceRet
 		_, _ = fmt.Fprintf(out, "%s  No command is offered: the service's cluster could not be read\n", indent)
 		return
 	}
-	_, _ = fmt.Fprintf(out, "%s  Ankra CLI commands (check what a volume holds before you erase it; erasing cannot be undone):\n", indent)
+	_, _ = fmt.Fprintf(out, "%s  Ankra CLI commands (before erasing a volume, inspect it and confirm spec.claimRef.namespace is %s and status.phase is Released; erasing cannot be undone):\n", indent, namespace)
 	for _, command := range kept.Commands {
 		_, _ = fmt.Fprintf(out, "%s    %s\n", indent, command.Command)
 	}
@@ -353,9 +358,12 @@ func confirmServiceRetirementAndReport(command *cobra.Command, instanceID string
 		// Settled with no outcome recorded is not a success either.
 		return fmt.Errorf("the retirement settled without an outcome; read it with 'ankra services retirements get %s %s'", instanceID, confirmed.ID)
 	}
-	if client.ServiceRetirementDataMayRemain(*confirmed.Outcome) {
-		return fmt.Errorf("the retirement settled %s: the service's name is released, but its data may remain on the cluster; see the volumes and commands above",
-			*confirmed.Outcome)
+	if client.ServiceRetirementDataMayRemain(*confirmed.Outcome, confirmed.DataDisposal) {
+		// The retirement succeeded - its name is released - so the exit
+		// status stays 0, as released scripts expect; what is left of the
+		// data is said above and once more here.
+		_, _ = fmt.Fprintf(out, "The name is released, but the service's data may remain on its cluster (%s): see the volumes and commands above.\n", *confirmed.DataDisposal)
+		return nil
 	}
 	if !client.ServiceRetirementReleasedName(*confirmed.Outcome) {
 		if !client.ServiceRetirementKeepsName(*confirmed.Outcome) {
@@ -373,7 +381,7 @@ func confirmServiceRetirementAndReport(command *cobra.Command, instanceID string
 func registerServiceRetirementConfirmFlags(command *cobra.Command) {
 	command.Flags().Bool(serviceDataLossFlag, false, "Acknowledge that retiring deletes the service's data (required)")
 	command.Flags().BoolP("yes", "y", false, "Confirm the reviewed retirement without asking")
-	command.Flags().Bool("wait", false, "Follow the retirement until it settles; exit non-zero unless it settled retired with its data gone")
+	command.Flags().Bool("wait", false, "Follow the retirement until it settles; exit non-zero unless it settled retired")
 	command.Flags().Duration("timeout", 30*time.Minute, "How long --wait follows the retirement")
 	registerStructuredOutputFlags(command)
 }
