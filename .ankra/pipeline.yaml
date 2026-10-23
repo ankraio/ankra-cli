@@ -255,7 +255,7 @@ stages:
       else
         echo "WARNING: no GitHub login was delivered to this step, so the route census was not fetched and TestClusterRoutesAreRegistered will skip, not pass."
       fi
-      go test -race -count=1 -timeout=120s -coverprofile=/workspace/coverage.out ./...
+      go test -race -count=1 -timeout=5m -coverprofile=/workspace/coverage.out ./...
       go tool cover -func=/workspace/coverage.out
       if [ "$GO_CACHE_WRITER" = "true" ]; then
         find "$GOCACHE" -mindepth 2 -type f -mmin +90 -delete

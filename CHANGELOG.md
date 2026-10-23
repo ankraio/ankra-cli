@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+**Migrate modules install across filesystems.** Installation now works when your home directory and system temporary directory are on different volumes. Downloads are verified in a private staging file beside the destination, then installed atomically; refused modules leave the existing installation intact.
+
 - **`ankra stack-profiles summary` reads and reviews evidence-backed summaries.** `get` and `evidence` inspect one exact published version; `generation`, `edit` and `review` inspect and decide an existing candidate with explicit source, candidate and approval revision counters. `withdraw` hides an approval without deleting its history or changing a workload version. All commands support JSON/YAML, and no command starts AI generation. These commands require the profile summary API on the platform.
 
 ## v0.46.0 - 2026-10-22
