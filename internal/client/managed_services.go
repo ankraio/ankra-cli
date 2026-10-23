@@ -436,6 +436,82 @@ type ServiceInstanceRetirement struct {
 	SettledAt   *string `json:"settled_at" yaml:"settled_at"`
 	Outcome     *string `json:"outcome" yaml:"outcome"`
 	Reason      *string `json:"reason" yaml:"reason"`
+	// DataDisposal says what became of the service's data once the outcome
+	// is retired (cluster ankra-otrxtu.2): complete, data_kept or
+	// unconfirmed. Absent on older platforms.
+	DataDisposal *string `json:"data_disposal,omitempty" yaml:"data_disposal,omitempty"`
+	// KeptData is set when DataDisposal is data_kept or unconfirmed.
+	KeptData *ServiceRetirementKeptData `json:"kept_data,omitempty" yaml:"kept_data,omitempty"`
+}
+
+// ServiceRetirementRetired is the only outcome that released the service's
+// name.
+const ServiceRetirementRetired = "retired"
+
+// The values DataDisposal takes beside a retired outcome (cluster
+// ankra-otrxtu.2): the data is gone, a volume was observed still holding it,
+// or Ankra could not confirm it gone.
+const (
+	ServiceDataComplete    = "complete"
+	ServiceDataKept        = "data_kept"
+	ServiceDataUnconfirmed = "unconfirmed"
+)
+
+// The outcomes of a retirement that left the service and its name in place.
+const (
+	ServiceRetirementRemovalFailed   = "removal_failed"
+	ServiceRetirementDisposalUnknown = "disposal_unknown"
+	ServiceRetirementRefused         = "refused"
+	ServiceRetirementInterrupted     = "interrupted"
+)
+
+// ServiceRetirementReleasedName reports whether a retirement outcome released
+// the service's name, with or without data left behind.
+func ServiceRetirementReleasedName(outcome string) bool {
+	return outcome == ServiceRetirementRetired
+}
+
+// ServiceRetirementKeepsName reports whether a retirement outcome is one the
+// platform documents as leaving the service and its name in place. An
+// outcome this CLI does not know is neither released nor kept.
+func ServiceRetirementKeepsName(outcome string) bool {
+	switch outcome {
+	case ServiceRetirementRemovalFailed, ServiceRetirementDisposalUnknown, ServiceRetirementRefused, ServiceRetirementInterrupted:
+		return true
+	}
+	return false
+}
+
+// ServiceRetirementDataMayRemain reports whether a retirement released the
+// name while the service's data may remain. A data disposal this CLI does not
+// know is never read as the data being gone; an older platform that sends
+// none says nothing either way.
+func ServiceRetirementDataMayRemain(outcome string, dataDisposal *string) bool {
+	return outcome == ServiceRetirementRetired && dataDisposal != nil && *dataDisposal != ServiceDataComplete
+}
+
+// ServiceRetirementKeptData is what a retirement that released the name left
+// of the service's data, or could not rule out: the volumes, the cluster they
+// are on, the next step in words and the Ankra CLI commands for it.
+type ServiceRetirementKeptData struct {
+	ClusterID *string `json:"cluster_id" yaml:"cluster_id"`
+	Namespace string  `json:"namespace" yaml:"namespace"`
+	// ObservedAt is when Ankra read the volumes, once; null when it never
+	// did. Everything here is what it saw then.
+	ObservedAt         *string                        `json:"observed_at" yaml:"observed_at"`
+	RetainedVolumes    []string                       `json:"retained_volumes" yaml:"retained_volumes"`
+	UnconfirmedVolumes []string                       `json:"unconfirmed_volumes" yaml:"unconfirmed_volumes"`
+	Complete           bool                           `json:"complete" yaml:"complete"`
+	NextStep           string                         `json:"next_step" yaml:"next_step"`
+	Commands           []ServiceRetirementDataCommand `json:"commands" yaml:"commands"`
+}
+
+// ServiceRetirementDataCommand is one Ankra CLI command of the next step:
+// inspect or erase one volume, or find the cluster's volumes.
+type ServiceRetirementDataCommand struct {
+	Purpose string  `json:"purpose" yaml:"purpose"`
+	Volume  *string `json:"volume" yaml:"volume"`
+	Command string  `json:"command" yaml:"command"`
 }
 
 // ServiceInstance is one service in the organisation's durable inventory.
@@ -622,6 +698,11 @@ type ServiceRetirement struct {
 	Outcome        *string                `json:"outcome" yaml:"outcome"`
 	Reason         *string                `json:"reason" yaml:"reason"`
 	VolumeDisposal *ServiceVolumeDisposal `json:"volume_disposal" yaml:"volume_disposal"`
+	// DataDisposal says what became of the service's data once the outcome
+	// is retired: complete, data_kept or unconfirmed.
+	DataDisposal *string `json:"data_disposal,omitempty" yaml:"data_disposal,omitempty"`
+	// KeptData is set when DataDisposal is data_kept or unconfirmed.
+	KeptData *ServiceRetirementKeptData `json:"kept_data,omitempty" yaml:"kept_data,omitempty"`
 }
 
 // ServiceRetirementPage is one page of the caller's own retirements of an

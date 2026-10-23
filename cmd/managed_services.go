@@ -681,6 +681,9 @@ func printServiceInstance(out io.Writer, names *serviceNames, instance client.Se
 		if retirement.Reason != nil && *retirement.Reason != "" {
 			_, _ = fmt.Fprintf(out, "               %s\n", *retirement.Reason)
 		}
+		if retirement.Outcome != nil {
+			printServiceKeptData(out, *retirement.Outcome, retirement.DataDisposal, retirement.KeptData, "  ")
+		}
 	}
 }
 
@@ -689,13 +692,21 @@ func init() {
 }
 
 // serviceDeploymentView is the deployment state as a person reads it, the
-// same rule as ankra-frontend's deploymentView: a deployment the platform
+// same rule as ankra-frontend's deploymentView: a released service whose
+// retirement left its data, or could not confirm it gone, reads "released,
+// data may remain"; a deployment the platform
 // still records as verification_pending reads "deployed" once a readiness
 // check has passed, and "running" when the platform observes the workload
 // serving and no check found it failing or could not reach it. Every other
 // state reads as the platform sent it, and -o json/yaml keep the platform's
 // value untouched.
 func serviceDeploymentView(instance client.ServiceInstance) string {
+	if instance.DeploymentState == "released" && instance.Retirement != nil && instance.Retirement.Outcome != nil &&
+		client.ServiceRetirementDataMayRemain(*instance.Retirement.Outcome, instance.Retirement.DataDisposal) {
+		// Released, but never read as a plain retirement while the data may
+		// remain (cluster ankra-otrxtu.2).
+		return "released, data may remain"
+	}
 	if instance.DeploymentState != "verification_pending" {
 		return instance.DeploymentState
 	}
