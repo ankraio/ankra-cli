@@ -125,7 +125,10 @@ ship with the PR to merge. Only the legacy generated-workflow lane waits on the 
 enabled`). An existing application is reused only when it tracks the same repository **and** the
 requested branch; otherwise ship stops and names them - pass `--name` (and `--branch`).
 `--namespace` and `--set` (for example `ingress_enabled=true`, `ingress_host=app.example.com`)
-pass through to the deploy.
+pass through to the deploy. An app whose setup keeps a PostgreSQL database needs the CloudNativePG
+operator on the cluster: where the environment is "Ankra runs it" the platform installs it itself;
+elsewhere the deploy is refused ("The CloudNativePG operator is not installed on this cluster")
+until you re-run with `--set-up-database` (needs `stacks.write` on the cluster).
 
 Progress goes to stderr; `-o json` puts one document on stdout (`application_id`, `setup_pr_url`,
 `url`, `state` …). Exit `0` live, `2` usage or ambiguity, `5` timeout, `6` not logged in, `7` forbidden.
