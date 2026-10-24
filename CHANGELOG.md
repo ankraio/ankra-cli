@@ -2,11 +2,13 @@
 
 ## Unreleased
 
+**Summary generation has explicit CLI controls.** `stack-profiles summary status` and `draft-status` inspect exact source state; `request-key` creates a key to save before `generate` or `generate-draft`. Retries reuse that key and the inspected revisions. `cancel` stops one job without withdrawing an approval. `policy get|approve|revoke` exposes the data-use notice and organisation consent with explicit limits and acknowledgements. These commands require the corresponding platform API; they do not enable generation or select a model.
+
 **`ankra application ship --set-up-database` lets Ankra set up the database an app needs.** An application whose setup keeps a PostgreSQL database cannot start on a cluster without the CloudNativePG operator, and the platform refuses such a deploy. With `--set-up-database`, ship asks the platform to install PostgreSQL support on the cluster first (it needs `stacks.write` there), then deploys. In an environment set to "Ankra runs it" the platform does this on its own. When a deploy is refused for a missing operator, ship now says to re-run with the flag instead of pointing at namespace events, and any warning the deploy returns is printed.
 
 **Migrate modules install across filesystems.** Installation now works when your home directory and system temporary directory are on different volumes. Downloads are verified in a private staging file beside the destination, then installed atomically; refused modules leave the existing installation intact.
 
-- **`ankra stack-profiles summary` reads and reviews evidence-backed summaries.** `get` and `evidence` inspect one exact published version; `generation`, `edit` and `review` inspect and decide an existing candidate with explicit source, candidate and approval revision counters. `withdraw` hides an approval without deleting its history or changing a workload version. All commands support JSON/YAML, and no command starts AI generation. These commands require the profile summary API on the platform.
+- **`ankra stack-profiles summary` reads and reviews evidence-backed summaries.** `get` and `evidence` inspect one exact published version; `generation`, `edit` and `review` inspect and decide an existing candidate with explicit source, candidate and approval revision counters. `withdraw` hides an approval without deleting its history or changing a workload version. All commands support JSON/YAML, and the read/review commands do not start AI generation. These commands require the profile summary API on the platform.
 
 ## v0.46.0 - 2026-10-22
 

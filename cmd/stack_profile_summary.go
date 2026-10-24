@@ -13,11 +13,12 @@ import (
 var summaryFactIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 var stackProfileSummaryCmd = newStackProfileSummaryCommand()
 
-// newStackProfileSummaryCommand exposes the review API without generation admission.
+// newStackProfileSummaryCommand exposes explicit generation and review operations.
 func newStackProfileSummaryCommand() *cobra.Command {
 	parent := &cobra.Command{Use: "summary", Short: "Read and review evidence-backed profile summaries", Long: `Read the reviewed summary of an exact profile version, inspect its selected evidence,
-review an existing candidate, or withdraw an approval. These operations never
-change a workload version or start AI generation. The platform checks current
+review an existing candidate, or withdraw an approval. Use status, generate and
+policy for explicit generation controls. No operation changes a workload version.
+The platform checks current
 permissions and source visibility on every request.
 
 Read the candidate and its source_revision, candidate_revision and summary_revision
@@ -62,6 +63,7 @@ Output is JSON by default; use -o yaml for YAML.`}
 		}
 		parent.AddCommand(command)
 	}
+	addSummaryControlCommands(parent)
 	return parent
 }
 
