@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.47.0 - 2026-10-24
+
+This release adds explicit stack-profile summary review and generation controls,
+application data-migration progress and rollback, optional PostgreSQL setup when
+shipping an application, and merge-train prioritisation. Summary commands require
+the corresponding platform API. Installing this release does not enable AI
+generation, approve data use, select a model or change any deployed workload.
+
 **Summary generation has explicit CLI controls.** `stack-profiles summary status` and `draft-status` inspect exact source state; `request-key` creates a key to save before `generate` or `generate-draft`. Retries reuse that key and the inspected revisions. `cancel` stops one job without withdrawing an approval. `policy get|approve|revoke` exposes the data-use notice and organisation consent with explicit limits and acknowledgements. These commands require the corresponding platform API; they do not enable generation or select a model.
 
 **`ankra application ship --set-up-database` lets Ankra set up the database an app needs.** An application whose setup keeps a PostgreSQL database cannot start on a cluster without the CloudNativePG operator, and the platform refuses such a deploy. With `--set-up-database`, ship asks the platform to install PostgreSQL support on the cluster first (it needs `stacks.write` there), then deploys. In an environment set to "Ankra runs it" the platform does this on its own. When a deploy is refused for a missing operator, ship now says to re-run with the flag instead of pointing at namespace events, and any warning the deploy returns is printed.
@@ -9,6 +17,22 @@
 **Migrate modules install across filesystems.** Installation now works when your home directory and system temporary directory are on different volumes. Downloads are verified in a private staging file beside the destination, then installed atomically; refused modules leave the existing installation intact.
 
 - **`ankra stack-profiles summary` reads and reviews evidence-backed summaries.** `get` and `evidence` inspect one exact published version; `generation`, `edit` and `review` inspect and decide an existing candidate with explicit source, candidate and approval revision counters. `withdraw` hides an approval without deleting its history or changing a workload version. All commands support JSON/YAML, and the read/review commands do not start AI generation. These commands require the profile summary API on the platform.
+
+- **`ankra application data-migration` follows and rolls back the data
+  migration of an application's Launch Plan.** `list` shows the
+  application's runs and when each one's rollback window closes, and `get`
+  shows a run step by step: the copies, the freeze of each vendor source, the
+  switch of the application's environment, and why a run stopped. `rollback`
+  puts the environment back as it was before the cutover and makes the vendor
+  sources writable again, after a confirmation (`--yes` skips it). It is
+  accepted from the start of the cutover until the rollback window closes, and
+  the platform carries it out on its next pass, so `get` shows it move from
+  "rolling-back" to "rolled-back". Nothing is deleted at the vendor. All three
+  take `-o json|yaml`.
+**An organisation administrator can prioritise a merge-train entry.**
+`ankra pipeline train front <pull request number | entry id>` moves an entry to
+the front of the queue through the platform. The train still validates and
+merges the change through its normal checks.
 
 ## v0.46.0 - 2026-10-22
 
@@ -22,17 +46,6 @@ lets Ankra Cloud clusters size and tier each server's root disk, and adds
 
 ### Added
 
-- **`ankra application data-migration` follows and rolls back the data
-  migration of an application's Launch Plan.** `list` shows the
-  application's runs and when each one's rollback window closes, and `get`
-  shows a run step by step: the copies, the freeze of each vendor source, the
-  switch of the application's environment, and why a run stopped. `rollback`
-  puts the environment back as it was before the cutover and makes the vendor
-  sources writable again, after a confirmation (`--yes` skips it). It is
-  accepted from the start of the cutover until the rollback window closes, and
-  the platform carries it out on its next pass, so `get` shows it move from
-  "rolling-back" to "rolled-back". Nothing is deleted at the vendor. All three
-  take `-o json|yaml`.
 - **`ankra secrets` manages the organisation's secrets without the value ever passing through a command line, a file you commit or a model.** `create <name>` stores a value and prints its `${SECRET_SLOT:<id>}` sentinel on stdout, to put where the value belongs (at a key `encrypted_paths` declares; Ankra substitutes the value when it seals the file). The value comes from `--generate` (Ankra creates it and nobody sees it), `--from-file` (byte for byte) or stdin (a masked prompt on a terminal); a value given as an argument is refused with exit 2, without echoing it. `list` shows each secret's name, id, whether a person or Ankra supplied it, the resources that reference it, when it was last read and when it expires, never a value. `set` and `rotate [--generate]` replace a value in place, so the sentinel and everything that references it stay valid. `delete` asks first, and a secret that deployed resources still reference is refused with each of them named (exit 1); there is no force. Every command takes `--org` and `-o json`.
 - **The agent skills recommend `ankra secrets` for values that must not live in Git.** `ankra-sops-secrets`, `ankra-security`, `ankra-app-integrations` and `ankra-cli` now say when a secret slot is the right home, how to reference its sentinel, and that a generated slot expires unless a deployed resource references it.
 - **Ankra Cloud clusters can size each server's root disk and choose its storage tier.** `ankra cluster ankracloud create` and `preflight` take `--bastion-disk-gib`, `--control-plane-disk-gib`, `--etcd-disk-gib` and `--worker-disk-gib`, and the matching `--*-disk-tier` flags (`local-nvme`, `standard`, `maxiops` or `hdd`). `ankra cluster node-group add` takes `--disk-gib` and `--disk-tier`, which apply to every server a node group creates, scale-ups included. A size or tier you leave unset is not sent, so the server takes its plan's included disk on the zone's default tier. Put CI workers on small `local-nvme` disks when their data lives on persistent volumes. The preflight counts the chosen sizes against the account's storage quota, and Ankra Cloud refuses a size below the plan's and the template's minimum. The disk flags are refused on other providers, and `node-group list` shows `disk=<n>GiB/<tier>` for a group that chose either.
