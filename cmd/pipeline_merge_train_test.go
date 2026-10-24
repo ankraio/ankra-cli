@@ -319,7 +319,7 @@ func TestPipelineTrainStillPrefersTheBoundApplication(t *testing.T) {
 // TestPipelineTrainOutsideACheckoutStillAsksForAFlag pins that nothing is
 // guessed without an origin to read.
 func TestPipelineTrainOutsideACheckoutStillAsksForAFlag(t *testing.T) {
-	t.Chdir(t.TempDir())
+	chdirOutsideGitDiscovery(t, t.TempDir())
 	mock := &pipelineTrainMock{}
 	_, runError := runPipelineTrainCommand(t, mock, "add", "7")
 	if runError == nil || exitCodeFor(runError) != exitUsage ||

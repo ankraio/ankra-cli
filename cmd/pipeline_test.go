@@ -609,7 +609,7 @@ func queuedRunMock() *pipelineLaneMock {
 // commit the platform stored earlier, so refusing it only made the user look
 // the sha up by hand (PLA-863).
 func TestPipelineRunOutsideACheckoutRunsTheTipOfTheRef(t *testing.T) {
-	t.Chdir(t.TempDir())
+	chdirOutsideGitDiscovery(t, t.TempDir())
 	mockClient := queuedRunMock()
 	output, executeError := runPipelineCommand(t, mockClient, "run", "--application", testApplicationID, "--ref", "main")
 	if executeError != nil {
