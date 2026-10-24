@@ -175,7 +175,7 @@ func boundedSummaryRevision(command *cobra.Command, name string, minimum int) (i
 	if err != nil {
 		return 0, err
 	}
-	if value >= math.MaxInt32 {
+	if value > math.MaxInt32 {
 		return 0, summaryUsage("--" + name + " exceeds the supported revision range")
 	}
 	return value, nil

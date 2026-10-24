@@ -151,3 +151,29 @@ func TestSummaryRefusalMessagesKeepRecoveryGuidanceWithoutPrivateText(t *testing
 		t.Fatal("budget refusal lost")
 	}
 }
+
+func TestSummaryRequestsRetainTheSharedOrganisationTransport(t *testing.T) {
+	expectedOrg := "first-org"
+	calls := 0
+	serverClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Header.Get(orgOverrideHeader) != expectedOrg || r.Header.Get("Authorization") != "Bearer "+testToken {
+			t.Errorf("summary request lost current organisation or bearer authority")
+		}
+		jsonResponse(t, w, 200, map[string]any{"state": "absent"})
+	})
+	c := New(testToken, serverClient.BaseURL)
+	t.Cleanup(c.HTTP.CloseIdleConnections)
+	c.SetOrganisationOverride(expectedOrg)
+	if _, err := c.GetProfileSummaryPolicy(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	expectedOrg = "second-org"
+	c.SetOrganisationOverride(expectedOrg)
+	if _, err := c.GetProfileSummaryStatus(context.Background(), "profile", 3); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("unexpected requests: %d", calls)
+	}
+}

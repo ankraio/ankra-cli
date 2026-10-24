@@ -93,7 +93,7 @@ func TestSummaryControlsRejectInvalidAdmissionBeforeAnyRequest(t *testing.T) {
 	for _, change := range []struct {
 		index int
 		value string
-	}{{4, "2"}, {4, "2147483647"}, {6, "-1"}, {6, "2147483647"}, {8, summaryTestID}, {8, "01937e50-4980-7000-0000-000000000001"}, {8, strings.ToUpper(summaryRequestKey)}, {8, "bad"}} {
+	}{{4, "2"}, {4, "2147483648"}, {6, "-1"}, {6, "2147483648"}, {8, summaryTestID}, {8, "01937e50-4980-7000-0000-000000000001"}, {8, strings.ToUpper(summaryRequestKey)}, {8, "bad"}} {
 		args := append([]string(nil), valid...)
 		args[change.index] = change.value
 		tests = append(tests, args)
@@ -247,5 +247,13 @@ func TestSummaryUSDParsingHasNoRoundingOrOverflow(t *testing.T) {
 		if _, err := summaryUSDMicros(raw, 1000000000000); err == nil {
 			t.Fatalf("accepted %q", raw)
 		}
+	}
+}
+
+func TestSummaryAdmissionAcceptsTheServerRevisionBoundary(t *testing.T) {
+	m := &summaryControlMock{response: json.RawMessage(`{"state":"queued"}`)}
+	_, _, err := executeSummaryControl(t, m, "", "generate", summaryTestID, "2147483647", "--source-revision", "2147483647", "--summary-revision", "2147483647", "--request-key", summaryRequestKey)
+	if err != nil || m.calls != 1 || m.revision != 2147483647 || m.admission.ExpectedSourceRevision != 2147483647 || m.admission.ExpectedSummaryRevision != 2147483647 {
+		t.Fatalf("server boundary refused or changed: %v %+v", err, m)
 	}
 }
