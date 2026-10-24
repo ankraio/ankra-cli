@@ -16,19 +16,20 @@ generation, approve data use, select a model or change any deployed workload.
 
 **Migrate modules install across filesystems.** Installation now works when your home directory and system temporary directory are on different volumes. Downloads are verified in a private staging file beside the destination, then installed atomically; refused modules leave the existing installation intact.
 
-- **`ankra stack-profiles summary` reads and reviews evidence-backed summaries.** `get` and `evidence` inspect one exact published version; `generation`, `edit` and `review` inspect and decide an existing candidate with explicit source, candidate and approval revision counters. `withdraw` hides an approval without deleting its history or changing a workload version. All commands support JSON/YAML, and the read/review commands do not start AI generation. These commands require the profile summary API on the platform.
+**`ankra stack-profiles summary` reads and reviews evidence-backed summaries.** `get` and `evidence` inspect one exact published version; `generation`, `edit` and `review` inspect and decide an existing candidate with explicit source, candidate and approval revision counters. `withdraw` hides an approval without deleting its history or changing a workload version. All commands support JSON/YAML, and the read/review commands do not start AI generation. These commands require the profile summary API on the platform.
 
-- **`ankra application data-migration` follows and rolls back the data
-  migration of an application's Launch Plan.** `list` shows the
-  application's runs and when each one's rollback window closes, and `get`
-  shows a run step by step: the copies, the freeze of each vendor source, the
-  switch of the application's environment, and why a run stopped. `rollback`
-  puts the environment back as it was before the cutover and makes the vendor
-  sources writable again, after a confirmation (`--yes` skips it). It is
-  accepted from the start of the cutover until the rollback window closes, and
-  the platform carries it out on its next pass, so `get` shows it move from
-  "rolling-back" to "rolled-back". Nothing is deleted at the vendor. All three
-  take `-o json|yaml`.
+**`ankra application data-migration` follows and rolls back the data
+migration of an application's Launch Plan.** `list` shows the
+application's runs and when each one's rollback window closes, and `get`
+shows a run step by step: the copies, the freeze of each vendor source, the
+switch of the application's environment, and why a run stopped. `rollback`
+puts the environment back as it was before the cutover and makes the vendor
+sources writable again, after a confirmation (`--yes` skips it). It is
+accepted from the start of the cutover until the rollback window closes, and
+the platform carries it out on its next pass, so `get` shows it move from
+"rolling-back" to "rolled-back". Nothing is deleted at the vendor. All three
+take `-o json|yaml`.
+
 **An organisation administrator can prioritise a merge-train entry.**
 `ankra pipeline train front <pull request number | entry id>` moves an entry to
 the front of the queue through the platform. The train still validates and
