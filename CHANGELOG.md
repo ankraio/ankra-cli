@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **A secret you generate with `ankra secrets create --generate` no longer expires after a day.** It is kept until you delete it, like a secret whose value you supply, and `--ttl` still gives it an expiry (at most 168h for a generated secret). The `create` help, the `--ttl` flag and the `ankra-sops-secrets` skill now say so. Secrets an Ankra AI conversation generates for itself still expire after a day unless a deployed resource references them.
+
 ## v0.47.0 - 2026-10-24
 
 This release adds explicit stack-profile summary review and generation controls,
