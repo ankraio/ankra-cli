@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v0.48.0 - 2026-10-25
+
+This release adds a read-only preview of the exact AI destination for profile
+summaries and explicit approval of that destination. It requires the matching
+platform API. Installing the release does not approve data use, select a model
+or enable AI generation.
+
 **Summary revision help matches the operation.** Draft generation asks for the inspected draft revision, version generation asks for the published version, and consent revocation requires an inspected positive policy revision.
 
 **Preview and approve the exact summary AI destination.** `stack-profiles summary policy get` accepts paired `--openrouter-ingress` and `--openrouter-upstream` options to inspect a proposed connection and provider without changing saved consent. Supply the same options and inspected digest to `policy approve` to save them together. An unconfirmed preview is refused; omitting both options retains saved routing. Europe requires regional access and applicable provider terms. This requires the matching platform API and does not enable generation or select a model.
