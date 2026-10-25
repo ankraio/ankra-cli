@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -33,6 +34,7 @@ type ProfileSummaryPolicyApprovalRequest struct {
 	AcceptDataUse         bool                       `json:"accept_data_use"`
 	ConfirmProviderTerms  bool                       `json:"confirm_provider_terms"`
 	Limits                ProfileSummaryPolicyLimits `json:"limits"`
+	OpenRouterRouting     *ProfileSummaryRouting     `json:"openrouter_routing,omitempty"`
 }
 
 type ProfileSummaryPolicyRevocationRequest struct {
@@ -64,6 +66,9 @@ func (client *Client) GetProfileSummaryPolicy(ctx context.Context) (json.RawMess
 }
 
 func (client *Client) ApproveProfileSummaryPolicy(ctx context.Context, request ProfileSummaryPolicyApprovalRequest) (json.RawMessage, error) {
+	if request.OpenRouterRouting != nil && !request.OpenRouterRouting.Valid() {
+		return nil, fmt.Errorf("invalid summary routing")
+	}
 	return client.profileSummaryRequest(ctx, http.MethodPut, profileSummaryPolicyPath, request)
 }
 
