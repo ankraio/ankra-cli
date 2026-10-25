@@ -41,7 +41,11 @@ Supply the exact source and summary revisions you inspected, including summary
 revision zero. After an uncertain response, retry with the SAME key, source and
 revisions. Do not create a new key or refresh expectations for that retry. The server
 rejects conflicting reuse. Inspect generation <id> for progress and review separately.`
-			command.Flags().Int("source-revision", 0, "Exact source revision you inspected (required; must match version for generate)")
+			sourceHelp := "Exact published version you inspected; must match the version argument (required)"
+			if spec.name == "generate-draft" {
+				sourceHelp = "Exact draft revision you inspected (required)"
+			}
+			command.Flags().Int("source-revision", 0, sourceHelp)
 			command.Flags().Int("summary-revision", 0, "Approval pointer revision you inspected, including zero (required)")
 			command.Flags().String("request-key", "", "Saved canonical UUIDv7 identifying this request; reuse unchanged for retries (required)")
 			for _, name := range []string{"source-revision", "summary-revision", "request-key"} {
@@ -239,7 +243,11 @@ does not establish data residency. Requests require zero retention, no data
 collection and no provider fallback. These commands do not verify your contract.`
 		}
 		if name != "get" {
-			command.Flags().Int64("policy-revision", 0, "Exact policy revision you inspected; zero only for first approval (required)")
+			revisionHelp := "Exact policy revision you inspected; zero only for first approval (required)"
+			if name == "revoke" {
+				revisionHelp = "Exact positive policy revision you inspected (required)"
+			}
+			command.Flags().Int64("policy-revision", 0, revisionHelp)
 			_ = command.MarkFlagRequired("policy-revision")
 		}
 		parent.AddCommand(command)

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+**Summary revision help matches the operation.** Draft generation asks for the inspected draft revision, version generation asks for the published version, and consent revocation requires an inspected positive policy revision.
+
 **Preview and approve the exact summary AI destination.** `stack-profiles summary policy get` accepts paired `--openrouter-ingress` and `--openrouter-upstream` options to inspect a proposed connection and provider without changing saved consent. Supply the same options and inspected digest to `policy approve` to save them together. An unconfirmed preview is refused; omitting both options retains saved routing. Europe requires regional access and applicable provider terms. This requires the matching platform API and does not enable generation or select a model.
 
 ## v0.47.0 - 2026-10-24
