@@ -5574,6 +5574,10 @@ func (m baseMock) CancelProfileSummaryGeneration(context.Context, string) (json.
 	return nil, nil
 }
 
+func (m baseMock) PreviewProfileSummaryPolicy(context.Context, client.ProfileSummaryRouting) (json.RawMessage, error) {
+	return nil, nil
+}
+
 func (m baseMock) GetProfileSummaryPolicy(context.Context) (json.RawMessage, error) {
 	return nil, nil
 }
