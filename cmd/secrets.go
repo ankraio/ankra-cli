@@ -124,10 +124,10 @@ The value comes from exactly one of:
 It is never accepted as a command-line argument. --generate ignores stdin:
 pipe a value without --generate to store it.
 
-A generated secret expires (after one day by default, --ttl up to a week)
-unless a deployed resource references its sentinel, which keeps it for as
-long as it is referenced. A secret with a supplied value does not expire
-unless --ttl is given.
+A secret does not expire, whether Ankra generated it or you supplied the
+value, unless --ttl is given (at most a week for a generated secret). A
+secret with a --ttl is kept past it for as long as a deployed resource
+references its sentinel.
 
 The sentinel alone goes to stdout, so it can be captured:
 
@@ -572,7 +572,7 @@ func init() {
 	secretsCreateCmd.Flags().String("prefix", "", "With --generate: text in front of the random characters (at most 16, no whitespace)")
 	secretsCreateCmd.Flags().String("from-file", "", "Read the value from this file, byte for byte")
 	secretsCreateCmd.Flags().String("hint", "", "A note about what the secret is for (at most 240 characters)")
-	secretsCreateCmd.Flags().Duration("ttl", 0, "Expire the secret after this long, e.g. 72h (a generated secret defaults to 24h, at most 168h)")
+	secretsCreateCmd.Flags().Duration("ttl", 0, "Expire the secret after this long, e.g. 72h (no expiry when unset; at most 168h for a generated secret)")
 	secretsCreateCmd.MarkFlagsMutuallyExclusive("generate", "from-file")
 
 	secretsSetCmd.Flags().String("from-file", "", "Read the new value from this file, byte for byte")
