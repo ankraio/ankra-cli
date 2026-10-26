@@ -409,6 +409,7 @@ type APIClient interface {
 	ApplyApplicationEnvSecrets(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationAutoDeploy(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	SetApplicationAutoDeploy(requestContext context.Context, applicationID string, enabled bool) (json.RawMessage, error)
+	UpdateApplicationAutoDeploy(requestContext context.Context, applicationID string, autoDeployRequest client.SetApplicationAutoDeployRequest) (json.RawMessage, error)
 	StartApplicationPlatformBuild(requestContext context.Context, applicationID string, request client.StartApplicationPlatformBuildRequest) (json.RawMessage, error)
 	ListApplicationPlatformBuilds(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationPlatformBuild(requestContext context.Context, applicationID string, buildID string) (json.RawMessage, error)

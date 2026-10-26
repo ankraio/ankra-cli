@@ -5,6 +5,7 @@
 ### Added
 
 - **`ankra services get` shows how each consumer receives the service's connection.** Under every consumer it prints the delivery state (`delivered`, `pending` until the application's next deploy, `unsupported` with the reason, for example a consumer on another cluster, or `unknown`), the `<service>-connection` Secret and the environment variables it carries, such as `DATABASE_URL`. `-o json` and `-o yaml` carry it as `connection_delivery`.
+- **Each environment of an application can follow its own branches.** `ankra application environments <application>` lists the environments and what each one follows: its branch rule, the tracked branch when it has none, or `manual` when pushes do not deploy to it. `ankra application environments set <application> <environment> --branches main` gives an environment a rule, so production can follow `main` while development follows `develop` (or `'**,!main'`) and staging follows `'release/*'`; `--clear` removes the rule and `--enable` / `--disable` turn deploying on push on or off for that environment. Changing a rule never deploys by itself: the next push to a matching branch does. `ankra application deploy` takes `--environment <name>` and `--follow-branches <patterns>` to set the rule when the environment is first deployed.
 
 ### Fixed
 

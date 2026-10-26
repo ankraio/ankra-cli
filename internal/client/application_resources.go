@@ -24,6 +24,11 @@ type DeployApplicationRequest struct {
 	// (it installs Ankra's cloudnative-pg profile, then deploys). It needs
 	// stacks.write on the cluster. A server without the field ignores it.
 	PrepareDatabase bool `json:"prepare_database,omitempty"`
+	// EnvironmentName names the environment the deployment belongs to.
+	EnvironmentName string `json:"environment_name,omitempty"`
+	// FollowBranches is the branch rule the new deployment's environment
+	// follows from the start; the platform requires EnvironmentName with it.
+	FollowBranches []string `json:"follow_branches,omitempty"`
 }
 
 // ApplicationFileUpdate mirrors a single FileUpdate entry.
@@ -474,8 +479,13 @@ func (client *Client) ApplyApplicationEnvSecrets(requestContext context.Context,
 // --- push-to-deploy switch ---
 
 // SetApplicationAutoDeployRequest mirrors the auto-deploy PUT body.
+// EnvironmentID scopes the write to one environment. Branches is that
+// environment's branch rule: nil leaves the rule alone, a pointer to an empty
+// slice removes it, and a list of patterns sets it.
 type SetApplicationAutoDeployRequest struct {
-	Enabled bool `json:"enabled"`
+	Enabled       bool      `json:"enabled"`
+	EnvironmentID string    `json:"environment_id,omitempty"`
+	Branches      *[]string `json:"branches,omitempty"`
 }
 
 func (client *Client) GetApplicationAutoDeploy(requestContext context.Context, applicationID string) (json.RawMessage, error) {
@@ -483,8 +493,15 @@ func (client *Client) GetApplicationAutoDeploy(requestContext context.Context, a
 }
 
 func (client *Client) SetApplicationAutoDeploy(requestContext context.Context, applicationID string, enabled bool) (json.RawMessage, error) {
-	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/auto-deploy"), nil,
+	return client.UpdateApplicationAutoDeploy(requestContext, applicationID,
 		SetApplicationAutoDeployRequest{Enabled: enabled})
+}
+
+// UpdateApplicationAutoDeploy sends the full auto-deploy PUT body, which is
+// how one environment's switch and branch rule are written.
+func (client *Client) UpdateApplicationAutoDeploy(requestContext context.Context, applicationID string, autoDeployRequest SetApplicationAutoDeployRequest) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/auto-deploy"), nil,
+		autoDeployRequest)
 }
 
 // --- organisation-level application settings ---
