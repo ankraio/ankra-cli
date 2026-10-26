@@ -50,7 +50,7 @@ func viaApplySecretRefusal(profileName string, version int, export *client.Stack
 	}
 	reason := fmt.Sprintf("it carries the placeholder %s where a secret goes", stackProfileSecretPlaceholder)
 	if len(secretInputs) > 0 {
-		reason = fmt.Sprintf("it declares secret %s (%s), which its export carries as the placeholder %s",
+		reason = fmt.Sprintf("it declares secret %s (%s), which a published version stores as the placeholder %s, never as a cluster's value",
 			pluralise(len(secretInputs), "input", "inputs"), strings.Join(secretInputs, ", "), stackProfileSecretPlaceholder)
 	}
 	return withExitCode(exitUsage, fmt.Errorf(
@@ -86,6 +86,14 @@ func viaApplyRecordedInputsRefusal(profileName string, version int, targets []ro
 
 // requestCarriesSecretPlaceholder reports whether any string in the request,
 // or the decoded text of any base64 string in it, carries the placeholder.
+//
+// It is a backstop for a version whose secret declaration was lost, sized to
+// the shapes an export produces: the placeholder as written, as its own
+// base64 encoding (a Secret data value), or inside a string that is entirely
+// base64 (a manifest or values body). A placeholder encoded as one token inside
+// a larger string that is not itself base64 is not found. It is not the
+// guarantee: the platform refuses any stack write that would put the
+// placeholder over a stored value, whatever the client sent.
 func requestCarriesSecretPlaceholder(request client.CreateImportClusterRequest) (bool, error) {
 	encoded, marshalError := json.Marshal(request)
 	if marshalError != nil {
