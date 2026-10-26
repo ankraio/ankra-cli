@@ -45,7 +45,8 @@ rather than refusing a stack that has drifted - a stack patched per cluster
 since capture has drifted by definition, and that is the case adopt exists
 for. Read the report before rolling out: a rollout replaces the stack with
 what the version lists, so any member listed under "only on the cluster" is
-removed by it. Pick the version that matches with --version, or publish a
+removed by it once you confirm it with --confirm-removal (the platform refuses
+the rollout until you do). Pick the version that matches with --version, or publish a
 version that carries those members first.`,
 	Example: `  ankra stack-profiles adopt so-cilium --stack so-cilium --cluster so-upcloud-production
   ankra stack-profiles adopt so-networking --stack so-networking --cluster so-development --version 2`,
@@ -155,8 +156,9 @@ func renderAdoptResult(out io.Writer, profileName string, clusterName string, re
 		for _, member := range result.Drift.OnlyOnCluster {
 			_, _ = fmt.Fprintf(out, "  - %s\n", member)
 		}
-		_, _ = fmt.Fprintf(out, "A rollout of v%d REMOVES these. Adopt at a version that carries them (--version),\n",
+		_, _ = fmt.Fprintf(out, "A rollout of v%d REMOVES these once you confirm each with --confirm-removal; without that the\n",
 			result.ProfileVersion)
+		_, _ = fmt.Fprintln(out, "platform refuses the rollout and changes nothing. Adopt at a version that carries them (--version),")
 		_, _ = fmt.Fprintln(out, "or publish a version that does, before rolling this deployment out.")
 	}
 	if len(result.Drift.OnlyInVersion) > 0 {
