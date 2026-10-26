@@ -16,6 +16,13 @@ version; running one prints a warning pointing at the replacement.
 
 ## Upcoming removals
 
+### v0.49.0
+
+| Deprecated | Deprecated in | Replacement | Notes |
+|---|---|---|---|
+| `ankra registry robots create --project <name>` | v0.48.0 | `--registry-project <name>` | `--project` became the global flag that selects the Ankra project a command acts in (`ankra project`). On this command the old local flag still means the registry project, shadows the global one, and warns; until it is removed, select an Ankra project here with `ANKRA_PROJECT`. |
+| `ankra skills <list\|install\|uninstall\|clients> --project <DIR>` | v0.48.0 | `--dir <DIR>` | Same collision: `--project` is now the Ankra project. On these commands the old local flag still means the repository directory, shadows the global one, and warns. |
+
 ### v0.22.0
 
 | Deprecated | Deprecated in | Replacement | Notes |

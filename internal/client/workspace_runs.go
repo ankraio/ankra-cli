@@ -322,9 +322,10 @@ var workspaceStreamIdleTimeout = 90 * time.Second
 // transport's transient-error retries - the caller owns reconnection (from
 // the offsets it has), and the retry warnings would land in the run's stderr.
 func (c *Client) workspaceStreamHTTP() *http.Client {
-	return &http.Client{Transport: &orgOverrideTransport{
-		base:  &http.Transport{ResponseHeaderTimeout: 30 * time.Second},
-		orgID: &c.orgOverride,
+	return &http.Client{Transport: &scopeOverrideTransport{
+		base:      &http.Transport{ResponseHeaderTimeout: 30 * time.Second},
+		orgID:     &c.orgOverride,
+		projectID: &c.projectOverride,
 	}}
 }
 

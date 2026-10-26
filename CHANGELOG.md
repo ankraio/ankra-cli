@@ -2,6 +2,61 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra project` manages the organisation's projects, the team-sized scope
+  beneath an organisation.** `list`, `current`, `switch <slug|name|id>`,
+  `create <name> [--slug --description]`, `get`, `rename`, `delete`, `members`
+  and `move --kind <kind> --id <id> --to <project|org-wide>` cover the project
+  routes the platform serves under `/api/v1/org/projects`; every command
+  takes `-o json|yaml`. Clusters, applications, environments, stack profiles,
+  pipeline repositories and AI automations belong to exactly one project;
+  credentials, registries, backup vaults, buckets, organisation variables,
+  notification routes and DNS zones may also be organisation-wide, which is
+  what `--to org-wide` makes them. A move the platform refuses (operations
+  still running on the cluster, a zone that follows its cluster, a move to
+  the project it is already in) is reported with the platform's code. While an
+  organisation has projects off, every `ankra project` command exits 3 and
+  says so, and the rest of the CLI behaves exactly as before. Not to be
+  confused with `ankra registry projects`, the container registry's projects.
+
+- **The global `--project <slug|name|id>` flag (or `ANKRA_PROJECT`) runs one
+  command in another project.** Like `--org`, it applies to every request of
+  the invocation: a slug or name is resolved once, an id is sent as is, and
+  the platform acts in that project without moving your current one. Without
+  it, the project `ankra project switch` saved on this machine applies (only
+  alongside the saved `ankra login` and only in the organisation it was made
+  in; `ankra org switch` forgets it), and otherwise the platform's current
+  project does, the one the portal shows. `ankra project current` says which
+  of the three applies. Portal links the CLI prints carry `?project=` when a
+  project is selected, and `ankra cluster kubeconfig add` pins the project in
+  the exec entry it writes, so `kubectl` keeps working after you switch.
+
+- **`ankra tokens create --project <slug|name|id>` pins a new token to a
+  project**, personal or `--service`: it then acts only there and cannot be
+  pointed elsewhere. A token with MCP scopes is always pinned, to the project
+  you pass or else the one you are acting in.
+
+- **Cost and usage know about projects.** The fleet cost reads (`cost
+  summary|savings|ledger|trend|events|reconcile`, `cost budgets list`) cover
+  the project you act in and take `--all-projects` to read the whole
+  organisation; `cost summary` now shows a "By project" table and names the
+  scope it covered. `ankra cost object project <slug|name|id>` prices one
+  project, and `ankra cost budgets set --scope project --scope-id <project>`
+  sets a budget on one. `ankra org usage --group-by project` splits the
+  organisation's worker vCPU-hours by project over the window (showback;
+  billing stays one invoice per organisation).
+
+### Deprecated
+
+- **`ankra registry robots create --project` is now `--registry-project`, and
+  `ankra skills list|install|uninstall|clients --project <DIR>` is now
+  `--dir <DIR>`.** The old spellings keep working on those commands for one
+  minor release and print a deprecation line, but on them `--project` means
+  the registry project or the directory, not the Ankra project; pass
+  `ANKRA_PROJECT` to act in another project there until the old flags are
+  removed in v0.49.0 (see `DEPRECATIONS.md`).
+
 ## v0.47.0 - 2026-10-24
 
 This release adds explicit stack-profile summary review and generation controls,

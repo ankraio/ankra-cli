@@ -152,6 +152,9 @@ var orgSwitchCmd = &cobra.Command{
 		if err := saveSelectedOrganisation(selected); err != nil {
 			fmt.Printf("Warning: switched server-side but failed to save locally: %v\n", err)
 		}
+		if err := clearSelectedProject(); err != nil {
+			fmt.Printf("Warning: could not forget the project selection of the previous organisation: %v\n", err)
+		}
 
 		name := ""
 		if targetOrg.Name != nil {
@@ -648,6 +651,7 @@ func init() {
 	setIgnoresLocalOrganisation(orgListCmd)
 	setIgnoresLocalOrganisation(orgSwitchCmd)
 	setIgnoresLocalOrganisation(orgCurrentCmd)
+	setIgnoresLocalProject(orgSwitchCmd)
 
 	orgCmd.AddCommand(orgSwitchCmd)
 	orgCmd.AddCommand(orgCurrentCmd)

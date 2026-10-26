@@ -219,18 +219,29 @@ name; for an existing account --role must be the role it already holds.
 --label names the token itself (default: a timestamp). The role may not
 carry permissions you lack, and creating one needs members.manage.
 
+The global --project <slug|name|id> pins the token to that project: it then
+acts only there and cannot be pointed elsewhere. A token with MCP scopes is
+always pinned - to the project you pass, else to the project you are acting
+in; a REST token created without --project follows its owner's current
+project and honours --project / ANKRA_PROJECT per command.
+
 The token value is shown once.`,
 	Example: `  ankra tokens create laptop --expires 2026-12-31T00:00:00Z
   ankra tokens create ci-deployer --service --role member --label github-actions
-  ankra tokens create ci-deployer --service --role member --expires 2027-01-31T00:00:00Z -o json`,
+  ankra tokens create ci-deployer --service --role member --expires 2027-01-31T00:00:00Z -o json
+  ankra tokens create agent-mcp --scopes mcp:read --project platform-team`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		expiresAt, _ := cmd.Flags().GetString("expires")
 		scopes, _ := cmd.Flags().GetStringSlice("scopes")
 		isService, _ := cmd.Flags().GetBool("service")
+		projectID, projectError := tokenProjectPin(cmd)
+		if projectError != nil {
+			return projectError
+		}
 		if isService {
-			return createServiceToken(cmd, name, expiresAt, scopes)
+			return createServiceToken(cmd, name, expiresAt, scopes, projectID)
 		}
 		for _, serviceOnly := range []string{"role", "label"} {
 			if cmd.Flags().Changed(serviceOnly) {
@@ -243,7 +254,9 @@ The token value is shown once.`,
 			expiresAtPtr = &expiresAt
 		}
 
-		result, err := apiClient.CreateAPIToken(name, expiresAtPtr, scopes)
+		result, err := apiClient.CreateAPIToken(client.CreateAPITokenRequest{
+			Name: name, ExpiresAt: expiresAtPtr, Scopes: scopes, ProjectID: projectID,
+		})
 		if err != nil {
 			return fmt.Errorf("creating token: %w", err)
 		}
@@ -272,18 +285,42 @@ The token value is shown once.`,
 	},
 }
 
+// tokenProjectPin resolves the global --project flag to the project id a new
+// token is pinned to, or nil when the flag was not passed. It is the same
+// flag that scopes the invocation, so the token is pinned to the project the
+// request acts in; ANKRA_PROJECT alone does not pin, the platform decides.
+func tokenProjectPin(cmd *cobra.Command) (*string, error) {
+	flag := cmd.Root().PersistentFlags().Lookup("project")
+	if flag == nil || !flag.Changed {
+		return nil, nil
+	}
+	reference := strings.TrimSpace(flag.Value.String())
+	if reference == "" {
+		return nil, withExitCode(exitUsage, errors.New("--project needs a project slug, name or id"))
+	}
+	if resolved := strings.TrimSpace(apiClient.ProjectOverride()); resolved != "" {
+		return &resolved, nil
+	}
+	projectID, err := resolveProjectReferenceToID(reference)
+	if err != nil {
+		return nil, err
+	}
+	return &projectID, nil
+}
+
 // createServiceToken is 'ankra tokens create <account> --service'.
-func createServiceToken(cmd *cobra.Command, accountName string, expiresAt string, scopes []string) error {
+func createServiceToken(cmd *cobra.Command, accountName string, expiresAt string, scopes []string, projectID *string) error {
 	role, _ := cmd.Flags().GetString("role")
 	label, _ := cmd.Flags().GetString("label")
 	if strings.TrimSpace(role) == "" {
 		return withExitCode(exitUsage, errors.New("--role is required with --service: the role the service account acts with (owner, admin, operator, member, viewer, or a custom role's slug)"))
 	}
 	request := client.CreateServiceTokenRequest{
-		Name:     accountName,
-		Label:    strings.TrimSpace(label),
-		RoleSlug: strings.TrimSpace(role),
-		Scopes:   scopes,
+		Name:      accountName,
+		Label:     strings.TrimSpace(label),
+		RoleSlug:  strings.TrimSpace(role),
+		Scopes:    scopes,
+		ProjectID: projectID,
 	}
 	if trimmed := strings.TrimSpace(expiresAt); trimmed != "" {
 		if _, parseError := time.Parse(time.RFC3339, trimmed); parseError != nil {

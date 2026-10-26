@@ -38,16 +38,41 @@ worth. The ledger follows each approved cost change through to the saving
 measured seven days after it ran. Pricing settings (display currency,
 effective discount, network egress estimate) apply to every figure.
 
-Pass -o json (or yaml) for the full API document.`,
+The fleet reads (summary, savings, ledger, trend, events, reconcile, budgets)
+cover the project you act in (see 'ankra project current'); pass
+--all-projects to read the whole organisation, or the global --project to
+read another project. Pass -o json (or yaml) for the full API document.`,
+}
+
+// costAllProjectsFlag widens a fleet cost read to the whole organisation.
+const costAllProjectsFlag = "all-projects"
+
+// registerCostProjectScopeFlag adds --all-projects to the fleet cost reads
+// that take ?project_id=.
+func registerCostProjectScopeFlag(commands ...*cobra.Command) {
+	for _, command := range commands {
+		command.Flags().Bool(costAllProjectsFlag, false, "Read the whole organisation instead of the project you act in")
+	}
+}
+
+// applyCostProjectScope sends ?project_id=all on this invocation's fleet
+// cost reads when --all-projects was passed. A token pinned to a project is
+// refused by the platform (403): the pin is the credential's confinement.
+func applyCostProjectScope(cmd *cobra.Command) {
+	if allProjects, _ := cmd.Flags().GetBool(costAllProjectsFlag); allProjects {
+		apiClient.SetCostProjectScope(client.CostProjectScopeAll)
+	}
 }
 
 var costSummaryCmd = &cobra.Command{
 	Use:   "summary",
-	Short: "Fleet cost rollup: projected month end, month to date, run rate, by provider and costliest clusters",
+	Short: "Fleet cost rollup: projected month end, month to date, run rate, by provider, by project and costliest clusters",
 	Args:  cobra.NoArgs,
 	Example: `  ankra cost summary
+  ankra cost summary --all-projects
   ankra cost summary -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		applyCostProjectScope(cmd)
 		summary, err := apiClient.GetFleetCloudCost()
 		if err != nil {
 			return fmt.Errorf("reading fleet cost: %w", err)
@@ -86,8 +111,10 @@ cloud-waste findings.
 Every figure is a list-price estimate in the organisation's display currency.`,
 	Args: cobra.NoArgs,
 	Example: `  ankra cost savings
+  ankra cost savings --all-projects
   ankra cost savings -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		applyCostProjectScope(cmd)
 		savings, err := apiClient.GetCloudSavings()
 		if err != nil {
 			return cloudSavingsReadError(err)
@@ -291,6 +318,9 @@ func renderFleetCloudCost(out io.Writer, summary *client.FleetCloudCost) {
 		strings.ToUpper(currency), formatCostCents(summary.ProjectedMonthEndCents, currency),
 		formatCostCents(summary.MonthToDateCents, currency), formatCostCents(summary.MonthlyCostEstimateCents, currency))
 	_, _ = fmt.Fprintf(out, "  %s priced across %d provider(s)\n", pluralClusters(summary.ClusterCount), len(summary.ByProvider))
+	if scopeLine := fleetCostScopeLine(summary.Scope); scopeLine != "" {
+		_, _ = fmt.Fprintf(out, "  %s\n", scopeLine)
+	}
 	if len(summary.ByProvider) > 0 {
 		_, _ = fmt.Fprintln(out)
 		_, _ = fmt.Fprintln(out, "By provider:")
@@ -303,6 +333,22 @@ func renderFleetCloudCost(out io.Writer, summary *client.FleetCloudCost) {
 				formatCostCents(provider.MonthlyCostEstimateCents, currency),
 				formatCostCents(provider.MonthToDateCents, currency),
 				formatCostCents(provider.ProjectedMonthEndCents, currency),
+			})
+		}
+		writer.Render()
+	}
+	if len(summary.ByProject) > 0 {
+		_, _ = fmt.Fprintln(out)
+		_, _ = fmt.Fprintln(out, "By project:")
+		writer := newCostTable(out)
+		writer.AppendHeader(table.Row{"Project", "Clusters", "Run rate/mo", "Month to date", "Projected"})
+		for _, project := range summary.ByProject {
+			writer.AppendRow(table.Row{
+				fleetCostProjectLabel(project),
+				project.ClusterCount,
+				formatCostCents(project.MonthlyCostEstimateCents, currency),
+				formatCostCents(project.MonthToDateCents, currency),
+				formatCostCents(project.ProjectedMonthEndCents, currency),
 			})
 		}
 		writer.Render()
@@ -325,6 +371,42 @@ func renderFleetCloudCost(out io.Writer, summary *client.FleetCloudCost) {
 		}
 		writer.Render()
 	}
+}
+
+// fleetCostScopeLine says which project the rollup covered, or "" for a
+// platform that reported no scope. A partial scope is said in words: every
+// figure above it is a floor.
+func fleetCostScopeLine(scope *client.FleetCostScope) string {
+	if scope == nil {
+		return ""
+	}
+	line := ""
+	switch {
+	case scope.AllProjects:
+		line = "Scope: every project of the organisation"
+	case scope.ProjectName != nil && *scope.ProjectName != "":
+		line = "Scope: project " + *scope.ProjectName
+	case scope.ProjectID != nil && *scope.ProjectID != "":
+		line = "Scope: project " + *scope.ProjectID
+	default:
+		return ""
+	}
+	if scope.Partial {
+		line += " (partial: only the clusters you may read are counted, so every figure is a floor)"
+	}
+	return line
+}
+
+// fleetCostProjectLabel names a by-project row; clusters outside any
+// project are one unnamed bucket.
+func fleetCostProjectLabel(project client.FleetProjectCost) string {
+	if project.ProjectName != nil && *project.ProjectName != "" {
+		return *project.ProjectName
+	}
+	if project.ProjectID != nil && *project.ProjectID != "" {
+		return *project.ProjectID
+	}
+	return "(no project)"
 }
 
 // costReadinessExplanation mirrors the portal's readiness copy so a missing
@@ -708,6 +790,7 @@ func init() {
 	costSettingsSetCmd.Flags().Bool("include-egress", false, "Include an estimated network egress charge (pass --include-egress=false to drop it)")
 	costSettingsSetCmd.Flags().String("analysed-cluster-limit", "", "How many of the costliest priced clusters the savings model analyses (1-50), or default for the platform's 8")
 	registerStructuredOutputFlags(costSummaryCmd, costSavingsCmd, costClusterCmd, costSettingsGetCmd, costSettingsSetCmd)
+	registerCostProjectScopeFlag(costSummaryCmd, costSavingsCmd)
 	costSettingsCmd.AddCommand(costSettingsGetCmd)
 	costSettingsCmd.AddCommand(costSettingsSetCmd)
 	costCmd.AddCommand(costSummaryCmd)

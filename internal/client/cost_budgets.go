@@ -102,7 +102,7 @@ func (write CostBudgetWrite) Body() map[string]any {
 // GET /api/v1/org/cloud-cost/budgets
 func (c *Client) ListCostBudgets() (*CostBudgets, error) {
 	var result CostBudgets
-	if err := c.sendJSON(http.MethodGet, c.BaseURL+"/api/v1/org/cloud-cost/budgets", nil, &result); err != nil {
+	if err := c.sendJSON(http.MethodGet, c.costScopedURL(c.BaseURL+"/api/v1/org/cloud-cost/budgets"), nil, &result); err != nil {
 		return nil, err
 	}
 	if result.Budgets == nil {
