@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"ankra/internal/client"
+	"ankra/internal/migrate"
 )
 
 const migrateRestoreTestManifest = `{
@@ -539,7 +540,7 @@ func TestMigrateRestoreConfirmsOnlyTheNamedDatabases(t *testing.T) {
 			t.Fatalf("--overwrite-database %s: %v\n%s", named, err, stderr)
 		}
 		if len(mock.restoredWith) != 1 || len(mock.restoredWith[0].ConfirmedOverwriteDatabases) != 1 ||
-			mock.restoredWith[0].ConfirmedOverwriteDatabases[0] != named || len(mock.deleted) != 0 {
+			mock.restoredWith[0].ConfirmedOverwriteDatabases[0] != "db/office" || len(mock.deleted) != 0 {
 			t.Errorf("--overwrite-database %s restored with %+v, deleted %v", named, mock.restoredWith, mock.deleted)
 		}
 	}
@@ -574,12 +575,47 @@ func TestMigrateRestoreExplainsThePlatformsOverwriteRefusal(t *testing.T) {
 	}
 }
 
-func TestUnconfirmedOverwritesMatchIdentifierOrDatabaseName(t *testing.T) {
-	previous := []string{"db/office", "db/audit", "reports/audit"}
-	if got := unconfirmedOverwrites(previous, []string{"office", "reports/audit"}); strings.Join(got, ",") != "db/audit" {
+// TestOverwriteDatabasesAreResolvedAgainstTheExport: a value is a full
+// identifier or a database name one server carries; a name two servers
+// share or one the export does not restore stops the command before it
+// registers or uploads anything.
+func TestOverwriteDatabasesAreResolvedAgainstTheExport(t *testing.T) {
+	manifest := migrate.ExportManifest{Databases: []migrate.DatabaseExport{
+		{Workload: "db", Artifacts: []migrate.Artifact{
+			{Kind: migrate.ArtifactKindGlobals},
+			{Kind: migrate.ArtifactKindDatabase, Database: "office"},
+			{Kind: migrate.ArtifactKindDatabase, Database: "audit"},
+		}},
+		{Workload: "reports", Artifacts: []migrate.Artifact{{Kind: migrate.ArtifactKindDatabase, Database: "audit"}}},
+	}}
+	resolved, err := resolveOverwriteDatabases(manifest, []string{"office", "reports/audit", "db/office"})
+	if err != nil || strings.Join(resolved, ",") != "db/office,reports/audit" {
+		t.Fatalf("resolved = %v, %v", resolved, err)
+	}
+	if _, err := resolveOverwriteDatabases(manifest, []string{"audit"}); err == nil ||
+		!strings.Contains(err.Error(), "matches db/audit and reports/audit") {
+		t.Errorf("an ambiguous name must be refused, got %v", err)
+	}
+	if _, err := resolveOverwriteDatabases(manifest, []string{"db/orders"}); err == nil ||
+		!strings.Contains(err.Error(), "names no database this export restores") {
+		t.Errorf("an unknown name must be refused, got %v", err)
+	}
+	if got := unconfirmedOverwrites([]string{"db/office", "db/audit"}, []string{"db/office"}); strings.Join(got, ",") != "db/audit" {
 		t.Errorf("unconfirmed = %v", got)
 	}
-	if got := unconfirmedOverwrites(previous, nil); len(got) != 3 {
-		t.Errorf("nothing named leaves all unconfirmed, got %v", got)
+}
+
+// TestMigrateRestoreRefusesAnUnknownOverwriteBeforeRegistering: a typo in
+// --overwrite-database is caught before anything reaches the platform.
+func TestMigrateRestoreRefusesAnUnknownOverwriteBeforeRegistering(t *testing.T) {
+	mock := &migrateRestoreMock{vaults: []client.BackupVault{readyVault("backups1")}, getStatuses: []string{"completed"}}
+	installMigrateRestoreMock(t, mock)
+	_, _, err := runMigrate(t, "restore", writeMigrateRestoreFixture(t), "--cluster", migrateRestoreTestCluster,
+		"--overwrite-database", "db/ofice")
+	if exitCodeFor(err) != exitUsage || err == nil || !strings.Contains(err.Error(), "names no database this export restores") {
+		t.Fatalf("a typo must stop the command, got %v", err)
+	}
+	if mock.createdWith != nil || len(mock.uploads) != 0 || mock.restored != 0 {
+		t.Errorf("nothing may reach the platform: created=%v uploads=%d restored=%d", mock.createdWith != nil, len(mock.uploads), mock.restored)
 	}
 }

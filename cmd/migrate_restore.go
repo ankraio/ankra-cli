@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -273,6 +274,10 @@ func performMigrateRestore(cmd *cobra.Command, exportDir string, targets migrate
 	if err != nil {
 		return nil, withExitCode(exitUsage, fmt.Errorf("%s is not an export directory: %w", exportDir, err))
 	}
+	confirmedOverwrites, err := resolveOverwriteDatabases(manifest, overwriteDatabases)
+	if err != nil {
+		return nil, withExitCode(exitUsage, err)
+	}
 	rawManifest, err := os.ReadFile(filepath.Join(exportDir, migrate.ExportManifestFileName))
 	if err != nil {
 		return nil, err
@@ -299,7 +304,7 @@ func performMigrateRestore(cmd *cobra.Command, exportDir string, targets migrate
 		return nil, backupLaneError("registering the import", err)
 	}
 	if created.PreviouslyRestoredDatabases != nil {
-		if unconfirmed := unconfirmedOverwrites(*created.PreviouslyRestoredDatabases, overwriteDatabases); len(unconfirmed) > 0 {
+		if unconfirmed := unconfirmedOverwrites(*created.PreviouslyRestoredDatabases, confirmedOverwrites); len(unconfirmed) > 0 {
 			removal := "The import it registered was removed; nothing was uploaded."
 			if deleteError := apiClient.DeleteBackupVaultImport(targets.vaultID, created.Import.ID); deleteError != nil {
 				removal = fmt.Sprintf("Nothing was uploaded; removing the import it registered failed (%v), "+
@@ -335,7 +340,7 @@ func performMigrateRestore(cmd *cobra.Command, exportDir string, targets migrate
 	}
 	_, _ = fmt.Fprintf(progress, "Restoring %d database server(s) into cluster %s\n", len(completed.Databases), targets.clusterName)
 	restoring, err := apiClient.RestoreBackupVaultImport(targets.vaultID, created.Import.ID,
-		client.RestoreBackupVaultImportRequest{ConfirmedOverwriteDatabases: overwriteDatabases})
+		client.RestoreBackupVaultImportRequest{ConfirmedOverwriteDatabases: confirmedOverwrites})
 	if err != nil {
 		var unexpected *client.UnexpectedResponseError
 		if errors.As(err, &unexpected) && unexpected.StatusCode == http.StatusConflict &&
@@ -358,19 +363,61 @@ const overwriteDatabaseFlagUsage = "Database the restore may replace although an
 	"already loaded it - everything written to it since is lost - as <server>/<database>, or the database name " +
 	"when only one server has it (repeatable)"
 
-// unconfirmedOverwrites answers the previously restored databases none of
-// the --overwrite-database values names. A value names a database by its
-// full "<server>/<database>" identifier or by the database name alone; the
-// platform refuses a bare name two servers share, so the CLI need not.
-func unconfirmedOverwrites(previouslyRestored []string, overwriteDatabases []string) []string {
-	named := map[string]bool{}
-	for _, value := range overwriteDatabases {
-		named[strings.TrimSpace(value)] = true
+// resolveOverwriteDatabases reads every --overwrite-database value against
+// the export itself, before anything is registered or uploaded, and answers
+// the "<server>/<database>" identifiers they name. A value is a full
+// identifier, or a database name exactly one server of the export carries; a
+// name two servers share, or one the export does not restore, is refused
+// here rather than after the upload, where the platform would refuse it.
+func resolveOverwriteDatabases(manifest migrate.ExportManifest, values []string) ([]string, error) {
+	identifiers := map[string]bool{}
+	byName := map[string][]string{}
+	for _, database := range manifest.Databases {
+		for _, artifact := range database.Artifacts {
+			if artifact.Kind != migrate.ArtifactKindDatabase {
+				continue
+			}
+			identifier := database.Workload + "/" + artifact.Database
+			if !identifiers[identifier] {
+				identifiers[identifier] = true
+				byName[artifact.Database] = append(byName[artifact.Database], identifier)
+			}
+		}
+	}
+	resolved := []string{}
+	isResolved := map[string]bool{}
+	for _, value := range values {
+		name := strings.TrimSpace(value)
+		matches := []string{name}
+		if !identifiers[name] {
+			matches = byName[name]
+		}
+		switch len(matches) {
+		case 1:
+			if !isResolved[matches[0]] {
+				isResolved[matches[0]] = true
+				resolved = append(resolved, matches[0])
+			}
+		case 0:
+			return nil, fmt.Errorf("--overwrite-database %s names no database this export restores; name it as <server>/<database>", value)
+		default:
+			sort.Strings(matches)
+			return nil, fmt.Errorf("--overwrite-database %s matches %s; name the one to replace as <server>/<database>", value, strings.Join(matches, " and "))
+		}
+	}
+	return resolved, nil
+}
+
+// unconfirmedOverwrites answers the previously restored databases that are
+// not among the confirmed identifiers.
+func unconfirmedOverwrites(previouslyRestored []string, confirmed []string) []string {
+	isConfirmed := map[string]bool{}
+	for _, identifier := range confirmed {
+		isConfirmed[identifier] = true
 	}
 	unconfirmed := []string{}
 	for _, identifier := range previouslyRestored {
-		database := identifier[strings.LastIndex(identifier, "/")+1:]
-		if !named[identifier] && !named[database] {
+		if !isConfirmed[identifier] {
 			unconfirmed = append(unconfirmed, identifier)
 		}
 	}
