@@ -163,6 +163,8 @@ for deploy inputs you want to pin.`,
 	shipCommand.Flags().String("namespace", "",
 		"Target namespace (defaults to the namespace the platform derives from the application name)")
 	shipCommand.Flags().StringArray("set", nil, "Deploy input as key=value (repeatable)")
+	shipCommand.Flags().Bool("set-up-database", false,
+		"Let Ankra install PostgreSQL support (the CloudNativePG operator) on the cluster when the application's database needs it and the cluster has none")
 	shipCommand.Flags().Bool("ankra-build", false,
 		"Build the first image on Ankra's builders instead of waiting for the setup PR merge and repository CI")
 	shipCommand.Flags().Duration("timeout", time.Hour, "Overall budget for every wait step combined")
@@ -180,6 +182,7 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 		return withExitCode(exitUsage, parseError)
 	}
 	useAnkraBuild, _ := command.Flags().GetBool("ankra-build")
+	setUpDatabase, _ := command.Flags().GetBool("set-up-database")
 	namespaceFlag, _ := command.Flags().GetString("namespace")
 	namespaceFlag = strings.TrimSpace(namespaceFlag)
 	timeout, timeoutFlagError := command.Flags().GetDuration("timeout")
@@ -292,7 +295,7 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 		namespace = defaultShipNamespace(application.Name)
 	}
 	installationID, deployMessage, deployError := ensureApplicationDeployed(
-		waitContext, progress, application.ID, cluster.ID, namespace, deployInputs)
+		waitContext, progress, application.ID, cluster.ID, namespace, deployInputs, setUpDatabase)
 	if deployError != nil {
 		return deployError
 	}
@@ -1011,9 +1014,10 @@ type shipInstallation struct {
 // platform's message, which carries the ingress derivation note when the
 // platform provides one.
 type shipDeployAnswer struct {
-	InstallationID string `json:"installation_id"`
-	Status         string `json:"status"`
-	Message        string `json:"message"`
+	InstallationID string   `json:"installation_id"`
+	Status         string   `json:"status"`
+	Message        string   `json:"message"`
+	Warnings       []string `json:"warnings"`
 }
 
 // shipInstallationSettled reports whether an installation status is one the
@@ -1046,6 +1050,7 @@ func ensureApplicationDeployed(
 	clusterID string,
 	namespace string,
 	deployInputs map[string]string,
+	setUpDatabase bool,
 ) (string, string, error) {
 	existing, readError := findShipInstallation(waitContext, applicationID, clusterID, namespace, "")
 	if readError != nil {
@@ -1084,9 +1089,10 @@ func ensureApplicationDeployed(
 	}
 
 	payload, deployError := apiClient.DeployApplication(waitContext, applicationID, client.DeployApplicationRequest{
-		ClusterID: clusterID,
-		Namespace: namespace,
-		Inputs:    deployInputs,
+		ClusterID:       clusterID,
+		Namespace:       namespace,
+		Inputs:          deployInputs,
+		PrepareDatabase: setUpDatabase,
 	})
 	if deployError != nil {
 		return "", "", fmt.Errorf("deploying the application: %w", deployError)
@@ -1101,6 +1107,9 @@ func ensureApplicationDeployed(
 	_, _ = fmt.Fprintf(progress, "Deploy started (installation %s, namespace %q).\n", answer.InstallationID, namespace)
 	if answer.Message != "" {
 		_, _ = fmt.Fprintf(progress, "%s\n", answer.Message)
+	}
+	for _, warning := range answer.Warnings {
+		_, _ = fmt.Fprintf(progress, "Warning: %s\n", warning)
 	}
 	return answer.InstallationID, answer.Message, nil
 }
@@ -1164,6 +1173,18 @@ func findShipInstallation(
 	return nil, nil
 }
 
+// postgresOperatorRefusalTitle is the frozen lead of the platform's refusal
+// for a deploy whose database has no CloudNativePG operator on the cluster
+// (cluster enginekit/clusterengine PostgresOperatorTitle). Nothing was
+// applied, so the namespace's events say nothing; --set-up-database is the
+// way through.
+const postgresOperatorRefusalTitle = "The CloudNativePG operator is not installed on this cluster"
+
+// postgresOperatorRequestedLead is the lead of the sentence the refusal gains
+// when the operator was already requested and did not arrive in time
+// (PostgresOperatorWaitTimedOutLead): asking for it again is not the remedy.
+const postgresOperatorRequestedLead = "The Postgres (CloudNativePG) add-on was requested on this cluster, but its "
+
 // waitForInstallationHealthy follows the installation to `healthy`. A settled
 // `failed` surfaces the platform's execution error plus the namespace's
 // warning events - the two places the actual cause lives - and exits
@@ -1194,6 +1215,10 @@ func waitForInstallationHealthy(
 			message := "no error message was recorded"
 			if installation.ErrorMessage != nil && strings.TrimSpace(*installation.ErrorMessage) != "" {
 				message = *installation.ErrorMessage
+			}
+			if strings.Contains(message, postgresOperatorRefusalTitle) && !strings.Contains(message, postgresOperatorRequestedLead) {
+				return fmt.Errorf("the deploy failed: %s - re-run with --set-up-database to let Ankra install it, "+
+					"or add the Postgres (CloudNativePG) add-on to the cluster yourself", message)
 			}
 			reportNamespaceWarningEvents(progress, clusterID, namespace)
 			return fmt.Errorf(

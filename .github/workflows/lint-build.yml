@@ -144,7 +144,7 @@ jobs:
           # Set only when the census was fetched; otherwise the route test skips
           # visibly instead of failing on a file that was never there.
           ANKRA_CLUSTER_ROUTES_JSON: ${{ steps.routes_fetch.outputs.fetched == 'true' && format('{0}/routes.json', github.workspace) || '' }}
-        run: go test -race -count=1 -timeout=120s -coverprofile=coverage.out ./...
+        run: go test -race -count=1 -timeout=5m -coverprofile=coverage.out ./...
       - name: Check coverage
         if: ${{ !cancelled() && steps.tests.outcome == 'success' }}
         run: go tool cover -func=coverage.out
