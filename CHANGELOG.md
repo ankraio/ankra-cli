@@ -4,6 +4,7 @@
 
 ### Added
 
+- **`ankra cluster state-snapshots retention` shows and sets how many days of etcd backups Ankra keeps for a cluster.** Ankra backs up a running cluster's etcd state every six hours and keeps the four newest backups plus the newest of each day for the retention window, 7 days unless you set another. `--days N` sets it to anything from 1 to 90 days and needs `clusters.write`; the next retention pass applies it. A longer window keeps backups from then on and cannot bring back ones already deleted. A shorter window deletes the daily backups outside it, so it asks for confirmation first (`--yes` skips it). `-o json` prints the platform's answer as it is. This requires the matching platform API.
 - **`ankra services get` shows how each consumer receives the service's connection.** Under every consumer it prints the delivery state (`delivered`, `pending` until the application's next deploy, `unsupported` with the reason, for example a consumer on another cluster, or `unknown`), the `<service>-connection` Secret and the environment variables it carries, such as `DATABASE_URL`. `-o json` and `-o yaml` carry it as `connection_delivery`.
 
 ### Fixed
