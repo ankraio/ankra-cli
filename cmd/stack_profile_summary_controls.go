@@ -41,7 +41,11 @@ Supply the exact source and summary revisions you inspected, including summary
 revision zero. After an uncertain response, retry with the SAME key, source and
 revisions. Do not create a new key or refresh expectations for that retry. The server
 rejects conflicting reuse. Inspect generation <id> for progress and review separately.`
-			command.Flags().Int("source-revision", 0, "Exact source revision you inspected (required; must match version for generate)")
+			sourceHelp := "Exact published version you inspected; must match the version argument (required)"
+			if spec.name == "generate-draft" {
+				sourceHelp = "Exact draft revision you inspected (required)"
+			}
+			command.Flags().Int("source-revision", 0, sourceHelp)
 			command.Flags().Int("summary-revision", 0, "Approval pointer revision you inspected, including zero (required)")
 			command.Flags().String("request-key", "", "Saved canonical UUIDv7 identifying this request; reuse unchanged for retries (required)")
 			for _, name := range []string{"source-revision", "summary-revision", "request-key"} {
@@ -225,8 +229,25 @@ After an uncertain policy write, read back before deciding what to do next.`}
 			}
 			command.Example = "  # Example limits only: choose ceilings and retention for your organisation.\n  ankra stack-profiles summary policy approve --policy-revision 0 --consent-digest <inspected-digest> --accept-data-use --confirm-provider-terms --content-retention-days 7 --metadata-retention-days 30 --daily-tokens 100000 --request-tokens 1000 --daily-usd 1 --request-usd 0.01"
 		}
+		if name == "get" || name == "approve" {
+			command.Flags().String("openrouter-ingress", "", "Proposed OpenRouter connection: global or europe; requires --openrouter-upstream")
+			command.Flags().String("openrouter-upstream", "", "Exact allowed provider identifier; explicitly use an empty value for any privacy-eligible provider")
+			command.Long = parent.Long + `
+
+To change OpenRouter routing, preview with policy get --openrouter-ingress europe
+--openrouter-upstream google-vertex/europe. Review the returned destination and
+consent_digest, then supply the SAME routing flags and that digest to approve.
+The preview makes no changes. Omit both flags to retain saved routing.
+Europe requires regional access under your OpenRouter agreement; the option alone
+does not establish data residency. Requests require zero retention, no data
+collection and no provider fallback. These commands do not verify your contract.`
+		}
 		if name != "get" {
-			command.Flags().Int64("policy-revision", 0, "Exact policy revision you inspected; zero only for first approval (required)")
+			revisionHelp := "Exact policy revision you inspected; zero only for first approval (required)"
+			if name == "revoke" {
+				revisionHelp = "Exact positive policy revision you inspected (required)"
+			}
+			command.Flags().Int64("policy-revision", 0, revisionHelp)
 			_ = command.MarkFlagRequired("policy-revision")
 		}
 		parent.AddCommand(command)
@@ -239,6 +260,14 @@ func runSummaryPolicy(command *cobra.Command, _ []string) error {
 		return err
 	}
 	if command.Name() == "get" {
+		routing, routeError := summaryRoutingFlags(command)
+		if routeError != nil {
+			return routeError
+		}
+		if routing != nil {
+			payload, requestError := apiClient.PreviewProfileSummaryPolicy(command.Context(), *routing)
+			return renderSummaryControl(command, payload, requestError)
+		}
 		payload, err := apiClient.GetProfileSummaryPolicy(command.Context())
 		return renderSummaryControl(command, payload, err)
 	}
@@ -258,8 +287,30 @@ func runSummaryPolicy(command *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	request.OpenRouterRouting, err = summaryRoutingFlags(command)
+	if err != nil {
+		return err
+	}
 	payload, err := apiClient.ApproveProfileSummaryPolicy(command.Context(), request)
 	return renderSummaryControl(command, payload, err)
+}
+
+func summaryRoutingFlags(command *cobra.Command) (*client.ProfileSummaryRouting, error) {
+	ingressSet := command.Flags().Changed("openrouter-ingress")
+	upstreamSet := command.Flags().Changed("openrouter-upstream")
+	if !ingressSet && !upstreamSet {
+		return nil, nil
+	}
+	if !ingressSet || !upstreamSet {
+		return nil, summaryUsage("supply both --openrouter-ingress and --openrouter-upstream; use --openrouter-upstream='' explicitly to allow any privacy-eligible provider")
+	}
+	ingress, _ := command.Flags().GetString("openrouter-ingress")
+	upstream, _ := command.Flags().GetString("openrouter-upstream")
+	routing := &client.ProfileSummaryRouting{Ingress: ingress, Upstream: upstream}
+	if !routing.Valid() {
+		return nil, summaryUsage("routing requires global or europe and an exact lowercase provider identifier of at most 128 characters, optionally followed by /region")
+	}
+	return routing, nil
 }
 
 func summaryPolicyApproval(command *cobra.Command, revision int64) (client.ProfileSummaryPolicyApprovalRequest, error) {

@@ -301,6 +301,7 @@ type APIClient interface {
 	GenerateDraftSummary(context.Context, string, client.ProfileSummaryAdmissionRequest) (json.RawMessage, error)
 	CancelProfileSummaryGeneration(context.Context, string) (json.RawMessage, error)
 	GetProfileSummaryPolicy(context.Context) (json.RawMessage, error)
+	PreviewProfileSummaryPolicy(context.Context, client.ProfileSummaryRouting) (json.RawMessage, error)
 	ApproveProfileSummaryPolicy(context.Context, client.ProfileSummaryPolicyApprovalRequest) (json.RawMessage, error)
 	RevokeProfileSummaryPolicy(context.Context, client.ProfileSummaryPolicyRevocationRequest) (json.RawMessage, error)
 	GetProfileSummary(context.Context, string, int) (json.RawMessage, error)
