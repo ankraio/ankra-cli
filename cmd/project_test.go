@@ -921,7 +921,6 @@ func TestUsageShowbackHoursClampsTheWindow(t *testing.T) {
 		{name: "explicit window", options: client.UsageOptions{From: "2026-10-01", To: "2026-10-03"}, want: 48},
 		{name: "future end is clipped to now", options: client.UsageOptions{From: "2026-10-08", To: "2026-10-20"}, want: 12},
 		{name: "a window of over a year is capped", options: client.UsageOptions{From: "2024-01-01"}, want: usageShowbackHoursMaximum},
-		{name: "an inverted window reads one hour", options: client.UsageOptions{From: "2026-10-09"}, want: 1},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			got, err := usageShowbackHours(testCase.options, now)
@@ -930,6 +929,56 @@ func TestUsageShowbackHoursClampsTheWindow(t *testing.T) {
 			}
 			if got != testCase.want {
 				t.Fatalf("hours = %d, want %d", got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestUsageShowbackHoursRefusesAWindowThatEndsBeforeItStarts(t *testing.T) {
+	now := time.Date(2026, time.October, 8, 12, 0, 0, 0, time.UTC)
+	for _, options := range []client.UsageOptions{{From: "2026-10-09"}, {From: "2026-10-05", To: "2026-10-01"}} {
+		if _, err := usageShowbackHours(options, now); err == nil || exitCodeFor(err) != exitUsage {
+			t.Errorf("%+v: error = %v (exit %d), want a usage error", options, err, exitCodeFor(err))
+		}
+	}
+}
+
+func TestCostScopeIsResetByACommandWithoutAllProjects(t *testing.T) {
+	mock := &projectsMock{fleet: &client.FleetCloudCost{Currency: "eur"}, costScope: client.CostProjectScopeAll}
+	if _, _, err := runProjectCommand(t, mock, "", "cost", "summary"); err != nil {
+		t.Fatal(err)
+	}
+	if mock.costScope != "" {
+		t.Fatalf("cost scope = %q, want it cleared", mock.costScope)
+	}
+}
+
+func TestSavedProjectSelectionMatchesTheSavedOrganisationWithoutAnOverride(t *testing.T) {
+	withTempHome(t)
+	t.Setenv(envAnkraProject, "")
+	name := "Ankra"
+	if err := saveSelectedOrganisation(SelectedOrganisation{OrganisationID: projectTestOrganisationID, Name: &name}); err != nil {
+		t.Fatal(err)
+	}
+	for _, testCase := range []struct {
+		name                string
+		projectOrganisation string
+		want                string
+	}{
+		{name: "same organisation", projectOrganisation: projectTestOrganisationID, want: projectTestEdgeID},
+		{name: "another organisation", projectOrganisation: "7b2fedb6-4d79-45fd-b71a-044a2cfddce7", want: ""},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if err := saveSelectedProject(SelectedProject{ProjectID: projectTestEdgeID, OrganisationID: testCase.projectOrganisation}); err != nil {
+				t.Fatal(err)
+			}
+			mock := &projectsMock{projects: twoProjects()}
+			setMockClient(t, mock)
+			if err := applyProjectOverride(projectFlagCommand(t, ""), sourceConfigFile); err != nil {
+				t.Fatal(err)
+			}
+			if mock.project != testCase.want {
+				t.Fatalf("project header = %q, want %q", mock.project, testCase.want)
 			}
 		})
 	}

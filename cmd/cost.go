@@ -55,13 +55,17 @@ func registerCostProjectScopeFlag(commands ...*cobra.Command) {
 	}
 }
 
-// applyCostProjectScope sends ?project_id=all on this invocation's fleet
-// cost reads when --all-projects was passed. A token pinned to a project is
-// refused by the platform (403): the pin is the credential's confinement.
+// applyCostProjectScope sets the fleet cost reads' ?project_id= for this
+// command: all with --all-projects, otherwise none, so a scope set by an
+// earlier command on the same client never carries over. A token pinned to
+// a project is refused by the platform (403) for all: the pin is the
+// credential's confinement.
 func applyCostProjectScope(cmd *cobra.Command) {
+	scope := ""
 	if allProjects, _ := cmd.Flags().GetBool(costAllProjectsFlag); allProjects {
-		apiClient.SetCostProjectScope(client.CostProjectScopeAll)
+		scope = client.CostProjectScopeAll
 	}
+	apiClient.SetCostProjectScope(scope)
 }
 
 var costSummaryCmd = &cobra.Command{

@@ -174,15 +174,28 @@ func applyProjectOverride(cmd *cobra.Command, tokenSource credentialSource) erro
 }
 
 // selectedProjectMatchesOrganisation says whether the saved project selection
-// was made in the organisation this invocation runs in. A selection saved
-// without an organisation (an older CLI) is trusted; the platform ignores a
-// project of another organisation anyway (403, never a silent wrong scope).
+// was made in the organisation this invocation runs in: the organisation
+// override when one is set (--org, ANKRA_ORG or the saved organisation
+// selection), else the saved organisation selection itself. When neither
+// names an organisation (the platform's current one applies) the selection
+// is trusted, as is a selection saved without an organisation: the platform
+// refuses a project of another organisation with a 403, never a silent
+// wrong scope, so no request is spent finding out here.
 func selectedProjectMatchesOrganisation(selected SelectedProject) bool {
 	savedOrganisation := strings.TrimSpace(selected.OrganisationID)
 	if savedOrganisation == "" {
 		return true
 	}
-	return savedOrganisation == strings.TrimSpace(apiClient.OrganisationOverride())
+	currentOrganisation := strings.TrimSpace(apiClient.OrganisationOverride())
+	if currentOrganisation == "" {
+		if organisation, loadError := loadSelectedOrganisation(); loadError == nil {
+			currentOrganisation = strings.TrimSpace(organisation.OrganisationID)
+		}
+	}
+	if currentOrganisation == "" {
+		return true
+	}
+	return savedOrganisation == currentOrganisation
 }
 
 // resolveProjectReferenceToID maps an id, slug or name to a project id. An id

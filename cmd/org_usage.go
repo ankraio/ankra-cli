@@ -182,6 +182,10 @@ func usageShowbackHours(options client.UsageOptions, now time.Time) (int, error)
 		}
 		to = parsed
 	}
+	if !to.After(from) {
+		return 0, withExitCode(exitUsage, fmt.Errorf("the window ends (%s) before it starts (%s): --to is the day after the last day read",
+			to.Format(usageDateLayout), from.Format(usageDateLayout)))
+	}
 	if to.After(now) {
 		to = now
 	}
