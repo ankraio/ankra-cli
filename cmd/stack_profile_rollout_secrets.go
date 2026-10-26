@@ -15,7 +15,8 @@ import (
 const stackProfileSecretPlaceholder = "ANKRA_SECRET_PARAMETER"
 
 // viaApplySecretRefusal refuses 'stack-profiles rollout --via-apply' for a
-// version that carries secrets (ankra-c42hih). That lane applies the exported
+// version that carries secrets, or for targets whose deployment carries
+// inputs of its own (ankra-c42hih). That lane applies the exported
 // version through the cluster apply route, and the export carries the
 // placeholder where each secret is bound per cluster: applying it replaced
 // every target's live secret (a database password, an API token) with the
@@ -27,7 +28,13 @@ const stackProfileSecretPlaceholder = "ANKRA_SECRET_PARAMETER"
 // It refuses on either signal: a declared secret input, or the placeholder
 // anywhere in the request it would send (as written, or inside any base64
 // body), so a version whose declaration was lost is caught as well.
-func viaApplySecretRefusal(profileName string, version int, export *client.StackProfileIacExport, request client.CreateImportClusterRequest) error {
+//
+// The same lane resets every deployment's own inputs: the export carries the
+// values the version stores, not the ones each deployment was applied with,
+// so a target whose deployment recorded inputs (a hostname, a replica count)
+// would have them replaced. Such targets are refused too; the in-place
+// rollout carries recorded inputs forward.
+func viaApplySecretRefusal(profileName string, version int, export *client.StackProfileIacExport, request client.CreateImportClusterRequest, targets []rolloutTarget) error {
 	var secretInputs []string
 	for _, parameter := range export.Parameters {
 		if parameter.Type == "secret" {
@@ -39,7 +46,7 @@ func viaApplySecretRefusal(profileName string, version int, export *client.Stack
 		return fmt.Errorf("checking the exported profile version for secret placeholders: %w", inspectError)
 	}
 	if len(secretInputs) == 0 && !carriesPlaceholder {
-		return nil
+		return viaApplyRecordedInputsRefusal(profileName, version, targets)
 	}
 	reason := fmt.Sprintf("it carries the placeholder %s where a secret goes", stackProfileSecretPlaceholder)
 	if len(secretInputs) > 0 {
@@ -51,6 +58,30 @@ func viaApplySecretRefusal(profileName string, version int, export *client.Stack
 			"the secret each cluster has bound with that text. Roll it out in place instead (drop --via-apply): "+
 			"the platform binds the version there and keeps each deployment's secrets",
 		profileName, version, reason))
+}
+
+// viaApplyRecordedInputsRefusal refuses the --via-apply lane when any target's
+// deployment recorded inputs of its own, naming those targets.
+func viaApplyRecordedInputsRefusal(profileName string, version int, targets []rolloutTarget) error {
+	var withInputs []string
+	for _, target := range targets {
+		if len(target.recordedBindings) == 0 {
+			continue
+		}
+		names := make([]string, 0, len(target.recordedBindings))
+		for _, binding := range target.recordedBindings {
+			names = append(names, binding.Name)
+		}
+		withInputs = append(withInputs, fmt.Sprintf("%s/%s (%s)", target.ClusterName, target.StackName, strings.Join(names, ", ")))
+	}
+	if len(withInputs) == 0 {
+		return nil
+	}
+	return withExitCode(exitUsage, fmt.Errorf(
+		"profile '%s' v%d cannot be rolled out with --via-apply: the export carries the values the version stores, "+
+			"so it would reset the inputs these deployments were applied with: %s. Roll it out in place instead "+
+			"(drop --via-apply): the platform carries each deployment's recorded inputs forward",
+		profileName, version, strings.Join(withInputs, "; ")))
 }
 
 // requestCarriesSecretPlaceholder reports whether any string in the request,
