@@ -417,6 +417,9 @@ add-on deploys run in the background. Watch them with
 		if len(base.Spec.Stacks) != 1 {
 			return fmt.Errorf("profile '%s' v%d exports %d stacks; rollout updates one deployed stack per cluster, so it needs a single-stack profile version (apply it with 'ankra cluster apply' after renaming the stacks yourself)", detail.Profile.Name, version, len(base.Spec.Stacks))
 		}
+		if secretRefusal := viaApplySecretRefusal(detail.Profile.Name, version, export, base); secretRefusal != nil {
+			return secretRefusal
+		}
 
 		wait, waitError := asyncWriteWaitFlag(cmd)
 		if waitError != nil {
