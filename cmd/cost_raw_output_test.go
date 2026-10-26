@@ -277,3 +277,35 @@ func TestStructuredDocumentKeepsKeyOrderAndNumberLiterals(t *testing.T) {
 		t.Fatalf("a type that does not embed client.RawDocument prints as itself:\n%s", unrelated.String())
 	}
 }
+
+// --kind narrows the page on the CLI side into a fresh list that carries no
+// document, so -o json prints the narrowed proposals, never the platform's
+// whole page; without a filter it prints the platform's document.
+func TestCostDecisionsListFilteredStructuredOutputIsTheNarrowedList(t *testing.T) {
+	const page = `{"proposals":[` +
+		`{"id":"kept-1","area":"cost","kind":"waste_cleanup","status":"proposed","zz_future_proposal_field":1},` +
+		`{"id":"filtered-out-2","area":"cost","kind":"right_size_ladder","status":"proposed"}],` +
+		`"unsettled_proposal_ids":["filtered-out-2"],"zz_future_page_field":true}`
+	realClient := newCostDocumentServer(t, map[string][]byte{"GET /api/v1/org/decisions": []byte(page)})
+
+	output, _, executeError := runCostDecisionsCommand(t, realClient, "", "cost", "decisions", "list", "--kind", "waste_cleanup", "-o", "json")
+	if executeError != nil {
+		t.Fatalf("cost decisions list --kind -o json: %v", executeError)
+	}
+	narrowed := decodeJSONDocument(t, []byte(output))
+	proposals, _ := narrowed["proposals"].([]any)
+	if len(proposals) != 1 || proposals[0].(map[string]any)["id"] != "kept-1" || strings.Contains(output, "filtered-out-2") {
+		t.Fatalf("a filtered -o json must print only the kept proposal:\n%s", output)
+	}
+	if _, leaked := narrowed["zz_future_page_field"]; leaked {
+		t.Fatalf("a filtered list is built by the CLI, not the platform's page:\n%s", output)
+	}
+
+	output, _, executeError = runCostDecisionsCommand(t, realClient, "", "cost", "decisions", "list", "-o", "json")
+	if executeError != nil {
+		t.Fatalf("cost decisions list -o json: %v", executeError)
+	}
+	if want, got := decodeJSONDocument(t, []byte(page)), decodeJSONDocument(t, []byte(output)); !reflect.DeepEqual(want, got) {
+		t.Fatalf("an unfiltered list prints the platform's page:\nwant %s\ngot  %s", page, output)
+	}
+}
