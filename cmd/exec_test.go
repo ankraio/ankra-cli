@@ -539,7 +539,7 @@ func TestExecRetriesAPassingAgentTimeout(t *testing.T) {
 
 func TestExecIsNotRunOutsideAGitWorktree(t *testing.T) {
 	environment := newExecTestEnv(t)
-	t.Chdir(t.TempDir())
+	chdirOutsideGitDiscovery(t, environment.repository.top)
 	_, stderr, code := runExecCommand(t, context.Background(), "go", "test")
 	if code != execExitNotRun || !environment.notRunMarked() || !strings.Contains(stderr, "not inside a git worktree") {
 		t.Fatalf("exit = %d, marked %v, stderr %q", code, environment.notRunMarked(), stderr)

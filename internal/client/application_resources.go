@@ -19,6 +19,11 @@ type DeployApplicationRequest struct {
 	Namespace  string            `json:"namespace,omitempty"`
 	DeployMode string            `json:"deploy_mode,omitempty"`
 	Inputs     map[string]string `json:"inputs,omitempty"`
+	// PrepareDatabase consents that the platform sets up the CloudNativePG
+	// operator the application's database needs when the cluster has none
+	// (it installs Ankra's cloudnative-pg profile, then deploys). It needs
+	// stacks.write on the cluster. A server without the field ignores it.
+	PrepareDatabase bool `json:"prepare_database,omitempty"`
 }
 
 // ApplicationFileUpdate mirrors a single FileUpdate entry.

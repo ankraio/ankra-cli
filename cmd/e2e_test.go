@@ -5534,3 +5534,58 @@ func TestClusterAgentStatusSecurityNoteNeverRepeatsTheUpgradeCommand(t *testing.
 		})
 	}
 }
+
+func (m baseMock) GetProfileSummary(context.Context, string, int) (json.RawMessage, error) {
+	return nil, nil
+}
+func (m baseMock) GetProfileSummaryEvidence(context.Context, string, int, string) (json.RawMessage, error) {
+	return nil, nil
+}
+func (m baseMock) GetProfileSummaryGeneration(context.Context, string) (json.RawMessage, error) {
+	return nil, nil
+}
+func (m baseMock) EditProfileSummaryCandidate(context.Context, string, client.ProfileSummaryCandidateRequest) (json.RawMessage, error) {
+	return nil, nil
+}
+func (m baseMock) ReviewProfileSummary(context.Context, string, client.ProfileSummaryReviewRequest) (json.RawMessage, error) {
+	return nil, nil
+}
+func (m baseMock) WithdrawProfileSummary(context.Context, string, int, client.ProfileSummaryWithdrawalRequest) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (m baseMock) GetProfileSummaryStatus(context.Context, string, int) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (m baseMock) GetDraftSummaryStatus(context.Context, string, int) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (m baseMock) GenerateProfileSummary(context.Context, string, int, client.ProfileSummaryAdmissionRequest) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (m baseMock) GenerateDraftSummary(context.Context, string, client.ProfileSummaryAdmissionRequest) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (m baseMock) CancelProfileSummaryGeneration(context.Context, string) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (m baseMock) PreviewProfileSummaryPolicy(context.Context, client.ProfileSummaryRouting) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (m baseMock) GetProfileSummaryPolicy(context.Context) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (m baseMock) ApproveProfileSummaryPolicy(context.Context, client.ProfileSummaryPolicyApprovalRequest) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (m baseMock) RevokeProfileSummaryPolicy(context.Context, client.ProfileSummaryPolicyRevocationRequest) (json.RawMessage, error) {
+	return nil, nil
+}
