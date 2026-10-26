@@ -98,14 +98,18 @@ func requestCarriesSecretPlaceholder(request client.CreateImportClusterRequest) 
 	return valueCarriesSecretPlaceholder(document), nil
 }
 
+// encodedSecretPlaceholder is the placeholder base64-encoded, padding
+// dropped. It is the same in the standard and the URL-safe alphabets.
+var encodedSecretPlaceholder = strings.TrimRight(base64.StdEncoding.EncodeToString([]byte(stackProfileSecretPlaceholder)), "=")
+
+// valueCarriesSecretPlaceholder walks a decoded JSON request. A string carries
+// the placeholder when it holds it as written or base64-encoded (a Secret data
+// value inside a manifest), or when it decodes - in any base64 alphabet,
+// padded or not - to text that does.
 func valueCarriesSecretPlaceholder(value any) bool {
 	switch typed := value.(type) {
 	case string:
-		if strings.Contains(typed, stackProfileSecretPlaceholder) {
-			return true
-		}
-		decoded, decodeError := base64.StdEncoding.DecodeString(strings.TrimSpace(typed))
-		return decodeError == nil && strings.Contains(string(decoded), stackProfileSecretPlaceholder)
+		return textCarriesSecretPlaceholder(typed, 2)
 	case map[string]any:
 		for _, member := range typed {
 			if valueCarriesSecretPlaceholder(member) {
@@ -117,6 +121,28 @@ func valueCarriesSecretPlaceholder(value any) bool {
 			if valueCarriesSecretPlaceholder(member) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// textCarriesSecretPlaceholder checks text, then the text it base64-decodes
+// to, down to depth encoding levels.
+func textCarriesSecretPlaceholder(text string, depth int) bool {
+	if strings.Contains(text, stackProfileSecretPlaceholder) || strings.Contains(text, encodedSecretPlaceholder) {
+		return true
+	}
+	if depth == 0 {
+		return false
+	}
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return false
+	}
+	for _, encoding := range []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding} {
+		decoded, decodeError := encoding.DecodeString(trimmed)
+		if decodeError == nil && textCarriesSecretPlaceholder(string(decoded), depth-1) {
+			return true
 		}
 	}
 	return false

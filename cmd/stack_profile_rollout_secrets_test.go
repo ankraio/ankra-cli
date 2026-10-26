@@ -126,3 +126,30 @@ func TestStackProfilesRolloutViaApplyRefusesTargetsWithRecordedInputs(t *testing
 		t.Fatalf("the export was applied to %d cluster(s)", len(mock.applied))
 	}
 }
+
+// The backstop recognises the placeholder however the export encodes it: as a
+// Secret data value (base64 inside the base64 manifest) and in unpadded or
+// URL-safe base64.
+func TestViaApplyPlaceholderSweepFindsEveryEncoding(t *testing.T) {
+	dataSecret := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: auth\ndata:\n  password: " +
+		base64.StdEncoding.EncodeToString([]byte(stackProfileSecretPlaceholder)) + "\n"
+	plain := "stringData:\n  password: " + stackProfileSecretPlaceholder + "\n"
+	for name, body := range map[string]string{
+		"data value inside a manifest": base64.StdEncoding.EncodeToString([]byte(dataSecret)),
+		"unpadded":                     base64.RawStdEncoding.EncodeToString([]byte(plain + "x")),
+		"url-safe":                     base64.URLEncoding.EncodeToString([]byte(plain + "??>")),
+	} {
+		request := client.CreateImportClusterRequest{Name: "c"}
+		request.Spec.Stacks = []client.Stack{{Name: "s", Manifests: []client.Manifest{{Name: "m", ManifestBase64: body}}}}
+		carries, inspectError := requestCarriesSecretPlaceholder(request)
+		if inspectError != nil || !carries {
+			t.Errorf("%s: carries = %v (%v), want the placeholder found", name, carries, inspectError)
+		}
+	}
+	request := client.CreateImportClusterRequest{Name: "c"}
+	request.Spec.Stacks = []client.Stack{{Name: "s", Manifests: []client.Manifest{{Name: "m",
+		ManifestBase64: base64.StdEncoding.EncodeToString([]byte("kind: ConfigMap\ndata:\n  mode: fast\n"))}}}}
+	if carries, _ := requestCarriesSecretPlaceholder(request); carries {
+		t.Error("a body without the placeholder was reported as carrying it")
+	}
+}
