@@ -35,19 +35,64 @@ import (
 // confirmedRemovalKinds are the member kinds a removal confirmation names.
 var confirmedRemovalKinds = map[string]bool{"addon": true, "manifest": true, "application": true}
 
-// parseConfirmedRemovals validates --confirm-removal values: kind/name, with
-// kind addon, manifest or application.
-func parseConfirmedRemovals(values []string) ([]string, error) {
-	confirmed := []string{}
+// rolloutRemovalConfirmation is one --confirm-removal: a member as
+// kind/name, scoped to one cluster when it names one.
+type rolloutRemovalConfirmation struct {
+	Cluster string
+	Member  string
+}
+
+// rolloutConfirmations are the --confirm-removal values of a rollout.
+type rolloutConfirmations []rolloutRemovalConfirmation
+
+// parseConfirmedRemovals validates --confirm-removal values: [cluster:]kind/name,
+// with kind addon, manifest or application. A confirmation confirms the
+// removal of that member from one stack, so a rollout to more than one stack
+// must say which cluster each confirmation is for: an unscoped one would
+// authorise removing a same-named member on every stack in the run,
+// including stacks whose plan nobody looked at.
+func parseConfirmedRemovals(values []string, targets []rolloutTarget) (rolloutConfirmations, error) {
+	confirmations := rolloutConfirmations{}
 	for _, value := range values {
 		trimmed := strings.TrimSpace(value)
+		cluster := ""
+		if scope, member, isScoped := strings.Cut(trimmed, ":"); isScoped {
+			cluster, trimmed = strings.TrimSpace(scope), strings.TrimSpace(member)
+		}
 		kind, name, hasSeparator := strings.Cut(trimmed, "/")
 		if !hasSeparator || strings.TrimSpace(name) == "" || !confirmedRemovalKinds[kind] {
-			return nil, withExitCode(exitUsage, fmt.Errorf("--confirm-removal %q: name a member as kind/name, with kind addon, manifest or application", value))
+			return nil, withExitCode(exitUsage, fmt.Errorf("--confirm-removal %q: name a member as kind/name (or cluster:kind/name), with kind addon, manifest or application", value))
 		}
-		confirmed = append(confirmed, kind+"/"+name)
+		if cluster == "" && len(targets) > 1 {
+			return nil, withExitCode(exitUsage, fmt.Errorf("--confirm-removal %q: this rollout writes to %d stacks, so name the cluster the removal is for, as cluster:%s", value, len(targets), trimmed))
+		}
+		if cluster != "" && !rolloutTargetsCluster(targets, cluster) {
+			return nil, withExitCode(exitUsage, fmt.Errorf("--confirm-removal %q: cluster %q is not one of this rollout's targets", value, cluster))
+		}
+		confirmations = append(confirmations, rolloutRemovalConfirmation{Cluster: cluster, Member: kind + "/" + name})
 	}
-	return confirmed, nil
+	return confirmations, nil
+}
+
+func rolloutTargetsCluster(targets []rolloutTarget, cluster string) bool {
+	for _, target := range targets {
+		if strings.EqualFold(target.ClusterName, cluster) || target.ClusterID == cluster {
+			return true
+		}
+	}
+	return false
+}
+
+// forTarget lists the members confirmed for one target: the ones scoped to
+// its cluster, and the unscoped ones (which a single-target rollout allows).
+func (confirmations rolloutConfirmations) forTarget(target rolloutTarget) []string {
+	members := []string{}
+	for _, confirmation := range confirmations {
+		if confirmation.Cluster == "" || strings.EqualFold(confirmation.Cluster, target.ClusterName) || confirmation.Cluster == target.ClusterID {
+			members = append(members, confirmation.Member)
+		}
+	}
+	return members
 }
 
 // stackMemberNames is the member listing shared by a profile version's stack
@@ -203,11 +248,12 @@ func unconfirmedRemovals(plan rolloutRemovalPlan, confirmed []string) []string {
 	return unconfirmed
 }
 
-// confirmRolloutRemovalFlags renders --confirm-removal flags for a hint.
-func confirmRolloutRemovalFlags(members []string) string {
+// confirmRolloutRemovalFlags renders --confirm-removal flags for a hint,
+// scoped to the target's cluster.
+func confirmRolloutRemovalFlags(clusterName string, members []string) string {
 	flags := make([]string, 0, len(members))
 	for _, member := range members {
-		flags = append(flags, "--confirm-removal "+member)
+		flags = append(flags, "--confirm-removal "+clusterName+":"+member)
 	}
 	return strings.Join(flags, " ")
 }
@@ -245,11 +291,11 @@ func confirmMultiTargetRollout(cmd *cobra.Command, profileName string, version i
 }
 
 // describeRemovalRefusal renders the platform's refusal of unconfirmed
-// removals, with the flags that would confirm them.
-func describeRemovalRefusal(refusal *client.MemberRemovalUnconfirmedError) string {
+// removals, with the flags that would confirm them on that cluster.
+func describeRemovalRefusal(clusterName string, refusal *client.MemberRemovalUnconfirmedError) string {
 	message := refusal.Message
 	if len(refusal.Members) > 0 {
-		message += " To remove them anyway, roll out again with " + confirmRolloutRemovalFlags(refusal.Members) + "."
+		message += " To remove them anyway, roll out again with " + confirmRolloutRemovalFlags(clusterName, refusal.Members) + "."
 	}
 	return message
 }

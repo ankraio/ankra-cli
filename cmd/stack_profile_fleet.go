@@ -321,7 +321,8 @@ A member of a target stack that the version does not list is removed. The
 platform does that without asking only for a member it can show this profile
 put there; any other removal (an add-on, manifest or application someone added
 to the stack) is refused, with nothing changed, unless you name it with
---confirm-removal kind/name. --dry-run lists, per stack, the members the
+--confirm-removal cluster:kind/name (a confirmation is for that cluster's
+stack only; with a single target the cluster may be left out). --dry-run lists, per stack, the members the
 version would remove, and writes nothing. A rollout to more than one stack
 asks first (--yes skips the question), and it stops at the first stack that
 fails (--continue-on-error keeps going).
@@ -339,7 +340,7 @@ add-on deploys run in the background. Watch them with
 	Example: `  ankra stack-profiles rollout hello-fleet --all --outdated
   ankra stack-profiles rollout hello-fleet --cluster prod-eu --cluster prod-us --version 2
   ankra stack-profiles rollout hello-fleet --all --dry-run
-  ankra stack-profiles rollout hello-fleet --cluster prod-eu --confirm-removal addon/legacy-exporter`,
+  ankra stack-profiles rollout hello-fleet --cluster prod-eu --confirm-removal prod-eu:addon/legacy-exporter`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		format, formatError := structuredFormatFromFlags(cmd)
@@ -403,7 +404,7 @@ add-on deploys run in the background. Watch them with
 		yes, _ := cmd.Flags().GetBool("yes")
 		continueOnError, _ := cmd.Flags().GetBool("continue-on-error")
 		confirmRemovalFlags, _ := cmd.Flags().GetStringArray("confirm-removal")
-		confirmedRemovals, confirmError := parseConfirmedRemovals(confirmRemovalFlags)
+		confirmedRemovals, confirmError := parseConfirmedRemovals(confirmRemovalFlags, targets)
 		if confirmError != nil {
 			return confirmError
 		}
@@ -428,7 +429,7 @@ add-on deploys run in the background. Watch them with
 				detail.Profile.Name, version, len(targets), pluralise(len(targets), "stack", "stacks"))
 			renderRolloutPlan(cmd.OutOrStdout(), outcomes, plans)
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "\nA listed member is removed without asking only when the platform can show this profile put it there;")
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "any other removal is refused unless you name it with --confirm-removal kind/name.")
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "any other removal is refused unless you name it with --confirm-removal cluster:kind/name.")
 			return nil
 		}
 
@@ -512,10 +513,10 @@ add-on deploys run in the background. Watch them with
 				outcomes = append(outcomes, outcome)
 				continue
 			}
-			if unconfirmed := unconfirmedRemovals(plans[index], confirmedRemovals); len(unconfirmed) > 0 {
+			if unconfirmed := unconfirmedRemovals(plans[index], confirmedRemovals.forTarget(target)); len(unconfirmed) > 0 {
 				outcome.Status = "refused"
 				outcome.Message = fmt.Sprintf("nothing applied: it would remove %s, which the version does not list; to remove them anyway add %s",
-					strings.Join(unconfirmed, ", "), confirmRolloutRemovalFlags(unconfirmed))
+					strings.Join(unconfirmed, ", "), confirmRolloutRemovalFlags(target.ClusterName, unconfirmed))
 				failed++
 				outcomes = append(outcomes, outcome)
 				continue
@@ -622,7 +623,7 @@ func init() {
 	stackProfilesRolloutCmd.Flags().StringArray("set", nil, "Bind a parameter: name=value (repeatable; not for secrets)")
 	stackProfilesRolloutCmd.Flags().StringArray("set-file", nil, "Bind a parameter from a file: name=path (repeatable; secret-safe)")
 	stackProfilesRolloutCmd.Flags().StringArray("set-env", nil, "Bind a parameter from an environment variable: name=ENV_VAR (repeatable; secret-safe)")
-	stackProfilesRolloutCmd.Flags().StringArray("confirm-removal", nil, "Allow the rollout to remove this member although the platform cannot show the profile put it there, as kind/name (addon, manifest or application; repeatable)")
+	stackProfilesRolloutCmd.Flags().StringArray("confirm-removal", nil, "Allow the rollout to remove this member from one stack although the platform cannot show the profile put it there, as cluster:kind/name (kind addon, manifest or application; the cluster may be left out when the rollout has one target; repeatable)")
 	stackProfilesRolloutCmd.Flags().Bool("continue-on-error", false, "Keep rolling out to the remaining stacks after one fails (by default the rollout stops at the first failure)")
 	stackProfilesRolloutCmd.Flags().Bool("yes", false, "Skip the confirmation asked before a rollout to more than one stack")
 	stackProfilesRolloutCmd.Flags().Bool("via-apply", false, "Export the version as ClusterInfrastructureAsCode and apply it with the cluster apply lane instead of the platform's in-place upgrade (older platforms; the fleet view then keeps the previous version)")
@@ -640,7 +641,7 @@ func init() {
 // the new version. The deployment's recorded bindings go first and the
 // caller's --set values override them by name. version is already resolved
 // by the caller (the flag, else the profile's current version, never 0).
-func rolloutInPlace(cmd *cobra.Command, format outputFormat, profileID string, profileName string, version int, targets []rolloutTarget, bindings []client.ParameterBinding, confirmedRemovals []string, continueOnError bool) error {
+func rolloutInPlace(cmd *cobra.Command, format outputFormat, profileID string, profileName string, version int, targets []rolloutTarget, bindings []client.ParameterBinding, confirmedRemovals rolloutConfirmations, continueOnError bool) error {
 	out := cmd.OutOrStdout()
 	if format == outputDefault {
 		_, _ = fmt.Fprintf(out, "Rolling out '%s' v%d to %d %s...\n", profileName, version, len(targets), pluralise(len(targets), "stack", "stacks"))
@@ -668,14 +669,14 @@ func rolloutInPlace(cmd *cobra.Command, format outputFormat, profileID string, p
 			Parameters:              mergeParameterBindings(target.recordedBindings, bindings),
 			Deploy:                  true,
 			UpgradeExisting:         true,
-			ConfirmedMemberRemovals: confirmedRemovals,
+			ConfirmedMemberRemovals: confirmedRemovals.forTarget(target),
 		}
 		result, applyError := instantiateProfileOnCluster(target.ClusterID, request)
 		refusal, isRemovalRefusal := asMemberRemovalRefusal(applyError)
 		switch {
 		case isRemovalRefusal:
 			outcome.Status = "refused"
-			outcome.Message = describeRemovalRefusal(refusal)
+			outcome.Message = describeRemovalRefusal(target.ClusterName, refusal)
 			failed++
 		case applyError != nil:
 			outcome.Status = "failed"

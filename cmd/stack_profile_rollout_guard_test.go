@@ -92,7 +92,7 @@ func TestStackProfilesRolloutInPlaceReportsAndConfirmsARefusedRemoval(t *testing
 	if executeError == nil {
 		t.Fatal("a refused removal must fail the rollout")
 	}
-	if !strings.Contains(output, "refused") || !strings.Contains(output, "--confirm-removal addon/team-exporter") {
+	if !strings.Contains(output, "refused") || !strings.Contains(output, "--confirm-removal prod-eu:addon/team-exporter") {
 		t.Errorf("output = %s", output)
 	}
 	if len(mock.upgraded) != 1 {
@@ -123,7 +123,7 @@ func TestStackProfilesRolloutViaApplyRefusesUnconfirmedRemovals(t *testing.T) {
 	if len(mock.applied) != 0 {
 		t.Fatalf("nothing may be applied over an unconfirmed removal: %+v", mock.applied)
 	}
-	if !strings.Contains(output, "--confirm-removal manifest/team-config") {
+	if !strings.Contains(output, "--confirm-removal prod-eu:manifest/team-config") {
 		t.Errorf("output = %s", output)
 	}
 
@@ -156,5 +156,44 @@ func TestStackProfilesRolloutRefusesAMalformedRemovalConfirmation(t *testing.T) 
 	}
 	if len(mock.upgraded) != 0 {
 		t.Fatalf("nothing should be sent: %+v", mock.upgraded)
+	}
+}
+
+// A confirmation is for one stack: in a multi-stack rollout it must name the
+// cluster, and it reaches only that cluster's request.
+func TestStackProfilesRolloutScopesRemovalConfirmationsToTheirCluster(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
+	mock := newRolloutMock()
+	_, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all", "--yes",
+		"--confirm-removal", "addon/team-exporter")
+	if executeError == nil || !strings.Contains(executeError.Error(), "name the cluster the removal is for") {
+		t.Fatalf("an unscoped confirmation in a multi-stack rollout must be a usage error, got %v", executeError)
+	}
+	if len(mock.upgraded) != 0 {
+		t.Fatalf("nothing should be sent: %+v", mock.upgraded)
+	}
+
+	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
+	if _, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all", "--yes",
+		"--confirm-removal", "staging:addon/team-exporter"); executeError == nil || !strings.Contains(executeError.Error(), "not one of this rollout's targets") {
+		t.Fatalf("a confirmation for a cluster outside the rollout must be refused, got %v", executeError)
+	}
+
+	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
+	if _, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all", "--yes",
+		"--confirm-removal", "prod-eu:addon/team-exporter"); executeError != nil {
+		t.Fatalf("rollout failed: %v", executeError)
+	}
+	if len(mock.upgraded) != 2 {
+		t.Fatalf("upgraded = %+v", mock.upgraded)
+	}
+	for index, clusterID := range mock.upgradeClusters {
+		confirmed := strings.Join(mock.upgraded[index].ConfirmedMemberRemovals, ",")
+		if clusterID == "11111111-1111-1111-1111-111111111111" && confirmed != "addon/team-exporter" {
+			t.Errorf("prod-eu's request carries %q, want its confirmation", confirmed)
+		}
+		if clusterID == "22222222-2222-2222-2222-222222222222" && confirmed != "" {
+			t.Errorf("prod-us's request carries %q, want none", confirmed)
+		}
 	}
 }
