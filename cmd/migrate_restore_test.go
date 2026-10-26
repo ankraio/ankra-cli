@@ -47,6 +47,12 @@ type migrateRestoreMock struct {
 	getCount     int
 	failExcerpt  string
 	uploadFailOn string
+	// previouslyRestored is what create answers as the databases an earlier
+	// restore loaded; nil plays a platform that does not report them.
+	previouslyRestored *[]string
+	restoredWith       []client.RestoreBackupVaultImportRequest
+	restoreConflict    string
+	deleted            []string
 }
 
 func (mock *migrateRestoreMock) ListBackupVaults() (*client.BackupVaultListResult, error) {
@@ -93,7 +99,13 @@ func (mock *migrateRestoreMock) CreateBackupVaultImport(vaultID string, request 
 		}
 	}
 	imported := mock.importView(client.BackupVaultImportStatusUploading)
-	return &client.CreateBackupVaultImportResult{Import: imported, Uploads: uploads}, nil
+	return &client.CreateBackupVaultImportResult{Import: imported, Uploads: uploads,
+		PreviouslyRestoredDatabases: mock.previouslyRestored}, nil
+}
+
+func (mock *migrateRestoreMock) DeleteBackupVaultImport(_ string, importID string) error {
+	mock.deleted = append(mock.deleted, importID)
+	return nil
 }
 
 func (mock *migrateRestoreMock) UploadPresignedObject(_ context.Context, upload client.BackupVaultImportUpload, body client.UploadBody, size int64) error {
@@ -128,8 +140,12 @@ func (mock *migrateRestoreMock) CompleteBackupVaultImport(string, string) (*clie
 	return &imported, nil
 }
 
-func (mock *migrateRestoreMock) RestoreBackupVaultImport(string, string) (*client.BackupVaultImport, error) {
+func (mock *migrateRestoreMock) RestoreBackupVaultImport(_ string, _ string, request client.RestoreBackupVaultImportRequest) (*client.BackupVaultImport, error) {
 	mock.restored++
+	mock.restoredWith = append(mock.restoredWith, request)
+	if mock.restoreConflict != "" {
+		return nil, &client.UnexpectedResponseError{StatusCode: http.StatusConflict, Detail: mock.restoreConflict}
+	}
 	imported := mock.importView(client.BackupVaultImportStatusRestoring)
 	imported.Restore = &client.BackupVaultImportRestore{OperationID: "op-1", Status: "restoring",
 		Steps: []client.BackupVaultImportRestoreStep{{StepID: "step-1", Workload: "db", Status: "pending"}}}
@@ -207,6 +223,8 @@ func resetMigrateRestoreFlags() {
 	migrateRestoreStack = ""
 	migrateRestoreVault = ""
 	migrateRestoreStatusVault = ""
+	migrateRestoreOverwrite = nil
+	migrateDataOverwrite = nil
 	for _, command := range []string{"restore", "restore-status", "data"} {
 		sub, _, _ := migrateCmd.Find([]string{command})
 		if sub == nil {
@@ -476,5 +494,92 @@ func TestMigrateRestorePassesAMultipartUploadThrough(t *testing.T) {
 	}
 	if multipart == nil || multipart.UploadID != "up-1" || len(multipart.Parts) != 3 || multipart.CompleteURL == "" || multipart.AbortURL == "" {
 		t.Errorf("the upload must reach the client as the platform described it, got %+v", mock.uploaded)
+	}
+}
+
+// TestMigrateRestoreStopsBeforeUploadingOverARestoredDatabase is the CLI
+// half of ankra-8hlgr0: every run registers a new import, so a re-run after
+// the cutover would restore the export over the live database. When the
+// platform says the database was restored into before, the command stops
+// before a byte is uploaded, removes the import it registered, and names the
+// flag that confirms the overwrite. It never confirms one by itself.
+func TestMigrateRestoreStopsBeforeUploadingOverARestoredDatabase(t *testing.T) {
+	restoredBefore := []string{"db/office"}
+	mock := &migrateRestoreMock{vaults: []client.BackupVault{readyVault("backups1")}, getStatuses: []string{"completed"},
+		previouslyRestored: &restoredBefore}
+	installMigrateRestoreMock(t, mock)
+	dir := writeMigrateRestoreFixture(t)
+
+	_, _, err := runMigrate(t, "restore", dir, "--cluster", migrateRestoreTestCluster, "--wait", "--timeout", "10s")
+	if exitCodeFor(err) != exitUsage || err == nil ||
+		!strings.Contains(err.Error(), "would replace database db/office, which Ankra already restored into") ||
+		!strings.Contains(err.Error(), "run again with --overwrite-database db/office") ||
+		!strings.Contains(err.Error(), "nothing was uploaded") {
+		t.Fatalf("an unconfirmed overwrite must stop with the flag to pass, got %v", err)
+	}
+	if len(mock.uploads) != 0 || mock.completed != 0 || mock.restored != 0 {
+		t.Errorf("uploaded=%d completed=%d restored=%d before the refusal", len(mock.uploads), mock.completed, mock.restored)
+	}
+	if len(mock.deleted) != 1 || mock.deleted[0] != "6f1c8e2a-0000-4000-8000-000000000001" {
+		t.Errorf("the registered import must be removed, deleted %v", mock.deleted)
+	}
+}
+
+// TestMigrateRestoreConfirmsOnlyTheNamedDatabases: named, by identifier or
+// by database name, the restore goes ahead and the platform is told which
+// databases it may replace; a run naming nothing confirms nothing.
+func TestMigrateRestoreConfirmsOnlyTheNamedDatabases(t *testing.T) {
+	for _, named := range []string{"db/office", "office"} {
+		restoredBefore := []string{"db/office"}
+		mock := &migrateRestoreMock{vaults: []client.BackupVault{readyVault("backups1")}, getStatuses: []string{"completed"},
+			previouslyRestored: &restoredBefore}
+		installMigrateRestoreMock(t, mock)
+		dir := writeMigrateRestoreFixture(t)
+		if _, stderr, err := runMigrate(t, "restore", dir, "--cluster", migrateRestoreTestCluster, "--overwrite-database", named); err != nil {
+			t.Fatalf("--overwrite-database %s: %v\n%s", named, err, stderr)
+		}
+		if len(mock.restoredWith) != 1 || len(mock.restoredWith[0].ConfirmedOverwriteDatabases) != 1 ||
+			mock.restoredWith[0].ConfirmedOverwriteDatabases[0] != named || len(mock.deleted) != 0 {
+			t.Errorf("--overwrite-database %s restored with %+v, deleted %v", named, mock.restoredWith, mock.deleted)
+		}
+	}
+
+	nothingRestored := []string{}
+	mock := &migrateRestoreMock{vaults: []client.BackupVault{readyVault("backups1")}, getStatuses: []string{"completed"},
+		previouslyRestored: &nothingRestored}
+	installMigrateRestoreMock(t, mock)
+	if _, stderr, err := runMigrate(t, "restore", writeMigrateRestoreFixture(t), "--cluster", migrateRestoreTestCluster); err != nil {
+		t.Fatalf("a fresh database: %v\n%s", err, stderr)
+	}
+	if len(mock.restoredWith) != 1 || len(mock.restoredWith[0].ConfirmedOverwriteDatabases) != 0 {
+		t.Errorf("a run naming nothing must confirm nothing, restored with %+v", mock.restoredWith)
+	}
+}
+
+// TestMigrateRestoreExplainsThePlatformsOverwriteRefusal: a platform that
+// did not report earlier restores at registration (or a race since) still
+// refuses at the restore, and the command turns that 409 into the flag to
+// pass and the import it left behind.
+func TestMigrateRestoreExplainsThePlatformsOverwriteRefusal(t *testing.T) {
+	mock := &migrateRestoreMock{vaults: []client.BackupVault{readyVault("backups1")}, getStatuses: []string{"completed"},
+		restoreConflict: "Restoring this import would replace database db/office, which Ankra already restored into on this cluster. " +
+			"A restore replaces everything in a database with the export, including every write made since the earlier restore. " +
+			"To overwrite anyway, name each database in confirmed_overwrite_databases."}
+	installMigrateRestoreMock(t, mock)
+	_, _, err := runMigrate(t, "restore", writeMigrateRestoreFixture(t), "--cluster", migrateRestoreTestCluster)
+	if exitCodeFor(err) != exitUsage || err == nil || !strings.Contains(err.Error(), "would replace database db/office") ||
+		!strings.Contains(err.Error(), "Name each database with --overwrite-database") ||
+		!strings.Contains(err.Error(), "ankra migrate imports delete 6f1c8e2a-0000-4000-8000-000000000001") {
+		t.Fatalf("the platform's refusal must name the flag, got %v", err)
+	}
+}
+
+func TestUnconfirmedOverwritesMatchIdentifierOrDatabaseName(t *testing.T) {
+	previous := []string{"db/office", "db/audit", "reports/audit"}
+	if got := unconfirmedOverwrites(previous, []string{"office", "reports/audit"}); strings.Join(got, ",") != "db/audit" {
+		t.Errorf("unconfirmed = %v", got)
+	}
+	if got := unconfirmedOverwrites(previous, nil); len(got) != 3 {
+		t.Errorf("nothing named leaves all unconfirmed, got %v", got)
 	}
 }
