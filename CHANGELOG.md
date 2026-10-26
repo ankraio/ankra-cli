@@ -32,6 +32,13 @@
   project is selected, and `ankra cluster kubeconfig add` pins the project in
   the exec entry it writes, so `kubectl` keeps working after you switch.
 
+- **`ankra org invite --role project --project <slug|name|id>` invites a
+  project-only member**, who reaches that one project with the role
+  `--project-role` gives (admin, operator, member or viewer; member by
+  default) and nothing else of the organisation. The platform's refusals are
+  shown in its own words: a project the organisation does not have exits 3,
+  a role past your own grant exits 7.
+
 - **`ankra tokens create --project <slug|name|id>` pins a new token to a
   project**, personal or `--service`: it then acts only there and cannot be
   pointed elsewhere. A token with MCP scopes is always pinned, to the project

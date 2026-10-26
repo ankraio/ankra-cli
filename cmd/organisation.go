@@ -544,21 +544,32 @@ var orgInviteCmd = &cobra.Command{
 	Short: "Invite a user to the current organisation",
 	Long: `Invite a user by email to the current organisation.
 
-Valid roles: owner, admin, operator, member (default), viewer, read-only.
-owner/operator alias onto admin/member on the invite until the RBAC
+Valid roles: owner, admin, operator, member (default), viewer, read-only,
+project. owner/operator alias onto admin/member on the invite until the RBAC
 assignments API ships; run 'ankra org roles' for the full list.
+
+--role project invites a project-only member: they reach the one project
+named with the global --project (slug, name or id) and nothing else of the
+organisation, with the project role --project-role (admin, operator, member
+or viewer; member by default). Needs projects enabled for the organisation.
 
 Examples:
   ankra org invite user@example.com
   ankra org invite user@example.com --role admin
-  ankra org invite user@example.com --role viewer`,
+  ankra org invite user@example.com --role viewer
+  ankra org invite contractor@example.com --role project --project edge --project-role operator`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		email := args[0]
 		role, _ := cmd.Flags().GetString("role")
+		role = strings.ToLower(strings.TrimSpace(role))
 		if !isValidAssignableRole(role) {
 			return withExitCode(exitUsage, fmt.Errorf(
 				"invalid role %q; valid roles: %s", role, strings.Join(assignableRoles, ", ")))
+		}
+		projectID, projectRole, grantError := inviteProjectGrant(cmd, role)
+		if grantError != nil {
+			return grantError
 		}
 
 		orgID, err := resolveOrganisationID()
@@ -567,22 +578,61 @@ Examples:
 		}
 
 		result, err := apiClient.InviteUserToOrganisation(client.InviteUserRequest{
-			OrganisationID: orgID,
-			InviteeEmail:   email,
-			Role:           toLegacyWireRole(role),
+			OrganisationID:  orgID,
+			InviteeEmail:    email,
+			Role:            toLegacyWireRole(role),
+			ProjectID:       projectID,
+			ProjectRoleSlug: projectRole,
 		})
 		if err != nil {
 			return fmt.Errorf("inviting user: %w", err)
 		}
 
 		if result.Success {
-			fmt.Printf("Invitation sent to %s (role: %s)\n", email, role)
+			if projectID != nil {
+				fmt.Printf("Invitation sent to %s (project-only: %s in project %s)\n", email, projectRole, *projectID)
+			} else {
+				fmt.Printf("Invitation sent to %s (role: %s)\n", email, role)
+			}
 		}
 		if result.Message != "" {
 			fmt.Printf("Message: %s\n", result.Message)
 		}
 		return nil
 	},
+}
+
+// inviteProjectGrant validates the project-only invite flags: --role project
+// needs the global --project and takes --project-role; any other role takes
+// neither. The project is the one this invocation is scoped to, already
+// resolved to an id by the persistent pre-run.
+func inviteProjectGrant(cmd *cobra.Command, role string) (*string, string, error) {
+	projectRole, _ := cmd.Flags().GetString("project-role")
+	projectRole = strings.ToLower(strings.TrimSpace(projectRole))
+	projectRoleChanged := cmd.Flags().Changed("project-role")
+	if role != membershipRoleProject {
+		if projectRoleChanged {
+			return nil, "", withExitCode(exitUsage, errors.New("--project-role applies only to --role project"))
+		}
+		return nil, "", nil
+	}
+	if !containsString(projectRoleSlugs, projectRole) {
+		return nil, "", withExitCode(exitUsage, fmt.Errorf("--project-role must be one of %s, not %q",
+			strings.Join(projectRoleSlugs, ", "), projectRole))
+	}
+	projectFlag := cmd.Root().PersistentFlags().Lookup("project")
+	if projectFlag == nil || !projectFlag.Changed || strings.TrimSpace(projectFlag.Value.String()) == "" {
+		return nil, "", withExitCode(exitUsage, errors.New("--role project needs --project <slug|name|id>: the one project the member reaches"))
+	}
+	projectID := strings.TrimSpace(apiClient.ProjectOverride())
+	if projectID == "" {
+		resolved, resolveError := resolveProjectReferenceToID(projectFlag.Value.String())
+		if resolveError != nil {
+			return nil, "", resolveError
+		}
+		projectID = resolved
+	}
+	return &projectID, projectRole, nil
 }
 
 var orgRolesCmd = &cobra.Command{
@@ -641,7 +691,8 @@ var orgRemoveCmd = &cobra.Command{
 func init() {
 	orgCreateCmd.Flags().String("country", "", "Country code for the organisation")
 
-	orgInviteCmd.Flags().String("role", "member", "Role for the invited user (owner, admin, operator, member, viewer, read-only)")
+	orgInviteCmd.Flags().String("role", "member", "Role for the invited user (owner, admin, operator, member, viewer, read-only, project)")
+	orgInviteCmd.Flags().String("project-role", "member", "With --role project: the role inside the project (admin, operator, member or viewer)")
 	orgRemoveCmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
 
 	registerStructuredOutputFlags(orgListCmd, orgCurrentCmd, orgCreateCmd, orgMembersCmd)
