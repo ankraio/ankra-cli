@@ -159,7 +159,8 @@ func fakeServiceInstance() map[string]any {
 		"requested_destinations": []any{map[string]any{"application_id": fakeServiceApplication, "cluster_id": fakeServiceClusterID, "namespace": "orders"}},
 		"consumers": []any{map[string]any{"id": fakeServiceConsumerID, "application_id": fakeServiceApplication,
 			"cluster_id": fakeServiceClusterID, "namespace": "orders", "application_name": "storefront", "cluster_name": "prod",
-			"environment": map[string]any{"id": "e1000000-0000-4000-8000-000000000020", "name": "production", "role": "production"}}},
+			"environment":         map[string]any{"id": "e1000000-0000-4000-8000-000000000020", "name": "production", "role": "production"},
+			"connection_delivery": map[string]any{"state": "delivered", "secret_name": "orders-db-connection", "variables": []any{"DATABASE_URL", "ORDERS_DB_DATABASE_URL"}, "reason": ""}}},
 		"deployment_operation_id": "e0000000-0000-4000-8000-000000000010", "deployment_state": "verification_pending",
 		"readiness": "ready",
 		"readiness_check": map[string]any{"observed_at": "2026-10-02T10:00:00Z", "expires_at": "2026-10-02T10:15:00Z",
@@ -952,7 +953,8 @@ func TestServicesGetShowsConnectionButNeverSecretValues(t *testing.T) {
 	for _, expected := range []string{"Deployment:  deployed - the deployment finished and a readiness check connected",
 		"Health:      serving", "Readiness:   ready - canary logged in", "application storefront, cluster prod, namespace orders",
 		"postgresql-rw.orders-db.svc:5432", "Secret:    postgresql-app (keys: username, password, fqdn-uri)",
-		"ankra cluster get secrets postgresql-app -n orders-db", fakeServiceConsumerID} {
+		"ankra cluster get secrets postgresql-app -n orders-db", fakeServiceConsumerID,
+		"Delivery: delivered, Secret orders-db-connection", "Variables: DATABASE_URL, ORDERS_DB_DATABASE_URL"} {
 		if !strings.Contains(stdout, expected) {
 			t.Errorf("get output lacks %q:\n%s", expected, stdout)
 		}
@@ -979,6 +981,9 @@ func TestServicesGetShowsConnectionButNeverSecretValues(t *testing.T) {
 		}
 		if !strings.Contains(stdout, "postgresql-app") {
 			t.Errorf("-o %s must still carry the Secret's name:\n%s", format, stdout)
+		}
+		if !strings.Contains(stdout, "connection_delivery") || !strings.Contains(stdout, "orders-db-connection") {
+			t.Errorf("-o %s must carry each consumer's connection delivery:\n%s", format, stdout)
 		}
 	}
 
@@ -1052,6 +1057,31 @@ func TestServiceUsedByNamesTheNamespaceWithoutAnEnvironment(t *testing.T) {
 	}
 	if got := serviceUsedBy(client.ServiceInstance{}, fakeServiceApplication); got != "-" {
 		t.Errorf("no consumer of the application reads -, got %q", got)
+	}
+}
+
+// A consumer's delivery prints under it with the platform's reason, and a
+// consumer the platform reported none for (a platform from before delivery)
+// prints nothing rather than claiming it is connected or not.
+func TestServiceConnectionDeliveryPrintsTheStateAndReason(t *testing.T) {
+	var out bytes.Buffer
+	printServiceConnectionDelivery(&out, &client.ServiceConnectionDelivery{State: "pending", SecretName: "orders-db-connection",
+		Variables: []string{"DATABASE_URL"}, Reason: "Delivered the next time the application deploys to this environment."})
+	for _, expected := range []string{"Delivery: pending, Secret orders-db-connection - Delivered the next time", "Variables: DATABASE_URL"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Errorf("delivery output lacks %q:\n%s", expected, out.String())
+		}
+	}
+	out.Reset()
+	printServiceConnectionDelivery(&out, &client.ServiceConnectionDelivery{State: "unsupported", Variables: []string{},
+		Reason: "This application runs on another cluster than the service."})
+	if got := out.String(); got != "      Delivery: unsupported - This application runs on another cluster than the service.\n" {
+		t.Errorf("an unsupported delivery names no Secret and no variables, got %q", got)
+	}
+	out.Reset()
+	printServiceConnectionDelivery(&out, nil)
+	if out.Len() != 0 {
+		t.Errorf("no reported delivery prints nothing, got %q", out.String())
 	}
 }
 

@@ -374,6 +374,26 @@ type ServiceInstanceConsumer struct {
 	ApplicationName *string                     `json:"application_name,omitempty" yaml:"application_name,omitempty"`
 	ClusterName     string                      `json:"cluster_name,omitempty" yaml:"cluster_name,omitempty"`
 	Environment     *ServiceConsumerEnvironment `json:"environment,omitempty" yaml:"environment,omitempty"`
+	// ConnectionDelivery is how this consumer receives the service's
+	// connection (cluster#4539). The instance read answers it for a live
+	// service's consumers; a retirement plan, a released service and a
+	// platform from before delivery carry none.
+	ConnectionDelivery *ServiceConnectionDelivery `json:"connection_delivery,omitempty" yaml:"connection_delivery,omitempty"`
+}
+
+// ServiceConnectionDelivery is how one consumer receives the service's
+// connection: a Secret the platform writes into the consumer's namespace,
+// copied inside the cluster, and the environment variables it carries. State
+// is delivered (the Secret is observed there), pending (the application's next
+// deploy delivers it), unsupported (the platform does not deliver it, for
+// example to another cluster; Reason says why) or unknown (the delivery could
+// not be read, which is not an answer that it is missing). Values are never
+// carried.
+type ServiceConnectionDelivery struct {
+	State      string   `json:"state" yaml:"state"`
+	SecretName string   `json:"secret_name" yaml:"secret_name"`
+	Variables  []string `json:"variables" yaml:"variables"`
+	Reason     string   `json:"reason" yaml:"reason"`
 }
 
 // ServiceConsumerEnvironment is the application environment whose

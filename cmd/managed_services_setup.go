@@ -468,6 +468,7 @@ func printServiceSetupReceipt(out io.Writer, serviceName string, clusterName str
 	}
 	_, _ = fmt.Fprintf(out, "Confirming starts the deployment; it does not mean the service is ready. Follow its health and readiness with:\n"+
 		"  ankra services get %s --cluster %s\n", serviceName, clusterName)
+	_, _ = fmt.Fprintf(out, "Once it is running, deploy each application on cluster %s again: its next deploy delivers the connection.\n", clusterName)
 }
 
 func newServicesReviewsCommand() *cobra.Command {

@@ -116,7 +116,7 @@ func printServiceRetirementPlan(out io.Writer, names *serviceNames, retirement c
 	printServiceNamespaceContents(out, plan.NamespaceContents)
 
 	if len(plan.ConsumersToDisconnect) > 0 {
-		_, _ = fmt.Fprintln(out, "  Disconnects (a record only; no credentials were delivered to them):")
+		_, _ = fmt.Fprintln(out, "  Disconnects (each application's next deploy removes any connection Ankra delivered to it):")
 		for _, consumer := range plan.ConsumersToDisconnect {
 			_, _ = fmt.Fprintf(out, "    %s  application %s, cluster %s, namespace %s\n",
 				consumer.ID, names.consumerApplication(consumer.ApplicationID, consumer.ApplicationName), names.cluster(consumer.ClusterID), consumer.Namespace)

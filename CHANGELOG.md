@@ -2,8 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra services get` shows how each consumer receives the service's connection.** Under every consumer it prints the delivery state (`delivered`, `pending` until the application's next deploy, `unsupported` with the reason, for example a consumer on another cluster, or `unknown`), the `<service>-connection` Secret and the environment variables it carries, such as `DATABASE_URL`. `-o json` and `-o yaml` carry it as `connection_delivery`.
+
 ### Fixed
 
+- **`ankra services` help no longer says connections are wired by hand or that a data policy is required.** An application on the service's cluster receives the connection on its next deploy, and declaring a placement policy is optional. The help also no longer says only PostgreSQL has a readiness check: every engine has one.
 - **A retirement that left the service's data no longer reads as plainly retired.** When a retirement released the service's name but its data was still on the cluster, or Ankra could not confirm it gone, the CLI now says so: `ankra services list` and `ankra services get` read `released, data may remain`, and `ankra services get`, `ankra services retirements get` and `ankra services retirements confirm` print the cluster, namespace, volumes and the Ankra CLI commands for the next step. Waiting on a retirement that settled without an outcome, or with one this CLI does not recognise, now exits with an error instead of reporting success.
 
 ## v0.48.0 - 2026-10-25
