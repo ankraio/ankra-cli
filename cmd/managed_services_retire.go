@@ -198,6 +198,9 @@ func printServiceRetirementProgress(out io.Writer, retirement client.ServiceReti
 	if retirement.Reason != nil && *retirement.Reason != "" {
 		_, _ = fmt.Fprintf(out, "  Reason:    %s\n", *retirement.Reason)
 	}
+	if retirement.Outcome != nil {
+		printServiceKeptData(out, *retirement.Outcome, retirement.DataDisposal, retirement.KeptData, "  ")
+	}
 	disposal := retirement.VolumeDisposal
 	if disposal == nil {
 		return
@@ -216,9 +219,58 @@ func printServiceRetirementProgress(out io.Writer, retirement client.ServiceReti
 	}
 }
 
-// waitForServiceRetirement reads a confirmed retirement until it settles.
-// A settled outcome other than retired left the service and its name in
-// place, and is an error; running past the timeout exits with the wait code.
+// printServiceKeptData says what a retirement that released the name left of
+// the service's data, or could not rule out, with the Ankra CLI commands for
+// the next step. It prints nothing unless the data disposal says the data may
+// remain, and says so even when this CLI could not read the details.
+// Everything is what Ankra saw when it looked, once, never a fact about now.
+func printServiceKeptData(out io.Writer, outcome string, dataDisposal *string, kept *client.ServiceRetirementKeptData, indent string) {
+	if !client.ServiceRetirementDataMayRemain(outcome, dataDisposal) {
+		return
+	}
+	when := "when Ankra looked"
+	if kept != nil && kept.ObservedAt != nil {
+		when = "when Ankra looked (" + *kept.ObservedAt + ")"
+	}
+	if *dataDisposal == client.ServiceDataKept {
+		_, _ = fmt.Fprintf(out, "%sDATA KEPT: the name is released, but %s the service's data was still on its cluster\n", indent, when)
+	} else {
+		_, _ = fmt.Fprintf(out, "%sDATA NOT CONFIRMED GONE: the name is released, but Ankra could not confirm the service's data is gone\n", indent)
+	}
+	if kept == nil {
+		_, _ = fmt.Fprintf(out, "%s  Check the service's cluster for persistent volumes whose claim was in the service's namespace\n", indent)
+		return
+	}
+	namespace := kept.Namespace
+	if namespace == "" {
+		namespace = "not known"
+	}
+	_, _ = fmt.Fprintf(out, "%s  Cluster %s, namespace %s\n", indent, valueOr(kept.ClusterID, "not known"), namespace)
+	if len(kept.RetainedVolumes) > 0 {
+		_, _ = fmt.Fprintf(out, "%s  Held data %s (it does not check again): %s\n", indent, when, strings.Join(kept.RetainedVolumes, ", "))
+	}
+	if len(kept.UnconfirmedVolumes) > 0 {
+		_, _ = fmt.Fprintf(out, "%s  Not confirmed gone: %s\n", indent, strings.Join(kept.UnconfirmedVolumes, ", "))
+	}
+	if !kept.Complete {
+		_, _ = fmt.Fprintf(out, "%s  Ankra could not name every volume: one not listed here may still hold the service's data\n", indent)
+	}
+	if kept.NextStep != "" {
+		_, _ = fmt.Fprintf(out, "%s  Next step: %s\n", indent, kept.NextStep)
+	}
+	if len(kept.Commands) == 0 {
+		_, _ = fmt.Fprintf(out, "%s  No command is offered: the service's cluster could not be read\n", indent)
+		return
+	}
+	_, _ = fmt.Fprintf(out, "%s  Ankra CLI commands (before erasing a volume, inspect it and confirm spec.claimRef.namespace is %s and status.phase is Released; erasing cannot be undone):\n", indent, namespace)
+	for _, command := range kept.Commands {
+		_, _ = fmt.Fprintf(out, "%s    %s\n", indent, command.Command)
+	}
+}
+
+// waitForServiceRetirement reads a confirmed retirement until it settles;
+// running past the timeout exits with the wait code. What a settled outcome
+// means for the exit status is confirmServiceRetirementAndReport's.
 func waitForServiceRetirement(command *cobra.Command, instanceID string, retirementID string, timeout time.Duration) (*client.ServiceRetirement, error) {
 	ctx := command.Context()
 	deadline := time.Now().Add(timeout)
@@ -302,7 +354,24 @@ func confirmServiceRetirementAndReport(command *cobra.Command, instanceID string
 		_, _ = fmt.Fprintf(out, "Follow it with 'ankra services retirements get %s %s' (or re-run with --wait).\n", instanceID, confirmed.ID)
 		return nil
 	}
-	if confirmed.Outcome != nil && *confirmed.Outcome != "retired" {
+	if confirmed.Outcome == nil {
+		// Settled with no outcome recorded is not a success either.
+		return fmt.Errorf("the retirement settled without an outcome; read it with 'ankra services retirements get %s %s'", instanceID, confirmed.ID)
+	}
+	if client.ServiceRetirementDataMayRemain(*confirmed.Outcome, confirmed.DataDisposal) {
+		// The retirement succeeded - its name is released - so the exit
+		// status stays 0, as released scripts expect; what is left of the
+		// data is said above and once more here.
+		_, _ = fmt.Fprintf(out, "The name is released, but the service's data may remain on its cluster (%s): see the volumes and commands above.\n", *confirmed.DataDisposal)
+		return nil
+	}
+	if !client.ServiceRetirementReleasedName(*confirmed.Outcome) {
+		if !client.ServiceRetirementKeepsName(*confirmed.Outcome) {
+			// An outcome this CLI does not know is neither a success nor a
+			// claim about the name.
+			return fmt.Errorf("the retirement settled %s, an outcome this CLI does not recognise (%s); read it with 'ankra services retirements get %s %s'",
+				*confirmed.Outcome, valueOr(confirmed.Reason, "no reason given"), instanceID, confirmed.ID)
+		}
 		return fmt.Errorf("the retirement settled %s: the service and its name stay in place (%s); prepare a new retirement once the cause is resolved",
 			*confirmed.Outcome, valueOr(confirmed.Reason, "no reason given"))
 	}
