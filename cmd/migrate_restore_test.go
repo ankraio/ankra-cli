@@ -605,6 +605,17 @@ func TestOverwriteDatabasesAreResolvedAgainstTheExport(t *testing.T) {
 	}
 }
 
+// TestOverwriteRefusalNamesEveryDatabaseTheRerunNeeds: the advice carries
+// the databases already confirmed too, so a re-run that follows it does not
+// drop one and get refused again.
+func TestOverwriteRefusalNamesEveryDatabaseTheRerunNeeds(t *testing.T) {
+	advice := overwriteRefusal([]string{"db/audit"}, []string{"db/office"}, "shop")
+	if !strings.Contains(advice, "would replace database db/audit, which Ankra already restored into on cluster shop") ||
+		!strings.HasSuffix(advice, "run again with --overwrite-database db/audit --overwrite-database db/office.") {
+		t.Errorf("advice = %s", advice)
+	}
+}
+
 // TestMigrateRestoreRefusesAnUnknownOverwriteBeforeRegistering: a typo in
 // --overwrite-database is caught before anything reaches the platform.
 func TestMigrateRestoreRefusesAnUnknownOverwriteBeforeRegistering(t *testing.T) {

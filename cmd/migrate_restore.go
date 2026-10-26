@@ -310,7 +310,8 @@ func performMigrateRestore(cmd *cobra.Command, exportDir string, targets migrate
 				removal = fmt.Sprintf("Nothing was uploaded; removing the import it registered failed (%v), "+
 					"so remove it with `ankra migrate imports delete %s`.", deleteError, created.Import.ID)
 			}
-			return nil, withExitCode(exitUsage, fmt.Errorf("%s %s", overwriteRefusal(unconfirmed, targets.clusterName), removal))
+			return nil, withExitCode(exitUsage, fmt.Errorf("%s %s",
+				overwriteRefusal(unconfirmed, confirmedOverwrites, targets.clusterName), removal))
 		}
 	}
 
@@ -425,17 +426,21 @@ func unconfirmedOverwrites(previouslyRestored []string, confirmed []string) []st
 }
 
 // overwriteRefusal explains why a restore into already-restored databases
-// stops, and how to go on when replacing them is intended.
-func overwriteRefusal(unconfirmed []string, clusterName string) error {
+// stops, and how to go on when replacing them is intended. The advice names
+// every database the next run must confirm - the ones already given as well
+// as the missing ones - so following it is enough on the first try.
+func overwriteRefusal(unconfirmed []string, confirmed []string, clusterName string) string {
 	subject := "database " + unconfirmed[0] + ", which Ankra already restored into"
 	if len(unconfirmed) > 1 {
 		subject = "databases " + strings.Join(unconfirmed, ", ") + ", which Ankra already restored into"
 	}
-	flags := make([]string, 0, len(unconfirmed))
-	for _, identifier := range unconfirmed {
+	needed := append(append([]string{}, confirmed...), unconfirmed...)
+	sort.Strings(needed)
+	flags := make([]string, 0, len(needed))
+	for _, identifier := range needed {
 		flags = append(flags, "--overwrite-database "+identifier)
 	}
-	return fmt.Errorf("restoring this export would replace %s on cluster %s. A restore replaces everything in a "+
+	return fmt.Sprintf("restoring this export would replace %s on cluster %s. A restore replaces everything in a "+
 		"database with the export, including every write made since the earlier restore - after a cutover, that "+
 		"is the application's live data. If replacing it is what you want (the final run after a rehearsal, with "+
 		"the source's writers stopped), run again with %s.", subject, clusterName, strings.Join(flags, " "))
