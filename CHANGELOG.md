@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **A retirement that left the service's data no longer reads as plainly retired.** When a retirement released the service's name but its data was still on the cluster, or Ankra could not confirm it gone, the CLI now says so: `ankra services list` and `ankra services get` read `released, data may remain`, and `ankra services get`, `ankra services retirements get` and `ankra services retirements confirm` print the cluster, namespace, volumes and the Ankra CLI commands for the next step. Waiting on a retirement that settled without an outcome, or with one this CLI does not recognise, now exits with an error instead of reporting success.
+
 ## v0.48.0 - 2026-10-25
 
 This release adds a read-only preview of the exact AI destination for profile
