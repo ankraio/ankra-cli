@@ -92,6 +92,9 @@ func parseAsyncWriteResponse(
 	if deferral := gitPushDeferralFromResponse(response.StatusCode, responseBody); deferral != nil {
 		return nil, &gitPushDeferredError{deferral: *deferral}
 	}
+	if refusal := memberRemovalUnconfirmedFromBody(response.StatusCode, responseBody); refusal != nil {
+		return nil, refusal
+	}
 	if wait {
 		if response.StatusCode < 200 || response.StatusCode >= 300 {
 			return nil, newUnexpectedResponseErrorWithMessage(response.StatusCode, fmt.Sprintf("request failed: status %d: %s", response.StatusCode, redactedBodyForError(responseBody, 500)))
