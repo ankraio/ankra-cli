@@ -505,28 +505,30 @@ add-on deploys run in the background. Watch them with
 			}
 			outcome := rolloutOutcome{rolloutTarget: target, ToVersion: version}
 			// The apply lane replaces the stack with the version and cannot
-			// tell whose a member is, so every removal must be named.
-			if plans[index].ReadError != nil {
+			// tell whose a member is, so every removal must be named; a
+			// target that fails this check is reported like any other
+			// failure, and nothing is sent for it.
+			unconfirmed := unconfirmedRemovals(plans[index], confirmedRemovals.forTarget(target))
+			var response *client.ImportResponse
+			var submitted bool
+			var applyError error
+			if plans[index].ReadError == nil && len(unconfirmed) == 0 {
+				request := rolloutRequest(base, target)
+				// Every removal this apply makes was confirmed above; the
+				// platform refuses one it is not told about (ankra-kwr1sp).
+				request.ConfirmedMemberRemovals = confirmedRemovals.forTarget(target)
+				response, submitted, applyError = apiClient.ApplyCluster(requestContext, request, wait)
+			}
+			switch {
+			case plans[index].ReadError != nil:
 				outcome.Status = "failed"
 				outcome.Message = "nothing applied: the stack's members could not be read, so what the apply would remove is unknown (" + plans[index].ReadError.Error() + ")"
 				failed++
-				outcomes = append(outcomes, outcome)
-				continue
-			}
-			if unconfirmed := unconfirmedRemovals(plans[index], confirmedRemovals.forTarget(target)); len(unconfirmed) > 0 {
+			case len(unconfirmed) > 0:
 				outcome.Status = "refused"
 				outcome.Message = fmt.Sprintf("nothing applied: it would remove %s, which the version does not list; to remove them anyway add %s",
 					strings.Join(unconfirmed, ", "), confirmRolloutRemovalFlags(target.ClusterName, unconfirmed))
 				failed++
-				outcomes = append(outcomes, outcome)
-				continue
-			}
-			request := rolloutRequest(base, target)
-			// Every removal this apply makes was confirmed above; the platform
-			// refuses one it is not told about (ankra-kwr1sp).
-			request.ConfirmedMemberRemovals = confirmedRemovals.forTarget(target)
-			response, submitted, applyError := apiClient.ApplyCluster(requestContext, request, wait)
-			switch {
 			case applyError != nil:
 				outcome.Status = "failed"
 				outcome.Message = applyError.Error()
