@@ -210,16 +210,23 @@ func TestCostSettingsSetRefusalExitCodes(t *testing.T) {
 
 // rawDocumentFixture carries a document the way a decoded response does.
 type rawDocumentFixture struct {
+	client.RawDocument `json:"-" yaml:"-"`
+
 	Declared string `json:"declared" yaml:"declared"`
-	document json.RawMessage
 }
 
-func (fixture rawDocumentFixture) RawJSON() json.RawMessage { return fixture.document }
+// unrelatedRawJSON has a RawJSON method but does not embed
+// client.RawDocument, so it must print as itself.
+type unrelatedRawJSON struct {
+	Declared string `json:"declared"`
+}
+
+func (unrelatedRawJSON) RawJSON() json.RawMessage { return json.RawMessage(`{"replaced":true}`) }
 
 func TestStructuredDocumentKeepsKeyOrderAndNumberLiterals(t *testing.T) {
 	document := `{"zeta":1,"alpha":{"b":"x","a":[1.50,"2",true,null]},"big":12345678901234567890123,` +
 		`"empty":"","multi":"a\nb","emoji":"\ud83d\ude00","nothing":{},"none":[]}`
-	value := &rawDocumentFixture{Declared: "only this", document: json.RawMessage(document)}
+	value := &rawDocumentFixture{RawDocument: client.NewRawDocument([]byte(document)), Declared: "only this"}
 
 	var jsonOut bytes.Buffer
 	if _, err := encodeStructuredCounting(&jsonOut, outputJSON, value, new(bytes.Buffer)); err != nil {
@@ -259,5 +266,14 @@ func TestStructuredDocumentKeepsKeyOrderAndNumberLiterals(t *testing.T) {
 	}
 	if !strings.Contains(fallback.String(), `"declared": "only this"`) {
 		t.Fatalf("an empty carrier prints its struct:\n%s", fallback.String())
+	}
+
+	// A RawJSON method alone does not opt a type in.
+	var unrelated bytes.Buffer
+	if _, err := encodeStructuredCounting(&unrelated, outputJSON, unrelatedRawJSON{Declared: "mine"}, new(bytes.Buffer)); err != nil {
+		t.Fatalf("unrelated: %v", err)
+	}
+	if !strings.Contains(unrelated.String(), `"declared": "mine"`) || strings.Contains(unrelated.String(), "replaced") {
+		t.Fatalf("a type that does not embed client.RawDocument prints as itself:\n%s", unrelated.String())
 	}
 }

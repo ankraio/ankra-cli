@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"strconv"
 
+	"ankra/internal/client"
+
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -61,9 +63,11 @@ func renderStructured(cmd *cobra.Command, value interface{}) (bool, error) {
 }
 
 // rawDocumentCarrier is a value decoded from a platform response that kept
-// the response body beside the decode (client.RawDocument).
+// the response body beside the decode: a type that embeds client.RawDocument.
+// The match is on a method returning the client package's own type, so no
+// unrelated type opts in by accident.
 type rawDocumentCarrier interface {
-	RawJSON() json.RawMessage
+	ResponseDocument() client.RawDocument
 }
 
 // structuredDocumentFor is what -o json|yaml prints for value. A value that
@@ -82,7 +86,7 @@ func structuredDocumentFor(format outputFormat, value interface{}) interface{} {
 	if reflected := reflect.ValueOf(value); reflected.Kind() == reflect.Pointer && reflected.IsNil() {
 		return value
 	}
-	document := carrier.RawJSON()
+	document := carrier.ResponseDocument().RawJSON()
 	if len(bytes.TrimSpace(document)) == 0 || !json.Valid(document) {
 		return value
 	}

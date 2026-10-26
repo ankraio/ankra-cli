@@ -20,10 +20,24 @@ type RawDocument struct {
 	document json.RawMessage
 }
 
+// NewRawDocument wraps a JSON document the caller already holds, for a
+// value built from a response decoded elsewhere (and for tests).
+func NewRawDocument(document []byte) RawDocument {
+	return RawDocument{document: append(json.RawMessage(nil), document...)}
+}
+
 // RawJSON returns the response body the value was decoded from, or nil when
 // it was not decoded from a response.
 func (raw RawDocument) RawJSON() json.RawMessage {
 	return raw.document
+}
+
+// ResponseDocument returns the RawDocument itself. Structured output keys on
+// this method rather than on RawJSON: its result type lives in this package,
+// so only a type that embeds RawDocument opts in, and an unrelated type
+// that happens to grow a RawJSON method cannot change what -o json prints.
+func (raw RawDocument) ResponseDocument() RawDocument {
+	return raw
 }
 
 func (raw *RawDocument) keepRawJSON(body []byte) {
