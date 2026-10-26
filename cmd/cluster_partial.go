@@ -252,6 +252,7 @@ func encodeStructuredCounting(out io.Writer, format outputFormat, value interfac
 	default:
 		return stripStats{}, nil
 	}
+	value = structuredDocumentFor(format, value)
 	cleaned, stats, err := sanitizeStructured(format, value)
 	if err != nil {
 		return stripStats{}, err

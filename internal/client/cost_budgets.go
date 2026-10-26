@@ -31,6 +31,8 @@ type CostBudgetProjection struct {
 // nil for the organisation; ScopeName is empty for a cluster or application
 // the organisation no longer has.
 type CostBudget struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	ID           string               `json:"id" yaml:"id"`
 	Name         string               `json:"name" yaml:"name"`
 	ScopeKind    string               `json:"scope_kind" yaml:"scope_kind"`
@@ -50,6 +52,8 @@ type CostBudget struct {
 // CostBudgets is GET /org/cloud-cost/budgets: every budget of the
 // organisation, largest first.
 type CostBudgets struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	Budgets []CostBudget `json:"budgets" yaml:"budgets"`
 }
 
