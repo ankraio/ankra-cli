@@ -592,6 +592,7 @@ type APIClient interface {
 	GetHetznerWorkerCount(clusterID string) (*client.WorkerCountResult, error)
 	ScaleHetznerWorkers(clusterID string, workerCount int, drainOptions client.DrainOptions) (*client.ScaleWorkersResult, error)
 	GetHetznerK8sVersion(clusterID string) (*client.K8sVersionInfo, error)
+	GetUpgradePreflight(kind, clusterID, targetVersion string) (*client.UpgradePreflightReport, error)
 	UpgradeHetznerK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error)
 	ListHetznerNodeGroups(clusterID string) (*client.NodeGroupListResult, error)
 	AddHetznerNodeGroup(ctx context.Context, clusterID string, req client.AddNodeGroupRequest, wait bool) (*client.AddNodeGroupResult, bool, error)

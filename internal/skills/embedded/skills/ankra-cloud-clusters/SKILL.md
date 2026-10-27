@@ -253,7 +253,8 @@ The provider is detected from the cluster, so these work everywhere:
 
 ```bash
 ankra cluster scale <cluster_id> 5                    # default worker pool
-ankra cluster upgrade <cluster_id> <target_version>   # kubeadm or k3s; --force to override a blocked drain
+ankra cluster upgrade preflight <cluster_id> <target_version>   # read-only; exit 0 ready, 8 blocked
+ankra cluster upgrade <cluster_id> <target_version>   # kubeadm or k3s; runs the preflight first; --force to override a blocked drain
 ankra cluster ssh-keys get|set|resync <cluster_id>   # get names each attached key; set REPLACES the attached set
 
 ankra cluster node-group list <cluster_id>

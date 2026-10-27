@@ -59,6 +59,11 @@ snapshot is taken before the control plane upgrade. A drain blocked by a
 PodDisruptionBudget aborts the rollout; pass --force to proceed anyway.
 Downgrades and skipping minor versions are not supported.
 
+The upgrade preflight runs first and is printed before anything changes (run it
+alone with 'ankra cluster upgrade preflight'). A blocking check stops the upgrade
+with exit code 8 and nothing changed; --force goes past only the
+PodDisruptionBudget block, never the version, catalogue or restore-point checks.
+
 Examples:
   ankra cluster upgrade 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 v1.33.2         # kubeadm
   ankra cluster upgrade 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 v1.36.1+k3s1    # k3s`,
@@ -78,6 +83,20 @@ Examples:
 		upgrade, supported := upgradeFunctionForKind(cluster.Kind)
 		if !supported {
 			return unsupportedClusterKindError(args[0], cluster.Kind, "Kubernetes version upgrades")
+		}
+
+		report, preflightError := apiClient.GetUpgradePreflight(cluster.Kind, clusterID, targetVersion)
+		if preflightError != nil {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "The upgrade preflight could not be run (%v); the platform still checks before it changes anything.\n",
+				preflightError)
+		} else {
+			printUpgradePreflight(cmd.OutOrStdout(), report)
+			if upgradePreflightHolds(report, clusterUpgradeForce) {
+				return withExitCode(exitBlocked, errUpgradePreflightBlocked)
+			}
+			if report.Verdict == client.UpgradePreflightVerdictBlocked {
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "--force goes past the PodDisruptionBudget block: the drain will ignore the budgets.")
+			}
 		}
 
 		result, err := upgrade(clusterID, targetVersion, clusterUpgradeForce)
@@ -105,6 +124,6 @@ Examples:
 
 func init() {
 	clusterUpgradeCmd.Flags().BoolVar(&clusterUpgradeForce, "force", false,
-		"proceed even when a node drain is blocked (bypasses PodDisruptionBudget failures)")
+		"proceed even when a node drain is blocked (bypasses PodDisruptionBudget failures and the preflight's PodDisruptionBudget block)")
 	clusterCmd.AddCommand(clusterUpgradeCmd)
 }
