@@ -85,6 +85,7 @@ func resetMigrateFlags() {
 	migrateUpStopSource = false
 	migrateUpYes = false
 	migrateUpPlanOnly = false
+	migrateUpOverwrite = nil
 	migrateModulesInstallName = ""
 	migrateModulesInstallSHA = ""
 	migrateModulesInstallForce = false

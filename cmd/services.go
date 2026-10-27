@@ -130,7 +130,7 @@ type APIClient interface {
 	DeleteObjectStorageBucket(bucketID string, destroyProviderResources bool) error
 	CreateBackupVaultImport(vaultID string, request client.CreateBackupVaultImportRequest) (*client.CreateBackupVaultImportResult, error)
 	CompleteBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error)
-	RestoreBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error)
+	RestoreBackupVaultImport(vaultID string, importID string, request client.RestoreBackupVaultImportRequest) (*client.BackupVaultImport, error)
 	GetBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error)
 	ListBackupVaultImports(vaultID string) (*client.BackupVaultImportListResult, error)
 	DeleteBackupVaultImport(vaultID string, importID string) error

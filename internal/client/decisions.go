@@ -60,6 +60,8 @@ type DecisionReceipt struct {
 // zero. ParentID names the right_size_ladder a wave belongs to; RunAfter is
 // the earliest time the cost autopilot may run a proposal it approved itself.
 type DecisionProposal struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	ID                   string                    `json:"id" yaml:"id"`
 	Area                 string                    `json:"area" yaml:"area"`
 	Kind                 string                    `json:"kind" yaml:"kind"`
@@ -99,6 +101,8 @@ type DecisionProposal struct {
 // operation. Those are served as they stand and mean "could not check", not
 // "still running".
 type DecisionProposalList struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	Proposals            []DecisionProposal `json:"proposals" yaml:"proposals"`
 	UnsettledProposalIDs []string           `json:"unsettled_proposal_ids" yaml:"unsettled_proposal_ids"`
 }
@@ -119,6 +123,8 @@ type DecisionEvent struct {
 // DecisionActivity is GET /org/decisions/{decision_id}/activity, newest
 // first.
 type DecisionActivity struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	Events []DecisionEvent `json:"events" yaml:"events"`
 }
 
@@ -340,7 +346,7 @@ func (c *Client) ExecuteDecision(decisionID string, options DecisionExecuteOptio
 		return nil, newUnexpectedResponseError("request failed", response.StatusCode, redactedBodyForError(responseBody, 500))
 	}
 	var result DecisionProposal
-	if unmarshalError := json.Unmarshal(responseBody, &result); unmarshalError != nil {
+	if unmarshalError := decodeKeepingRawDocument(responseBody, &result); unmarshalError != nil {
 		return nil, fmt.Errorf("parse response: %w", unmarshalError)
 	}
 	return &result, nil
