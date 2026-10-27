@@ -18,7 +18,13 @@ import (
 func resetCommandFlags(t *testing.T, command *cobra.Command) {
 	t.Helper()
 	command.Flags().VisitAll(func(flag *pflag.Flag) {
-		_ = flag.Value.Set(flag.DefValue)
+		// A slice flag's Set appends, and its DefValue renders as "[]", so
+		// setting it back would leave a literal "[]" value behind.
+		if sliceValue, isSlice := flag.Value.(pflag.SliceValue); isSlice {
+			_ = sliceValue.Replace([]string{})
+		} else {
+			_ = flag.Value.Set(flag.DefValue)
+		}
 		flag.Changed = false
 	})
 }
