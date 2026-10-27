@@ -144,7 +144,7 @@ type APIClient interface {
 	DeleteObjectStorageBucket(bucketID string, destroyProviderResources bool) error
 	CreateBackupVaultImport(vaultID string, request client.CreateBackupVaultImportRequest) (*client.CreateBackupVaultImportResult, error)
 	CompleteBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error)
-	RestoreBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error)
+	RestoreBackupVaultImport(vaultID string, importID string, request client.RestoreBackupVaultImportRequest) (*client.BackupVaultImport, error)
 	GetBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error)
 	ListBackupVaultImports(vaultID string) (*client.BackupVaultImportListResult, error)
 	DeleteBackupVaultImport(vaultID string, importID string) error
@@ -423,6 +423,7 @@ type APIClient interface {
 	ApplyApplicationEnvSecrets(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationAutoDeploy(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	SetApplicationAutoDeploy(requestContext context.Context, applicationID string, enabled bool) (json.RawMessage, error)
+	UpdateApplicationAutoDeploy(requestContext context.Context, applicationID string, autoDeployRequest client.SetApplicationAutoDeployRequest) (json.RawMessage, error)
 	StartApplicationPlatformBuild(requestContext context.Context, applicationID string, request client.StartApplicationPlatformBuildRequest) (json.RawMessage, error)
 	ListApplicationPlatformBuilds(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationPlatformBuild(requestContext context.Context, applicationID string, buildID string) (json.RawMessage, error)

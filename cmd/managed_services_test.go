@@ -73,6 +73,9 @@ type fakeServicesPlatform struct {
 	retirementReads  int
 	// settledOutcome is the outcome a settled retirement carries.
 	settledOutcome string
+	// settledDataDisposal is the data_disposal beside a retired outcome;
+	// empty sends none, as an older platform does.
+	settledDataDisposal string
 	// reviewChanged makes every setup confirmation answer the platform's
 	// conflict, as for a review that expired or whose inputs changed.
 	reviewChanged bool
@@ -98,6 +101,19 @@ type fakeServicesPlatform struct {
 	// queued.
 	probeVerdict string
 	probeReads   int
+	// connectionDelivery replaces the consumer's connection_delivery in
+	// every instance read; nil keeps the delivered default.
+	connectionDelivery map[string]any
+}
+
+// instance is the fake instance as this platform answers it.
+func (platform *fakeServicesPlatform) instance() map[string]any {
+	instance := fakeServiceInstance()
+	if platform.connectionDelivery != nil {
+		consumer := instance["consumers"].([]any)[0].(map[string]any)
+		consumer["connection_delivery"] = platform.connectionDelivery
+	}
+	return instance
 }
 
 // fakeServiceOrphanConsumerID is a binding whose application was removed:
@@ -156,7 +172,8 @@ func fakeServiceInstance() map[string]any {
 		"requested_destinations": []any{map[string]any{"application_id": fakeServiceApplication, "cluster_id": fakeServiceClusterID, "namespace": "orders"}},
 		"consumers": []any{map[string]any{"id": fakeServiceConsumerID, "application_id": fakeServiceApplication,
 			"cluster_id": fakeServiceClusterID, "namespace": "orders", "application_name": "storefront", "cluster_name": "prod",
-			"environment": map[string]any{"id": "e1000000-0000-4000-8000-000000000020", "name": "production", "role": "production"}}},
+			"environment":         map[string]any{"id": "e1000000-0000-4000-8000-000000000020", "name": "production", "role": "production"},
+			"connection_delivery": map[string]any{"state": "delivered", "secret_name": "orders-db-connection", "variables": []any{"DATABASE_URL", "ORDERS_DB_DATABASE_URL"}, "reason": ""}}},
 		"deployment_operation_id": "e0000000-0000-4000-8000-000000000010", "deployment_state": "verification_pending",
 		"readiness": "ready",
 		"readiness_check": map[string]any{"observed_at": "2026-10-02T10:00:00Z", "expires_at": "2026-10-02T10:15:00Z",
@@ -373,7 +390,7 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		}
 		// The platform's own filters (cluster#4053): the one service serves
 		// fakeServiceApplication and runs on fakeServiceClusterID.
-		items := []any{fakeServiceInstance()}
+		items := []any{platform.instance()}
 		query := request.URL.Query()
 		if !platform.ignoreInstanceFilters &&
 			((query.Has("application_id") && query.Get("application_id") != fakeServiceApplication) ||
@@ -390,7 +407,7 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"result": result,
 			"pagination": map[string]any{"total_pages": 1, "page": 1, "page_size": 100, "total_count": len(result)}})
 	case request.Method == http.MethodGet && path == instancePath:
-		fakeServiceJSON(t, writer, http.StatusOK, fakeServiceInstance())
+		fakeServiceJSON(t, writer, http.StatusOK, platform.instance())
 	case request.Method == http.MethodPost && path == instancePath+"/retirements":
 		var body client.ServiceRetirementRequest
 		_ = json.Unmarshal(bodyBytes, &body)
@@ -411,7 +428,27 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		retirement := fakeServiceRetirement(state)
 		if state == "settled" {
 			retirement["outcome"] = platform.settledOutcome
-			if platform.settledOutcome != "retired" {
+			switch platform.settledOutcome {
+			case "":
+				retirement["outcome"] = nil
+			case "retired":
+				if platform.settledDataDisposal == "" {
+					break
+				}
+				retirement["data_disposal"] = platform.settledDataDisposal
+				if platform.settledDataDisposal == "complete" {
+					break
+				}
+				retirement["reason"] = "The persistent volumes pvc-123 still hold the service's data on the storage backend."
+				retirement["kept_data"] = map[string]any{"cluster_id": fakeServiceClusterID, "namespace": "orders-db", "observed_at": "2026-10-22T09:00:00Z",
+					"retained_volumes": []any{"pvc-123"}, "unconfirmed_volumes": []any{}, "complete": true,
+					"next_step": "When Ankra last looked (2026-10-22T09:00:00Z), the persistent volumes pvc-123 still held the service's data.",
+					"commands": []any{
+						map[string]any{"purpose": "inspect", "volume": "pvc-123", "command": "ankra cluster describe pv pvc-123 --cluster " + fakeServiceClusterID},
+						map[string]any{"purpose": "erase", "volume": "pvc-123", "command": "ankra cluster patch pv pvc-123 --cluster " + fakeServiceClusterID +
+							` --type merge --patch '{"spec":{"persistentVolumeReclaimPolicy":"Delete"}}'`},
+					}}
+			default:
 				retirement["reason"] = "another workload deploys into orders-db"
 			}
 		}
@@ -929,7 +966,8 @@ func TestServicesGetShowsConnectionButNeverSecretValues(t *testing.T) {
 	for _, expected := range []string{"Deployment:  deployed - the deployment finished and a readiness check connected",
 		"Health:      serving", "Readiness:   ready - canary logged in", "application storefront, cluster prod, namespace orders",
 		"postgresql-rw.orders-db.svc:5432", "Secret:    postgresql-app (keys: username, password, fqdn-uri)",
-		"ankra cluster get secrets postgresql-app -n orders-db", fakeServiceConsumerID} {
+		"ankra cluster get secrets postgresql-app -n orders-db", fakeServiceConsumerID,
+		"Delivery: delivered, Secret orders-db-connection", "Variables: DATABASE_URL, ORDERS_DB_DATABASE_URL"} {
 		if !strings.Contains(stdout, expected) {
 			t.Errorf("get output lacks %q:\n%s", expected, stdout)
 		}
@@ -956,6 +994,9 @@ func TestServicesGetShowsConnectionButNeverSecretValues(t *testing.T) {
 		}
 		if !strings.Contains(stdout, "postgresql-app") {
 			t.Errorf("-o %s must still carry the Secret's name:\n%s", format, stdout)
+		}
+		if !strings.Contains(stdout, "connection_delivery") || !strings.Contains(stdout, "orders-db-connection") {
+			t.Errorf("-o %s must carry each consumer's connection delivery:\n%s", format, stdout)
 		}
 	}
 
@@ -1029,6 +1070,121 @@ func TestServiceUsedByNamesTheNamespaceWithoutAnEnvironment(t *testing.T) {
 	}
 	if got := serviceUsedBy(client.ServiceInstance{}, fakeServiceApplication); got != "-" {
 		t.Errorf("no consumer of the application reads -, got %q", got)
+	}
+}
+
+// A consumer's delivery prints under it with the platform's reason, and a
+// consumer the platform reported none for (a platform from before delivery)
+// prints nothing rather than claiming it is connected or not.
+func TestServiceConnectionDeliveryPrintsTheStateAndReason(t *testing.T) {
+	var out bytes.Buffer
+	printServiceConnectionDelivery(&out, &client.ServiceConnectionDelivery{State: "pending", SecretName: "orders-db-connection",
+		Variables: []string{"DATABASE_URL"}, Reason: "Delivered the next time the application deploys to this environment."})
+	for _, expected := range []string{"Delivery: pending, Secret orders-db-connection - Delivered the next time", "Variables: DATABASE_URL"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Errorf("delivery output lacks %q:\n%s", expected, out.String())
+		}
+	}
+	out.Reset()
+	printServiceConnectionDelivery(&out, &client.ServiceConnectionDelivery{State: "unsupported", Variables: []string{},
+		Reason: "This application runs on another cluster than the service."})
+	if got := out.String(); got != "      Delivery: unsupported - This application runs on another cluster than the service.\n" {
+		t.Errorf("an unsupported delivery names no Secret and no variables, got %q", got)
+	}
+	out.Reset()
+	printServiceConnectionDelivery(&out, nil)
+	if out.Len() != 0 {
+		t.Errorf("no reported delivery prints nothing, got %q", out.String())
+	}
+}
+
+// The pickup prints under the delivery with what it means, a pickup this CLI
+// does not know (a newer platform) prints as sent without failing, and the
+// variables another source also defines print when there are any.
+func TestServiceConnectionDeliveryPrintsPickupAndNameCollisions(t *testing.T) {
+	var out bytes.Buffer
+	printServiceConnectionDelivery(&out, &client.ServiceConnectionDelivery{State: "pending", SecretName: "orders-db-connection",
+		Variables: []string{"DATABASE_URL"}, Pickup: "delivering", Reason: "The service is ready."})
+	expected := "      Delivery: pending, Secret orders-db-connection - The service is ready.\n" +
+		"      Pickup:   delivering (Ankra is writing the connection into the namespace; nothing is redeployed or restarted)\n" +
+		"      Variables: DATABASE_URL\n"
+	if got := out.String(); got != expected {
+		t.Errorf("a known pickup prints with its meaning:\n got %q\nwant %q", got, expected)
+	}
+
+	out.Reset()
+	printServiceConnectionDelivery(&out, &client.ServiceConnectionDelivery{State: "delivered", SecretName: "orders-db-connection",
+		Variables: []string{"DATABASE_URL"}, Pickup: "warming_up"})
+	if got := out.String(); !strings.Contains(got, "      Pickup:   warming_up\n") {
+		t.Errorf("an unknown pickup prints as the platform sent it, without a meaning:\n%s", got)
+	}
+
+	out.Reset()
+	printServiceConnectionDelivery(&out, &client.ServiceConnectionDelivery{State: "delivered", SecretName: "orders-db-connection",
+		Variables: []string{"DATABASE_URL"}})
+	if got := out.String(); strings.Contains(got, "Pickup") || strings.Contains(got, "Defined twice") {
+		t.Errorf("no pickup and no collisions print no such lines:\n%s", got)
+	}
+
+	out.Reset()
+	printServiceConnectionDelivery(&out, &client.ServiceConnectionDelivery{State: "pending", SecretName: "orders-db-connection",
+		Variables: []string{"DATABASE_URL", "PGHOST"}, Pickup: "redeploy_needed", NameCollisions: []string{"DATABASE_URL", "PGHOST"}})
+	if got := out.String(); !strings.Contains(got, "      Defined twice: DATABASE_URL, PGHOST (") {
+		t.Errorf("name collisions print under the delivery:\n%s", got)
+	}
+	// A deploy does not always connect the workloads (a Job, a CronJob, a
+	// workload marked deploy-overrides: none, a name defined twice), so the
+	// meaning says usually and points at the reason, never that it will.
+	if got := out.String(); !strings.Contains(got,
+		"      Pickup:   redeploy_needed (left to a deploy, which usually connects the workloads to it; the reason says what is needed)\n") {
+		t.Errorf("redeploy_needed must say a deploy usually connects it:\n%s", got)
+	}
+}
+
+// ankra services get carries pickup and name_collisions through every output
+// format, a pickup the CLI does not know included, and leaves both out of
+// -o json when the platform sent neither.
+func TestServicesGetCarriesPickupAndNameCollisions(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.connectionDelivery = map[string]any{"state": "pending", "secret_name": "orders-db-connection",
+		"variables": []any{"DATABASE_URL"}, "reason": "Defined twice.", "pickup": "warming_up",
+		"name_collisions": []any{"DATABASE_URL"}}
+	stdout, _, runError := runServicesCommand(t, platform, "", "get", "orders-db")
+	if runError != nil {
+		t.Fatalf("an unknown pickup must not fail the command: %v", runError)
+	}
+	for _, expected := range []string{"Delivery: pending, Secret orders-db-connection - Defined twice.", "Pickup:   warming_up\n",
+		"Defined twice: DATABASE_URL ("} {
+		if !strings.Contains(stdout, expected) {
+			t.Errorf("get output lacks %q:\n%s", expected, stdout)
+		}
+	}
+	for _, format := range []string{"json", "yaml"} {
+		stdout, _, runError = runServicesCommand(t, platform, "", "get", fakeServiceInstanceID, "-o", format)
+		if runError != nil {
+			t.Fatal(runError)
+		}
+		for _, expected := range []string{"pickup", "warming_up", "name_collisions"} {
+			if !strings.Contains(stdout, expected) {
+				t.Errorf("-o %s lacks %q:\n%s", format, expected, stdout)
+			}
+		}
+	}
+
+	platform.connectionDelivery = nil
+	stdout, _, runError = runServicesCommand(t, platform, "", "get", fakeServiceInstanceID, "-o", "json")
+	if runError != nil {
+		t.Fatal(runError)
+	}
+	var instance map[string]any
+	if decodeError := json.Unmarshal([]byte(stdout), &instance); decodeError != nil {
+		t.Fatal(decodeError)
+	}
+	delivery := instance["consumers"].([]any)[0].(map[string]any)["connection_delivery"].(map[string]any)
+	for _, absent := range []string{"pickup", "name_collisions"} {
+		if _, present := delivery[absent]; present {
+			t.Errorf("-o json invents %s the platform did not send: %v", absent, delivery)
+		}
 	}
 }
 
@@ -1265,6 +1421,87 @@ func TestServicesDeleteWaitsForTheRetirementToSettle(t *testing.T) {
 	_, _, runError = runServicesCommand(t, platform, "", "delete", "orders-db", "--acknowledge-data-loss", "--yes", "--wait")
 	if runError == nil || !strings.Contains(runError.Error(), "disposal_unknown") || exitCodeFor(runError) != exitError {
 		t.Fatalf("a retirement that did not settle retired must fail, got %v", runError)
+	}
+
+	// Released, but the data remains (cluster ankra-otrxtu.2): outcome stays
+	// "retired", so the retirement succeeded and exits 0 as released scripts
+	// expect, but data_disposal is never read as a plain retirement: the
+	// volumes, when Ankra looked and the Ankra CLI commands are printed.
+	platform = newFakeServicesPlatform(t)
+	platform.retirementStates = []string{"settled"}
+	platform.settledDataDisposal = "data_kept"
+	stdout, _, runError = runServicesCommand(t, platform, "", "delete", "orders-db", "--acknowledge-data-loss", "--yes", "--wait")
+	if runError != nil {
+		t.Fatalf("a retirement that released the name must succeed even when its data remains, got %v", runError)
+	}
+	for _, expected := range []string{"DATA KEPT", "when Ankra looked (2026-10-22T09:00:00Z)", "Held data when Ankra looked (2026-10-22T09:00:00Z) (it does not check again): pvc-123",
+		"Cluster " + fakeServiceClusterID + ", namespace orders-db", "status.phase is Released", "The name is released, but the service's data may remain",
+		"ankra cluster describe pv pvc-123 --cluster " + fakeServiceClusterID, "persistentVolumeReclaimPolicy"} {
+		if !strings.Contains(stdout, expected) {
+			t.Errorf("a retirement that kept the data must print %q:\n%s", expected, stdout)
+		}
+	}
+	if strings.Contains(stdout, "kubectl") {
+		t.Errorf("the next step must use the Ankra CLI, never kubectl:\n%s", stdout)
+	}
+
+	// Settled with no outcome is not a success.
+	platform = newFakeServicesPlatform(t)
+	platform.retirementStates = []string{"settled"}
+	platform.settledOutcome = ""
+	_, _, runError = runServicesCommand(t, platform, "", "delete", "orders-db", "--acknowledge-data-loss", "--yes", "--wait")
+	if runError == nil || !strings.Contains(runError.Error(), "without an outcome") {
+		t.Fatalf("a retirement settled without an outcome must fail, got %v", runError)
+	}
+
+	// An outcome this CLI does not know claims nothing about the name.
+	platform = newFakeServicesPlatform(t)
+	platform.retirementStates = []string{"settled"}
+	platform.settledOutcome = "retired_somehow_else"
+	_, _, runError = runServicesCommand(t, platform, "", "delete", "orders-db", "--acknowledge-data-loss", "--yes", "--wait")
+	if runError == nil || !strings.Contains(runError.Error(), "does not recognise") || strings.Contains(runError.Error(), "stay in place") {
+		t.Fatalf("an unknown outcome must not be reported as keeping the name, got %v", runError)
+	}
+}
+
+// An outcome that says the data may remain is said even when the details
+// could not be read, and nothing is said for any other outcome.
+func TestServiceKeptDataIsSaidForEveryOutcomeThatMayLeaveData(t *testing.T) {
+	var out strings.Builder
+	unconfirmed, kept, complete := "unconfirmed", "data_kept", "complete"
+	printServiceKeptData(&out, "retired", &unconfirmed, nil, "")
+	if !strings.Contains(out.String(), "DATA NOT CONFIRMED GONE") || !strings.Contains(out.String(), "Check the service's cluster") {
+		t.Fatalf("unreadable details: %q", out.String())
+	}
+	// A partial list is never printed as the whole answer, and no command
+	// is offered for a cluster nobody could read.
+	out.Reset()
+	printServiceKeptData(&out, "retired", &unconfirmed, &client.ServiceRetirementKeptData{Namespace: "orders-db", Complete: false}, "")
+	if !strings.Contains(out.String(), "could not name every volume") || !strings.Contains(out.String(), "Cluster not known") ||
+		!strings.Contains(out.String(), "No command is offered") {
+		t.Fatalf("partial details: %q", out.String())
+	}
+	// A disposal this CLI does not know is never read as the data gone.
+	out.Reset()
+	partially := "partially_kept"
+	printServiceKeptData(&out, "retired", &partially, nil, "")
+	if !strings.Contains(out.String(), "DATA NOT CONFIRMED GONE") {
+		t.Fatalf("unknown disposal: %q", out.String())
+	}
+	// Nothing is said for a complete disposal, an older platform that sends
+	// none, or any outcome that kept the name.
+	for _, testCase := range []struct {
+		outcome  string
+		disposal *string
+	}{{"retired", &complete}, {"retired", nil}, {"disposal_unknown", &kept}, {"removal_failed", &kept}, {"refused", &kept}, {"interrupted", &kept}} {
+		out.Reset()
+		printServiceKeptData(&out, testCase.outcome, testCase.disposal, &client.ServiceRetirementKeptData{RetainedVolumes: []string{"pvc-123"}}, "")
+		if out.Len() != 0 {
+			t.Errorf("%s printed kept data: %q", testCase.outcome, out.String())
+		}
+	}
+	if !client.ServiceRetirementReleasedName("retired") || client.ServiceRetirementReleasedName("disposal_unknown") {
+		t.Error("released-name outcomes")
 	}
 }
 
@@ -1801,6 +2038,17 @@ func TestServiceDeploymentViewMirrorsThePortal(t *testing.T) {
 		instance := client.ServiceInstance{DeploymentState: testCase.state, Readiness: testCase.readiness, Health: testCase.health}
 		if view := serviceDeploymentView(instance); view != testCase.expected {
 			t.Errorf("%s: view = %q, want %q", testCase.name, view, testCase.expected)
+		}
+	}
+	retired := "retired"
+	for disposal, expected := range map[string]string{"": "released", "complete": "released", "data_kept": "released, data may remain",
+		"unconfirmed": "released, data may remain"} {
+		retirement := &client.ServiceInstanceRetirement{State: "settled", Outcome: &retired}
+		if disposal != "" {
+			retirement.DataDisposal = &disposal
+		}
+		if view := serviceDeploymentView(client.ServiceInstance{DeploymentState: "released", Retirement: retirement}); view != expected {
+			t.Errorf("released with data disposal %q: view = %q, want %q", disposal, view, expected)
 		}
 	}
 }

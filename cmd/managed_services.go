@@ -36,13 +36,15 @@ func newServicesCommand() *cobra.Command {
 VictoriaMetrics, VictoriaLogs and the other engines in the service catalogue,
 run on your own cluster as reviewed, health-checked platform services.
 
-A service is set up in four steps:
+A service is set up in three steps:
 
   1. Pick a package from the catalogue:   ankra services packages list
-  2. Declare where the cluster is:         ankra services policy set --cluster <c> --region <r> --data-boundary <b>
-  3. Bind the application namespace that
+  2. Bind the application namespace that
      will use the service:                 ankra services consumers bind --application <a> --cluster <c> --namespace <ns>
-  4. Review and confirm the setup:         ankra services setup <name> --package postgresql --cluster <c> --consumer <id>
+  3. Review and confirm the setup:         ankra services setup <name> --package postgresql --cluster <c> --consumer <id>
+
+Declaring where a cluster is ('ankra services policy set') is optional: do it
+when services must keep data within a data boundary.
 
 Setup and retirement are two-step on the platform. A review is prepared
 first: the platform resolves a plan, stores it with a digest for ten minutes,
@@ -51,11 +53,21 @@ sets the service up or removes it. Every confirmation asks first; --yes skips
 the question for scripts. Retiring a service deletes its data, so delete also
 needs --acknowledge-data-loss.
 
+An application namespace on the service's own cluster receives the connection
+once the service is running: a <service>-connection Secret in its namespace,
+copied inside the cluster, which its workloads read as environment variables
+(DATABASE_URL, REDIS_URL, NATS_URL, ...). While none of the application's
+running pods reads the Secret, Ankra writes it without a redeploy; otherwise
+Ankra leaves it to the application's next deploy, which rolls the pods that
+read it together. Workloads deployed before the service was connected usually read
+it after their next deploy; 'ankra services get' says when they do not. An
+application on another cluster is not connected for you.
+
 'ankra services list' and 'ankra services get <name>' show each service's
-deployment state, health, readiness (for PostgreSQL, a consumer-path canary
-logs in with the generated credentials) and connection: its endpoints and the
-Secret holding its credentials. Credential values are never shown; they stay
-in the cluster.`,
+deployment state, health, readiness (a consumer-path canary connects with the
+generated credentials, for every engine) and connection: its endpoints, the
+Secret holding its credentials, and how each consumer receives them.
+Credential values are never shown; they stay in the cluster.`,
 		Example: `  ankra services packages list
   ankra services setup orders-db --package postgresql --cluster prod --consumer 5b1f0c7e-...
   ankra services list
@@ -447,9 +459,10 @@ deployment state, health and readiness.
 Deployment state is the recorded operation progress (accepted, deploying,
 verification_pending, deployment_failed, ...), not current health. Health is
 what the platform last observed from the cluster (serving, progressing,
-degraded, unknown). Readiness says whether a consumer can use the service:
-for PostgreSQL a canary logs in with the generated credentials (ready,
-verifying, degraded, stale); engines without a canary read unverified.
+degraded, unknown). Readiness says whether a consumer can use the service: a
+canary connects with the generated credentials (ready, verifying, degraded,
+stale); a service no canary covers, or whose cluster's agent is too old to
+run one, reads unverified.
 
 --application keeps the services an application uses: those whose reviewed
 plan names one of the application's namespaces as a consumer. The
@@ -558,10 +571,35 @@ func newServicesGetCommand() *cobra.Command {
 		Long: `Show one managed service by name or id: its package, cluster and location, its
 deployment state, health and readiness with the evidence behind each, how it
 is reached (endpoints and the Secret holding its credentials), the consumers
-it was set up for, and the latest retirement if one was confirmed.
+it was set up for with how each receives the connection, and the latest
+retirement if one was confirmed.
+
+A consumer on the service's cluster receives the connection as a
+<service>-connection Secret in its namespace, read as environment variables,
+whose names are listed. Its delivery reads delivered, pending (not delivered
+yet; Pickup says what it waits for), unsupported (for example a consumer on
+another cluster, which needs the values set by hand) or unknown.
+
+Pickup says how far the application is from running with the connection:
+  waiting_for_service  the service has no credentials yet; Ankra delivers the
+                       connection once it has
+  delivering           no running pod reads it, so Ankra is writing it without
+                       a redeploy or restart
+  holder_gone          waits for you to choose which service provides the
+                       standard names (DATABASE_URL, ...)
+  redeploy_needed      Ankra leaves it to a deploy; a deploy usually writes
+                       it and connects the workloads to it, but not always
+                       (the delivery reason says what is needed)
+  restart_needed       running pods started before it arrived; restart them
+                       to pick it up (Ankra does not restart them)
+  in_use               every running pod that reads it has it
+A value not listed here comes from a newer platform and is shown as sent.
+"Defined twice" lists the connection's variables that the application's
+workloads also get from another source. Ankra holds back a connection that
+is not delivered yet until that is resolved; the delivery reason says how.
 
 The connection names the Secret and its keys only. Credential values are never
-shown here; they stay in the service's namespace on the cluster.
+shown here; they stay in the cluster.
 
 A name that runs on more than one cluster needs --cluster.`,
 		Example: "  ankra services get orders-db\n  ankra services get orders-db --cluster prod -o json",
@@ -665,6 +703,7 @@ func printServiceInstance(out io.Writer, names *serviceNames, instance client.Se
 			}
 			_, _ = fmt.Fprintf(out, "    %s  application %s, cluster %s, namespace %s\n", consumer.ID,
 				names.consumerApplication(consumer.ApplicationID, consumer.ApplicationName), clusterName, consumer.Namespace)
+			printServiceConnectionDelivery(out, consumer.ConnectionDelivery)
 		}
 	}
 
@@ -681,7 +720,54 @@ func printServiceInstance(out io.Writer, names *serviceNames, instance client.Se
 		if retirement.Reason != nil && *retirement.Reason != "" {
 			_, _ = fmt.Fprintf(out, "               %s\n", *retirement.Reason)
 		}
+		if retirement.Outcome != nil {
+			printServiceKeptData(out, *retirement.Outcome, retirement.DataDisposal, retirement.KeptData, "  ")
+		}
 	}
+}
+
+// printServiceConnectionDelivery prints how one consumer receives the
+// service's connection, under its consumer line. A consumer the platform
+// reported no delivery for (a platform from before delivery) prints nothing:
+// that is not an answer either way.
+func printServiceConnectionDelivery(out io.Writer, delivery *client.ServiceConnectionDelivery) {
+	if delivery == nil || delivery.State == "" {
+		return
+	}
+	line := "      Delivery: " + delivery.State
+	if delivery.SecretName != "" {
+		line += ", Secret " + delivery.SecretName
+	}
+	if delivery.Reason != "" {
+		line += " - " + delivery.Reason
+	}
+	_, _ = fmt.Fprintln(out, line)
+	if delivery.Pickup != "" {
+		pickup := "      Pickup:   " + delivery.Pickup
+		if meaning, known := serviceConnectionPickupMeanings[delivery.Pickup]; known {
+			pickup += " (" + meaning + ")"
+		}
+		_, _ = fmt.Fprintln(out, pickup)
+	}
+	if len(delivery.Variables) > 0 {
+		_, _ = fmt.Fprintf(out, "      Variables: %s\n", strings.Join(delivery.Variables, ", "))
+	}
+	if len(delivery.NameCollisions) > 0 {
+		_, _ = fmt.Fprintf(out, "      Defined twice: %s (the application's workloads also get these from another source)\n",
+			strings.Join(delivery.NameCollisions, ", "))
+	}
+}
+
+// serviceConnectionPickupMeanings says in a few words what each pickup the
+// platform answers today means. A pickup not listed here, added by a later
+// platform, prints as the platform sent it, without a meaning.
+var serviceConnectionPickupMeanings = map[string]string{
+	client.ServiceConnectionPickupWaitingForService: "the service has no credentials yet; Ankra delivers the connection once it has",
+	client.ServiceConnectionPickupDelivering:        "Ankra is writing the connection into the namespace; nothing is redeployed or restarted",
+	client.ServiceConnectionPickupHolderGone:        "waits for a person to choose which service provides the standard names",
+	client.ServiceConnectionPickupRedeployNeeded:    "left to a deploy, which usually connects the workloads to it; the reason says what is needed",
+	client.ServiceConnectionPickupRestartNeeded:     "running pods started before the connection arrived; restart them to pick it up",
+	client.ServiceConnectionPickupInUse:             "every running pod that reads it has it",
 }
 
 func init() {
@@ -689,13 +775,21 @@ func init() {
 }
 
 // serviceDeploymentView is the deployment state as a person reads it, the
-// same rule as ankra-frontend's deploymentView: a deployment the platform
+// same rule as ankra-frontend's deploymentView: a released service whose
+// retirement left its data, or could not confirm it gone, reads "released,
+// data may remain"; a deployment the platform
 // still records as verification_pending reads "deployed" once a readiness
 // check has passed, and "running" when the platform observes the workload
 // serving and no check found it failing or could not reach it. Every other
 // state reads as the platform sent it, and -o json/yaml keep the platform's
 // value untouched.
 func serviceDeploymentView(instance client.ServiceInstance) string {
+	if instance.DeploymentState == "released" && instance.Retirement != nil && instance.Retirement.Outcome != nil &&
+		client.ServiceRetirementDataMayRemain(*instance.Retirement.Outcome, instance.Retirement.DataDisposal) {
+		// Released, but never read as a plain retirement while the data may
+		// remain (cluster ankra-otrxtu.2).
+		return "released, data may remain"
+	}
 	if instance.DeploymentState != "verification_pending" {
 		return instance.DeploymentState
 	}

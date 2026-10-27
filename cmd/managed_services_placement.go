@@ -242,9 +242,10 @@ func newServicesPolicyCommand() *cobra.Command {
 runs in, the data boundary its data may stay within, and whether services on
 it are local-only.
 
-This is the organisation's declaration, not verified location evidence. Setup
-refuses a cluster without one, and a setup's region and data boundary default
-to it.`,
+This is the organisation's declaration, not verified location evidence. It is
+optional: a cluster without one is set up under the platform's default
+location (unspecified). Once declared, a setup's region and data boundary
+default to it and every setup on the cluster is held to it.`,
 	}
 	policyCommand.AddCommand(newServicesPolicyGetCommand())
 	policyCommand.AddCommand(newServicesPolicySetCommand())
@@ -542,13 +543,15 @@ func newServicesConsumersBindCommand() *cobra.Command {
 		Long: `Bind an application's namespace on a cluster as a service consumer and print
 its consumer id, which 'ankra services setup --consumer' takes.
 
-The cluster needs a placement policy first ('ankra services policy set'). The
-application must be installed in that namespace unless --allow-planned is
-given. A binding is created once per application, cluster and namespace;
+The application must be installed in that namespace unless --allow-planned
+is given. A binding is created once per application, cluster and namespace;
 changing an existing one needs --revision with its current revision
 ('ankra services consumers list --application <app>' shows it); a setting
 not given on the command line keeps the binding's current value. Binding
-deploys nothing and delivers no credentials.`,
+deploys nothing. Once a service set up for this consumer is running on the
+same cluster, Ankra delivers its connection: without a redeploy while none of
+the application's running pods reads it, otherwise it is left to the
+application's next deploy. 'ankra services get <service>' shows its pickup.`,
 		Example: "  ankra services consumers bind --application orders --cluster prod --namespace orders\n" +
 			"  ankra services consumers bind --application orders --cluster prod --namespace orders --allow-planned",
 		Args: cobra.NoArgs,

@@ -59,6 +59,8 @@ type FleetCostScope struct {
 // and Scope arrive from a platform with projects; an older platform leaves
 // them empty.
 type FleetCloudCost struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	Currency                 string              `json:"currency" yaml:"currency"`
 	ClusterCount             int                 `json:"cluster_count" yaml:"cluster_count"`
 	MonthlyCostEstimateCents int64               `json:"monthly_cost_estimate_cents" yaml:"monthly_cost_estimate_cents"`
@@ -136,6 +138,8 @@ type NamespaceCost struct {
 // ClusterCost is GET /org/clusters/{cluster_id}/cost. HasData false means no
 // snapshot exists yet; Readiness then says why.
 type ClusterCost struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	HasData    bool                `json:"has_data" yaml:"has_data"`
 	Summary    *ClusterCostSummary `json:"summary" yaml:"summary"`
 	Trend      []CostTrendPoint    `json:"trend" yaml:"trend"`
@@ -155,6 +159,8 @@ type ClusterCost struct {
 // organisation's own limit. AnalysedClusterLimitChange is how an update
 // changes it, and is never serialised.
 type CostSettings struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	EffectiveDiscountPct         float64                     `json:"effective_discount_pct" yaml:"effective_discount_pct"`
 	Currency                     string                      `json:"currency" yaml:"currency"`
 	IncludeNetworkEgressEstimate bool                        `json:"include_network_egress_estimate" yaml:"include_network_egress_estimate"`
@@ -355,6 +361,8 @@ type CloudSavingsThresholds struct {
 // budget); the unanalysed, unpriced, stale and unreadable ones are named
 // so an unknown never reads as nothing to save.
 type CloudSavings struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	Currency                 string `json:"currency" yaml:"currency"`
 	GeneratedAt              string `json:"generated_at" yaml:"generated_at"`
 	TotalMonthlySavingsCents int64  `json:"total_monthly_savings_cents" yaml:"total_monthly_savings_cents"`
@@ -485,6 +493,8 @@ type CloudLedgerRow struct {
 // totals and counts cover every row even when Truncated says the row list
 // stopped at the newest ones.
 type CloudLedger struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	Currency               string            `json:"currency" yaml:"currency"`
 	GeneratedAt            string            `json:"generated_at" yaml:"generated_at"`
 	MeasuredTotalCents     int64             `json:"measured_total_cents" yaml:"measured_total_cents"`

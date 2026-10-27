@@ -374,7 +374,71 @@ type ServiceInstanceConsumer struct {
 	ApplicationName *string                     `json:"application_name,omitempty" yaml:"application_name,omitempty"`
 	ClusterName     string                      `json:"cluster_name,omitempty" yaml:"cluster_name,omitempty"`
 	Environment     *ServiceConsumerEnvironment `json:"environment,omitempty" yaml:"environment,omitempty"`
+	// ConnectionDelivery is how this consumer receives the service's
+	// connection (cluster#4539). The instance read answers it for a live
+	// service's consumers; a retirement plan, a released service and a
+	// platform from before delivery carry none.
+	ConnectionDelivery *ServiceConnectionDelivery `json:"connection_delivery,omitempty" yaml:"connection_delivery,omitempty"`
 }
+
+// ServiceConnectionDelivery is how one consumer receives the service's
+// connection: a Secret the platform writes into the consumer's namespace,
+// copied inside the cluster, and the environment variables it carries. State
+// is delivered (the Secret is observed there), pending (not delivered yet;
+// Pickup says what it waits for), unsupported (the platform does not deliver it, for
+// example to another cluster; Reason says why) or unknown (the delivery could
+// not be read, which is not an answer that it is missing). Values are never
+// carried.
+type ServiceConnectionDelivery struct {
+	State      string   `json:"state" yaml:"state"`
+	SecretName string   `json:"secret_name" yaml:"secret_name"`
+	Variables  []string `json:"variables" yaml:"variables"`
+	Reason     string   `json:"reason" yaml:"reason"`
+	// Pickup says how far a consumer on the service's cluster is from
+	// running with the connection (cluster#5248): one of the
+	// ServiceConnectionPickup values. It is kept as the platform sent it, so
+	// a value added later decodes and prints as is. Empty when the platform
+	// did not read it (an unsupported or unknown delivery, observations it
+	// could not read, or a platform from before pickup), which never means
+	// nothing is needed.
+	Pickup string `json:"pickup,omitempty" yaml:"pickup,omitempty"`
+	// NameCollisions are the connection's variables that another source of
+	// the application's workloads also defines or may define (its own
+	// secrets, or an envFrom Secret or ConfigMap its pods read). Ankra does
+	// not deliver such a connection outside a deploy. Absent when there are
+	// none or the platform could not read them.
+	NameCollisions []string `json:"name_collisions,omitempty" yaml:"name_collisions,omitempty"`
+}
+
+// The pickup values the platform answers today (cluster openapi.json,
+// connection_delivery.pickup). The set may grow: a value not listed here is
+// still carried and shown as the platform sent it.
+const (
+	// ServiceConnectionPickupWaitingForService: the service is being set up
+	// or has not generated its credentials; Ankra delivers the connection
+	// once it has.
+	ServiceConnectionPickupWaitingForService = "waiting_for_service"
+	// ServiceConnectionPickupDelivering: no running pod references the
+	// connection and Ankra is writing it into the namespace, without a
+	// redeploy or restart.
+	ServiceConnectionPickupDelivering = "delivering"
+	// ServiceConnectionPickupHolderGone: delivery waits for a person to
+	// choose which service provides the conventional names.
+	ServiceConnectionPickupHolderGone = "holder_gone"
+	// ServiceConnectionPickupRedeployNeeded: the Secret is there but no
+	// running workload reads it, or Ankra leaves writing it to a deploy.
+	// A deploy usually connects the workloads, but not a Job, a CronJob or
+	// a workload marked ankra.io/deploy-overrides: none, and not while a
+	// name is defined twice; Reason says what is needed.
+	ServiceConnectionPickupRedeployNeeded = "redeploy_needed"
+	// ServiceConnectionPickupRestartNeeded: running pods started before the
+	// Secret existed and lack its variables until they restart; Ankra never
+	// restarts them by itself.
+	ServiceConnectionPickupRestartNeeded = "restart_needed"
+	// ServiceConnectionPickupInUse: every running pod that reads the Secret
+	// started after it existed.
+	ServiceConnectionPickupInUse = "in_use"
+)
 
 // ServiceConsumerEnvironment is the application environment whose
 // deployment runs in a consumer's namespace. An instance consumer has none
@@ -436,6 +500,82 @@ type ServiceInstanceRetirement struct {
 	SettledAt   *string `json:"settled_at" yaml:"settled_at"`
 	Outcome     *string `json:"outcome" yaml:"outcome"`
 	Reason      *string `json:"reason" yaml:"reason"`
+	// DataDisposal says what became of the service's data once the outcome
+	// is retired (cluster ankra-otrxtu.2): complete, data_kept or
+	// unconfirmed. Absent on older platforms.
+	DataDisposal *string `json:"data_disposal,omitempty" yaml:"data_disposal,omitempty"`
+	// KeptData is set when DataDisposal is data_kept or unconfirmed.
+	KeptData *ServiceRetirementKeptData `json:"kept_data,omitempty" yaml:"kept_data,omitempty"`
+}
+
+// ServiceRetirementRetired is the only outcome that released the service's
+// name.
+const ServiceRetirementRetired = "retired"
+
+// The values DataDisposal takes beside a retired outcome (cluster
+// ankra-otrxtu.2): the data is gone, a volume was observed still holding it,
+// or Ankra could not confirm it gone.
+const (
+	ServiceDataComplete    = "complete"
+	ServiceDataKept        = "data_kept"
+	ServiceDataUnconfirmed = "unconfirmed"
+)
+
+// The outcomes of a retirement that left the service and its name in place.
+const (
+	ServiceRetirementRemovalFailed   = "removal_failed"
+	ServiceRetirementDisposalUnknown = "disposal_unknown"
+	ServiceRetirementRefused         = "refused"
+	ServiceRetirementInterrupted     = "interrupted"
+)
+
+// ServiceRetirementReleasedName reports whether a retirement outcome released
+// the service's name, with or without data left behind.
+func ServiceRetirementReleasedName(outcome string) bool {
+	return outcome == ServiceRetirementRetired
+}
+
+// ServiceRetirementKeepsName reports whether a retirement outcome is one the
+// platform documents as leaving the service and its name in place. An
+// outcome this CLI does not know is neither released nor kept.
+func ServiceRetirementKeepsName(outcome string) bool {
+	switch outcome {
+	case ServiceRetirementRemovalFailed, ServiceRetirementDisposalUnknown, ServiceRetirementRefused, ServiceRetirementInterrupted:
+		return true
+	}
+	return false
+}
+
+// ServiceRetirementDataMayRemain reports whether a retirement released the
+// name while the service's data may remain. A data disposal this CLI does not
+// know is never read as the data being gone; an older platform that sends
+// none says nothing either way.
+func ServiceRetirementDataMayRemain(outcome string, dataDisposal *string) bool {
+	return outcome == ServiceRetirementRetired && dataDisposal != nil && *dataDisposal != ServiceDataComplete
+}
+
+// ServiceRetirementKeptData is what a retirement that released the name left
+// of the service's data, or could not rule out: the volumes, the cluster they
+// are on, the next step in words and the Ankra CLI commands for it.
+type ServiceRetirementKeptData struct {
+	ClusterID *string `json:"cluster_id" yaml:"cluster_id"`
+	Namespace string  `json:"namespace" yaml:"namespace"`
+	// ObservedAt is when Ankra read the volumes, once; null when it never
+	// did. Everything here is what it saw then.
+	ObservedAt         *string                        `json:"observed_at" yaml:"observed_at"`
+	RetainedVolumes    []string                       `json:"retained_volumes" yaml:"retained_volumes"`
+	UnconfirmedVolumes []string                       `json:"unconfirmed_volumes" yaml:"unconfirmed_volumes"`
+	Complete           bool                           `json:"complete" yaml:"complete"`
+	NextStep           string                         `json:"next_step" yaml:"next_step"`
+	Commands           []ServiceRetirementDataCommand `json:"commands" yaml:"commands"`
+}
+
+// ServiceRetirementDataCommand is one Ankra CLI command of the next step:
+// inspect or erase one volume, or find the cluster's volumes.
+type ServiceRetirementDataCommand struct {
+	Purpose string  `json:"purpose" yaml:"purpose"`
+	Volume  *string `json:"volume" yaml:"volume"`
+	Command string  `json:"command" yaml:"command"`
 }
 
 // ServiceInstance is one service in the organisation's durable inventory.
@@ -622,6 +762,11 @@ type ServiceRetirement struct {
 	Outcome        *string                `json:"outcome" yaml:"outcome"`
 	Reason         *string                `json:"reason" yaml:"reason"`
 	VolumeDisposal *ServiceVolumeDisposal `json:"volume_disposal" yaml:"volume_disposal"`
+	// DataDisposal says what became of the service's data once the outcome
+	// is retired: complete, data_kept or unconfirmed.
+	DataDisposal *string `json:"data_disposal,omitempty" yaml:"data_disposal,omitempty"`
+	// KeptData is set when DataDisposal is data_kept or unconfirmed.
+	KeptData *ServiceRetirementKeptData `json:"kept_data,omitempty" yaml:"kept_data,omitempty"`
 }
 
 // ServiceRetirementPage is one page of the caller's own retirements of an

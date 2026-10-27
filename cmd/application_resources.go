@@ -137,6 +137,7 @@ func registerApplicationResourceCommands(applicationCommand *cobra.Command) {
 	applicationCommand.AddCommand(newApplicationPublishedAddonCommand())
 	applicationCommand.AddCommand(newApplicationEnvSecretsCommand())
 	applicationCommand.AddCommand(newApplicationAutoDeployCommand())
+	applicationCommand.AddCommand(newApplicationEnvironmentsCommand())
 	applicationCommand.AddCommand(newApplicationProvenanceCommand())
 	applicationCommand.AddCommand(newApplicationBuildCommand())
 	applicationCommand.AddCommand(newApplicationSettingsCommand())
@@ -245,9 +246,16 @@ func newApplicationDeployCommand() *cobra.Command {
 		Long: `Deploy a packaged application to a target cluster.
 
 The cluster is identified by ID. Use --set key=value (repeatable) to pass
-deploy inputs declared by the application's chart.`,
+deploy inputs declared by the application's chart.
+
+--environment names the environment the deployment belongs to.
+--follow-branches gives that environment a branch rule from the start, so
+pushes to matching branches deploy to it: for example main for production and
+develop for development. It needs --environment.`,
 		Example: `  ankra application deploy <app-id> --cluster <cluster-id>
-  ankra application deploy <app-id> --cluster <cluster-id> --namespace prod --set replicas=3`,
+  ankra application deploy <app-id> --cluster <cluster-id> --namespace prod --set replicas=3
+  ankra application deploy <app-id> --cluster <cluster-id> --environment production --follow-branches main
+  ankra application deploy <app-id> --cluster <cluster-id> --environment development --follow-branches develop`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -269,16 +277,28 @@ deploy inputs declared by the application's chart.`,
 			if parseError != nil {
 				return withExitCode(exitUsage, parseError)
 			}
+			environmentName, _ := command.Flags().GetString("environment")
+			environmentName = strings.TrimSpace(environmentName)
+			followBranchesValue, _ := command.Flags().GetString("follow-branches")
+			followBranches := splitBranchPatterns(followBranchesValue)
+			if command.Flags().Changed("follow-branches") && environmentName == "" {
+				return withExitCode(exitUsage, errors.New("--follow-branches needs --environment: a branch rule belongs to an environment"))
+			}
+			if command.Flags().Changed("follow-branches") && len(followBranches) == 0 {
+				return withExitCode(exitUsage, errors.New("--follow-branches is empty: pass at least one branch pattern, or omit the flag"))
+			}
 			applicationID, resolveError := resolveApplicationArgument(command, arguments)
 			if resolveError != nil {
 				return resolveError
 			}
 			payload, deployError := apiClient.DeployApplication(command.Context(), applicationID,
 				client.DeployApplicationRequest{
-					ClusterID:  clusterID,
-					Namespace:  strings.TrimSpace(namespace),
-					DeployMode: deployMode,
-					Inputs:     inputs,
+					ClusterID:       clusterID,
+					Namespace:       strings.TrimSpace(namespace),
+					DeployMode:      deployMode,
+					Inputs:          inputs,
+					EnvironmentName: environmentName,
+					FollowBranches:  followBranches,
 				})
 			if deployError != nil {
 				return deployError
@@ -290,6 +310,8 @@ deploy inputs declared by the application's chart.`,
 	deployCommand.Flags().String("namespace", "", "Target namespace (defaults to the platform default)")
 	deployCommand.Flags().String("mode", "", "Deploy mode: quick or high_availability")
 	deployCommand.Flags().StringArray("set", nil, "Deploy input as key=value (repeatable)")
+	deployCommand.Flags().String("environment", "", "Environment the deployment belongs to, e.g. production")
+	deployCommand.Flags().String("follow-branches", "", "Comma-separated branch patterns the environment follows, e.g. main or release/* (needs --environment)")
 	registerStructuredOutputFlags(deployCommand)
 	return deployCommand
 }

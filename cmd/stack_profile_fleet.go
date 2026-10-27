@@ -179,6 +179,33 @@ type rolloutOutcome struct {
 	Message     string `json:"message,omitempty"`
 	OperationID string `json:"operation_id,omitempty"`
 	JobCount    int    `json:"job_count,omitempty"`
+	// Removes is, on a dry run, the members (kind/name) the version would
+	// remove from this stack; RemovesUnknown says why that could not be read.
+	Removes        []string `json:"removes,omitempty"`
+	RemovesUnknown string   `json:"removes_unknown,omitempty"`
+}
+
+// rolloutFailureError summarises a rollout that had failures, naming the
+// stacks it then left untouched so nobody reads "1 of 5 failed" as "4 done".
+func rolloutFailureError(failed int, outcomes []rolloutOutcome, verb string) error {
+	skipped := 0
+	for _, outcome := range outcomes {
+		if outcome.Status == "skipped" {
+			skipped++
+		}
+	}
+	message := fmt.Sprintf("%d of %d %s %s", failed, len(outcomes), pluralise(len(outcomes), "rollout", "rollouts"), verb)
+	if skipped > 0 {
+		message += fmt.Sprintf("; %d not attempted", skipped)
+	}
+	return errors.New(message)
+}
+
+// skippedAfterFailure marks a target the loop did not attempt because an
+// earlier one failed.
+func skippedAfterFailure(target rolloutTarget, version int) rolloutOutcome {
+	return rolloutOutcome{rolloutTarget: target, ToVersion: version, Status: "skipped",
+		Message: "not attempted: an earlier stack failed (pass --continue-on-error to keep going)"}
 }
 
 // resolveClusterReference turns a cluster name or ID into both, paging the
@@ -290,17 +317,30 @@ Pick targets with --cluster (repeatable) or --all for every deployment of the
 profile; add --outdated to touch only the ones behind the chosen version.
 Without --version the profile's current version is rolled out.
 
+A member of a target stack that the version does not list is removed. The
+platform does that without asking only for a member it can show this profile
+put there; any other removal (an add-on, manifest or application someone added
+to the stack) is refused, with nothing changed, unless you name it with
+--confirm-removal cluster:kind/name (a confirmation is for that cluster's
+stack only; with a single target the cluster may be left out). --dry-run lists, per stack, the members the
+version would remove, and writes nothing. A rollout to more than one stack
+asks first (--yes skips the question), and it stops at the first stack that
+fails (--continue-on-error keeps going).
+
 --via-apply uses the older path instead: the version is exported as
 ClusterInfrastructureAsCode and applied with the cluster apply lane. It
 updates the stack the same way but leaves the fleet view at the previous
-version; use it only against a platform that predates in-place upgrades.
+version; use it only against a platform that predates in-place upgrades. That
+lane cannot tell whose a member is, so it refuses every removal you do not
+name with --confirm-removal.
 
 The write returns as soon as the platform has accepted it; the manifest and
 add-on deploys run in the background. Watch them with
 'ankra cluster operations list --cluster <name>'.`,
 	Example: `  ankra stack-profiles rollout hello-fleet --all --outdated
   ankra stack-profiles rollout hello-fleet --cluster prod-eu --cluster prod-us --version 2
-  ankra stack-profiles rollout hello-fleet --all --dry-run`,
+  ankra stack-profiles rollout hello-fleet --all --dry-run
+  ankra stack-profiles rollout hello-fleet --cluster prod-eu --confirm-removal prod-eu:addon/legacy-exporter`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		format, formatError := structuredFormatFromFlags(cmd)
@@ -361,17 +401,35 @@ add-on deploys run in the background. Watch them with
 			return nil
 		}
 
+		yes, _ := cmd.Flags().GetBool("yes")
+		continueOnError, _ := cmd.Flags().GetBool("continue-on-error")
+		confirmRemovalFlags, _ := cmd.Flags().GetStringArray("confirm-removal")
+		confirmedRemovals, confirmError := parseConfirmedRemovals(confirmRemovalFlags, targets)
+		if confirmError != nil {
+			return confirmError
+		}
+		// What each target would lose, read before anything is written: the
+		// dry run reports it, the question before a multi-stack write counts
+		// it, and the --via-apply lane refuses removals nobody confirmed.
+		plans := planRolloutRemovals(cmd.Context(), profileID, version, targets)
+
 		if dryRun {
 			outcomes := make([]rolloutOutcome, 0, len(targets))
-			for _, target := range targets {
-				outcomes = append(outcomes, rolloutOutcome{rolloutTarget: target, ToVersion: version, Status: "planned"})
+			for index, target := range targets {
+				outcome := rolloutOutcome{rolloutTarget: target, ToVersion: version, Status: "planned", Removes: plans[index].Removes}
+				if plans[index].ReadError != nil {
+					outcome.RemovesUnknown = plans[index].ReadError.Error()
+				}
+				outcomes = append(outcomes, outcome)
 			}
 			if format != outputDefault {
 				return encodeStructured(cmd.OutOrStdout(), format, map[string]any{"profile": detail.Profile.Name, "version": version, "dry_run": true, "targets": outcomes})
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Dry run: '%s' v%d would be rolled out to %d %s (nothing written):\n",
 				detail.Profile.Name, version, len(targets), pluralise(len(targets), "stack", "stacks"))
-			renderRolloutOutcomes(cmd.OutOrStdout(), outcomes)
+			renderRolloutPlan(cmd.OutOrStdout(), outcomes, plans)
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "\nA listed member is removed without asking only when the platform can show this profile put it there;")
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "any other removal is refused unless you name it with --confirm-removal cluster:kind/name.")
 			return nil
 		}
 
@@ -387,7 +445,10 @@ add-on deploys run in the background. Watch them with
 			if waitRequested, _ := asyncWriteWaitFlag(cmd); waitRequested {
 				return withExitCode(exitUsage, errors.New("--wait applies to --via-apply only: the in-place update returns once the platform has accepted it, and the deploys it schedules are watched with 'ankra cluster operations list --cluster <name>'"))
 			}
-			return rolloutInPlace(cmd, format, profileID, detail.Profile.Name, version, targets, bindings)
+			if confirmationError := confirmMultiTargetRollout(cmd, detail.Profile.Name, version, targets, plans, yes); confirmationError != nil {
+				return confirmationError
+			}
+			return rolloutInPlace(cmd, format, profileID, detail.Profile.Name, version, targets, bindings, confirmedRemovals, continueOnError)
 		}
 		if len(bindings) > 0 {
 			return withExitCode(exitUsage, errors.New("--set, --set-file and --set-env bind inputs on the in-place lane; they cannot be combined with --via-apply"))
@@ -417,10 +478,16 @@ add-on deploys run in the background. Watch them with
 		if len(base.Spec.Stacks) != 1 {
 			return fmt.Errorf("profile '%s' v%d exports %d stacks; rollout updates one deployed stack per cluster, so it needs a single-stack profile version (apply it with 'ankra cluster apply' after renaming the stacks yourself)", detail.Profile.Name, version, len(base.Spec.Stacks))
 		}
+		if secretRefusal := viaApplySecretRefusal(detail.Profile.Name, version, export, base, targets); secretRefusal != nil {
+			return secretRefusal
+		}
 
 		wait, waitError := asyncWriteWaitFlag(cmd)
 		if waitError != nil {
 			return waitError
+		}
+		if confirmationError := confirmMultiTargetRollout(cmd, detail.Profile.Name, version, targets, plans, yes); confirmationError != nil {
+			return confirmationError
 		}
 		requestContext, cancelRequestContext, contextError := asyncWriteRequestContext(cmd)
 		if contextError != nil {
@@ -434,11 +501,37 @@ add-on deploys run in the background. Watch them with
 		}
 		outcomes := make([]rolloutOutcome, 0, len(targets))
 		failed := 0
-		for _, target := range targets {
+		for index, target := range targets {
+			if failed > 0 && !continueOnError {
+				outcomes = append(outcomes, skippedAfterFailure(target, version))
+				continue
+			}
 			outcome := rolloutOutcome{rolloutTarget: target, ToVersion: version}
-			request := rolloutRequest(base, target)
-			response, submitted, applyError := apiClient.ApplyCluster(requestContext, request, wait)
+			// The apply lane replaces the stack with the version and cannot
+			// tell whose a member is, so every removal must be named; a
+			// target that fails this check is reported like any other
+			// failure, and nothing is sent for it.
+			unconfirmed := unconfirmedRemovals(plans[index], confirmedRemovals.forTarget(target))
+			var response *client.ImportResponse
+			var submitted bool
+			var applyError error
+			if plans[index].ReadError == nil && len(unconfirmed) == 0 {
+				request := rolloutRequest(base, target)
+				// Every removal this apply makes was confirmed above; the
+				// platform refuses one it is not told about (ankra-kwr1sp).
+				request.ConfirmedMemberRemovals = confirmedRemovals.forTarget(target)
+				response, submitted, applyError = apiClient.ApplyCluster(requestContext, request, wait)
+			}
 			switch {
+			case plans[index].ReadError != nil:
+				outcome.Status = "failed"
+				outcome.Message = "nothing applied: the stack's members could not be read, so what the apply would remove is unknown (" + plans[index].ReadError.Error() + ")"
+				failed++
+			case len(unconfirmed) > 0:
+				outcome.Status = "refused"
+				outcome.Message = fmt.Sprintf("nothing applied: it would remove %s, which the version does not list; to remove them anyway add %s",
+					strings.Join(unconfirmed, ", "), confirmRolloutRemovalFlags(target.ClusterName, unconfirmed))
+				failed++
 			case applyError != nil:
 				outcome.Status = "failed"
 				outcome.Message = applyError.Error()
@@ -473,7 +566,7 @@ add-on deploys run in the background. Watch them with
 				return encodeError
 			}
 			if failed > 0 {
-				return fmt.Errorf("%d of %d %s failed to apply", failed, len(targets), pluralise(len(targets), "rollout", "rollouts"))
+				return rolloutFailureError(failed, outcomes, "failed to apply")
 			}
 			return nil
 		}
@@ -482,7 +575,7 @@ add-on deploys run in the background. Watch them with
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "\nManifest and add-on deploys run in the background from here.")
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Watch them with 'ankra cluster operations list --cluster <name>'.")
 		if failed > 0 {
-			return fmt.Errorf("%d of %d %s failed to apply", failed, len(targets), pluralise(len(targets), "rollout", "rollouts"))
+			return rolloutFailureError(failed, outcomes, "failed to apply")
 		}
 		return nil
 	},
@@ -496,6 +589,22 @@ func describeImportErrors(resourceErrors []client.ImportResponseResourceError) s
 		}
 	}
 	return strings.Join(parts, "; ")
+}
+
+// renderRolloutPlan prints the dry run: each target and what it would lose.
+func renderRolloutPlan(out io.Writer, outcomes []rolloutOutcome, plans []rolloutRemovalPlan) {
+	planTable := table.NewWriter()
+	planTable.SetOutputMirror(out)
+	planTable.SetStyle(table.StyleRounded)
+	planTable.AppendHeader(table.Row{"CLUSTER", "STACK", "FROM", "TO", "WOULD REMOVE"})
+	for index, outcome := range outcomes {
+		planTable.AppendRow(table.Row{
+			outcome.ClusterName, outcome.StackName,
+			fmt.Sprintf("v%d", outcome.FromVersion), fmt.Sprintf("v%d", outcome.ToVersion),
+			describeRemovalPlan(plans[index]),
+		})
+	}
+	planTable.Render()
 }
 
 func renderRolloutOutcomes(out io.Writer, outcomes []rolloutOutcome) {
@@ -522,6 +631,9 @@ func init() {
 	stackProfilesRolloutCmd.Flags().StringArray("set", nil, "Bind a parameter: name=value (repeatable; not for secrets)")
 	stackProfilesRolloutCmd.Flags().StringArray("set-file", nil, "Bind a parameter from a file: name=path (repeatable; secret-safe)")
 	stackProfilesRolloutCmd.Flags().StringArray("set-env", nil, "Bind a parameter from an environment variable: name=ENV_VAR (repeatable; secret-safe)")
+	stackProfilesRolloutCmd.Flags().StringArray("confirm-removal", nil, "Allow the rollout to remove this member from one stack although the platform cannot show the profile put it there, as cluster:kind/name (kind addon, manifest or application; the cluster may be left out when the rollout has one target; repeatable)")
+	stackProfilesRolloutCmd.Flags().Bool("continue-on-error", false, "Keep rolling out to the remaining stacks after one fails (by default the rollout stops at the first failure)")
+	stackProfilesRolloutCmd.Flags().Bool("yes", false, "Skip the confirmation asked before a rollout to more than one stack")
 	stackProfilesRolloutCmd.Flags().Bool("via-apply", false, "Export the version as ClusterInfrastructureAsCode and apply it with the cluster apply lane instead of the platform's in-place upgrade (older platforms; the fleet view then keeps the previous version)")
 	registerAsyncWriteFlags(stackProfilesRolloutCmd)
 	if waitFlag := stackProfilesRolloutCmd.Flags().Lookup("wait"); waitFlag != nil {
@@ -537,7 +649,7 @@ func init() {
 // the new version. The deployment's recorded bindings go first and the
 // caller's --set values override them by name. version is already resolved
 // by the caller (the flag, else the profile's current version, never 0).
-func rolloutInPlace(cmd *cobra.Command, format outputFormat, profileID string, profileName string, version int, targets []rolloutTarget, bindings []client.ParameterBinding) error {
+func rolloutInPlace(cmd *cobra.Command, format outputFormat, profileID string, profileName string, version int, targets []rolloutTarget, bindings []client.ParameterBinding, confirmedRemovals rolloutConfirmations, continueOnError bool) error {
 	out := cmd.OutOrStdout()
 	if format == outputDefault {
 		_, _ = fmt.Fprintf(out, "Rolling out '%s' v%d to %d %s...\n", profileName, version, len(targets), pluralise(len(targets), "stack", "stacks"))
@@ -553,17 +665,27 @@ func rolloutInPlace(cmd *cobra.Command, format outputFormat, profileID string, p
 			outcomes = append(outcomes, outcome)
 			continue
 		}
+		if failed > 0 && !continueOnError {
+			outcomes = append(outcomes, skippedAfterFailure(target, version))
+			continue
+		}
 		requestVersion := version
 		request := client.InstantiateStackProfileRequest{
-			ProfileID:       profileID,
-			Version:         &requestVersion,
-			NewStackName:    target.StackName,
-			Parameters:      mergeParameterBindings(target.recordedBindings, bindings),
-			Deploy:          true,
-			UpgradeExisting: true,
+			ProfileID:               profileID,
+			Version:                 &requestVersion,
+			NewStackName:            target.StackName,
+			Parameters:              mergeParameterBindings(target.recordedBindings, bindings),
+			Deploy:                  true,
+			UpgradeExisting:         true,
+			ConfirmedMemberRemovals: confirmedRemovals.forTarget(target),
 		}
 		result, applyError := instantiateProfileOnCluster(target.ClusterID, request)
+		refusal, isRemovalRefusal := asMemberRemovalRefusal(applyError)
 		switch {
+		case isRemovalRefusal:
+			outcome.Status = "refused"
+			outcome.Message = describeRemovalRefusal(target.ClusterName, refusal)
+			failed++
 		case applyError != nil:
 			outcome.Status = "failed"
 			outcome.Message = applyError.Error()
@@ -627,7 +749,7 @@ func rolloutInPlace(cmd *cobra.Command, format outputFormat, profileID string, p
 			return encodeError
 		}
 		if failed > 0 {
-			return fmt.Errorf("%d of %d %s failed", failed, len(targets), pluralise(len(targets), "rollout", "rollouts"))
+			return rolloutFailureError(failed, outcomes, "failed")
 		}
 		return nil
 	}
@@ -636,7 +758,7 @@ func rolloutInPlace(cmd *cobra.Command, format outputFormat, profileID string, p
 	_, _ = fmt.Fprintln(out, "\nThe deploys run in the background from here; 'ankra stack-profiles deployments "+profileName+"' now reports the new version.")
 	_, _ = fmt.Fprintln(out, "Watch them with 'ankra cluster operations list --cluster <name>'.")
 	if failed > 0 {
-		return fmt.Errorf("%d of %d %s failed", failed, len(targets), pluralise(len(targets), "rollout", "rollouts"))
+		return rolloutFailureError(failed, outcomes, "failed")
 	}
 	return nil
 }

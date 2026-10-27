@@ -41,6 +41,8 @@ type CostAutopilotOverride struct {
 // Reason is the sentence a card shows. EnvironmentKind is production,
 // staging, development, preview or unknown.
 type CostAutopilotCluster struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	ClusterID       string                 `json:"cluster_id" yaml:"cluster_id"`
 	ClusterName     string                 `json:"cluster_name" yaml:"cluster_name"`
 	Environment     string                 `json:"environment" yaml:"environment"`
@@ -59,6 +61,8 @@ type CostAutopilotCluster struct {
 // organisation's default routing. UpdatedBy and UpdatedAt are nil until a
 // policy is set.
 type CostAutopilotPolicy struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	IsSet               bool                     `json:"is_set" yaml:"is_set"`
 	Defaults            map[string]string        `json:"defaults" yaml:"defaults"`
 	RecommendedDefaults map[string]string        `json:"recommended_defaults" yaml:"recommended_defaults"`

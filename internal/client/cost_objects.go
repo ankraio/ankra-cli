@@ -26,6 +26,8 @@ const (
 // CoverageIncomplete true makes MonthlyCents a floor: a cluster behind the
 // object could not be priced in full or contributed nothing.
 type ObjectCostProjection struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	Kind   string            `json:"kind" yaml:"kind"`
 	Object ObjectCostSubject `json:"object" yaml:"object"`
 	// Currency is the display currency; every *_cents figure is in its

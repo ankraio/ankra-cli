@@ -417,6 +417,10 @@ func (m baseMock) SetApplicationAutoDeploy(requestContext context.Context, appli
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) UpdateApplicationAutoDeploy(requestContext context.Context, applicationID string, autoDeployRequest client.SetApplicationAutoDeployRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) StartApplicationPlatformBuild(requestContext context.Context, applicationID string, request client.StartApplicationPlatformBuildRequest) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
@@ -725,7 +729,7 @@ func (m baseMock) CompleteBackupVaultImport(vaultID string, importID string) (*c
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) RestoreBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error) {
+func (m baseMock) RestoreBackupVaultImport(vaultID string, importID string, request client.RestoreBackupVaultImportRequest) (*client.BackupVaultImport, error) {
 	return nil, errors.New("not implemented")
 }
 
