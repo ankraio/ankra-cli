@@ -517,6 +517,9 @@ add-on deploys run in the background. Watch them with
 			var applyError error
 			if plans[index].ReadError == nil && len(unconfirmed) == 0 {
 				request := rolloutRequest(base, target)
+				// Every removal this apply makes was confirmed above; the
+				// platform refuses one it is not told about (ankra-kwr1sp).
+				request.ConfirmedMemberRemovals = confirmedRemovals.forTarget(target)
 				response, submitted, applyError = apiClient.ApplyCluster(requestContext, request, wait)
 			}
 			switch {
