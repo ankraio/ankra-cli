@@ -54,6 +54,7 @@ most 34; 30 when omitted). Pass -o json (or yaml) for the full document.`,
 		if daysError != nil {
 			return daysError
 		}
+		applyCostProjectScope(cmd)
 		trend, err := apiClient.GetFleetCostTrend(days)
 		if err != nil {
 			return costTrendReadError(err, "GET /api/v1/org/cloud-cost/trend", "the fleet cost trend", "reading the fleet cost trend")
@@ -98,6 +99,7 @@ for the full document.`,
 		if daysError != nil {
 			return daysError
 		}
+		applyCostProjectScope(cmd)
 		events, err := apiClient.GetCostEvents(days)
 		if err != nil {
 			return costTrendReadError(err, "GET /api/v1/org/cloud-cost/events", "the cost events", "reading the cost events")
@@ -114,6 +116,7 @@ func init() {
 	costTrendCmd.Flags().Int("days", 0, "How many UTC days to cover, ending today (1-34; the platform's default of 30 when omitted)")
 	costEventsCmd.Flags().Int("days", 0, "How many UTC days to cover, ending today (1-34; the platform's default of 30 when omitted)")
 	registerStructuredOutputFlags(costTrendCmd, costEventsCmd)
+	registerCostProjectScopeFlag(costTrendCmd, costEventsCmd)
 	costCmd.AddCommand(costTrendCmd)
 	costCmd.AddCommand(costEventsCmd)
 }

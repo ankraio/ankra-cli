@@ -10,12 +10,13 @@ import (
 
 type serviceTokensMock struct {
 	baseMock
-	serviceTokens   []client.ServiceToken
-	personalListed  int
-	serviceListed   int
-	createdService  *client.CreateServiceTokenRequest
-	createdPersonal int
-	createError     error
+	serviceTokens          []client.ServiceToken
+	personalListed         int
+	serviceListed          int
+	createdService         *client.CreateServiceTokenRequest
+	createdPersonal        int
+	createdPersonalRequest *client.CreateAPITokenRequest
+	createError            error
 }
 
 func (m *serviceTokensMock) ListAPITokens() ([]client.APIToken, error) {
@@ -28,8 +29,9 @@ func (m *serviceTokensMock) ListServiceTokens() ([]client.ServiceToken, error) {
 	return m.serviceTokens, nil
 }
 
-func (m *serviceTokensMock) CreateAPIToken(name string, expiresAt *string, scopes []string) (*client.CreateAPITokenResponse, error) {
+func (m *serviceTokensMock) CreateAPIToken(request client.CreateAPITokenRequest) (*client.CreateAPITokenResponse, error) {
 	m.createdPersonal++
+	m.createdPersonalRequest = &request
 	return &client.CreateAPITokenResponse{ID: "personal-id", Token: "ankra_personal", ExpiresAt: "2027-01-01T00:00:00Z"}, nil
 }
 
