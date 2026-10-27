@@ -202,12 +202,20 @@ func TestClusterMeshReadinessResolvesEveryArgumentAndLabelsWhatWasTyped(t *testi
 // It reads every bracketed placeholder in a Use string rather than two literal
 // spellings, so `[cluster_id]`, `<cluster-id>` and `<clusterID>` are caught as
 // well as `<cluster_id>` - any of them would forward a typed name verbatim.
+// A command whose caller cannot resolve names by design carries
+// annotationClusterIDOnly with the reason, and is exempt.
 func TestEveryClusterArgumentAdvertisesTheName(t *testing.T) {
 	placeholder := regexp.MustCompile(`<[^<>]+>|\[[^\[\]]+\]`)
 	clusterID := regexp.MustCompile(`(?i)cluster[-_ ]?id`)
 	var offenders []string
 	var walk func(command *cobra.Command)
 	walk = func(command *cobra.Command) {
+		if command.Annotations[annotationClusterIDOnly] != "" {
+			for _, child := range command.Commands() {
+				walk(child)
+			}
+			return
+		}
 		for _, token := range placeholder.FindAllString(command.Use, -1) {
 			// The widened form is the whole point, so it is never an offender.
 			if clusterID.MatchString(token) && !strings.Contains(token, "|name") {
