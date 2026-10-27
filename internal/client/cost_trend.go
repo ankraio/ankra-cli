@@ -59,6 +59,8 @@ type FleetCostTrendCluster struct {
 // currency, with the days the set of priced clusters changed drawn apart from
 // the spend.
 type FleetCostTrend struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	Currency        string                  `json:"currency" yaml:"currency"`
 	GeneratedAt     string                  `json:"generated_at" yaml:"generated_at"`
 	Days            int                     `json:"days" yaml:"days"`
@@ -102,6 +104,8 @@ type CostEventSource struct {
 // the last Days UTC days, newest first. Truncated says the platform stopped at
 // its newest 500.
 type CostEvents struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	Currency    string            `json:"currency" yaml:"currency"`
 	GeneratedAt string            `json:"generated_at" yaml:"generated_at"`
 	Days        int               `json:"days" yaml:"days"`
