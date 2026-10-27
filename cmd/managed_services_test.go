@@ -1132,6 +1132,13 @@ func TestServiceConnectionDeliveryPrintsPickupAndNameCollisions(t *testing.T) {
 	if got := out.String(); !strings.Contains(got, "      Defined twice: DATABASE_URL, PGHOST (") {
 		t.Errorf("name collisions print under the delivery:\n%s", got)
 	}
+	// A deploy does not always connect the workloads (a Job, a CronJob, a
+	// workload marked deploy-overrides: none, a name defined twice), so the
+	// meaning says usually and points at the reason, never that it will.
+	if got := out.String(); !strings.Contains(got,
+		"      Pickup:   redeploy_needed (left to a deploy, which usually connects the workloads to it; the reason says what is needed)\n") {
+		t.Errorf("redeploy_needed must say a deploy usually connects it:\n%s", got)
+	}
 }
 
 // ankra services get carries pickup and name_collisions through every output

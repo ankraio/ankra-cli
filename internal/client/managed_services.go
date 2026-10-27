@@ -384,9 +384,8 @@ type ServiceInstanceConsumer struct {
 // ServiceConnectionDelivery is how one consumer receives the service's
 // connection: a Secret the platform writes into the consumer's namespace,
 // copied inside the cluster, and the environment variables it carries. State
-// is delivered (the Secret is observed there), pending (not yet: the service
-// is still being set up, or Ankra is writing it now without a redeploy;
-// Pickup says which), unsupported (the platform does not deliver it, for
+// is delivered (the Secret is observed there), pending (not delivered yet;
+// Pickup says what it waits for), unsupported (the platform does not deliver it, for
 // example to another cluster; Reason says why) or unknown (the delivery could
 // not be read, which is not an answer that it is missing). Values are never
 // carried.
@@ -427,8 +426,10 @@ const (
 	// choose which service provides the conventional names.
 	ServiceConnectionPickupHolderGone = "holder_gone"
 	// ServiceConnectionPickupRedeployNeeded: the Secret is there but no
-	// running workload reads it, or Ankra leaves writing it to a deploy,
-	// which rolls the workloads that reference it together.
+	// running workload reads it, or Ankra leaves writing it to a deploy.
+	// A deploy usually connects the workloads, but not a Job, a CronJob or
+	// a workload marked ankra.io/deploy-overrides: none, and not while a
+	// name is defined twice; Reason says what is needed.
 	ServiceConnectionPickupRedeployNeeded = "redeploy_needed"
 	// ServiceConnectionPickupRestartNeeded: running pods started before the
 	// Secret existed and lack its variables until they restart; Ankra never

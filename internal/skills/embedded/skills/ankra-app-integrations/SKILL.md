@@ -195,7 +195,7 @@ SeaweedFS S3, VictoriaLogs, VictoriaMetrics) answer only inside their cluster, a
 `ankra services consumers bind --application <app> --cluster <cluster> --namespace <ns>` records
 the consumer (it deploys nothing). An application on the **service's own cluster** receives the
 connection once the service is running, without a redeploy while none of its running pods reads it
-(otherwise its next deploy writes it and rolls those pods together): a `<service>-connection` Secret in its
+(otherwise Ankra leaves it to its next deploy, which rolls those pods together): a `<service>-connection` Secret in its
 namespace, read through `envFrom` as `DATABASE_URL`/`PG*`, `REDIS_URL`, `NATS_URL`, `OPENSEARCH_*`,
 `S3_ENDPOINT`/`AWS_*` or `VICTORIA_*_URL` (the first service of a kind gets these names, every
 service also `<SERVICE_NAME>_`-prefixed ones). Do not also set those names as env-secrets: two

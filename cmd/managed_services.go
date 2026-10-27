@@ -58,9 +58,10 @@ once the service is running: a <service>-connection Secret in its namespace,
 copied inside the cluster, which its workloads read as environment variables
 (DATABASE_URL, REDIS_URL, NATS_URL, ...). While none of the application's
 running pods reads the Secret, Ankra writes it without a redeploy; otherwise
-the application's next deploy writes it and rolls the pods that read it
-together. Workloads deployed before the service was connected read it after
-their next deploy. An application on another cluster is not connected for you.
+Ankra leaves it to the application's next deploy, which rolls the pods that
+read it together. Workloads deployed before the service was connected usually read
+it after their next deploy; 'ankra services get' says when they do not. An
+application on another cluster is not connected for you.
 
 'ankra services list' and 'ankra services get <name>' show each service's
 deployment state, health, readiness (a consumer-path canary connects with the
@@ -575,10 +576,9 @@ retirement if one was confirmed.
 
 A consumer on the service's cluster receives the connection as a
 <service>-connection Secret in its namespace, read as environment variables,
-whose names are listed. Its delivery reads delivered, pending (the service is
-still being set up, or Ankra is writing the Secret now), unsupported (for
-example a consumer on another cluster, which needs the values set by hand) or
-unknown.
+whose names are listed. Its delivery reads delivered, pending (not delivered
+yet; Pickup says what it waits for), unsupported (for example a consumer on
+another cluster, which needs the values set by hand) or unknown.
 
 Pickup says how far the application is from running with the connection:
   waiting_for_service  the service has no credentials yet; Ankra delivers the
@@ -587,8 +587,9 @@ Pickup says how far the application is from running with the connection:
                        a redeploy or restart
   holder_gone          waits for you to choose which service provides the
                        standard names (DATABASE_URL, ...)
-  redeploy_needed      the application's next deploy writes it or connects
-                       its workloads to it, and rolls them together
+  redeploy_needed      Ankra leaves it to a deploy; a deploy usually writes
+                       it and connects the workloads to it, but not always
+                       (the delivery reason says what is needed)
   restart_needed       running pods started before it arrived; restart them
                        to pick it up (Ankra does not restart them)
   in_use               every running pod that reads it has it
@@ -764,7 +765,7 @@ var serviceConnectionPickupMeanings = map[string]string{
 	client.ServiceConnectionPickupWaitingForService: "the service has no credentials yet; Ankra delivers the connection once it has",
 	client.ServiceConnectionPickupDelivering:        "Ankra is writing the connection into the namespace; nothing is redeployed or restarted",
 	client.ServiceConnectionPickupHolderGone:        "waits for a person to choose which service provides the standard names",
-	client.ServiceConnectionPickupRedeployNeeded:    "the next deploy of the application connects it",
+	client.ServiceConnectionPickupRedeployNeeded:    "left to a deploy, which usually connects the workloads to it; the reason says what is needed",
 	client.ServiceConnectionPickupRestartNeeded:     "running pods started before the connection arrived; restart them to pick it up",
 	client.ServiceConnectionPickupInUse:             "every running pod that reads it has it",
 }
