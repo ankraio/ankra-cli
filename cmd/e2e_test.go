@@ -679,7 +679,7 @@ func (m baseMock) CompleteBackupVaultImport(vaultID string, importID string) (*c
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) RestoreBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error) {
+func (m baseMock) RestoreBackupVaultImport(vaultID string, importID string, request client.RestoreBackupVaultImportRequest) (*client.BackupVaultImport, error) {
 	return nil, errors.New("not implemented")
 }
 
