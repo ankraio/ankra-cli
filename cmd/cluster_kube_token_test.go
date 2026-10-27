@@ -18,13 +18,13 @@ func TestSuggestAccessOnKubeTokenDenied(t *testing.T) {
 		t.Fatalf("expected access-grant suggestion, got: %v", err)
 	}
 	// The original error must stay in the chain so exit-code classification
-	// still sees the 403.
+	// still sees the 403: a refusal (7), not a credential to renew.
 	var unexpected *client.UnexpectedResponseError
 	if !errors.As(err, &unexpected) || unexpected.StatusCode != 403 {
 		t.Fatalf("expected wrapped UnexpectedResponseError with status 403, got: %v", err)
 	}
-	if code := exitCodeFor(err); code != exitAuth {
-		t.Fatalf("expected exit code %d, got %d", exitAuth, code)
+	if code := exitCodeFor(err); code != exitForbidden {
+		t.Fatalf("expected exit code %d, got %d", exitForbidden, code)
 	}
 }
 

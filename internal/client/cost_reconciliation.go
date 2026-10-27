@@ -95,6 +95,8 @@ type CostReconciliationCredential struct {
 // credential and UTC month, what the provider billed against what the
 // metering estimated for the clusters those lines are placed on.
 type CostReconciliation struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	Month       string                         `json:"month" yaml:"month"`
 	MonthClosed bool                           `json:"month_closed" yaml:"month_closed"`
 	PeriodHours int                            `json:"period_hours" yaml:"period_hours"`

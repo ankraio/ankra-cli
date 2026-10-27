@@ -2,9 +2,12 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -24,9 +27,10 @@ import (
 // kubectl or a database client.
 
 var (
-	migrateRestoreCluster string
-	migrateRestoreStack   string
-	migrateRestoreVault   string
+	migrateRestoreCluster   string
+	migrateRestoreStack     string
+	migrateRestoreVault     string
+	migrateRestoreOverwrite []string
 
 	migrateRestoreStatusVault string
 
@@ -38,6 +42,7 @@ var (
 	migrateDataCluster   string
 	migrateDataStack     string
 	migrateDataVault     string
+	migrateDataOverwrite []string
 )
 
 // migrateRestorePollInterval is how often --wait re-reads the import; tests
@@ -66,9 +71,17 @@ ready vault; pass --vault otherwise.
 
 Pass --wait to follow the restore to its end; --timeout bounds only that
 wait, never the upload. Without --wait the command returns once the restore
-is running, and 'ankra migrate restore-status <import-id>' reports progress.`,
+is running, and 'ankra migrate restore-status <import-id>' reports progress.
+
+A restore replaces everything in each database it loads. Once a database
+in the cluster has been restored into, it may hold writes made since - after
+a cutover, the application's live data - so the platform refuses to restore
+into it again unless you name it with --overwrite-database <server>/<database>
+(or just the database name when only one server has it). The check runs
+before anything is uploaded, and the command names every database it needs.`,
 	Example: `  ankra migrate restore ./app-data --cluster shop --wait
   ankra migrate restore ./app-data --cluster shop --vault backups --stack shop
+  ankra migrate restore ./app-data --cluster shop --overwrite-database db/office --wait
   ankra migrate restore ./app-data -o json`,
 	Args:        cobra.ExactArgs(1),
 	Annotations: map[string]string{annotationRequiresAuth: "true"},
@@ -97,7 +110,10 @@ running there. Every flag of both commands applies. The cluster and the
 vault are resolved before anything is dumped, so a wrong target fails fast.
 
 Each dump is a snapshot of a live server. Rehearse while the source is
-running, then stop its writers and run it once more for the real cutover.`,
+running, then stop its writers and run it once more for the real cutover.
+That second run replaces the rehearsal's data, so it names each database it
+may replace with --overwrite-database; without it the restore is refused,
+which is what keeps a re-run after the cutover from reverting live data.`,
 	Example: `  ankra migrate data ./app --cluster shop --wait
   ankra migrate data ./app --option docker-host=ssh://root@203.0.113.7 --option project=aura-office --cluster shop --wait`,
 	Args:        cobra.MaximumNArgs(1),
@@ -109,6 +125,7 @@ func init() {
 	migrateRestoreCmd.Flags().StringVar(&migrateRestoreCluster, "cluster", "", "Cluster to restore into, by name or id (default: the selected cluster)")
 	migrateRestoreCmd.Flags().StringVar(&migrateRestoreStack, "stack", "", "Stack the data belongs to (default: derived from the export)")
 	migrateRestoreCmd.Flags().StringVar(&migrateRestoreVault, "vault", "", "Backup vault to upload through, by name or id (default: the organisation's only ready vault)")
+	migrateRestoreCmd.Flags().StringArrayVar(&migrateRestoreOverwrite, "overwrite-database", nil, overwriteDatabaseFlagUsage)
 	registerAsyncWriteFlags(migrateRestoreCmd)
 	registerStructuredOutputFlags(migrateRestoreCmd)
 	migrateCmd.AddCommand(migrateRestoreCmd)
@@ -126,6 +143,7 @@ func init() {
 	migrateDataCmd.Flags().StringVar(&migrateDataCluster, "cluster", "", "Cluster to restore into, by name or id (default: the selected cluster)")
 	migrateDataCmd.Flags().StringVar(&migrateDataStack, "stack", "", "Stack the data belongs to (default: derived from the export)")
 	migrateDataCmd.Flags().StringVar(&migrateDataVault, "vault", "", "Backup vault to upload through, by name or id (default: the organisation's only ready vault)")
+	migrateDataCmd.Flags().StringArrayVar(&migrateDataOverwrite, "overwrite-database", nil, overwriteDatabaseFlagUsage)
 	registerAsyncWriteFlags(migrateDataCmd)
 	registerStructuredOutputFlags(migrateDataCmd)
 	migrateCmd.AddCommand(migrateDataCmd)
@@ -167,7 +185,7 @@ func runMigrateRestore(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	imported, err := performMigrateRestore(cmd, exportDir, targets, wait)
+	imported, err := performMigrateRestore(cmd, exportDir, targets, wait, migrateRestoreOverwrite)
 	if err != nil {
 		return err
 	}
@@ -229,7 +247,7 @@ func runMigrateData(cmd *cobra.Command, args []string) error {
 	}
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Exported %d database server(s) to %s\n", len(exported.Manifest.Databases), exported.Out)
 
-	imported, err := performMigrateRestore(cmd, exported.Out, targets, wait)
+	imported, err := performMigrateRestore(cmd, exported.Out, targets, wait, migrateDataOverwrite)
 	if err != nil {
 		return err
 	}
@@ -244,10 +262,21 @@ func runMigrateData(cmd *cobra.Command, args []string) error {
 // platform verify them, dispatches the restore, and - with wait - follows it
 // to a terminal state. The uploads run under the command's own context: a
 // dump takes as long as it takes, and only the wait is bounded by --timeout.
-func performMigrateRestore(cmd *cobra.Command, exportDir string, targets migrateRestoreTargets, wait bool) (*client.BackupVaultImport, error) {
+//
+// overwriteDatabases are the databases the caller named with
+// --overwrite-database. A database an earlier restore on the cluster already
+// loaded is restored over only when named there: the platform says which
+// ones when the import is registered, so an unnamed one stops the command
+// before a byte is uploaded, and the platform refuses the restore itself
+// regardless.
+func performMigrateRestore(cmd *cobra.Command, exportDir string, targets migrateRestoreTargets, wait bool, overwriteDatabases []string) (*client.BackupVaultImport, error) {
 	manifest, err := migrate.ReadExportManifest(exportDir)
 	if err != nil {
 		return nil, withExitCode(exitUsage, fmt.Errorf("%s is not an export directory: %w", exportDir, err))
+	}
+	confirmedOverwrites, err := resolveOverwriteDatabases(manifest, overwriteDatabases)
+	if err != nil {
+		return nil, withExitCode(exitUsage, err)
 	}
 	rawManifest, err := os.ReadFile(filepath.Join(exportDir, migrate.ExportManifestFileName))
 	if err != nil {
@@ -273,6 +302,17 @@ func performMigrateRestore(cmd *cobra.Command, exportDir string, targets migrate
 	})
 	if err != nil {
 		return nil, backupLaneError("registering the import", err)
+	}
+	if created.PreviouslyRestoredDatabases != nil {
+		if unconfirmed := unconfirmedOverwrites(*created.PreviouslyRestoredDatabases, confirmedOverwrites); len(unconfirmed) > 0 {
+			removal := "The import it registered was removed; nothing was uploaded."
+			if deleteError := apiClient.DeleteBackupVaultImport(targets.vaultID, created.Import.ID); deleteError != nil {
+				removal = fmt.Sprintf("Nothing was uploaded; removing the import it registered failed (%v), "+
+					"so remove it with `ankra migrate imports delete %s`.", deleteError, created.Import.ID)
+			}
+			return nil, withExitCode(exitUsage, fmt.Errorf("%s %s",
+				overwriteRefusal(unconfirmed, confirmedOverwrites, targets.clusterName), removal))
+		}
 	}
 
 	for _, upload := range created.Uploads {
@@ -300,14 +340,110 @@ func performMigrateRestore(cmd *cobra.Command, exportDir string, targets migrate
 		return nil, backupLaneError("verifying the import", err)
 	}
 	_, _ = fmt.Fprintf(progress, "Restoring %d database server(s) into cluster %s\n", len(completed.Databases), targets.clusterName)
-	restoring, err := apiClient.RestoreBackupVaultImport(targets.vaultID, created.Import.ID)
+	restoring, err := apiClient.RestoreBackupVaultImport(targets.vaultID, created.Import.ID,
+		client.RestoreBackupVaultImportRequest{ConfirmedOverwriteDatabases: confirmedOverwrites})
 	if err != nil {
+		var unexpected *client.UnexpectedResponseError
+		if errors.As(err, &unexpected) && unexpected.StatusCode == http.StatusConflict &&
+			strings.Contains(unexpected.Detail, "confirmed_overwrite_databases") {
+			return nil, withExitCode(exitUsage, fmt.Errorf("starting the restore: %s Name each database with "+
+				"--overwrite-database to replace it. The upload is kept as import %s; `ankra migrate imports delete %s` "+
+				"removes it", unexpected.Detail, created.Import.ID, created.Import.ID))
+		}
 		return nil, backupLaneError("starting the restore", err)
 	}
 	if !wait {
 		return restoring, nil
 	}
 	return waitForMigrateRestore(cmd, targets.vaultID, restoring.ID)
+}
+
+// overwriteDatabaseFlagUsage is the --overwrite-database help, shared by
+// every command that restores.
+const overwriteDatabaseFlagUsage = "Database the restore may replace although an earlier restore into this cluster " +
+	"already loaded it - everything written to it since is lost - as <server>/<database>, or the database name " +
+	"when only one server has it (repeatable)"
+
+// resolveOverwriteDatabases reads every --overwrite-database value against
+// the export itself, before anything is registered or uploaded, and answers
+// the "<server>/<database>" identifiers they name. A value is a full
+// identifier, or a database name exactly one server of the export carries; a
+// name two servers share, or one the export does not restore, is refused
+// here rather than after the upload, where the platform would refuse it.
+func resolveOverwriteDatabases(manifest migrate.ExportManifest, values []string) ([]string, error) {
+	identifiers := map[string]bool{}
+	byName := map[string][]string{}
+	for _, database := range manifest.Databases {
+		for _, artifact := range database.Artifacts {
+			if artifact.Kind != migrate.ArtifactKindDatabase {
+				continue
+			}
+			identifier := database.Workload + "/" + artifact.Database
+			if !identifiers[identifier] {
+				identifiers[identifier] = true
+				byName[artifact.Database] = append(byName[artifact.Database], identifier)
+			}
+		}
+	}
+	resolved := []string{}
+	isResolved := map[string]bool{}
+	for _, value := range values {
+		name := strings.TrimSpace(value)
+		matches := []string{name}
+		if !identifiers[name] {
+			matches = byName[name]
+		}
+		switch len(matches) {
+		case 1:
+			if !isResolved[matches[0]] {
+				isResolved[matches[0]] = true
+				resolved = append(resolved, matches[0])
+			}
+		case 0:
+			return nil, fmt.Errorf("--overwrite-database %s names no database this export restores; name it as <server>/<database>", value)
+		default:
+			sort.Strings(matches)
+			return nil, fmt.Errorf("--overwrite-database %s matches %s; name the one to replace as <server>/<database>", value, strings.Join(matches, " and "))
+		}
+	}
+	return resolved, nil
+}
+
+// unconfirmedOverwrites answers the previously restored databases that are
+// not among the confirmed identifiers.
+func unconfirmedOverwrites(previouslyRestored []string, confirmed []string) []string {
+	isConfirmed := map[string]bool{}
+	for _, identifier := range confirmed {
+		isConfirmed[identifier] = true
+	}
+	unconfirmed := []string{}
+	for _, identifier := range previouslyRestored {
+		if !isConfirmed[identifier] {
+			unconfirmed = append(unconfirmed, identifier)
+		}
+	}
+	return unconfirmed
+}
+
+// overwriteRefusal explains why a restore into already-restored databases
+// stops, and how to go on when replacing them is intended. The advice names
+// every database the next run must confirm - the ones already given as well
+// as the missing ones - so following it is enough on the first try.
+func overwriteRefusal(unconfirmed []string, confirmed []string, clusterName string) string {
+	subject := "database " + unconfirmed[0] + ", which Ankra already restored into"
+	if len(unconfirmed) > 1 {
+		subject = "databases " + strings.Join(unconfirmed, ", ") + ", which Ankra already restored into"
+	}
+	needed := append(append([]string{}, confirmed...), unconfirmed...)
+	sort.Strings(needed)
+	flags := make([]string, 0, len(needed))
+	for _, identifier := range needed {
+		flags = append(flags, "--overwrite-database "+identifier)
+	}
+	return fmt.Sprintf("restoring this export would replace %s on cluster %s. A restore replaces everything in a "+
+		"database with the export, including every write made since the earlier restore - after a cutover, that "+
+		"is the application's live data. If replacing it is what you want (the final run after a rehearsal, with "+
+		"the source's writers stopped), run again with %s.", subject, clusterName, strings.Join(flags, " "))
 }
 
 func uploadMigrateArtifact(ctx context.Context, localPath string, upload client.BackupVaultImportUpload, size int64) error {
