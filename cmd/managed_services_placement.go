@@ -549,7 +549,9 @@ changing an existing one needs --revision with its current revision
 ('ankra services consumers list --application <app>' shows it); a setting
 not given on the command line keeps the binding's current value. Binding
 deploys nothing. Once a service set up for this consumer is running on the
-same cluster, the application's next deploy delivers its connection.`,
+same cluster, Ankra delivers its connection: without a redeploy while none of
+the application's running pods reads it, otherwise on the application's next
+deploy. 'ankra services get <service>' shows its pickup.`,
 		Example: "  ankra services consumers bind --application orders --cluster prod --namespace orders\n" +
 			"  ankra services consumers bind --application orders --cluster prod --namespace orders --allow-planned",
 		Args: cobra.NoArgs,

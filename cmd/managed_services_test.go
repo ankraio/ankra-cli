@@ -101,6 +101,19 @@ type fakeServicesPlatform struct {
 	// queued.
 	probeVerdict string
 	probeReads   int
+	// connectionDelivery replaces the consumer's connection_delivery in
+	// every instance read; nil keeps the delivered default.
+	connectionDelivery map[string]any
+}
+
+// instance is the fake instance as this platform answers it.
+func (platform *fakeServicesPlatform) instance() map[string]any {
+	instance := fakeServiceInstance()
+	if platform.connectionDelivery != nil {
+		consumer := instance["consumers"].([]any)[0].(map[string]any)
+		consumer["connection_delivery"] = platform.connectionDelivery
+	}
+	return instance
 }
 
 // fakeServiceOrphanConsumerID is a binding whose application was removed:
@@ -377,7 +390,7 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		}
 		// The platform's own filters (cluster#4053): the one service serves
 		// fakeServiceApplication and runs on fakeServiceClusterID.
-		items := []any{fakeServiceInstance()}
+		items := []any{platform.instance()}
 		query := request.URL.Query()
 		if !platform.ignoreInstanceFilters &&
 			((query.Has("application_id") && query.Get("application_id") != fakeServiceApplication) ||
@@ -394,7 +407,7 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"result": result,
 			"pagination": map[string]any{"total_pages": 1, "page": 1, "page_size": 100, "total_count": len(result)}})
 	case request.Method == http.MethodGet && path == instancePath:
-		fakeServiceJSON(t, writer, http.StatusOK, fakeServiceInstance())
+		fakeServiceJSON(t, writer, http.StatusOK, platform.instance())
 	case request.Method == http.MethodPost && path == instancePath+"/retirements":
 		var body client.ServiceRetirementRequest
 		_ = json.Unmarshal(bodyBytes, &body)
@@ -1082,6 +1095,89 @@ func TestServiceConnectionDeliveryPrintsTheStateAndReason(t *testing.T) {
 	printServiceConnectionDelivery(&out, nil)
 	if out.Len() != 0 {
 		t.Errorf("no reported delivery prints nothing, got %q", out.String())
+	}
+}
+
+// The pickup prints under the delivery with what it means, a pickup this CLI
+// does not know (a newer platform) prints as sent without failing, and the
+// variables another source also defines print when there are any.
+func TestServiceConnectionDeliveryPrintsPickupAndNameCollisions(t *testing.T) {
+	var out bytes.Buffer
+	printServiceConnectionDelivery(&out, &client.ServiceConnectionDelivery{State: "pending", SecretName: "orders-db-connection",
+		Variables: []string{"DATABASE_URL"}, Pickup: "delivering", Reason: "The service is ready."})
+	expected := "      Delivery: pending, Secret orders-db-connection - The service is ready.\n" +
+		"      Pickup:   delivering (Ankra is writing the connection into the namespace; nothing is redeployed or restarted)\n" +
+		"      Variables: DATABASE_URL\n"
+	if got := out.String(); got != expected {
+		t.Errorf("a known pickup prints with its meaning:\n got %q\nwant %q", got, expected)
+	}
+
+	out.Reset()
+	printServiceConnectionDelivery(&out, &client.ServiceConnectionDelivery{State: "delivered", SecretName: "orders-db-connection",
+		Variables: []string{"DATABASE_URL"}, Pickup: "warming_up"})
+	if got := out.String(); !strings.Contains(got, "      Pickup:   warming_up\n") {
+		t.Errorf("an unknown pickup prints as the platform sent it, without a meaning:\n%s", got)
+	}
+
+	out.Reset()
+	printServiceConnectionDelivery(&out, &client.ServiceConnectionDelivery{State: "delivered", SecretName: "orders-db-connection",
+		Variables: []string{"DATABASE_URL"}})
+	if got := out.String(); strings.Contains(got, "Pickup") || strings.Contains(got, "Defined twice") {
+		t.Errorf("no pickup and no collisions print no such lines:\n%s", got)
+	}
+
+	out.Reset()
+	printServiceConnectionDelivery(&out, &client.ServiceConnectionDelivery{State: "pending", SecretName: "orders-db-connection",
+		Variables: []string{"DATABASE_URL", "PGHOST"}, Pickup: "redeploy_needed", NameCollisions: []string{"DATABASE_URL", "PGHOST"}})
+	if got := out.String(); !strings.Contains(got, "      Defined twice: DATABASE_URL, PGHOST (") {
+		t.Errorf("name collisions print under the delivery:\n%s", got)
+	}
+}
+
+// ankra services get carries pickup and name_collisions through every output
+// format, a pickup the CLI does not know included, and leaves both out of
+// -o json when the platform sent neither.
+func TestServicesGetCarriesPickupAndNameCollisions(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.connectionDelivery = map[string]any{"state": "pending", "secret_name": "orders-db-connection",
+		"variables": []any{"DATABASE_URL"}, "reason": "Defined twice.", "pickup": "warming_up",
+		"name_collisions": []any{"DATABASE_URL"}}
+	stdout, _, runError := runServicesCommand(t, platform, "", "get", "orders-db")
+	if runError != nil {
+		t.Fatalf("an unknown pickup must not fail the command: %v", runError)
+	}
+	for _, expected := range []string{"Delivery: pending, Secret orders-db-connection - Defined twice.", "Pickup:   warming_up\n",
+		"Defined twice: DATABASE_URL ("} {
+		if !strings.Contains(stdout, expected) {
+			t.Errorf("get output lacks %q:\n%s", expected, stdout)
+		}
+	}
+	for _, format := range []string{"json", "yaml"} {
+		stdout, _, runError = runServicesCommand(t, platform, "", "get", fakeServiceInstanceID, "-o", format)
+		if runError != nil {
+			t.Fatal(runError)
+		}
+		for _, expected := range []string{"pickup", "warming_up", "name_collisions"} {
+			if !strings.Contains(stdout, expected) {
+				t.Errorf("-o %s lacks %q:\n%s", format, expected, stdout)
+			}
+		}
+	}
+
+	platform.connectionDelivery = nil
+	stdout, _, runError = runServicesCommand(t, platform, "", "get", fakeServiceInstanceID, "-o", "json")
+	if runError != nil {
+		t.Fatal(runError)
+	}
+	var instance map[string]any
+	if decodeError := json.Unmarshal([]byte(stdout), &instance); decodeError != nil {
+		t.Fatal(decodeError)
+	}
+	delivery := instance["consumers"].([]any)[0].(map[string]any)["connection_delivery"].(map[string]any)
+	for _, absent := range []string{"pickup", "name_collisions"} {
+		if _, present := delivery[absent]; present {
+			t.Errorf("-o json invents %s the platform did not send: %v", absent, delivery)
+		}
 	}
 }
 

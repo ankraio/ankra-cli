@@ -384,8 +384,9 @@ type ServiceInstanceConsumer struct {
 // ServiceConnectionDelivery is how one consumer receives the service's
 // connection: a Secret the platform writes into the consumer's namespace,
 // copied inside the cluster, and the environment variables it carries. State
-// is delivered (the Secret is observed there), pending (the application's next
-// deploy delivers it), unsupported (the platform does not deliver it, for
+// is delivered (the Secret is observed there), pending (not yet: the service
+// is still being set up, or Ankra is writing it now without a redeploy;
+// Pickup says which), unsupported (the platform does not deliver it, for
 // example to another cluster; Reason says why) or unknown (the delivery could
 // not be read, which is not an answer that it is missing). Values are never
 // carried.
@@ -394,7 +395,49 @@ type ServiceConnectionDelivery struct {
 	SecretName string   `json:"secret_name" yaml:"secret_name"`
 	Variables  []string `json:"variables" yaml:"variables"`
 	Reason     string   `json:"reason" yaml:"reason"`
+	// Pickup says how far a consumer on the service's cluster is from
+	// running with the connection (cluster#5248): one of the
+	// ServiceConnectionPickup values. It is kept as the platform sent it, so
+	// a value added later decodes and prints as is. Empty when the platform
+	// did not read it (an unsupported or unknown delivery, observations it
+	// could not read, or a platform from before pickup), which never means
+	// nothing is needed.
+	Pickup string `json:"pickup,omitempty" yaml:"pickup,omitempty"`
+	// NameCollisions are the connection's variables that another source of
+	// the application's workloads also defines or may define (its own
+	// secrets, or an envFrom Secret or ConfigMap its pods read). Ankra does
+	// not deliver such a connection outside a deploy. Absent when there are
+	// none or the platform could not read them.
+	NameCollisions []string `json:"name_collisions,omitempty" yaml:"name_collisions,omitempty"`
 }
+
+// The pickup values the platform answers today (cluster openapi.json,
+// connection_delivery.pickup). The set may grow: a value not listed here is
+// still carried and shown as the platform sent it.
+const (
+	// ServiceConnectionPickupWaitingForService: the service is being set up
+	// or has not generated its credentials; Ankra delivers the connection
+	// once it has.
+	ServiceConnectionPickupWaitingForService = "waiting_for_service"
+	// ServiceConnectionPickupDelivering: no running pod references the
+	// connection and Ankra is writing it into the namespace, without a
+	// redeploy or restart.
+	ServiceConnectionPickupDelivering = "delivering"
+	// ServiceConnectionPickupHolderGone: delivery waits for a person to
+	// choose which service provides the conventional names.
+	ServiceConnectionPickupHolderGone = "holder_gone"
+	// ServiceConnectionPickupRedeployNeeded: the Secret is there but no
+	// running workload reads it, or Ankra leaves writing it to a deploy,
+	// which rolls the workloads that reference it together.
+	ServiceConnectionPickupRedeployNeeded = "redeploy_needed"
+	// ServiceConnectionPickupRestartNeeded: running pods started before the
+	// Secret existed and lack its variables until they restart; Ankra never
+	// restarts them by itself.
+	ServiceConnectionPickupRestartNeeded = "restart_needed"
+	// ServiceConnectionPickupInUse: every running pod that reads the Secret
+	// started after it existed.
+	ServiceConnectionPickupInUse = "in_use"
+)
 
 // ServiceConsumerEnvironment is the application environment whose
 // deployment runs in a consumer's namespace. An instance consumer has none
