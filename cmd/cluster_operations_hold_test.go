@@ -257,3 +257,12 @@ func TestUpgradeRollbackRecordJSONOutputIsTheServerDocument(t *testing.T) {
 		t.Fatalf("output %q is not the server document (%v)", output, unmarshalError)
 	}
 }
+
+func TestStaffRecoveryCommandsNeverAskForTheLoginToken(t *testing.T) {
+	for _, command := range []*cobra.Command{clusterOperationsHoldCmd, clusterOperationsHoldSetCmd,
+		clusterOperationsHoldGetCmd, clusterOperationsHoldLiftCmd, clusterUpgradeRollbackRecordCmd} {
+		if commandRequiresAuth(command) {
+			t.Fatalf("'%s' must not require the CLI login: it authenticates with a staff session", command.CommandPath())
+		}
+	}
+}
