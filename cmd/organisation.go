@@ -554,8 +554,9 @@ var orgInviteCmd = &cobra.Command{
 	Long: `Invite a user by email to the current organisation.
 
 Valid roles: owner, admin, operator, member (default), viewer, read-only,
-project. owner/operator alias onto admin/member on the invite until the RBAC
-assignments API ships; run 'ankra org roles' for the full list.
+project. owner/operator alias onto admin/member on the invite; once the member
+has joined, grant the exact role at any scope with 'ankra org assign'. Run
+'ankra org roles' for the full list.
 
 --role project invites a project-only member: they reach the one project
 named with the global --project (slug, name or id) and nothing else of the

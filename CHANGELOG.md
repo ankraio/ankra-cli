@@ -2,7 +2,19 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra org assign <member> --role <role> --scope organisation|cluster|cluster_group|project` grants a member a role at one scope from the terminal.** The member is named by email or user id; `--scope-id` takes a cluster name or id, a cluster group id, or a project slug, name or id (the global `--project` also works for the project scope), and `--role` takes a built-in role or a custom role id. A grant the platform refuses, such as a duplicate or one above your own role, is shown with the platform's reason. `-o json` prints the assignment.
+
+- **`ankra org member role <member> --role <role>` changes a member's organisation role, including making them project-only with `--role project --project <ref> [--project-role ...]`.** It needs a platform that accepts this change from an API token; on one that does not yet, it says "this platform does not support changing a member's role with a token yet" and exits 3, and the console remains the way to make the change.
+
+- **`ankra cost summary --by provider|credential|project` shows the totals and just the one breakdown you asked for.** `--by credential` is new: it groups the fleet by the cloud credential that provisioned each cluster. Without `--by` the summary keeps its current layout.
+
 ### Fixed
+
+- **`ankra cluster kube-token` (and so `kubectl`) works for a cluster in another project of your organisation without a `--project` pin in the kubeconfig entry.** When the project in scope does not have the cluster, the CLI now tries the organisation's other projects before searching your other organisations, and mints the token in the project that has it. An explicit `--project` or `ANKRA_PROJECT` is still respected as given. The cross-organisation search no longer sends a project of the current organisation to the others, which made it fail when a project was selected.
+
+- **`ankra cluster select` remembers the cluster's project when the platform reports it, so later commands go straight to the right project.** The platform's cluster list does not send the project yet; until it does, nothing changes.
 
 - **The bundled agent skills no longer steer Hetzner clusters onto server types the location cannot provision.** `ankra-cloud-clusters`, `ankra-getting-started` and `ankra-terraform` used `cx33`/`cx42`/`cx43` in their examples, and the `cx` line is often unavailable in `fsn1` and other locations. The examples now use `cpx12` and `cpx22` and tell the assistant to pick types from `ankra cluster hetzner server-types --credential-id <id> --location <loc>` rows marked available. The skills also say up front that creating a Hetzner cluster needs a payment method on the organisation and an SSH key credential, and point at the new portal's Hetzner wizard. Run `ankra skills install --force` to refresh an installed copy.
 

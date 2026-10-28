@@ -1292,6 +1292,14 @@ func (m baseMock) InviteUserToOrganisation(inviteReq client.InviteUserRequest) (
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) CreateRoleAssignment(client.CreateRoleAssignmentRequest) (*client.RoleAssignment, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateMemberRole(client.UpdateMemberRoleRequest) (*client.UpdateMemberRoleResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) RemoveUserFromOrganisation(removeReq client.RemoveUserRequest) (*client.RemoveUserResponse, error) {
 	return nil, errors.New("not implemented")
 }

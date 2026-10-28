@@ -44,6 +44,19 @@ type FleetProjectCost struct {
 	ProjectedMonthEndCents   int64   `json:"projected_month_end_cents" yaml:"projected_month_end_cents"`
 }
 
+// FleetCredentialCost is the fleet grouped by the cloud credential that
+// provisioned the clusters; CredentialID is nil for clusters no credential
+// provisioned (imported clusters).
+type FleetCredentialCost struct {
+	CredentialID             *string `json:"credential_id" yaml:"credential_id"`
+	CredentialName           *string `json:"credential_name" yaml:"credential_name"`
+	Provider                 string  `json:"provider" yaml:"provider"`
+	ClusterCount             int     `json:"cluster_count" yaml:"cluster_count"`
+	MonthlyCostEstimateCents int64   `json:"monthly_cost_estimate_cents" yaml:"monthly_cost_estimate_cents"`
+	MonthToDateCents         int64   `json:"month_to_date_cents" yaml:"month_to_date_cents"`
+	ProjectedMonthEndCents   int64   `json:"projected_month_end_cents" yaml:"projected_month_end_cents"`
+}
+
 // FleetCostScope says which project a fleet cost read covered: one project
 // (named), or the whole organisation (AllProjects). Partial is true when the
 // caller's cluster permissions narrowed the read, so every figure is a floor.
@@ -61,15 +74,16 @@ type FleetCostScope struct {
 type FleetCloudCost struct {
 	RawDocument `json:"-" yaml:"-"`
 
-	Currency                 string              `json:"currency" yaml:"currency"`
-	ClusterCount             int                 `json:"cluster_count" yaml:"cluster_count"`
-	MonthlyCostEstimateCents int64               `json:"monthly_cost_estimate_cents" yaml:"monthly_cost_estimate_cents"`
-	MonthToDateCents         int64               `json:"month_to_date_cents" yaml:"month_to_date_cents"`
-	ProjectedMonthEndCents   int64               `json:"projected_month_end_cents" yaml:"projected_month_end_cents"`
-	ByProvider               []FleetProviderCost `json:"by_provider" yaml:"by_provider"`
-	ByProject                []FleetProjectCost  `json:"by_project,omitempty" yaml:"by_project,omitempty"`
-	TopClusters              []FleetClusterCost  `json:"top_clusters" yaml:"top_clusters"`
-	Scope                    *FleetCostScope     `json:"scope,omitempty" yaml:"scope,omitempty"`
+	Currency                 string                `json:"currency" yaml:"currency"`
+	ClusterCount             int                   `json:"cluster_count" yaml:"cluster_count"`
+	MonthlyCostEstimateCents int64                 `json:"monthly_cost_estimate_cents" yaml:"monthly_cost_estimate_cents"`
+	MonthToDateCents         int64                 `json:"month_to_date_cents" yaml:"month_to_date_cents"`
+	ProjectedMonthEndCents   int64                 `json:"projected_month_end_cents" yaml:"projected_month_end_cents"`
+	ByProvider               []FleetProviderCost   `json:"by_provider" yaml:"by_provider"`
+	ByProject                []FleetProjectCost    `json:"by_project,omitempty" yaml:"by_project,omitempty"`
+	ByCredential             []FleetCredentialCost `json:"by_credential,omitempty" yaml:"by_credential,omitempty"`
+	TopClusters              []FleetClusterCost    `json:"top_clusters" yaml:"top_clusters"`
+	Scope                    *FleetCostScope       `json:"scope,omitempty" yaml:"scope,omitempty"`
 }
 
 // CostReadiness explains why a cluster has no estimate yet (or that it is

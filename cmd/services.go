@@ -442,6 +442,8 @@ type APIClient interface {
 	CreateOrganisation(name string, country *string) (*client.CreateOrganisationResponse, error)
 	GetOrganisation(orgID string) (*client.OrganisationFull, error)
 	InviteUserToOrganisation(inviteReq client.InviteUserRequest) (*client.InviteUserResponse, error)
+	CreateRoleAssignment(request client.CreateRoleAssignmentRequest) (*client.RoleAssignment, error)
+	UpdateMemberRole(request client.UpdateMemberRoleRequest) (*client.UpdateMemberRoleResponse, error)
 	RemoveUserFromOrganisation(removeReq client.RemoveUserRequest) (*client.RemoveUserResponse, error)
 	ListOrganisationUsers(orgID string) ([]client.OrganisationUser, error)
 
