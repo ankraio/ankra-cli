@@ -67,10 +67,17 @@ resource "ankra_hetzner_credential" "main" {
   api_token = var.hcloud_token
 }
 
+resource "ankra_ssh_key_credential" "ops" {
+  name           = "ops"
+  ssh_public_key = file(pathexpand("~/.ssh/id_ed25519.pub"))
+}
+
 resource "ankra_hetzner_cluster" "prod" {
   name          = "prod"
   credential_id = ankra_hetzner_credential.main.id
   location      = "fsn1"
+
+  ssh_key_credential_id = ankra_ssh_key_credential.ops.id
 
   control_plane_count       = 3
   control_plane_server_type = "cpx32"
@@ -85,7 +92,7 @@ resource "ankra_hetzner_cluster" "prod" {
 resource "ankra_node_group" "gpu" {
   cluster_id    = ankra_hetzner_cluster.prod.cluster_id
   name          = "gpu"
-  instance_type = "cx42"
+  instance_type = "cpx42"
   node_count    = 2
   labels        = { accelerator = "gpu" }
 }
@@ -104,7 +111,7 @@ variable "hcloud_token" {
 
 ## Clusters
 
-- **Lane arguments** keep each cloud's own words: Hetzner `*_server_type` + `location`; DigitalOcean `*_size` + `region`; OVHcloud `*_flavor_id` + `region`; UpCloud `*_plan` + `zone`; Scaleway `*_type` + `region` + `zone`; AWS, Proxmox, Morpheus and Ankra Cloud likewise. `ssh_key_credential_id` (required except on Hetzner) is an `ankra_ssh_key_credential.id`.
+- **Lane arguments** keep each cloud's own words: Hetzner `*_server_type` + `location`; DigitalOcean `*_size` + `region`; OVHcloud `*_flavor_id` + `region`; UpCloud `*_plan` + `zone`; Scaleway `*_type` + `region` + `zone`; AWS, Proxmox, Morpheus and Ankra Cloud likewise. `ssh_key_credential_id` is an `ankra_ssh_key_credential.id`; set it on Hetzner too, because a Hetzner cluster needs an SSH key credential.
 - **A cluster's own provisioning arguments force replacement** (counts and sizes on the cluster resource included). Resize with `ankra_node_group` (`node_count`, `instance_type`, `labels`, `taints`, `autoscaling` update in place; an instance-type change drains and power-cycles each node and the apply waits for the roll) or with `ankra cluster scale`. Never present a replacement as a resize; read the plan.
 - `distribution` defaults to `kubeadm`, `cni` to `cilium`. Create waits for `running` (default 60m); `wait_for_ready = false` returns at once.
 - **Destroy waits** until the cluster has left Ankra on the newer lanes. `force_destroy` defaults to `false` on AWS, Proxmox, Morpheus and Ankra Cloud and to `true` on the original five; `accept_volume_data_loss` (AWS, Ankra Cloud) must be set before the platform deletes a cluster that still holds persistent volumes.
