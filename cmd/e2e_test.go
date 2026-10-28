@@ -2814,6 +2814,14 @@ func (m baseMock) ListAnkraCloudClusterPlans(clusterID string) (*client.AnkraClo
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListAnkraCloudCPUPools(credentialID, zone string) (*client.AnkraCloudCatalogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAnkraCloudClusterCPUPools(clusterID string) (*client.AnkraCloudCatalogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) AnkraCloudNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error) {
 	return nil, errors.New("not implemented")
 }

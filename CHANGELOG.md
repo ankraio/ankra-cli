@@ -6,6 +6,17 @@
 
 - **`ankra cluster state-snapshots retention` shows and sets how many days of etcd backups Ankra keeps for a cluster.** Ankra backs up a running cluster's etcd state every six hours and keeps the four newest backups plus the newest of each day for the retention window, 7 days unless you set another. `--days N` sets it to anything from 1 to 90 days and needs `clusters.write`; the next retention pass applies it. A longer window keeps backups from then on and cannot bring back ones already deleted. A shorter window deletes the daily backups outside it, so it asks for confirmation first (`--yes` skips it). `-o json` prints the platform's answer as it is. This requires the matching platform API.
 
+- **`ankra cluster ankracloud cpu-pools` lists the CPU pools of an Ankra Cloud
+  zone, and `ankra cluster node-group add --cpu-pool <name>` pins a node group
+  to one.** A server's guest sees its host's CPU, so the pool decides which
+  instructions a workload may use: each pool carries its x86-64 level and
+  whether it has AVX2, which images built for x86-64-v3 need or they crash
+  with SIGILL. Pass `--cluster` for an existing cluster's zone, or
+  `--credential-id` with `--zone` before creating one; `-o json|yaml` works on
+  both. A level Ankra Cloud does not report prints as `unknown`, never as a
+  low level. `--cpu-pool` is Ankra Cloud only, applies to the group's
+  scale-ups too, and `node-group list` shows the pool a group is pinned to.
+
 - **`ankra project` manages the organisation's projects, the team-sized scope
   beneath an organisation.** `list`, `current`, `switch <slug|name|id>`,
   `create <name> [--slug --description]`, `get`, `rename`, `delete`, `members`
