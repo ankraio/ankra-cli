@@ -14,7 +14,7 @@ type controlPlaneOps struct {
 	provider        string
 	get             func(clusterID string) (*client.ControlPlaneInfo, error)
 	setCount        func(clusterID string, count int) (*client.ChangeControlPlaneCountResult, error)
-	setInstanceType func(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error)
+	setInstanceType func(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error)
 }
 
 func hetznerControlPlaneOps() controlPlaneOps {
@@ -133,7 +133,9 @@ func runControlPlaneGet(cmd *cobra.Command, opsFn func() controlPlaneOps, cluste
 
 // printControlPlaneChange renders one control's answer. The lane is worth
 // naming: rolling is a live, one-controller-at-a-time resize that needs no
-// maintenance window, while offline only takes effect at the next start.
+// maintenance window, live_with_api_downtime resizes the only controller of a
+// running cluster in place and takes the Kubernetes API down while it reboots,
+// and offline only takes effect at the next start.
 func printControlPlaneChange(label string, change *client.ControlPlaneChangeCapability) {
 	if change == nil {
 		return
@@ -142,6 +144,8 @@ func printControlPlaneChange(label string, change *client.ControlPlaneChangeCapa
 	switch {
 	case change.Allowed && change.Mode == client.ControlPlaneChangeModeRolling:
 		answer = "yes - live, one controller at a time"
+	case change.Allowed && change.Mode == client.ControlPlaneChangeModeLiveWithAPIDowntime:
+		answer = "yes - live with a few minutes of API downtime (single controller)"
 	case change.Allowed && change.Mode == client.ControlPlaneChangeModeOffline:
 		answer = "yes - applied at the next start"
 	case change.Allowed:
@@ -152,6 +156,13 @@ func printControlPlaneChange(label string, change *client.ControlPlaneChangeCapa
 		answer = "no"
 	}
 	fmt.Printf("  %-18s%s\n", label+":", answer)
+	// The downtime lane is allowed, but only behind an explicit acceptance;
+	// the platform's reason is what says what the downtime means, so it is
+	// shown under the answer rather than dropped because the answer is yes.
+	if change.Allowed && change.Mode == client.ControlPlaneChangeModeLiveWithAPIDowntime &&
+		change.Reason != nil && *change.Reason != "" {
+		fmt.Printf("  %-18s%s\n", "", *change.Reason)
+	}
 }
 
 func runControlPlaneSetCount(cmd *cobra.Command, opsFn func() controlPlaneOps, clusterID string, count int) error {
@@ -184,11 +195,63 @@ func runControlPlaneSetCount(cmd *cobra.Command, opsFn func() controlPlaneOps, c
 	return nil
 }
 
+// acceptAPIDowntimeFlag accepts that resizing the only controller of a running
+// cluster takes the Kubernetes API down for a few minutes (accept_api_downtime
+// on the wire). It is off by default and applies to the one request.
+const acceptAPIDowntimeFlag = "accept-api-downtime"
+
+const acceptAPIDowntimeUsage = "Accept that resizing the only controller of a running cluster takes the " +
+	"Kubernetes API down for a few minutes while it reboots on the new type. Required for that resize; " +
+	"has no effect on a stopped cluster or one with three controllers"
+
+// controlPlaneAPIDowntimeHelp is the Long-help paragraph for
+// --accept-api-downtime.
+const controlPlaneAPIDowntimeHelp = `A running cluster with a single controller can be resized in place where the
+platform supports it, but the Kubernetes API is down for a few minutes while
+that server reboots on the new type. Workloads on the workers keep running;
+kubectl, deploys, the Ankra agent and controllers pause until it is back. That
+resize needs --accept-api-downtime: without it the command refuses before
+sending anything. Scale the control plane to three controllers first for a
+resize without downtime, or stop the cluster and resize it offline.`
+
+// instanceTypeOptionsFromFlags reads --force-drain and --accept-api-downtime.
+// A command without either flag gets the zero value, which sends neither.
+func instanceTypeOptionsFromFlags(command *cobra.Command) client.ControlPlaneInstanceTypeOptions {
+	acceptAPIDowntime, _ := command.Flags().GetBool(acceptAPIDowntimeFlag)
+	return client.ControlPlaneInstanceTypeOptions{
+		ForceDrain:        drainOptionsFromFlags(command).ForceDrain,
+		AcceptAPIDowntime: acceptAPIDowntime,
+	}
+}
+
+// apiDowntimeRefusal is the local refusal of a single-controller live resize
+// that was not accepted. It names what stops and what keeps running, so the
+// operator can decide rather than only learn which flag to add.
+func apiDowntimeRefusal(provider, clusterID string) error {
+	return withExitCode(exitUsage, fmt.Errorf(`this cluster has one control plane, so resizing it takes the Kubernetes API down for a few minutes while the server reboots on the new type.
+Workloads on the workers keep running, but kubectl, deploys, the Ankra agent and controllers pause until it is back.
+Re-run with --%s to proceed, or scale to 3 controllers first for a resize without downtime:
+  ankra cluster %s control-plane set-count %s 3`, acceptAPIDowntimeFlag, provider, clusterID))
+}
+
 // runControlPlaneSetInstanceType sends the instance-type change with the
-// command's --force-drain; a command without the flag sends none.
+// command's --force-drain and --accept-api-downtime; a command without them
+// sends neither.
+//
+// Without --accept-api-downtime it first asks the platform which lane the
+// change would take, and refuses locally - nothing sent - when that lane takes
+// the Kubernetes API down. If that read fails it does not guess: the request
+// goes out as given and the platform's own refusal (a 409) explains.
 func runControlPlaneSetInstanceType(cmd *cobra.Command, opsFn func() controlPlaneOps, clusterID, instanceType string) error {
 	ops := opsFn()
-	res, err := ops.setInstanceType(clusterID, instanceType, drainOptionsFromFlags(cmd))
+	options := instanceTypeOptionsFromFlags(cmd)
+	if !options.AcceptAPIDowntime && ops.get != nil {
+		if info, getError := ops.get(clusterID); getError == nil && info != nil && info.InstanceTypeChange != nil &&
+			info.InstanceTypeChange.Mode == client.ControlPlaneChangeModeLiveWithAPIDowntime {
+			return apiDowntimeRefusal(ops.provider, clusterID)
+		}
+	}
+	res, err := ops.setInstanceType(clusterID, instanceType, options)
 	if err != nil {
 		return err
 	}
@@ -216,6 +279,14 @@ func runControlPlaneSetInstanceType(cmd *cobra.Command, opsFn func() controlPlan
 	// telling the operator to start it would be an instruction to stop it first.
 	if res.Mode == client.ControlPlaneChangeModeRolling {
 		fmt.Println("The cluster is running, so the controllers are being resized one at a time.")
+		if res.OperationID != nil && *res.OperationID != "" {
+			fmt.Printf("Operation: %s\n", *res.OperationID)
+		}
+		return nil
+	}
+	if res.Mode == client.ControlPlaneChangeModeLiveWithAPIDowntime {
+		fmt.Println("The cluster is running, so its only controller is being resized in place. " +
+			"The Kubernetes API will be unavailable for a few minutes while it reboots on the new type.")
 		if res.OperationID != nil && *res.OperationID != "" {
 			fmt.Printf("Operation: %s\n", *res.OperationID)
 		}
@@ -257,6 +328,7 @@ A name that does not exist is rejected by %s itself, which on a stopped
 cluster is at the next start - after this command has already reported
 success.`, provider, provider, provider)
 	long += "\n\n" + controlPlaneForceDrainHelp
+	long += "\n\n" + controlPlaneAPIDowntimeHelp
 	if catalogCommand != "" {
 		long += fmt.Sprintf("\n\nList the instance types that do exist with:\n  ankra cluster %s", catalogCommand)
 	}
@@ -282,8 +354,9 @@ change applies at the next start.
 
 The instance type can also be changed on a running cluster that has three
 controllers: they are then resized one at a time, keeping the Kubernetes API
-up. With a single controller it still needs a stopped cluster, because
-resizing the only controller takes the API down while it reboots.
+up. With a single controller, resizing the only controller takes the API down
+for a few minutes while it reboots: where the platform supports that live
+resize it needs --accept-api-downtime, otherwise it needs a stopped cluster.
 
 Run "control-plane get" to see which of the two is available right now.`,
 	}
@@ -347,6 +420,7 @@ Run "control-plane get" to see whether a count change is possible right now.`, s
 	}
 
 	registerForceDrainFlag(setInstanceTypeCmd, forceDrainControlPlaneResizeUsage)
+	setInstanceTypeCmd.Flags().Bool(acceptAPIDowntimeFlag, false, acceptAPIDowntimeUsage)
 	registerStructuredOutputFlags(getCmd, setCountCmd, setInstanceTypeCmd)
 	cmd.AddCommand(getCmd, setCountCmd, setInstanceTypeCmd)
 	return cmd

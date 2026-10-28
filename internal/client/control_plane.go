@@ -10,9 +10,14 @@ import (
 // Control-plane change lanes. Offline rewrites a stopped cluster's plan and
 // takes effect at the next start; rolling resizes a running cluster's
 // controllers one at a time and keeps the Kubernetes API up throughout.
+// LiveWithAPIDowntime resizes the only controller of a running cluster in
+// place: the Kubernetes API is down for a few minutes while that server
+// reboots on the new type, so the platform only takes it with an explicit
+// accept_api_downtime on the request.
 const (
-	ControlPlaneChangeModeOffline = "offline"
-	ControlPlaneChangeModeRolling = "rolling"
+	ControlPlaneChangeModeOffline             = "offline"
+	ControlPlaneChangeModeRolling             = "rolling"
+	ControlPlaneChangeModeLiveWithAPIDowntime = "live_with_api_downtime"
 )
 
 // ControlPlaneChangeCapability answers one control: whether it can be changed
@@ -67,6 +72,22 @@ type ChangeControlPlaneInstanceTypeRequest struct {
 	// resize of a running cluster reads it; a stopped cluster's offline resize
 	// drains nothing and ignores it. Omitted when false.
 	ForceDrain bool `json:"force_drain,omitempty"`
+	// AcceptAPIDowntime accepts that resizing the only controller of a
+	// running cluster takes the Kubernetes API down for a few minutes. The
+	// platform refuses that lane with a 409 without it. Omitted when false.
+	AcceptAPIDowntime bool `json:"accept_api_downtime,omitempty"`
+}
+
+// ControlPlaneInstanceTypeOptions are the per-request switches of a
+// control-plane instance-type change. The zero value sends neither field, so
+// the body is byte-identical to one from before either existed.
+type ControlPlaneInstanceTypeOptions struct {
+	// ForceDrain bypasses PodDisruptionBudgets for the rolling resize's drain
+	// (see DrainOptions).
+	ForceDrain bool
+	// AcceptAPIDowntime accepts the Kubernetes API downtime of resizing a
+	// running cluster's only controller in place.
+	AcceptAPIDowntime bool
 }
 
 // ChangeControlPlaneInstanceTypeResult reports what the change did.
@@ -114,20 +135,20 @@ func (c *Client) ChangeDigitaloceanControlPlaneCount(clusterID string, count int
 	return c.changeControlPlaneCount("digitalocean", clusterID, count)
 }
 
-func (c *Client) ChangeHetznerControlPlaneInstanceType(clusterID, instanceType string, drainOptions DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
-	return c.changeControlPlaneInstanceType("hetzner", clusterID, instanceType, drainOptions)
+func (c *Client) ChangeHetznerControlPlaneInstanceType(clusterID, instanceType string, options ControlPlaneInstanceTypeOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
+	return c.changeControlPlaneInstanceType("hetzner", clusterID, instanceType, options)
 }
 
-func (c *Client) ChangeOvhControlPlaneInstanceType(clusterID, instanceType string, drainOptions DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
-	return c.changeControlPlaneInstanceType("ovh", clusterID, instanceType, drainOptions)
+func (c *Client) ChangeOvhControlPlaneInstanceType(clusterID, instanceType string, options ControlPlaneInstanceTypeOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
+	return c.changeControlPlaneInstanceType("ovh", clusterID, instanceType, options)
 }
 
-func (c *Client) ChangeUpcloudControlPlaneInstanceType(clusterID, instanceType string, drainOptions DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
-	return c.changeControlPlaneInstanceType("upcloud", clusterID, instanceType, drainOptions)
+func (c *Client) ChangeUpcloudControlPlaneInstanceType(clusterID, instanceType string, options ControlPlaneInstanceTypeOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
+	return c.changeControlPlaneInstanceType("upcloud", clusterID, instanceType, options)
 }
 
-func (c *Client) ChangeDigitaloceanControlPlaneInstanceType(clusterID, instanceType string, drainOptions DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
-	return c.changeControlPlaneInstanceType("digitalocean", clusterID, instanceType, drainOptions)
+func (c *Client) ChangeDigitaloceanControlPlaneInstanceType(clusterID, instanceType string, options ControlPlaneInstanceTypeOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
+	return c.changeControlPlaneInstanceType("digitalocean", clusterID, instanceType, options)
 }
 
 func (c *Client) getControlPlane(provider, clusterID string) (*ControlPlaneInfo, error) {
@@ -153,11 +174,16 @@ func (c *Client) changeControlPlaneCount(provider, clusterID string, count int) 
 }
 
 // changeControlPlaneInstanceType is the one request behind every provider's
-// Change*ControlPlaneInstanceType. drainOptions rides in the body as
-// force_drain; the zero value leaves the body as it was before the field.
-func (c *Client) changeControlPlaneInstanceType(provider, clusterID, instanceType string, drainOptions DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
+// Change*ControlPlaneInstanceType. options rides in the body as force_drain
+// and accept_api_downtime; the zero value leaves the body as it was before
+// either field.
+func (c *Client) changeControlPlaneInstanceType(provider, clusterID, instanceType string, options ControlPlaneInstanceTypeOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
 	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/control-plane/instance-type", c.BaseURL, provider, clusterID)
-	payload, err := json.Marshal(ChangeControlPlaneInstanceTypeRequest{InstanceType: instanceType, ForceDrain: drainOptions.ForceDrain})
+	payload, err := json.Marshal(ChangeControlPlaneInstanceTypeRequest{
+		InstanceType:      instanceType,
+		ForceDrain:        options.ForceDrain,
+		AcceptAPIDowntime: options.AcceptAPIDowntime,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}

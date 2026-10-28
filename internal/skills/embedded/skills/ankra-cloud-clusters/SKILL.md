@@ -314,6 +314,15 @@ stopped cluster's offline resize drains nothing and ignores it, and so does a ru
 fewer than three controllers (the rolling resize refuses it) or one already on that type. Same rule
 as for workers: say so before using it, never add it by reflex.
 
+With a single controller, resizing it on a running cluster takes the Kubernetes API down for a few
+minutes while that server reboots on the new type (Hetzner first; other providers still need a
+stopped cluster). `control-plane get` shows it as `Change type: yes - live with a few minutes of API
+downtime (single controller)` with the platform's reason underneath. Workloads on the workers keep
+running, but kubectl, deploys, the Ankra agent and controllers pause. `set-instance-type` refuses
+it before sending anything unless `--accept-api-downtime` is given; tell the user about the downtime
+and get their go-ahead before adding the flag, or scale to three controllers first for a resize
+without downtime.
+
 ## 5. Teardown - power is not deletion
 
 Do not confuse these; the words are similar and the outcomes are not.
