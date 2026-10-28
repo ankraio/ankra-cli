@@ -266,3 +266,16 @@ func TestStaffRecoveryCommandsNeverAskForTheLoginToken(t *testing.T) {
 		}
 	}
 }
+
+func TestUpgradeRollbackRecordRefusesAnEmptyVersionBeforeAsking(t *testing.T) {
+	fake := &fakeStaffRecoveryClient{}
+	installFakeStaffRecoveryClient(t, fake)
+	_, runError := executeCommand("cluster", "upgrade", "rollback-record", staffRecoveryTestCluster, "  ",
+		"--reason", "cp-0 rolled back", "--yes")
+	if runError == nil || exitCodeFor(runError) != exitUsage {
+		t.Fatalf("an empty version must be a usage error, got %v", runError)
+	}
+	if len(fake.calls) != 0 {
+		t.Fatalf("an empty version must send nothing, got %v", fake.calls)
+	}
+}

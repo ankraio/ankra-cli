@@ -326,6 +326,9 @@ Examples:
 			return reasonError
 		}
 		version := strings.TrimSpace(args[1])
+		if version == "" {
+			return withExitCode(exitUsage, errors.New("the version must not be empty"))
+		}
 		yes, _ := cmd.Flags().GetBool("yes")
 		staffClient, clusterID, clientError := staffRecoveryClientFor(cmd, args[0])
 		if clientError != nil {
