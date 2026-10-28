@@ -1,0 +1,741 @@
+package cmd
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"ankra/internal/client"
+
+	"github.com/jedib0t/go-pretty/v6/text"
+	"github.com/spf13/cobra"
+)
+
+var digitaloceanCmd = &cobra.Command{
+	Use:     "digitalocean",
+	Aliases: []string{"do"},
+	Short:   "Manage DigitalOcean clusters",
+	Long:    "Commands to create, deprovision, and scale DigitalOcean clusters.",
+}
+
+var digitaloceanCreateCmd = &cobra.Command{
+	Use:   "create",
+	Short: "Create a new DigitalOcean cluster",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name, _ := cmd.Flags().GetString("name")
+		credentialID, _ := cmd.Flags().GetString("credential-id")
+		sshKeyCredentialID, _ := cmd.Flags().GetString("ssh-key-credential-id")
+		region, _ := cmd.Flags().GetString("region")
+		networkIPRange, _ := cmd.Flags().GetString("network-ip-range")
+		bastionSize, _ := cmd.Flags().GetString("bastion-size")
+		bastionAllowedIPs, _ := cmd.Flags().GetStringSlice("bastion-allowed-ips")
+		cpCount, _ := cmd.Flags().GetInt("control-plane-count")
+		cpSize, _ := cmd.Flags().GetString("control-plane-size")
+		workerCount, _ := cmd.Flags().GetInt("worker-count")
+		workerSize, _ := cmd.Flags().GetString("worker-size")
+		distribution, _ := cmd.Flags().GetString("distribution")
+		kubeVersion, _ := cmd.Flags().GetString("kubernetes-version")
+		etcdTopology, _ := cmd.Flags().GetString("etcd-topology")
+		etcdNodeCount, _ := cmd.Flags().GetInt("etcd-node-count")
+		etcdSize, _ := cmd.Flags().GetString("etcd-size")
+		externalCloudProvider, includeNetworking, err := resolveCloudProviderNetworking(cmd)
+		if err != nil {
+			return err
+		}
+		includeDNS, _ := cmd.Flags().GetBool("include-dns")
+		gitopsCredentialName, _ := cmd.Flags().GetString("gitops-credential-name")
+		gitopsRepository, _ := cmd.Flags().GetString("gitops-repository")
+		gitopsBranch, _ := cmd.Flags().GetString("gitops-branch")
+
+		req := client.CreateDigitaloceanClusterRequest{
+			Name:                  name,
+			CredentialID:          credentialID,
+			SSHKeyCredentialID:    sshKeyCredentialID,
+			Region:                region,
+			NetworkIPRange:        networkIPRange,
+			BastionSize:           bastionSize,
+			BastionAllowedIPs:     bastionAllowedIPs,
+			ControlPlaneCount:     cpCount,
+			ControlPlaneSize:      cpSize,
+			WorkerCount:           workerCount,
+			WorkerSize:            workerSize,
+			Distribution:          distribution,
+			EtcdTopology:          etcdTopology,
+			EtcdNodeCount:         etcdNodeCount,
+			EtcdSize:              etcdSize,
+			ExternalCloudProvider: externalCloudProvider,
+			IncludeNetworking:     includeNetworking,
+			IncludeDNS:            includeDNS,
+		}
+		if kubeVersion != "" {
+			req.KubernetesVersion = &kubeVersion
+		}
+		if gitopsCredentialName != "" {
+			req.GitopsCredentialName = &gitopsCredentialName
+		}
+		if gitopsRepository != "" {
+			req.GitopsRepository = &gitopsRepository
+			if gitopsBranch != "" {
+				req.GitopsBranch = &gitopsBranch
+			}
+		}
+
+		environment, criticality, classificationError := clusterClassificationFromFlags(cmd)
+		if classificationError != nil {
+			return classificationError
+		}
+		req.Environment = environment
+		req.Criticality = criticality
+
+		result, err := apiClient.CreateDigitaloceanCluster(req)
+		if err != nil {
+			return fmt.Errorf("creating DigitalOcean cluster: %w", err)
+		}
+
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+
+		fmt.Printf("DigitalOcean cluster '%s' created successfully!\n", result.Name)
+		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
+			strings.TrimRight(baseURL, "/"), result.ClusterID)
+		return nil
+	},
+}
+
+var digitaloceanDeprovisionCmd = &cobra.Command{
+	Use:   "deprovision <cluster_id|name>",
+	Short: "Deprovision an DigitalOcean cluster",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		yes, _ := cmd.Flags().GetBool("yes")
+
+		force, _ := cmd.Flags().GetBool("force")
+		acceptsVolumeDataLoss, volumeError := acknowledgeVolumeDataLoss(cmd, cloudClusterKindDigitalocean, clusterID,
+			clusterTarget(args[0], clusterID))
+		if volumeError != nil {
+			return volumeError
+		}
+		warning := "This deletes all its servers, networks and SSH keys!"
+		if force {
+			warning = "This deletes all its servers, networks, SSH keys and load balancers!"
+		}
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+			fmt.Sprintf("Deprovision DigitalOcean cluster %s? %s [y/N]: ", clusterTarget(args[0], clusterID), warning),
+			yes); err != nil {
+			return err
+		}
+
+		result, err := apiClient.DeprovisionDigitaloceanCluster(clusterID,
+			client.DeprovisionOptions{Force: force, AcceptVolumeDataLoss: acceptsVolumeDataLoss})
+		if err != nil {
+			return fmt.Errorf("deprovisioning cluster: %w", err)
+		}
+
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+
+		if result.Success {
+			fmt.Println(text.FgGreen.Sprint("DigitalOcean cluster deprovision initiated!"))
+		} else {
+			fmt.Println("Cluster deprovision requested with issues.")
+		}
+
+		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+		if result.OperationID != nil {
+			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
+		}
+		return nil
+	},
+}
+
+var digitaloceanStopCmd = &cobra.Command{
+	Use:   "stop <cluster_id|name>",
+	Short: "Stop an DigitalOcean cluster",
+	Long:  "Stop an DigitalOcean cluster's compute while keeping its configuration so it can be started again later.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		force, _ := cmd.Flags().GetBool("force")
+		stopMode, modeError := stopModeFlag(cmd)
+		if modeError != nil {
+			return modeError
+		}
+		stopOptions := client.StopClusterOptions{Force: force, PreserveState: preserveStateFlag(cmd), Mode: stopMode}
+
+		result, err := apiClient.StopDigitaloceanCluster(clusterID, stopOptions)
+		if err != nil {
+			return fmt.Errorf("stopping cluster: %w", err)
+		}
+
+		if result.Success {
+			fmt.Println(text.FgGreen.Sprint("DigitalOcean cluster stop initiated."))
+		} else {
+			fmt.Println("Cluster stop request submitted.")
+		}
+		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+		if result.OperationID != nil {
+			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
+		}
+		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
+		return nil
+	},
+}
+
+var digitaloceanStartCmd = &cobra.Command{
+	Use:   "start <cluster_id|name>",
+	Short: "Start a stopped DigitalOcean cluster",
+	Long:  "Start (re-provision) a stopped DigitalOcean cluster. Use --scope control_plane to bring up only the control plane.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		scope, _ := cmd.Flags().GetString("scope")
+		if scope != "all" && scope != "control_plane" {
+			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
+		}
+
+		result, err := apiClient.StartDigitaloceanCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd)})
+		if err != nil {
+			return fmt.Errorf("starting cluster: %w", err)
+		}
+
+		fmt.Println(text.FgGreen.Sprint("DigitalOcean cluster start initiated."))
+		fmt.Printf("  Scope: %s\n", result.Scope)
+		if result.MarkedToStartAt != "" {
+			fmt.Printf("  Marked to start at: %s\n", result.MarkedToStartAt)
+		}
+		fmt.Printf("  Created operations: %d\n", result.CreatedOperations)
+		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
+		return nil
+	},
+}
+
+var digitaloceanWorkersCmd = &cobra.Command{
+	Use:   "workers <cluster_id|name>",
+	Short: "Get current worker count for an DigitalOcean cluster",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+
+		result, err := apiClient.GetDigitaloceanWorkerCount(clusterID)
+		if err != nil {
+			return fmt.Errorf("fetching worker count: %w", err)
+		}
+
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+
+		fmt.Printf("Worker Count: %d\n", result.WorkerCount)
+		fmt.Printf("  Min: %d\n", result.Min)
+		fmt.Printf("  Max: %d\n", result.Max)
+		return nil
+	},
+}
+
+var digitaloceanScaleCmd = &cobra.Command{
+	Use:   "scale <cluster_id|name> <worker_count>",
+	Short: "Scale workers for an DigitalOcean cluster",
+	Long:  "Scale the number of worker nodes up or down for an DigitalOcean cluster.",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		workerCount, err := strconv.Atoi(args[1])
+		if err != nil {
+			return fmt.Errorf("invalid worker count: %w", err)
+		}
+
+		result, err := apiClient.ScaleDigitaloceanWorkers(clusterID, workerCount, client.DrainOptions{})
+		if err != nil {
+			return fmt.Errorf("scaling workers: %w", err)
+		}
+
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+
+		if result.PreviousCount == result.NewCount {
+			fmt.Printf("Worker count is already %d, no changes needed.\n", result.NewCount)
+		} else if result.NewCount > result.PreviousCount {
+			fmt.Printf("Scaling %s from %d to %d workers.\n",
+				text.FgGreen.Sprint("up"), result.PreviousCount, result.NewCount)
+		} else {
+			fmt.Printf("Scaling %s from %d to %d workers.\n",
+				text.FgYellow.Sprint("down"), result.PreviousCount, result.NewCount)
+		}
+		return nil
+	},
+}
+
+var digitaloceanK8sVersionCmd = &cobra.Command{
+	Use:   "k8s-version <cluster_id|name>",
+	Short: "Get current Kubernetes version for an DigitalOcean cluster",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+
+		result, err := apiClient.GetDigitaloceanK8sVersion(clusterID)
+		if err != nil {
+			return fmt.Errorf("fetching Kubernetes version: %w", err)
+		}
+
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+
+		version := "not set (using latest stable)"
+		if result.CurrentVersion != nil {
+			version = *result.CurrentVersion
+		}
+		fmt.Printf("Kubernetes Version: %s\n", version)
+		fmt.Printf("  Distribution: %s\n", result.Distribution)
+		return nil
+	},
+}
+
+var digitaloceanUpgradeCmd = &cobra.Command{
+	Use:        "upgrade <cluster_id|name> <target_version>",
+	Short:      "Upgrade Kubernetes version for an DigitalOcean cluster",
+	Long:       "Upgrade the Kubernetes version on all nodes in an DigitalOcean cluster. This deprecated form always runs the safe non-forced rollout; use `ankra cluster upgrade` for --force (PodDisruptionBudget override) and operation progress tracking.",
+	Deprecated: "use `ankra cluster upgrade <cluster_id> <target_version>` instead; the cloud provider is detected automatically.",
+	Args:       cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		targetVersion := args[1]
+
+		result, err := apiClient.UpgradeDigitaloceanK8sVersion(clusterID, targetVersion, false)
+		if err != nil {
+			return fmt.Errorf("upgrading Kubernetes version: %w", err)
+		}
+
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+
+		prev := "none"
+		if result.PreviousVersion != nil {
+			prev = *result.PreviousVersion
+		}
+		fmt.Printf("Kubernetes version upgrade initiated.\n")
+		fmt.Printf("  Previous version: %s\n", prev)
+		fmt.Printf("  New version:      %s\n", text.FgGreen.Sprint(result.NewVersion))
+		fmt.Printf("  Nodes affected:   %d\n", result.NodesAffected)
+		return nil
+	},
+}
+
+var digitaloceanNodeGroupCmd = &cobra.Command{
+	Use:   "node-group",
+	Short: "Manage node groups for an DigitalOcean cluster",
+	Long:  "List, add, scale, upgrade, and delete node groups.",
+}
+
+var digitaloceanNodeGroupListCmd = &cobra.Command{
+	Use:   "list <cluster_id|name>",
+	Short: "List node groups",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		result, err := apiClient.ListDigitaloceanNodeGroups(clusterID)
+		if err != nil {
+			return fmt.Errorf("listing node groups: %w", err)
+		}
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		if len(result.NodeGroups) == 0 {
+			fmt.Println("No node groups found.")
+			return nil
+		}
+		for _, ng := range result.NodeGroups {
+			fmt.Printf("%-20s  type=%-12s  count=%d%s  labels=%d  taints=%d\n",
+				ng.Name, ng.InstanceType, ng.Count, nodeGroupJoinedSuffix(ng), len(ng.Labels), len(ng.Taints))
+			printNodeGroupUnregistered(ng)
+		}
+		return nil
+	},
+}
+
+var digitaloceanNodeGroupAddCmd = &cobra.Command{
+	Use:   "add <cluster_id|name>",
+	Short: "Add a node group",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		name, _ := cmd.Flags().GetString("name")
+		instanceType, _ := cmd.Flags().GetString("instance-type")
+		count, _ := cmd.Flags().GetInt("count")
+
+		req := client.AddNodeGroupRequest{
+			Name:         name,
+			InstanceType: instanceType,
+			Count:        count,
+		}
+
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.AddDigitaloceanNodeGroup(requestContext, clusterID, req, wait)
+		if err != nil {
+			return asyncWriteError("adding node group", wait, err)
+		}
+		if submitted {
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group add")); err != nil {
+				return err
+			} else if handled {
+				return nil
+			}
+			printAsyncWriteSubmitted("Node group add")
+			return nil
+		}
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		fmt.Printf("Node group '%s' created with %d node(s).\n", result.GroupName, result.Count)
+		return nil
+	},
+}
+
+var digitaloceanNodeGroupScaleCmd = &cobra.Command{
+	Use:   "scale <cluster_id|name> <group_name> <count>",
+	Short: "Scale a node group",
+	Args:  cobra.ExactArgs(3),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		groupName := args[1]
+		count, err := strconv.Atoi(args[2])
+		if err != nil {
+			return fmt.Errorf("invalid count: %w", err)
+		}
+
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.ScaleDigitaloceanNodeGroup(requestContext, clusterID, groupName, count, client.DrainOptions{}, wait)
+		if err != nil {
+			return asyncWriteError("scaling node group", wait, err)
+		}
+		if submitted {
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group scale")); err != nil {
+				return err
+			} else if handled {
+				return nil
+			}
+			printAsyncWriteSubmitted("Node group scale")
+			return nil
+		}
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		fmt.Printf("Node group '%s' scaled from %d to %d.\n", result.GroupName, result.PreviousCount, result.NewCount)
+		return nil
+	},
+}
+
+var digitaloceanNodeGroupUpgradeCmd = &cobra.Command{
+	Use:   "upgrade <cluster_id|name> <group_name> <size>",
+	Short: "Upgrade server size for a node group",
+	Args:  cobra.ExactArgs(3),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		groupName := args[1]
+		size := args[2]
+
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.UpdateDigitaloceanNodeGroupInstanceType(requestContext, clusterID, groupName, size, client.DrainOptions{}, wait)
+		if err != nil {
+			return asyncWriteError("upgrading node group", wait, err)
+		}
+		if submitted {
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group size update")); err != nil {
+				return err
+			} else if handled {
+				return nil
+			}
+			printAsyncWriteSubmitted("Node group size update")
+			return nil
+		}
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		fmt.Printf("Node group '%s' size upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
+		return nil
+	},
+}
+
+var digitaloceanNodeGroupDeleteCmd = &cobra.Command{
+	Use:   "delete <cluster_id|name> <group_name>",
+	Short: "Delete a node group and all its nodes",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		groupName := args[1]
+		yes, _ := cmd.Flags().GetBool("yes")
+
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+			fmt.Sprintf("Delete node group %q from cluster %s? This deletes all its nodes! [y/N]: ", groupName, clusterTarget(args[0], clusterID)),
+			yes); err != nil {
+			return err
+		}
+
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.DeleteDigitaloceanNodeGroup(requestContext, clusterID, groupName, client.DrainOptions{}, wait)
+		if err != nil {
+			return asyncWriteError("deleting node group", wait, err)
+		}
+		if submitted {
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group delete")); err != nil {
+				return err
+			} else if handled {
+				return nil
+			}
+			printAsyncWriteSubmitted("Node group delete")
+			return nil
+		}
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		fmt.Printf("Node group '%s' deleted. %d node(s) removed.\n", result.GroupName, result.Deleted)
+		return nil
+	},
+}
+
+var digitaloceanRegionsCmd = &cobra.Command{
+	Use:   "regions",
+	Short: "List DigitalOcean regions available to a credential",
+	Long:  "List the DigitalOcean regions the supplied credential can deploy in.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		credentialID, _ := cmd.Flags().GetString("credential-id")
+
+		regions, err := apiClient.ListDigitaloceanRegions(credentialID)
+		if err != nil {
+			return fmt.Errorf("listing regions: %w", err)
+		}
+		if len(regions) == 0 {
+			fmt.Println("No regions available for this credential.")
+			return nil
+		}
+		fmt.Printf("Regions available to credential %s:\n", credentialID)
+		for _, region := range regions {
+			available := "yes"
+			if !region.Available {
+				available = "no"
+			}
+			fmt.Printf("  %-8s %s (available: %s)\n", region.Slug, region.Name, available)
+		}
+		return nil
+	},
+}
+
+var digitaloceanSizesCmd = &cobra.Command{
+	Use:   "sizes",
+	Short: "List DigitalOcean droplet sizes",
+	Long:  "List DigitalOcean droplet sizes. Pass --region to filter by region availability.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		credentialID, _ := cmd.Flags().GetString("credential-id")
+		region, _ := cmd.Flags().GetString("region")
+		availableOnly, _ := cmd.Flags().GetBool("available-only")
+
+		sizes, err := apiClient.ListDigitaloceanSizes(credentialID, region)
+		if err != nil {
+			return fmt.Errorf("listing sizes: %w", err)
+		}
+		if len(sizes) == 0 {
+			fmt.Println("No sizes found.")
+			return nil
+		}
+		fmt.Printf("Droplet sizes for credential %s", credentialID)
+		if region != "" {
+			fmt.Printf(" in region %s", region)
+		}
+		fmt.Println(":")
+		for _, size := range sizes {
+			if availableOnly && !size.Available {
+				continue
+			}
+			available := "yes"
+			if !size.Available {
+				available = "no"
+			}
+			fmt.Printf("  %-20s %d vCPU, %d GB RAM, %d GB disk ($%.2f/mo, available: %s)\n",
+				size.Slug, size.Vcpus, size.Memory/1024, size.Disk, size.PriceMonthly, available)
+		}
+		return nil
+	},
+}
+
+func init() {
+	digitaloceanCreateCmd.Flags().String("name", "", "Cluster name (required)")
+	digitaloceanCreateCmd.Flags().String("credential-id", "", "DigitalOcean API credential ID (required)")
+	digitaloceanCreateCmd.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (required)")
+	digitaloceanCreateCmd.Flags().String("region", "", "DigitalOcean region (required)")
+	digitaloceanCreateCmd.Flags().String("network-ip-range", "", "VPC IP range (optional). Left unset, the platform derives a /24 from the cluster id, so clusters in one account do not all ask for the same range; pass one only to pin it")
+	digitaloceanCreateCmd.Flags().String("bastion-size", "", "Bastion droplet size (server default: s-1vcpu-1gb)")
+	digitaloceanCreateCmd.Flags().StringSlice("bastion-allowed-ips", nil, bastionAllowedIPsFlagUsage)
+	digitaloceanCreateCmd.Flags().Int("control-plane-count", 1, "Number of control plane nodes")
+	digitaloceanCreateCmd.Flags().String("control-plane-size", "", "Control plane droplet size (server default: s-2vcpu-4gb)")
+	digitaloceanCreateCmd.Flags().Int("worker-count", 1, "Number of worker nodes")
+	digitaloceanCreateCmd.Flags().String("worker-size", "", "Worker droplet size (server default: s-2vcpu-4gb)")
+	digitaloceanCreateCmd.Flags().String("distribution", "kubeadm", "Kubernetes distribution: kubeadm (default, vanilla upstream Kubernetes with Cilium) or k3s")
+	digitaloceanCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see `ankra cluster kubeadm-versions` or `ankra cluster k3s-versions`)")
+	digitaloceanCreateCmd.Flags().String("etcd-topology", "stacked", "etcd topology for kubeadm clusters: stacked (on control plane) or external (dedicated VMs)")
+	digitaloceanCreateCmd.Flags().Int("etcd-node-count", 3, "Number of dedicated etcd nodes when --etcd-topology=external (3 or 5)")
+	digitaloceanCreateCmd.Flags().String("etcd-size", "", "Droplet size for dedicated etcd nodes when --etcd-topology=external (server default: s-2vcpu-4gb)")
+	digitaloceanCreateCmd.Flags().Bool("external-cloud-provider", true, "Install the DigitalOcean CCM and CSI (cloud-provider=external) for LoadBalancers and persistent volumes (default on; pass --external-cloud-provider=false to skip, which also disables --include-networking)")
+	digitaloceanCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
+	registerIncludeDNSFlag(digitaloceanCreateCmd)
+	registerClusterClassificationFlags(digitaloceanCreateCmd)
+	digitaloceanCreateCmd.Flags().String("gitops-credential-name", "", "GitOps GitHub credential name; when set with --gitops-repository, the generated digitalocean-cloud-provider stack is committed to Git (optional)")
+	digitaloceanCreateCmd.Flags().String("gitops-repository", "", "GitOps repository (e.g. org/repo) to commit the generated stack to (optional)")
+	digitaloceanCreateCmd.Flags().String("gitops-branch", "master", "GitOps branch to commit to")
+
+	_ = digitaloceanCreateCmd.MarkFlagRequired("name")
+	_ = digitaloceanCreateCmd.MarkFlagRequired("credential-id")
+	_ = digitaloceanCreateCmd.MarkFlagRequired("ssh-key-credential-id")
+	_ = digitaloceanCreateCmd.MarkFlagRequired("region")
+
+	digitaloceanStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
+	registerThreeStateFlag(digitaloceanStartCmd, "restore-state", restoreStateFlagUsage)
+
+	digitaloceanDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	digitaloceanDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's load balancers, and tolerate unreachable infrastructure. The block storage volumes are deleted forced or not, and only with --accept-volume-data-loss or a yes at the prompt")
+	registerAcceptVolumeDataLossFlag(digitaloceanDeprovisionCmd)
+	digitaloceanStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's load balancers. The cluster's block storage volumes are kept and keep billing while stopped: only a deprovision deletes them")
+	registerThreeStateFlag(digitaloceanStopCmd, "preserve-state", preserveStateFlagUsage)
+	digitaloceanStopCmd.Flags().String("mode", "", stopModeFlagUsage)
+	digitaloceanNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+
+	digitaloceanNodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")
+	digitaloceanNodeGroupAddCmd.Flags().String("instance-type", "s-2vcpu-4gb", "Droplet size for nodes")
+	digitaloceanNodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes (0-100)")
+	_ = digitaloceanNodeGroupAddCmd.MarkFlagRequired("name")
+	registerAsyncWriteFlags(digitaloceanNodeGroupAddCmd)
+	registerAsyncWriteFlags(digitaloceanNodeGroupScaleCmd)
+	registerAsyncWriteFlags(digitaloceanNodeGroupUpgradeCmd)
+	registerAsyncWriteFlags(digitaloceanNodeGroupDeleteCmd)
+
+	registerStructuredOutputFlags(
+		digitaloceanCreateCmd,
+		digitaloceanDeprovisionCmd,
+		digitaloceanWorkersCmd,
+		digitaloceanScaleCmd,
+		digitaloceanK8sVersionCmd,
+		digitaloceanUpgradeCmd,
+		digitaloceanNodeGroupListCmd,
+		digitaloceanNodeGroupAddCmd,
+		digitaloceanNodeGroupScaleCmd,
+		digitaloceanNodeGroupUpgradeCmd,
+		digitaloceanNodeGroupDeleteCmd,
+	)
+
+	markDeprecatedForGenericVerb("ankra cluster scale <cluster_id> <worker_count>", digitaloceanScaleCmd)
+	markDeprecatedForGenericVerb("ankra cluster deprovision <cluster_id> [--force]", digitaloceanDeprovisionCmd)
+	markDeprecatedForGenericVerb(
+		"ankra cluster node-group <list|add|scale|upgrade|delete>",
+		digitaloceanNodeGroupListCmd, digitaloceanNodeGroupAddCmd, digitaloceanNodeGroupScaleCmd, digitaloceanNodeGroupUpgradeCmd, digitaloceanNodeGroupDeleteCmd,
+	)
+
+	digitaloceanNodeGroupCmd.AddCommand(digitaloceanNodeGroupListCmd)
+	digitaloceanNodeGroupCmd.AddCommand(digitaloceanNodeGroupAddCmd)
+	digitaloceanNodeGroupCmd.AddCommand(digitaloceanNodeGroupScaleCmd)
+	digitaloceanNodeGroupCmd.AddCommand(digitaloceanNodeGroupUpgradeCmd)
+	digitaloceanNodeGroupCmd.AddCommand(digitaloceanNodeGroupDeleteCmd)
+
+	digitaloceanRegionsCmd.Flags().String("credential-id", "", "DigitalOcean API credential ID (required)")
+	_ = digitaloceanRegionsCmd.MarkFlagRequired("credential-id")
+	digitaloceanSizesCmd.Flags().String("credential-id", "", "DigitalOcean API credential ID (required)")
+	digitaloceanSizesCmd.Flags().String("region", "", "Filter by region slug")
+	digitaloceanSizesCmd.Flags().Bool("available-only", false, "Show only sizes available in the selected region")
+	_ = digitaloceanSizesCmd.MarkFlagRequired("credential-id")
+
+	digitaloceanCmd.AddCommand(digitaloceanCreateCmd)
+	digitaloceanCmd.AddCommand(digitaloceanRegionsCmd)
+	digitaloceanCmd.AddCommand(digitaloceanSizesCmd)
+	digitaloceanCmd.AddCommand(digitaloceanDeprovisionCmd)
+	digitaloceanCmd.AddCommand(digitaloceanStopCmd)
+	digitaloceanCmd.AddCommand(digitaloceanStartCmd)
+	digitaloceanCmd.AddCommand(digitaloceanWorkersCmd)
+	digitaloceanCmd.AddCommand(digitaloceanScaleCmd)
+	digitaloceanCmd.AddCommand(digitaloceanK8sVersionCmd)
+	digitaloceanCmd.AddCommand(digitaloceanUpgradeCmd)
+	digitaloceanCmd.AddCommand(digitaloceanNodeGroupCmd)
+
+	clusterCmd.AddCommand(digitaloceanCmd)
+}

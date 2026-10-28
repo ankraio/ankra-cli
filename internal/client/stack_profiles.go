@@ -1,0 +1,510 @@
+package client
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	neturl "net/url"
+)
+
+type StackProfileSummary struct {
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	Description    *string  `json:"description"`
+	Category       string   `json:"category"`
+	Tags           []string `json:"tags"`
+	Visibility     string   `json:"visibility"`
+	LatestVersion  int      `json:"latest_version"`
+	CurrentVersion int      `json:"current_version"`
+}
+
+type StackProfileListResponse struct {
+	Result     []StackProfileSummary `json:"result"`
+	TotalCount int                   `json:"total_count"`
+	Page       int                   `json:"page"`
+	PageSize   int                   `json:"page_size"`
+}
+
+type StackProfileIacExport struct {
+	ProfileID     string                  `json:"profile_id"`
+	Version       int                     `json:"version"`
+	ContentBase64 string                  `json:"content_base64"`
+	Parameters    []StackProfileParameter `json:"parameters"`
+}
+
+type StackProfileParameter struct {
+	Name        string                        `json:"name"`
+	Title       *string                       `json:"title"`
+	Description *string                       `json:"description"`
+	Type        string                        `json:"type"`
+	Required    bool                          `json:"required"`
+	Default     *string                       `json:"default"`
+	EnumValues  []string                      `json:"enum_values"`
+	Group       *string                       `json:"group"`
+	Options     []StackProfileParameterOption `json:"options,omitempty"`
+}
+
+// StackProfileParameterOption is one choice of a parameter that also answers
+// other parameters: binding the parameter to Value lays Sets (parameter name
+// to value) underneath the caller's own --set bindings at instantiation.
+type StackProfileParameterOption struct {
+	Value       string            `json:"value"`
+	Title       *string           `json:"title,omitempty"`
+	Description *string           `json:"description,omitempty"`
+	Sets        map[string]string `json:"sets,omitempty"`
+}
+
+// StackProfileVersionDeprecation records why a published version was
+// withdrawn. It is nil on versions that are still fit to deploy; when set,
+// the platform refuses to make the version current and refuses to
+// instantiate it.
+type StackProfileVersionDeprecation struct {
+	Reason             string   `json:"reason"`
+	Note               *string  `json:"note"`
+	References         []string `json:"references"`
+	DeprecatedAt       string   `json:"deprecated_at"`
+	DeprecatedByUserID *string  `json:"deprecated_by_user_id"`
+}
+
+type StackProfileVersionSummary struct {
+	ID          string                          `json:"id"`
+	Version     int                             `json:"version"`
+	Channel     string                          `json:"channel"`
+	Changelog   *string                         `json:"changelog"`
+	CreatedAt   string                          `json:"created_at"`
+	Deprecation *StackProfileVersionDeprecation `json:"deprecation"`
+}
+
+type StackProfileVersionDetail struct {
+	ID          string                          `json:"id"`
+	Version     int                             `json:"version"`
+	Channel     string                          `json:"channel"`
+	Parameters  []StackProfileParameter         `json:"parameters"`
+	Changelog   *string                         `json:"changelog"`
+	CreatedAt   string                          `json:"created_at"`
+	Deprecation *StackProfileVersionDeprecation `json:"deprecation"`
+}
+
+type StackProfileUpdateStatus struct {
+	OutdatedInstantiationCount   int  `json:"outdated_instantiation_count"`
+	HasUpdateAvailable           bool `json:"has_update_available"`
+	DeprecatedInstantiationCount int  `json:"deprecated_instantiation_count"`
+}
+
+type StackProfileDetail struct {
+	Profile              StackProfileSummary          `json:"profile"`
+	Versions             []StackProfileVersionSummary `json:"versions"`
+	LatestVersionDetail  *StackProfileVersionDetail   `json:"latest_version_detail"`
+	CurrentVersionDetail *StackProfileVersionDetail   `json:"current_version_detail"`
+	UpdateStatus         StackProfileUpdateStatus     `json:"update_status"`
+}
+
+// ParameterBinding is one input bound at instantiation. Explicit tells the
+// platform the value was set on purpose, so an empty string binds as "" rather
+// than reading as an input left blank and falling back to its default.
+type ParameterBinding struct {
+	Name     string `json:"name"`
+	Value    string `json:"value"`
+	Explicit bool   `json:"explicit,omitempty"`
+}
+
+type InstantiateStackProfileRequest struct {
+	ProfileID    string             `json:"profile_id"`
+	Version      *int               `json:"version,omitempty"`
+	NewStackName string             `json:"new_stack_name,omitempty"`
+	Parameters   []ParameterBinding `json:"parameters"`
+	Deploy       bool               `json:"deploy"`
+	// UpgradeExisting replaces the stack already deployed from the profile
+	// under NewStackName in place instead of drafting a renamed copy; the
+	// platform records the deployment at the new version.
+	UpgradeExisting bool `json:"upgrade_existing,omitempty"`
+	// ConfirmedMemberRemovals names, as kind/name, the members an in-place
+	// upgrade may remove although the platform cannot show the profile put
+	// them there. Without it the platform refuses such a removal with
+	// *MemberRemovalUnconfirmedError and changes nothing.
+	ConfirmedMemberRemovals []string `json:"confirmed_member_removals,omitempty"`
+}
+
+type InstantiateStackProfileResult struct {
+	DraftID        string   `json:"draft_id"`
+	StackName      string   `json:"stack_name"`
+	ProfileVersion int      `json:"profile_version"`
+	Warnings       []string `json:"warnings"`
+	AddonsCount    int      `json:"addons_count"`
+	ManifestsCount int      `json:"manifests_count"`
+	Deployed       bool     `json:"deployed"`
+	OperationID    *string  `json:"operation_id"`
+	JobCount       int      `json:"job_count"`
+}
+
+// MemberRemovalUnconfirmedCode is the error_code of the platform's refusal
+// of a stack write that would remove members nobody confirmed.
+const MemberRemovalUnconfirmedCode = "STACK_MEMBER_REMOVAL_UNCONFIRMED"
+
+// MemberRemovalUnconfirmedError is that refusal: nothing was written, and
+// Members (kind/name) are the removals a person has to confirm by name for
+// the write to go ahead.
+type MemberRemovalUnconfirmedError struct {
+	StatusCode int
+	Message    string
+	Members    []string
+}
+
+func (refusal *MemberRemovalUnconfirmedError) Error() string {
+	return refusal.Message
+}
+
+// memberRemovalUnconfirmedFromBody parses the structured refusal, and
+// returns nil for any other body.
+func memberRemovalUnconfirmedFromBody(statusCode int, body []byte) *MemberRemovalUnconfirmedError {
+	var parsed struct {
+		ErrorCode string `json:"error_code"`
+		Detail    struct {
+			Message string `json:"message"`
+			Details struct {
+				Removals []struct {
+					Member string `json:"member"`
+				} `json:"removals"`
+			} `json:"details"`
+		} `json:"detail"`
+	}
+	if json.Unmarshal(body, &parsed) != nil || parsed.ErrorCode != MemberRemovalUnconfirmedCode {
+		return nil
+	}
+	refusal := &MemberRemovalUnconfirmedError{StatusCode: statusCode, Message: parsed.Detail.Message}
+	for _, removal := range parsed.Detail.Details.Removals {
+		refusal.Members = append(refusal.Members, removal.Member)
+	}
+	return refusal
+}
+
+// AdoptStackProfileRequest records a stack the cluster already runs as a
+// tracked deployment of a profile. Nothing is written to the cluster.
+type AdoptStackProfileRequest struct {
+	ProfileID  string             `json:"profile_id"`
+	StackName  string             `json:"stack_name"`
+	Version    *int               `json:"version,omitempty"`
+	Parameters []ParameterBinding `json:"parameters"`
+}
+
+// AdoptStackProfileDrift names the members that differ between the live
+// stack and the version it was adopted at. OnlyOnCluster is the
+// consequential half: a rollout of that version stops and deletes them.
+type AdoptStackProfileDrift struct {
+	OnlyOnCluster []string `json:"only_on_cluster"`
+	OnlyInVersion []string `json:"only_in_version"`
+}
+
+type AdoptStackProfileResult struct {
+	StackName      string                  `json:"stack_name"`
+	ProfileVersion int                     `json:"profile_version"`
+	CurrentVersion int                     `json:"current_version"`
+	Outdated       bool                    `json:"outdated"`
+	Retracked      bool                    `json:"retracked"`
+	Drift          *AdoptStackProfileDrift `json:"drift"`
+}
+
+type ImportStackProfileRequest struct {
+	Name          *string  `json:"name,omitempty"`
+	Description   *string  `json:"description,omitempty"`
+	Category      string   `json:"category"`
+	Tags          []string `json:"tags"`
+	ContentBase64 string   `json:"content_base64"`
+	Changelog     *string  `json:"changelog,omitempty"`
+}
+
+func (c *Client) ListStackProfiles(page, pageSize int, search string, category string) (*StackProfileListResponse, error) {
+	query := neturl.Values{}
+	query.Set("page", fmt.Sprintf("%d", page))
+	query.Set("page_size", fmt.Sprintf("%d", pageSize))
+	if search != "" {
+		query.Set("search", search)
+	}
+	if category != "" {
+		query.Set("category", category)
+	}
+	requestURL := fmt.Sprintf("%s/api/v1/org/stack-profiles?%s", c.BaseURL, query.Encode())
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, requestURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Authorization", "Bearer "+c.Token)
+	response, err := c.HTTP.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer closeBody(response)
+	body, err := readResponseBody(response)
+	if err != nil {
+		return nil, err
+	}
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("list stack profiles failed (%d): %s", response.StatusCode, redactedBodyForError(body, 512))
+	}
+	var result StackProfileListResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) ExportStackProfileIac(profileID string, version int) (*StackProfileIacExport, error) {
+	requestURL := fmt.Sprintf("%s/api/v1/org/stack-profiles/%s/versions/%d/iac-export", c.BaseURL, profileID, version)
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, requestURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Authorization", "Bearer "+c.Token)
+	response, err := c.HTTP.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer closeBody(response)
+	body, err := readResponseBody(response)
+	if err != nil {
+		return nil, err
+	}
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("export stack profile failed (%d): %s", response.StatusCode, redactedBodyForError(body, 512))
+	}
+	var result StackProfileIacExport
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) ImportStackProfile(importRequest ImportStackProfileRequest) (*CreateStackProfileResult, error) {
+	requestURL := fmt.Sprintf("%s/api/v1/org/stack-profiles/import", c.BaseURL)
+	payload, err := json.Marshal(importRequest)
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, requestURL, bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Authorization", "Bearer "+c.Token)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := c.HTTP.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer closeBody(response)
+	body, err := readResponseBody(response)
+	if err != nil {
+		return nil, err
+	}
+	if response.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("import stack profile failed (%d): %s", response.StatusCode, redactedBodyForError(body, 512))
+	}
+	var result CreateStackProfileResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+type CreateStackProfileResult struct {
+	Profile StackProfileSummary `json:"profile"`
+	// Version is the version an import publishes (POST .../import answers
+	// it beside the profile); nil for a create that does not.
+	Version *CreatedStackProfileVersion `json:"version,omitempty"`
+}
+
+// CreatedStackProfileVersion is the version a profile import published.
+type CreatedStackProfileVersion struct {
+	ID      string `json:"id"`
+	Version int    `json:"version"`
+}
+
+// ChartServiceProfileRequest asks the platform to make one Helm chart, from a
+// registry the organisation can use, into a stack profile for a managed
+// service (POST /api/v1/org/stack-profiles/from-chart). The platform builds
+// the profile document itself and publishes its first version.
+type ChartServiceProfileRequest struct {
+	Name            string                  `json:"name"`
+	Description     string                  `json:"description,omitempty"`
+	ChartName       string                  `json:"chart_name"`
+	ChartVersion    string                  `json:"chart_version"`
+	RegistryName    string                  `json:"registry_name"`
+	ValuesYAML      string                  `json:"values_yaml,omitempty"`
+	GeneratedSecret *GeneratedServiceSecret `json:"generated_secret,omitempty"`
+}
+
+// GeneratedServiceSecret is a Secret the profile generates in each service's
+// namespace on its first install and keeps across upgrades. Its values are
+// never seen or stored by Ankra.
+type GeneratedServiceSecret struct {
+	Name string                      `json:"name"`
+	Keys []GeneratedServiceSecretKey `json:"keys"`
+}
+
+// GeneratedServiceSecretKey is one key: random of Length characters (0 means
+// the platform's default), or the fixed Value, never both.
+type GeneratedServiceSecretKey struct {
+	Key    string `json:"key"`
+	Length int    `json:"length,omitempty"`
+	Value  string `json:"value,omitempty"`
+}
+
+// CreateChartServiceProfile makes one Helm chart into a service profile and
+// answers the profile and the version it published. A refusal carries the
+// platform's own sentence (for example the field a generated key fails on).
+func (c *Client) CreateChartServiceProfile(chartRequest ChartServiceProfileRequest) (*CreateStackProfileResult, error) {
+	requestURL := fmt.Sprintf("%s/api/v1/org/stack-profiles/from-chart", c.BaseURL)
+	var result CreateStackProfileResult
+	if err := c.postCSRFJSON(requestURL, chartRequest, &result, "create chart service profile"); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ImportStackProfileDraftRequest opens an imported IaC document as a
+// builder draft instead of publishing a version (`import --as-draft`).
+// Category and tags are omitted when unset: a draft attaching to an
+// existing profile applies non-null metadata at publish, so sending a
+// default would overwrite the profile's own values.
+type ImportStackProfileDraftRequest struct {
+	Name          *string  `json:"name,omitempty"`
+	Description   *string  `json:"description,omitempty"`
+	Category      *string  `json:"category,omitempty"`
+	Tags          []string `json:"tags,omitempty"`
+	ContentBase64 string   `json:"content_base64"`
+}
+
+// ImportStackProfileDraftResult carries the opened builder draft and the
+// import warnings (redacted secrets, dropped parameter definitions,
+// bare-${var} findings).
+type ImportStackProfileDraftResult struct {
+	Draft    StackProfileDraft `json:"draft"`
+	Warnings []string          `json:"warnings"`
+}
+
+// ImportStackProfileAsDraft opens the document as a builder draft on the
+// named profile: it attaches to the organisation's existing profile of the
+// same name as the next-version candidate when one exists, and opens a
+// new-profile draft otherwise. Nothing is published until the draft is
+// reviewed and published.
+func (c *Client) ImportStackProfileAsDraft(importRequest ImportStackProfileDraftRequest) (*ImportStackProfileDraftResult, error) {
+	requestURL := fmt.Sprintf("%s/api/v1/org/stack-profiles/import-draft", c.BaseURL)
+	var result ImportStackProfileDraftResult
+	if err := c.postCSRFJSON(requestURL, importRequest, &result, "import stack profile as draft"); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) GetStackProfile(profileID string) (*StackProfileDetail, error) {
+	requestURL := fmt.Sprintf("%s/api/v1/org/stack-profiles/%s", c.BaseURL, neturl.PathEscape(profileID))
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, requestURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Authorization", "Bearer "+c.Token)
+	response, err := c.HTTP.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer closeBody(response)
+	body, err := readResponseBody(response)
+	if err != nil {
+		return nil, err
+	}
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("get stack profile failed (%d): %s", response.StatusCode, redactedBodyForError(body, 512))
+	}
+	var result StackProfileDetail
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// InstantiateStackProfile materialises a profile onto a cluster as a new
+// stack. Like publishing, it does its work synchronously and is not
+// idempotent - a second call adds a second stack - so it rides the
+// slow-write lane and reports a timeout as an unknown outcome rather than
+// a failure (ankra-rs107).
+func (c *Client) InstantiateStackProfile(ctx context.Context, clusterID string, instantiateRequest InstantiateStackProfileRequest) (*InstantiateStackProfileResult, error) {
+	requestURL := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/from-profile",
+		c.BaseURL, neturl.PathEscape(clusterID))
+	payload, err := json.Marshal(instantiateRequest)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+c.Token)
+	response, err := c.httpClientForSlowWrite().Do(request)
+	if err != nil {
+		return nil, unknownOutcome(fmt.Errorf("request failed: %w", err),
+			"instantiate stack profile",
+			"ankra cluster stacks list   # against this cluster; the stack is present when it landed",
+			"create a second stack from the same profile")
+	}
+	defer closeBody(response)
+	body, err := readResponseBody(response)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusCreated {
+		// The platform refuses an instantiation with a sentence the caller
+		// needs verbatim ("Version 3 of this profile is deprecated (CVE): ...
+		// Deploy another version."), so the `detail` string is the error
+		// message rather than a wrapped dump of the body.
+		if refusal := memberRemovalUnconfirmedFromBody(response.StatusCode, body); refusal != nil {
+			return nil, refusal
+		}
+		if detail := detailFromBody(body); detail != "" {
+			return nil, newBackendDetailError(response.StatusCode, detail)
+		}
+		return nil, newUnexpectedResponseError("instantiate stack profile failed", response.StatusCode, redactedBodyForError(body, 512))
+	}
+	var result InstantiateStackProfileResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
+}
+
+// AdoptStackProfile records an already-deployed stack as a tracked
+// deployment of a profile. It writes one provenance row and touches no
+// cluster state, so a retry is harmless: adopting the same stack twice
+// supersedes the first record rather than adding a second deployment.
+func (c *Client) AdoptStackProfile(ctx context.Context, clusterID string, adoptRequest AdoptStackProfileRequest) (*AdoptStackProfileResult, error) {
+	requestURL := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/adopt-profile",
+		c.BaseURL, neturl.PathEscape(clusterID))
+	payload, marshalError := json.Marshal(adoptRequest)
+	if marshalError != nil {
+		return nil, fmt.Errorf("marshal request: %w", marshalError)
+	}
+	request, requestError := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, bytes.NewReader(payload))
+	if requestError != nil {
+		return nil, fmt.Errorf("create request: %w", requestError)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+c.Token)
+	response, doError := c.HTTP.Do(request)
+	if doError != nil {
+		return nil, fmt.Errorf("request failed: %w", doError)
+	}
+	defer closeBody(response)
+	body, readError := readResponseBody(response)
+	if readError != nil {
+		return nil, fmt.Errorf("read response: %w", readError)
+	}
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusCreated {
+		return nil, newUnexpectedResponseError("adopt stack profile failed", response.StatusCode, redactedBodyForError(body, 512))
+	}
+	var result AdoptStackProfileResult
+	if unmarshalError := json.Unmarshal(body, &result); unmarshalError != nil {
+		return nil, fmt.Errorf("parse response: %w", unmarshalError)
+	}
+	return &result, nil
+}

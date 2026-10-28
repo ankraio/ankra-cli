@@ -1,0 +1,713 @@
+package client
+
+import (
+	"fmt"
+	"mime"
+	"net/http"
+	neturl "net/url"
+	"strconv"
+	"strings"
+)
+
+// SecurityNamespace is one namespace on one cluster in the Security Center's
+// breakdown: its scanned workloads and images, the pods the cluster runs
+// there now, and the actionable findings by severity. ReportScope "cluster"
+// with an empty Namespace carries the cluster-scoped reports (node and
+// control-plane images) so the rows still add up to the cluster.
+type SecurityNamespace struct {
+	ClusterID       string                 `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName     string                 `json:"cluster_name" yaml:"cluster_name"`
+	Namespace       string                 `json:"namespace" yaml:"namespace"`
+	ReportScope     string                 `json:"report_scope" yaml:"report_scope"`
+	Workloads       int                    `json:"workloads" yaml:"workloads"`
+	Images          int                    `json:"images" yaml:"images"`
+	Pods            int                    `json:"pods" yaml:"pods"`
+	Observed        int                    `json:"observed" yaml:"observed"`
+	Actionable      SecuritySeverityCounts `json:"actionable" yaml:"actionable"`
+	ActionableTotal int                    `json:"actionable_total" yaml:"actionable_total"`
+	AcceptedRisk    int                    `json:"accepted_risk" yaml:"accepted_risk"`
+	FixableSevere   int                    `json:"fixable_severe" yaml:"fixable_severe"`
+	KnownExploited  int                    `json:"known_exploited" yaml:"known_exploited"`
+	Priority        string                 `json:"priority" yaml:"priority"`
+	LastScan        string                 `json:"last_scan" yaml:"last_scan"`
+	ScannerStatus   string                 `json:"scanner_status" yaml:"scanner_status"`
+}
+
+// SecurityNamespaceList is the paginated namespace breakdown.
+type SecurityNamespaceList struct {
+	Result     []SecurityNamespace `json:"result" yaml:"result"`
+	Pagination SecurityPagination  `json:"pagination" yaml:"pagination"`
+	Scanner    SecurityScanner     `json:"scanner" yaml:"scanner"`
+}
+
+// SecurityPodContainer is one container of a pod with the findings of the
+// scanned workload container behind it. Scanned false means no report
+// covers the container, which is not the same as a clean one.
+type SecurityPodContainer struct {
+	Name           string                 `json:"name" yaml:"name"`
+	Image          string                 `json:"image" yaml:"image"`
+	ImageDigest    *string                `json:"image_digest" yaml:"image_digest"`
+	Ready          bool                   `json:"ready" yaml:"ready"`
+	RestartCount   int                    `json:"restart_count" yaml:"restart_count"`
+	Scanned        bool                   `json:"scanned" yaml:"scanned"`
+	Observed       int                    `json:"observed" yaml:"observed"`
+	Actionable     SecuritySeverityCounts `json:"actionable" yaml:"actionable"`
+	KnownExploited int                    `json:"known_exploited" yaml:"known_exploited"`
+	FixableSevere  int                    `json:"fixable_severe" yaml:"fixable_severe"`
+}
+
+// SecurityPod is one running pod resolved to the scanned workload that owns
+// it, with the findings summed over its containers.
+type SecurityPod struct {
+	Name           string                 `json:"name" yaml:"name"`
+	UID            *string                `json:"uid" yaml:"uid"`
+	Namespace      string                 `json:"namespace" yaml:"namespace"`
+	Node           *string                `json:"node" yaml:"node"`
+	Phase          *string                `json:"phase" yaml:"phase"`
+	OwnerKind      *string                `json:"owner_kind" yaml:"owner_kind"`
+	OwnerName      *string                `json:"owner_name" yaml:"owner_name"`
+	WorkloadKind   *string                `json:"workload_kind" yaml:"workload_kind"`
+	WorkloadName   *string                `json:"workload_name" yaml:"workload_name"`
+	CreatedAt      *string                `json:"created_at" yaml:"created_at"`
+	Containers     []SecurityPodContainer `json:"containers" yaml:"containers"`
+	Scanned        bool                   `json:"scanned" yaml:"scanned"`
+	Observed       int                    `json:"observed" yaml:"observed"`
+	Actionable     SecuritySeverityCounts `json:"actionable" yaml:"actionable"`
+	KnownExploited int                    `json:"known_exploited" yaml:"known_exploited"`
+	FixableSevere  int                    `json:"fixable_severe" yaml:"fixable_severe"`
+	Priority       string                 `json:"priority" yaml:"priority"`
+}
+
+// SecurityPodList is the paginated pod breakdown of one namespace; Capped
+// says the namespace held more pods than one read loads.
+type SecurityPodList struct {
+	Result     []SecurityPod      `json:"result" yaml:"result"`
+	Pagination SecurityPagination `json:"pagination" yaml:"pagination"`
+	Capped     bool               `json:"capped" yaml:"capped"`
+}
+
+// SecuritySBOMComponent is one package name, version and ecosystem across
+// every image that carries it, with where it runs and the findings that name
+// that exact package and version on those images.
+type SecuritySBOMComponent struct {
+	Name               string   `json:"name" yaml:"name"`
+	Version            string   `json:"version" yaml:"version"`
+	PackageType        string   `json:"package_type" yaml:"package_type"`
+	ComponentType      string   `json:"component_type" yaml:"component_type"`
+	PURL               *string  `json:"purl" yaml:"purl"`
+	Licenses           []string `json:"licenses" yaml:"licenses"`
+	LicenseRisk        string   `json:"license_risk" yaml:"license_risk"`
+	Images             int      `json:"images" yaml:"images"`
+	Workloads          int      `json:"workloads" yaml:"workloads"`
+	Clusters           int      `json:"clusters" yaml:"clusters"`
+	VulnerableFindings int      `json:"vulnerable_findings" yaml:"vulnerable_findings"`
+	ActionableFindings int      `json:"actionable_findings" yaml:"actionable_findings"`
+	KnownExploited     int      `json:"known_exploited" yaml:"known_exploited"`
+}
+
+// SecuritySBOMCoverage says how much of the scanned fleet publishes a bill
+// of materials. ClustersWithSBOM below ScannedClusters means the rest have
+// SBOM generation switched off, not that they run nothing.
+type SecuritySBOMCoverage struct {
+	ScannedClusters   int     `json:"scanned_clusters" yaml:"scanned_clusters"`
+	ClustersWithSBOM  int     `json:"clusters_with_sbom" yaml:"clusters_with_sbom"`
+	Images            int     `json:"images" yaml:"images"`
+	Components        int     `json:"components" yaml:"components"`
+	Workloads         int     `json:"workloads" yaml:"workloads"`
+	LatestGeneratedAt *string `json:"latest_generated_at" yaml:"latest_generated_at"`
+}
+
+// SecuritySBOMComponentFacets mirrors the component filters; LicenseRisk
+// lists the licence tiers present, most consequential first.
+type SecuritySBOMComponentFacets struct {
+	PackageType []SecurityFacetCount `json:"package_type" yaml:"package_type"`
+	LicenseRisk []SecurityFacetCount `json:"license_risk" yaml:"license_risk"`
+}
+
+// SecurityLicenseExposure counts an image's components per licence tier.
+// network_copyleft (AGPL, SSPL, EUPL, OSL) obliges publishing the source
+// of a service that links it; source_available (BUSL, Elastic, Redis
+// Source Available, Commons Clause) needs a commercial licence to host as
+// a service; copyleft (GPL) is safe on a private backend and must be
+// open-sourced when shipped to users; weak_copyleft reaches only
+// modifications of the component; permissive obliges nothing; unknown is
+// unrecognised or not yet classified.
+type SecurityLicenseExposure struct {
+	NetworkCopyleft int `json:"network_copyleft" yaml:"network_copyleft"`
+	SourceAvailable int `json:"source_available" yaml:"source_available"`
+	Copyleft        int `json:"copyleft" yaml:"copyleft"`
+	WeakCopyleft    int `json:"weak_copyleft" yaml:"weak_copyleft"`
+	Permissive      int `json:"permissive" yaml:"permissive"`
+	Unknown         int `json:"unknown" yaml:"unknown"`
+}
+
+// SecuritySBOMComponentList is the paginated component inventory.
+type SecuritySBOMComponentList struct {
+	Result     []SecuritySBOMComponent     `json:"result" yaml:"result"`
+	Pagination SecurityPagination          `json:"pagination" yaml:"pagination"`
+	Facets     SecuritySBOMComponentFacets `json:"facets" yaml:"facets"`
+	Coverage   SecuritySBOMCoverage        `json:"coverage" yaml:"coverage"`
+}
+
+// SecuritySBOMImage is one image with a bill of materials, where it runs and
+// the actionable findings the scanner attributes to it.
+type SecuritySBOMImage struct {
+	ImageIdentity   string                   `json:"image_identity" yaml:"image_identity"`
+	ImageRef        string                   `json:"image_ref" yaml:"image_ref"`
+	ImageRepository *string                  `json:"image_repository" yaml:"image_repository"`
+	ImageTag        *string                  `json:"image_tag" yaml:"image_tag"`
+	ImageDigest     *string                  `json:"image_digest" yaml:"image_digest"`
+	Registry        *string                  `json:"registry" yaml:"registry"`
+	OSFamily        *string                  `json:"os_family" yaml:"os_family"`
+	OSName          *string                  `json:"os_name" yaml:"os_name"`
+	BomFormat       *string                  `json:"bom_format" yaml:"bom_format"`
+	SpecVersion     *string                  `json:"spec_version" yaml:"spec_version"`
+	ComponentCount  int                      `json:"component_count" yaml:"component_count"`
+	DependencyCount int                      `json:"dependency_count" yaml:"dependency_count"`
+	Workloads       int                      `json:"workloads" yaml:"workloads"`
+	Clusters        int                      `json:"clusters" yaml:"clusters"`
+	Namespaces      []string                 `json:"namespaces" yaml:"namespaces"`
+	Observed        int                      `json:"observed" yaml:"observed"`
+	Actionable      SecuritySeverityCounts   `json:"actionable" yaml:"actionable"`
+	KnownExploited  int                      `json:"known_exploited" yaml:"known_exploited"`
+	LicenseExposure *SecurityLicenseExposure `json:"license_exposure" yaml:"license_exposure"`
+	GeneratedAt     *string                  `json:"generated_at" yaml:"generated_at"`
+	FirstSeenAt     string                   `json:"first_seen_at" yaml:"first_seen_at"`
+	LastSeenAt      string                   `json:"last_seen_at" yaml:"last_seen_at"`
+}
+
+// SecuritySBOMImageList is the paginated image inventory.
+type SecuritySBOMImageList struct {
+	Result     []SecuritySBOMImage  `json:"result" yaml:"result"`
+	Pagination SecurityPagination   `json:"pagination" yaml:"pagination"`
+	Coverage   SecuritySBOMCoverage `json:"coverage" yaml:"coverage"`
+}
+
+// SecuritySBOMWorkload is one workload container currently running an image.
+type SecuritySBOMWorkload struct {
+	ClusterID         string  `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName       string  `json:"cluster_name" yaml:"cluster_name"`
+	ReportScope       string  `json:"report_scope" yaml:"report_scope"`
+	WorkloadKind      *string `json:"workload_kind" yaml:"workload_kind"`
+	WorkloadNamespace *string `json:"workload_namespace" yaml:"workload_namespace"`
+	WorkloadName      *string `json:"workload_name" yaml:"workload_name"`
+	ContainerName     *string `json:"container_name" yaml:"container_name"`
+	LastSeenAt        string  `json:"last_seen_at" yaml:"last_seen_at"`
+}
+
+// SecuritySBOMImageDetail is one image, a page of its components and every
+// workload container running it.
+type SecuritySBOMImageDetail struct {
+	Image      SecuritySBOMImage           `json:"image" yaml:"image"`
+	Components []SecuritySBOMComponent     `json:"components" yaml:"components"`
+	Pagination SecurityPagination          `json:"pagination" yaml:"pagination"`
+	Facets     SecuritySBOMComponentFacets `json:"facets" yaml:"facets"`
+	Workloads  []SecuritySBOMWorkload      `json:"workloads" yaml:"workloads"`
+}
+
+// SecuritySBOMComponentOptions names one exact package: the name as the
+// component list shows it, its version (empty when the list shows none)
+// and its ecosystem.
+type SecuritySBOMComponentOptions struct {
+	Name        string
+	Version     string
+	PackageType string
+	ClusterID   string
+}
+
+// SecuritySBOMComponentWorkload is one workload container running an image
+// that carries the component, with the image so both can be followed.
+type SecuritySBOMComponentWorkload struct {
+	SecuritySBOMWorkload `yaml:",inline"`
+	ImageIdentity        string `json:"image_identity" yaml:"image_identity"`
+	ImageRef             string `json:"image_ref" yaml:"image_ref"`
+}
+
+// SecuritySBOMComponentCluster is one cluster running the component:
+// distinct workloads (the measure the component row counts), the workload
+// containers behind them, and images.
+type SecuritySBOMComponentCluster struct {
+	ClusterID   string `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName string `json:"cluster_name" yaml:"cluster_name"`
+	Workloads   int    `json:"workloads" yaml:"workloads"`
+	Containers  int    `json:"containers" yaml:"containers"`
+	Images      int    `json:"images" yaml:"images"`
+}
+
+// SecuritySBOMComponentDetail is one package followed to where it runs.
+// The lists are capped and say so: a capped list is not the whole answer.
+type SecuritySBOMComponentDetail struct {
+	Component       SecuritySBOMComponent           `json:"component" yaml:"component"`
+	Images          []SecuritySBOMImage             `json:"images" yaml:"images"`
+	ImagesCapped    bool                            `json:"images_capped" yaml:"images_capped"`
+	Workloads       []SecuritySBOMComponentWorkload `json:"workloads" yaml:"workloads"`
+	WorkloadsCapped bool                            `json:"workloads_capped" yaml:"workloads_capped"`
+	Clusters        []SecuritySBOMComponentCluster  `json:"clusters" yaml:"clusters"`
+}
+
+// SecuritySBOMImageFindingsOptions narrows the vulnerabilities on one image.
+type SecuritySBOMImageFindingsOptions struct {
+	ImageIdentity string
+	Page          int
+	PageSize      int
+	Search        string
+	Severities    []string
+	Sort          string
+	Order         string
+}
+
+// SecuritySBOMImageFindingImage is the image a vulnerability list was read
+// for. SBOMStatus is "present" when the platform holds a bill of materials
+// for it and "absent" when only the vulnerability scanner named it.
+type SecuritySBOMImageFindingImage struct {
+	ImageIdentity string  `json:"image_identity" yaml:"image_identity"`
+	ImageRef      string  `json:"image_ref" yaml:"image_ref"`
+	ImageDigest   *string `json:"image_digest" yaml:"image_digest"`
+	SBOMStatus    string  `json:"sbom_status" yaml:"sbom_status"`
+}
+
+// SecuritySBOMImageFinding is one CVE on one installed package version of
+// the image, aggregated across every container running it. Disposition is
+// the worst across those occurrences: open before acknowledged before
+// accepted_risk.
+type SecuritySBOMImageFinding struct {
+	FindingID                   string                    `json:"finding_id" yaml:"finding_id"`
+	CVEID                       string                    `json:"cve_id" yaml:"cve_id"`
+	Severity                    string                    `json:"severity" yaml:"severity"`
+	Title                       *string                   `json:"title" yaml:"title"`
+	PackageType                 string                    `json:"package_type" yaml:"package_type"`
+	PackageName                 string                    `json:"package_name" yaml:"package_name"`
+	InstalledVersion            string                    `json:"installed_version" yaml:"installed_version"`
+	FixedVersion                *string                   `json:"fixed_version" yaml:"fixed_version"`
+	Fixable                     bool                      `json:"fixable" yaml:"fixable"`
+	Disposition                 string                    `json:"disposition" yaml:"disposition"`
+	Dispositions                SecurityDispositionCounts `json:"dispositions" yaml:"dispositions"`
+	Occurrences                 int                       `json:"occurrences" yaml:"occurrences"`
+	Workloads                   int                       `json:"workloads" yaml:"workloads"`
+	Clusters                    int                       `json:"clusters" yaml:"clusters"`
+	LastSeenAt                  string                    `json:"last_seen_at" yaml:"last_seen_at"`
+	SecurityExploitIntelligence `yaml:",inline"`
+}
+
+// SecuritySBOMImageFindingSummary totals the image's active occurrences
+// before search and severity narrow the rows.
+type SecuritySBOMImageFindingSummary struct {
+	Observed        int                    `json:"observed" yaml:"observed"`
+	Actionable      SecuritySeverityCounts `json:"actionable" yaml:"actionable"`
+	ActionableTotal int                    `json:"actionable_total" yaml:"actionable_total"`
+	AcceptedRisk    int                    `json:"accepted_risk" yaml:"accepted_risk"`
+	Fixable         int                    `json:"fixable" yaml:"fixable"`
+	KnownExploited  int                    `json:"known_exploited" yaml:"known_exploited"`
+	Findings        int                    `json:"findings" yaml:"findings"`
+}
+
+// SecuritySBOMImageFindingList is the paginated vulnerability list of one
+// image.
+type SecuritySBOMImageFindingList struct {
+	Image        SecuritySBOMImageFindingImage   `json:"image" yaml:"image"`
+	Result       []SecuritySBOMImageFinding      `json:"result" yaml:"result"`
+	Pagination   SecurityPagination              `json:"pagination" yaml:"pagination"`
+	Summary      SecuritySBOMImageFindingSummary `json:"summary" yaml:"summary"`
+	Intelligence SecurityIntelligenceStatus      `json:"intelligence" yaml:"intelligence"`
+}
+
+// SecurityNamespacesOptions mirrors the namespace breakdown controls.
+type SecurityNamespacesOptions struct {
+	Page      int
+	PageSize  int
+	Search    string
+	ClusterID string
+	Sort      string
+	Order     string
+}
+
+// SecurityPodsOptions selects the pods of one namespace on one cluster,
+// optionally only those a scanned workload owns.
+type SecurityPodsOptions struct {
+	ClusterID    string
+	Namespace    string
+	WorkloadUID  string
+	WorkloadKind string
+	WorkloadName string
+	Page         int
+	PageSize     int
+}
+
+// SecuritySBOMComponentsOptions mirrors the component inventory filters.
+// Vulnerable is tri-state: nil keeps every component.
+type SecuritySBOMComponentsOptions struct {
+	Page          int
+	PageSize      int
+	Search        string
+	PackageTypes  []string
+	LicenseRisks  []string
+	ClusterID     string
+	Namespace     string
+	WorkloadKind  string
+	WorkloadName  string
+	ImageIdentity string
+	Vulnerable    *bool
+	Sort          string
+	Order         string
+}
+
+// SecuritySBOMImagesOptions mirrors the image inventory filters.
+type SecuritySBOMImagesOptions struct {
+	Page         int
+	PageSize     int
+	Search       string
+	ClusterID    string
+	Namespace    string
+	WorkloadKind string
+	WorkloadName string
+	Sort         string
+	Order        string
+}
+
+// SecuritySBOMContainersOptions filters the running-container inventory.
+// Status is present, absent or empty for any.
+type SecuritySBOMContainersOptions struct {
+	Page         int
+	PageSize     int
+	Search       string
+	ClusterID    string
+	Namespace    string
+	WorkloadKind string
+	WorkloadName string
+	Status       string
+	Sort         string
+	Order        string
+}
+
+// SecuritySBOMExportOptions names the image to download and the document
+// format: cyclonedx (the default) or csv.
+type SecuritySBOMExportOptions struct {
+	ImageIdentity string
+	Format        string
+}
+
+// SecuritySBOMImageOptions pages the components of one image.
+type SecuritySBOMImageOptions struct {
+	ImageIdentity string
+	Page          int
+	PageSize      int
+	Search        string
+	PackageTypes  []string
+	LicenseRisks  []string
+	Sort          string
+	Order         string
+}
+
+// addLicenseRisks appends the licence tier filter, lower-cased so the
+// server sees one spelling of each tier.
+func addLicenseRisks(query neturl.Values, licenseRisks []string) {
+	for _, licenseRisk := range licenseRisks {
+		if trimmed := strings.ToLower(strings.TrimSpace(licenseRisk)); trimmed != "" {
+			query.Add("license_risk", trimmed)
+		}
+	}
+}
+
+func setListControls(query neturl.Values, search string, sort string, order string) {
+	if trimmed := strings.TrimSpace(search); trimmed != "" {
+		query.Set("search", trimmed)
+	}
+	if sort != "" {
+		query.Set("sort", sort)
+	}
+	if order != "" {
+		query.Set("order", order)
+	}
+}
+
+// ListSecurityNamespaces pages through the fleet's per-namespace posture.
+func (c *Client) ListSecurityNamespaces(options SecurityNamespacesOptions) (*SecurityNamespaceList, error) {
+	query := neturl.Values{}
+	setPaging(query, options.Page, options.PageSize)
+	setListControls(query, options.Search, options.Sort, options.Order)
+	if options.ClusterID != "" {
+		query.Set("cluster_id", options.ClusterID)
+	}
+	var list SecurityNamespaceList
+	if err := c.getJSON(securityURL(c.BaseURL, "/namespaces", query), &list); err != nil {
+		return nil, fmt.Errorf("security namespaces request failed: %w", err)
+	}
+	if list.Result == nil {
+		list.Result = []SecurityNamespace{}
+	}
+	return &list, nil
+}
+
+// ListSecurityPods lists the pods of one namespace joined to their scanned
+// workload's findings.
+func (c *Client) ListSecurityPods(options SecurityPodsOptions) (*SecurityPodList, error) {
+	query := neturl.Values{}
+	setPaging(query, options.Page, options.PageSize)
+	query.Set("cluster_id", options.ClusterID)
+	query.Set("namespace", options.Namespace)
+	if options.WorkloadUID != "" {
+		query.Set("workload_uid", options.WorkloadUID)
+	}
+	if options.WorkloadKind != "" {
+		query.Set("workload_kind", options.WorkloadKind)
+	}
+	if options.WorkloadName != "" {
+		query.Set("workload_name", options.WorkloadName)
+	}
+	var list SecurityPodList
+	if err := c.getJSON(securityURL(c.BaseURL, "/pods", query), &list); err != nil {
+		return nil, fmt.Errorf("security pods request failed: %w", err)
+	}
+	if list.Result == nil {
+		list.Result = []SecurityPod{}
+	}
+	return &list, nil
+}
+
+// ListSecuritySBOMComponents pages through the fleet's package inventory.
+func (c *Client) ListSecuritySBOMComponents(options SecuritySBOMComponentsOptions) (*SecuritySBOMComponentList, error) {
+	query := neturl.Values{}
+	setPaging(query, options.Page, options.PageSize)
+	setListControls(query, options.Search, options.Sort, options.Order)
+	for _, packageType := range options.PackageTypes {
+		if trimmed := strings.TrimSpace(packageType); trimmed != "" {
+			query.Add("package_type", trimmed)
+		}
+	}
+	addLicenseRisks(query, options.LicenseRisks)
+	if options.ClusterID != "" {
+		query.Set("cluster_id", options.ClusterID)
+	}
+	if options.Namespace != "" {
+		query.Set("namespace", options.Namespace)
+	}
+	setWorkloadSelector(query, options.WorkloadKind, options.WorkloadName)
+	if options.ImageIdentity != "" {
+		query.Set("image", options.ImageIdentity)
+	}
+	if options.Vulnerable != nil {
+		query.Set("vulnerable", strconv.FormatBool(*options.Vulnerable))
+	}
+	var list SecuritySBOMComponentList
+	if err := c.getJSON(securityURL(c.BaseURL, "/sbom", query), &list); err != nil {
+		return nil, fmt.Errorf("security sbom request failed: %w", err)
+	}
+	if list.Result == nil {
+		list.Result = []SecuritySBOMComponent{}
+	}
+	return &list, nil
+}
+
+// ListSecuritySBOMImages pages through the images with a bill of materials.
+func (c *Client) ListSecuritySBOMImages(options SecuritySBOMImagesOptions) (*SecuritySBOMImageList, error) {
+	query := neturl.Values{}
+	setPaging(query, options.Page, options.PageSize)
+	setListControls(query, options.Search, options.Sort, options.Order)
+	if options.ClusterID != "" {
+		query.Set("cluster_id", options.ClusterID)
+	}
+	if options.Namespace != "" {
+		query.Set("namespace", options.Namespace)
+	}
+	setWorkloadSelector(query, options.WorkloadKind, options.WorkloadName)
+	var list SecuritySBOMImageList
+	if err := c.getJSON(securityURL(c.BaseURL, "/sbom/images", query), &list); err != nil {
+		return nil, fmt.Errorf("security sbom images request failed: %w", err)
+	}
+	if list.Result == nil {
+		list.Result = []SecuritySBOMImage{}
+	}
+	return &list, nil
+}
+
+// GetSecuritySBOMComponent follows one exact package to the images,
+// workload containers and clusters that carry it.
+func (c *Client) GetSecuritySBOMComponent(options SecuritySBOMComponentOptions) (*SecuritySBOMComponentDetail, error) {
+	query := neturl.Values{}
+	query.Set("name", strings.TrimSpace(options.Name))
+	query.Set("version", strings.TrimSpace(options.Version))
+	query.Set("package_type", strings.ToLower(strings.TrimSpace(options.PackageType)))
+	if options.ClusterID != "" {
+		query.Set("cluster_id", options.ClusterID)
+	}
+	var detail SecuritySBOMComponentDetail
+	if err := c.getJSON(securityURL(c.BaseURL, "/sbom/component", query), &detail); err != nil {
+		return nil, fmt.Errorf("security sbom component request failed: %w", err)
+	}
+	return &detail, nil
+}
+
+// GetSecuritySBOMImage reads one image's bill of materials.
+func (c *Client) GetSecuritySBOMImage(options SecuritySBOMImageOptions) (*SecuritySBOMImageDetail, error) {
+	query := neturl.Values{}
+	setPaging(query, options.Page, options.PageSize)
+	setListControls(query, options.Search, options.Sort, options.Order)
+	query.Set("image", options.ImageIdentity)
+	for _, packageType := range options.PackageTypes {
+		if trimmed := strings.TrimSpace(packageType); trimmed != "" {
+			query.Add("package_type", trimmed)
+		}
+	}
+	addLicenseRisks(query, options.LicenseRisks)
+	var detail SecuritySBOMImageDetail
+	if err := c.getJSON(securityURL(c.BaseURL, "/sbom/image", query), &detail); err != nil {
+		return nil, fmt.Errorf("security sbom image request failed: %w", err)
+	}
+	if detail.Components == nil {
+		detail.Components = []SecuritySBOMComponent{}
+	}
+	if detail.Workloads == nil {
+		detail.Workloads = []SecuritySBOMWorkload{}
+	}
+	return &detail, nil
+}
+
+func setWorkloadSelector(query neturl.Values, workloadKind string, workloadName string) {
+	if trimmed := strings.TrimSpace(workloadKind); trimmed != "" {
+		query.Set("workload_kind", trimmed)
+	}
+	if trimmed := strings.TrimSpace(workloadName); trimmed != "" {
+		query.Set("workload_name", trimmed)
+	}
+}
+
+// SecuritySBOMContainer is one running container joined to the bill of
+// materials of its image. SBOMStatus absent leaves ImageIdentity,
+// ComponentCount, OSName and GeneratedAt nil: the scanner has no bill of
+// materials for that image, which is a state to act on, not an empty image.
+type SecuritySBOMContainer struct {
+	ClusterID      string  `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName    string  `json:"cluster_name" yaml:"cluster_name"`
+	Namespace      string  `json:"namespace" yaml:"namespace"`
+	PodName        string  `json:"pod_name" yaml:"pod_name"`
+	PodUID         *string `json:"pod_uid" yaml:"pod_uid"`
+	OwnerKind      *string `json:"owner_kind" yaml:"owner_kind"`
+	OwnerName      *string `json:"owner_name" yaml:"owner_name"`
+	WorkloadKind   *string `json:"workload_kind" yaml:"workload_kind"`
+	WorkloadName   *string `json:"workload_name" yaml:"workload_name"`
+	ContainerName  string  `json:"container_name" yaml:"container_name"`
+	ContainerKind  string  `json:"container_kind" yaml:"container_kind"`
+	Image          string  `json:"image" yaml:"image"`
+	ImageDigest    *string `json:"image_digest" yaml:"image_digest"`
+	SBOMStatus     string  `json:"sbom_status" yaml:"sbom_status"`
+	ImageIdentity  *string `json:"image_identity" yaml:"image_identity"`
+	ComponentCount *int    `json:"component_count" yaml:"component_count"`
+	OSName         *string `json:"os_name" yaml:"os_name"`
+	GeneratedAt    *string `json:"generated_at" yaml:"generated_at"`
+	LastSeenAt     string  `json:"last_seen_at" yaml:"last_seen_at"`
+}
+
+// SecuritySBOMContainerInventory tallies the scoped containers before the
+// status and search filters, so the headline holds while the list is
+// narrowed.
+type SecuritySBOMContainerInventory struct {
+	Containers  int `json:"containers" yaml:"containers"`
+	WithSBOM    int `json:"with_sbom" yaml:"with_sbom"`
+	WithoutSBOM int `json:"without_sbom" yaml:"without_sbom"`
+	Pods        int `json:"pods" yaml:"pods"`
+}
+
+// SecuritySBOMContainerList is the paginated running-container inventory.
+type SecuritySBOMContainerList struct {
+	Result     []SecuritySBOMContainer        `json:"result" yaml:"result"`
+	Pagination SecurityPagination             `json:"pagination" yaml:"pagination"`
+	Inventory  SecuritySBOMContainerInventory `json:"inventory" yaml:"inventory"`
+	Coverage   SecuritySBOMCoverage           `json:"coverage" yaml:"coverage"`
+}
+
+// ListSecuritySBOMContainers pages through every running container of the
+// scoped clusters with or without a bill of materials.
+func (c *Client) ListSecuritySBOMContainers(options SecuritySBOMContainersOptions) (*SecuritySBOMContainerList, error) {
+	query := neturl.Values{}
+	setPaging(query, options.Page, options.PageSize)
+	setListControls(query, options.Search, options.Sort, options.Order)
+	if options.ClusterID != "" {
+		query.Set("cluster_id", options.ClusterID)
+	}
+	if options.Namespace != "" {
+		query.Set("namespace", options.Namespace)
+	}
+	setWorkloadSelector(query, options.WorkloadKind, options.WorkloadName)
+	if trimmed := strings.TrimSpace(options.Status); trimmed != "" {
+		query.Set("status", trimmed)
+	}
+	var list SecuritySBOMContainerList
+	if err := c.getJSON(securityURL(c.BaseURL, "/sbom/containers", query), &list); err != nil {
+		return nil, fmt.Errorf("security sbom containers request failed: %w", err)
+	}
+	if list.Result == nil {
+		list.Result = []SecuritySBOMContainer{}
+	}
+	return &list, nil
+}
+
+// SecuritySBOMExport is a downloaded bill of materials: the bytes, the
+// media type the platform served, and the file name it suggested.
+type SecuritySBOMExport struct {
+	FileName    string
+	ContentType string
+	Body        []byte
+}
+
+// ExportSecuritySBOMImage downloads one image's bill of materials.
+func (c *Client) ExportSecuritySBOMImage(options SecuritySBOMExportOptions) (*SecuritySBOMExport, error) {
+	query := neturl.Values{}
+	query.Set("image", strings.TrimSpace(options.ImageIdentity))
+	if trimmed := strings.TrimSpace(options.Format); trimmed != "" {
+		query.Set("format", trimmed)
+	}
+	request, requestError := http.NewRequest(http.MethodGet, securityURL(c.BaseURL, "/sbom/image/export", query), nil)
+	if requestError != nil {
+		return nil, requestError
+	}
+	request.Header.Set("Authorization", "Bearer "+c.Token)
+	response, doError := c.HTTP.Do(request)
+	if doError != nil {
+		return nil, fmt.Errorf("security sbom export request failed: %w", doError)
+	}
+	defer closeBody(response)
+	if response.StatusCode == http.StatusUnauthorized {
+		return nil, ErrUnauthorized
+	}
+	body, readError := readResponseBody(response)
+	if readError != nil {
+		return nil, fmt.Errorf("security sbom export read failed: %w", readError)
+	}
+	if response.StatusCode != http.StatusOK {
+		if denied := PermissionDeniedFromResponse(response.StatusCode, body); denied != nil {
+			return nil, denied
+		}
+		return nil, newUnexpectedResponseErrorWithMessage(response.StatusCode,
+			fmt.Sprintf("security sbom export failed: %s", redactedBodyForError(body, 300)))
+	}
+	fileName := ""
+	if _, parameters, parseError := mime.ParseMediaType(response.Header.Get("Content-Disposition")); parseError == nil {
+		fileName = parameters["filename"]
+	}
+	return &SecuritySBOMExport{
+		FileName:    fileName,
+		ContentType: response.Header.Get("Content-Type"),
+		Body:        body,
+	}, nil
+}
+
+// ListSecuritySBOMImageFindings lists the vulnerabilities named on one image.
+func (c *Client) ListSecuritySBOMImageFindings(options SecuritySBOMImageFindingsOptions) (*SecuritySBOMImageFindingList, error) {
+	query := neturl.Values{}
+	setPaging(query, options.Page, options.PageSize)
+	setListControls(query, options.Search, options.Sort, options.Order)
+	query.Set("image", options.ImageIdentity)
+	for _, severity := range options.Severities {
+		if trimmed := strings.TrimSpace(severity); trimmed != "" {
+			query.Add("severity", trimmed)
+		}
+	}
+	var list SecuritySBOMImageFindingList
+	if err := c.getJSON(securityURL(c.BaseURL, "/sbom/image/findings", query), &list); err != nil {
+		return nil, fmt.Errorf("security sbom image findings request failed: %w", err)
+	}
+	if list.Result == nil {
+		list.Result = []SecuritySBOMImageFinding{}
+	}
+	return &list, nil
+}

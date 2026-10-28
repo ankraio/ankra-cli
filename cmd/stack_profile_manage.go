@@ -1,0 +1,645 @@
+package cmd
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+
+	"ankra/internal/client"
+
+	"github.com/spf13/cobra"
+)
+
+// The owner-lifecycle stack-profile commands: create a profile from a
+// deployed stack, edit its catalogue metadata, snapshot new versions, roll
+// the current-version pointer, diff versions, list the fleet deployments,
+// and delete it. Together with apply/export-iac/import they give the CLI
+// the same control over a profile the portal has.
+
+// parseRequiredProfileVersionArgument parses a positional version argument
+// that must be present, accepting both 2 and v2.
+func parseRequiredProfileVersionArgument(raw string) (int, error) {
+	version, parseError := parseProfileVersionFlag(raw)
+	if parseError != nil {
+		return 0, withExitCode(exitUsage, parseError)
+	}
+	if version <= 0 {
+		return 0, withExitCode(exitUsage,
+			fmt.Errorf("invalid version %q: use a version number such as 1 or v1", raw))
+	}
+	return version, nil
+}
+
+// optionalString returns nil for an unset flag so the PATCH body leaves the
+// stored value unchanged; a set-but-empty flag clears it server-side.
+func optionalString(command *cobra.Command, flagName string) *string {
+	if !command.Flags().Changed(flagName) {
+		return nil
+	}
+	value, _ := command.Flags().GetString(flagName)
+	return &value
+}
+
+var stackProfilesCreateCmd = &cobra.Command{
+	Use:   "create",
+	Short: "Create a stack profile from a deployed cluster stack",
+	Long: `Create a stack profile by snapshotting a deployed cluster stack as
+version 1. The source stack's add-ons and manifests become the profile
+contents; detected inputs become the profile's parameters.`,
+	Example: `  ankra stack-profiles create --name postgres-ha --stack postgres --cluster staging \
+    --category database --tag postgresql --tag ha --description "Production PostgreSQL"`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
+		}
+		name, _ := cmd.Flags().GetString("name")
+		if strings.TrimSpace(name) == "" {
+			return withExitCode(exitUsage, errors.New("--name is required"))
+		}
+		stackName, _ := cmd.Flags().GetString("stack")
+		if strings.TrimSpace(stackName) == "" {
+			return withExitCode(exitUsage, errors.New("--stack is required: the source stack to snapshot"))
+		}
+		clusterFlag, _ := cmd.Flags().GetString("cluster")
+		clusterID, _, clusterError := resolveApplyTargetCluster(clusterFlag)
+		if clusterError != nil {
+			return clusterError
+		}
+
+		category, _ := cmd.Flags().GetString("category")
+		tags, _ := cmd.Flags().GetStringArray("tag")
+		includeAddonConfigurations, _ := cmd.Flags().GetBool("include-addon-configurations")
+		request := client.CreateStackProfileFromStackRequest{
+			Name:                       strings.TrimSpace(name),
+			Description:                optionalString(cmd, "description"),
+			LogoURL:                    optionalString(cmd, "logo-url"),
+			Category:                   category,
+			Tags:                       tags,
+			Visibility:                 optionalString(cmd, "visibility"),
+			SourceClusterID:            clusterID,
+			StackName:                  strings.TrimSpace(stackName),
+			IncludeAddonConfigurations: includeAddonConfigurations,
+			Changelog:                  optionalString(cmd, "changelog"),
+		}
+		payload, createError := apiClient.CreateStackProfile(cmd.Context(), request)
+		if createError != nil {
+			return fmt.Errorf("creating stack profile: %w", createError)
+		}
+		return renderApplicationPayload(cmd, payload)
+	},
+}
+
+var stackProfilesUpdateCmd = &cobra.Command{
+	Use:   "update [profile-id|profile-name]",
+	Short: "Update a stack profile's catalogue metadata",
+	Long: `Update how a stack profile appears in the catalogue: its name,
+description, category, tags, logo URL, and visibility. Only the flags you
+set change; pass an empty value to clear a field.`,
+	Example: `  ankra stack-profiles update postgres-ha --description "Production PostgreSQL 17" --tag postgresql --tag cnpg
+  ankra stack-profiles update postgres-ha --visibility public`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
+		}
+		profileID, resolveError := resolveStackProfileID(apiClient, args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		request := client.UpdateStackProfileRequest{
+			Name:        optionalString(cmd, "name"),
+			Description: optionalString(cmd, "description"),
+			LogoURL:     optionalString(cmd, "logo-url"),
+			Category:    optionalString(cmd, "category"),
+			Visibility:  optionalString(cmd, "visibility"),
+		}
+		if cmd.Flags().Changed("tag") {
+			tags, _ := cmd.Flags().GetStringArray("tag")
+			request.Tags = tags
+		}
+		if request.Name == nil && request.Description == nil && request.LogoURL == nil &&
+			request.Category == nil && request.Visibility == nil && request.Tags == nil {
+			return withExitCode(exitUsage, errors.New(
+				"nothing to update: set at least one of --name, --description, --category, --tag, --logo-url, --visibility"))
+		}
+		payload, updateError := apiClient.UpdateStackProfile(cmd.Context(), profileID, request)
+		if updateError != nil {
+			return fmt.Errorf("updating stack profile: %w", updateError)
+		}
+		return renderApplicationPayload(cmd, payload)
+	},
+}
+
+var stackProfilesDeleteCmd = &cobra.Command{
+	Use:   "delete [profile-id|profile-name]",
+	Short: "Delete a stack profile",
+	Long: `Delete a stack profile. Stacks already deployed from it keep running;
+the profile stops appearing in the catalogue and can no longer be applied.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
+		}
+		profileID, resolveError := resolveStackProfileID(apiClient, args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		yes, _ := cmd.Flags().GetBool("yes")
+		if confirmError := confirmPrompt(
+			cmd.InOrStdin(), cmd.OutOrStdout(),
+			fmt.Sprintf("Delete stack profile %q? Deployed stacks keep running, "+
+				"but the profile and its versions stop being available. [y/N]: ", args[0]),
+			yes,
+		); confirmError != nil {
+			return confirmError
+		}
+		payload, deleteError := apiClient.DeleteStackProfile(cmd.Context(), profileID)
+		if deleteError != nil {
+			return fmt.Errorf("deleting stack profile: %w", deleteError)
+		}
+		return renderApplicationPayload(cmd, payload)
+	},
+}
+
+var stackProfilesSaveVersionCmd = &cobra.Command{
+	Use:   "save-version [profile-id|profile-name]",
+	Short: "Snapshot a source stack as the profile's next version",
+	Long: `Save a new profile version by re-snapshotting a deployed stack. The new
+version becomes the profile's current version.`,
+	Example: `  ankra stack-profiles save-version postgres-ha --stack postgres --cluster staging \
+    --changelog "Bump CloudNativePG to 1.30"`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
+		}
+		profileID, resolveError := resolveStackProfileID(apiClient, args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		stackName, _ := cmd.Flags().GetString("stack")
+		if strings.TrimSpace(stackName) == "" {
+			return withExitCode(exitUsage, errors.New("--stack is required: the source stack to snapshot"))
+		}
+		clusterFlag, _ := cmd.Flags().GetString("cluster")
+		clusterID, _, clusterError := resolveApplyTargetCluster(clusterFlag)
+		if clusterError != nil {
+			return clusterError
+		}
+		channel, _ := cmd.Flags().GetString("channel")
+		includeAddonConfigurations, _ := cmd.Flags().GetBool("include-addon-configurations")
+		request := client.SaveStackProfileVersionRequest{
+			SourceClusterID:            clusterID,
+			StackName:                  strings.TrimSpace(stackName),
+			IncludeAddonConfigurations: includeAddonConfigurations,
+			Channel:                    channel,
+			Changelog:                  optionalString(cmd, "changelog"),
+		}
+		payload, saveError := apiClient.SaveStackProfileVersion(cmd.Context(), profileID, request)
+		if saveError != nil {
+			return fmt.Errorf("saving stack profile version: %w", saveError)
+		}
+		return renderApplicationPayload(cmd, payload)
+	},
+}
+
+var stackProfilesSetCurrentVersionCmd = &cobra.Command{
+	Use:   "set-current-version [profile-id|profile-name] <version>",
+	Short: "Point the profile's current version at a published version",
+	Long: `Set which published version new deployments of this profile resolve to.
+Rolling back is setting the pointer to an earlier version.`,
+	Example: "  ankra stack-profiles set-current-version postgres-ha v3",
+	Args:    cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
+		}
+		profileID, resolveError := resolveStackProfileID(apiClient, args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		version, versionError := parseRequiredProfileVersionArgument(args[1])
+		if versionError != nil {
+			return versionError
+		}
+		payload, setError := apiClient.SetStackProfileCurrentVersion(cmd.Context(), profileID, version)
+		if setError != nil {
+			return fmt.Errorf("setting current version: %w", setError)
+		}
+		return renderApplicationPayload(cmd, payload)
+	},
+}
+
+// stackProfileDeprecationReasonLabels maps the wire vocabulary the platform
+// stores to the words its refusal sentences, the portal badges and this
+// CLI's output all use for it.
+var stackProfileDeprecationReasonLabels = map[string]string{
+	"incompatibility": "incompatibility",
+	"critical_bug":    "critical bug",
+	"cve":             "CVE",
+}
+
+// parseStackProfileDeprecationReason accepts either spelling of the reason
+// a person types - "critical-bug" reads better on a command line than the
+// stored "critical_bug" - and returns the value the platform expects. An
+// unknown reason is an invocation mistake, so it never reaches the API.
+func parseStackProfileDeprecationReason(raw string) (string, error) {
+	normalised := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(raw)), "-", "_")
+	if normalised == "" {
+		return "", withExitCode(exitUsage, errors.New(
+			"--reason is required: one of incompatibility, critical-bug, cve"))
+	}
+	if _, known := stackProfileDeprecationReasonLabels[normalised]; !known {
+		return "", withExitCode(exitUsage, fmt.Errorf(
+			"invalid --reason %q: use one of incompatibility, critical-bug, cve", raw))
+	}
+	return normalised, nil
+}
+
+func stackProfileDeprecationReasonLabel(reason string) string {
+	if label, known := stackProfileDeprecationReasonLabels[reason]; known {
+		return label
+	}
+	return reason
+}
+
+// stackProfileVersionStatusCell renders a version's standing for the
+// versions table: the deprecation reason in the platform's own words,
+// carrying the note so a reader sees why without a second command.
+func stackProfileVersionStatusCell(deprecation *client.StackProfileVersionDeprecation) string {
+	if deprecation == nil {
+		return "-"
+	}
+	status := "deprecated: " + stackProfileDeprecationReasonLabel(deprecation.Reason)
+	if deprecation.Note == nil {
+		return status
+	}
+	note := strings.TrimSpace(*deprecation.Note)
+	if note == "" {
+		return status
+	}
+	return status + " - " + truncateCell(note, 60)
+}
+
+var stackProfilesDeprecateCmd = &cobra.Command{
+	Use:   "deprecate [profile-id|profile-name] <version>",
+	Short: "Mark a published version as unfit to deploy",
+	Long: `Withdraw a published version so nobody deploys it again. A deprecated
+version cannot be made current and cannot be applied to a cluster; stacks
+already running it keep running, and 'ankra stack-profiles deployments'
+reports which ones are on it.
+
+The reason is one of incompatibility, critical-bug or cve. Use --note for
+the sentence the platform shows when it refuses the version, such as which
+version carries the fix, and repeat --reference for the advisories, CVE ids
+or issues behind it. Deprecating an already-deprecated version replaces its
+reason, note and references.`,
+	Example: `  ankra stack-profiles deprecate postgres-ha v3 --reason cve \
+    --note "Fixed in v11; see the advisory." --reference CVE-2026-12345
+  ankra stack-profiles deprecate postgres-ha 3 --reason critical-bug -o json`,
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
+		}
+		reasonFlag, _ := cmd.Flags().GetString("reason")
+		reason, reasonError := parseStackProfileDeprecationReason(reasonFlag)
+		if reasonError != nil {
+			return reasonError
+		}
+		version, versionError := parseRequiredProfileVersionArgument(args[1])
+		if versionError != nil {
+			return versionError
+		}
+		profileID, resolveError := resolveStackProfileID(apiClient, args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		note, _ := cmd.Flags().GetString("note")
+		references, _ := cmd.Flags().GetStringArray("reference")
+		request := client.DeprecateStackProfileVersionRequest{
+			Reason:     reason,
+			Note:       strings.TrimSpace(note),
+			References: references,
+		}
+		payload, deprecateError := apiClient.DeprecateStackProfileVersion(cmd.Context(), profileID, version, request)
+		if deprecateError != nil {
+			return fmt.Errorf("deprecating stack profile version: %w", deprecateError)
+		}
+		format, _ := structuredFormatFromFlags(cmd)
+		if format != outputDefault {
+			return renderApplicationPayload(cmd, payload)
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Deprecated %s v%d (%s).\n",
+			args[0], version, stackProfileDeprecationReasonLabel(reason))
+		return nil
+	},
+}
+
+var stackProfilesUndeprecateCmd = &cobra.Command{
+	Use:   "undeprecate [profile-id|profile-name] <version>",
+	Short: "Lift a version's deprecation",
+	Long: `Remove the deprecation from a published version: it becomes deployable
+again and eligible to be made current. Undeprecating a version that was
+never deprecated changes nothing and still succeeds.`,
+	Example: `  ankra stack-profiles undeprecate postgres-ha v3
+  ankra stack-profiles undeprecate postgres-ha 3 -o json`,
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
+		}
+		version, versionError := parseRequiredProfileVersionArgument(args[1])
+		if versionError != nil {
+			return versionError
+		}
+		profileID, resolveError := resolveStackProfileID(apiClient, args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		payload, undeprecateError := apiClient.UndeprecateStackProfileVersion(cmd.Context(), profileID, version)
+		if undeprecateError != nil {
+			return fmt.Errorf("undeprecating stack profile version: %w", undeprecateError)
+		}
+		format, _ := structuredFormatFromFlags(cmd)
+		if format != outputDefault {
+			return renderApplicationPayload(cmd, payload)
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Version %d of %s is no longer deprecated.\n", version, args[0])
+		return nil
+	},
+}
+
+var stackProfilesVersionCmd = &cobra.Command{
+	Use:   "version [profile-id|profile-name] <version>",
+	Short: "Show one published version's record and parameters",
+	Long: `Print the stored record of one published version: its spec, parameters and
+channel, as JSON (default) or YAML.
+
+Manifests and add-on values inside the record are base64-encoded. To read
+them decoded, list them, or grep across them, use:
+
+  ankra stack-profiles contents <profile> <version>`,
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
+		}
+		profileID, resolveError := resolveStackProfileID(apiClient, args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		version, versionError := parseRequiredProfileVersionArgument(args[1])
+		if versionError != nil {
+			return versionError
+		}
+		payload, getError := apiClient.GetStackProfileVersion(cmd.Context(), profileID, version)
+		if getError != nil {
+			return fmt.Errorf("getting stack profile version: %w", getError)
+		}
+		return renderApplicationPayload(cmd, payload)
+	},
+}
+
+var stackProfilesDiffCmd = &cobra.Command{
+	Use:   "diff [profile-id|profile-name]",
+	Short: "Compare two published versions of a profile",
+	Example: `  ankra stack-profiles diff postgres-ha --from v1 --to v2
+  ankra stack-profiles diff postgres-ha --from 1 --to 3 -o json`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
+		}
+		profileID, resolveError := resolveStackProfileID(apiClient, args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		fromRaw, _ := cmd.Flags().GetString("from")
+		toRaw, _ := cmd.Flags().GetString("to")
+		if fromRaw == "" || toRaw == "" {
+			return withExitCode(exitUsage, errors.New("--from and --to are required, as 1 or v1"))
+		}
+		fromVersion, fromError := parseRequiredProfileVersionArgument(fromRaw)
+		if fromError != nil {
+			return fromError
+		}
+		toVersion, toError := parseRequiredProfileVersionArgument(toRaw)
+		if toError != nil {
+			return toError
+		}
+		payload, diffError := apiClient.DiffStackProfileVersions(cmd.Context(), profileID, fromVersion, toVersion)
+		if diffError != nil {
+			return fmt.Errorf("diffing stack profile versions: %w", diffError)
+		}
+		format, _ := structuredFormatFromFlags(cmd)
+		if format != outputDefault {
+			return renderApplicationPayload(cmd, payload)
+		}
+		return renderProfileVersionContentDiff(cmd, profileID, fromVersion, toVersion, payload)
+	},
+}
+
+// profileVersionDiffPayload is the slice of the platform's version diff the
+// human output needs: which resources changed. The content itself is not in
+// the payload (it carries hashes), so it is read from both versions.
+type profileVersionDiffPayload struct {
+	Changes []struct {
+		Key        string `json:"key"`
+		ChangeType string `json:"change_type"`
+	} `json:"changes"`
+}
+
+// renderProfileVersionContentDiff prints a unified diff of every manifest
+// and add-on values file that differs between two versions, decoded, the
+// way `diff -u` would show it. Resources only one version has are printed
+// whole, as all-added or all-removed.
+func renderProfileVersionContentDiff(cmd *cobra.Command, profileID string, fromVersion int, toVersion int, payload json.RawMessage) error {
+	fromResources, fromError := loadProfileVersionResources(cmd, profileID, fromVersion)
+	if fromError != nil {
+		return fromError
+	}
+	toResources, toError := loadProfileVersionResources(cmd, profileID, toVersion)
+	if toError != nil {
+		return toError
+	}
+	var diffPayload profileVersionDiffPayload
+	diffPayloadKnown := len(payload) > 0
+	if diffPayloadKnown {
+		if unmarshalError := json.Unmarshal(payload, &diffPayload); unmarshalError != nil {
+			diffPayloadKnown = false
+		}
+	}
+	out := cmd.OutOrStdout()
+	fromKeys := map[string]profileResource{}
+	for _, resource := range fromResources {
+		fromKeys[resource.Kind+":"+resource.Name] = resource
+	}
+	toKeys := map[string]profileResource{}
+	for _, resource := range toResources {
+		toKeys[resource.Kind+":"+resource.Name] = resource
+	}
+	keys := []string{}
+	seen := map[string]bool{}
+	for _, resource := range append(append([]profileResource{}, fromResources...), toResources...) {
+		key := resource.Kind + ":" + resource.Name
+		if !seen[key] {
+			seen[key] = true
+			keys = append(keys, key)
+		}
+	}
+	changed, unchanged := 0, 0
+	for _, key := range keys {
+		fromResource, inFrom := fromKeys[key]
+		toResource, inTo := toKeys[key]
+		fromLabel := fmt.Sprintf("%s (v%d)", key, fromVersion)
+		toLabel := fmt.Sprintf("%s (v%d)", key, toVersion)
+		var rendered string
+		switch {
+		case inFrom && inTo:
+			rendered = unifiedDiff(fromLabel, toLabel, fromResource.Content, toResource.Content)
+		case inFrom:
+			rendered = unifiedDiff(fromLabel, "/dev/null", fromResource.Content, "")
+		default:
+			rendered = unifiedDiff("/dev/null", toLabel, "", toResource.Content)
+		}
+		if rendered == "" {
+			unchanged++
+			continue
+		}
+		changed++
+		if changed > 1 {
+			_, _ = fmt.Fprintln(out)
+		}
+		_, _ = fmt.Fprint(out, rendered)
+	}
+	stackChanges := 0
+	for _, change := range diffPayload.Changes {
+		if !strings.Contains(change.Key, "/") {
+			stackChanges++
+		}
+	}
+	if changed == 0 {
+		_, _ = fmt.Fprintf(out, "No manifest or add-on values differ between v%d and v%d", fromVersion, toVersion)
+		switch {
+		case !diffPayloadKnown:
+			_, _ = fmt.Fprint(out, " (the platform's change list could not be read, so whether the stack's own settings changed is unknown; see 'ankra stack-profiles diff -o json')")
+		case stackChanges > 0:
+			_, _ = fmt.Fprint(out, " (the stack's own settings changed; compare them with 'ankra stack-profiles version')")
+		}
+		_, _ = fmt.Fprintln(out, ".")
+		return nil
+	}
+	_, _ = fmt.Fprintf(out, "\n%d %s changed, %d unchanged, v%d -> v%d.\n", changed, pluralise(changed, "resource", "resources"), unchanged, fromVersion, toVersion)
+	return nil
+}
+
+func loadProfileVersionResources(cmd *cobra.Command, profileID string, version int) ([]profileResource, error) {
+	payload, getError := apiClient.GetStackProfileVersion(cmd.Context(), profileID, version)
+	if getError != nil {
+		return nil, fmt.Errorf("getting stack profile version v%d: %w", version, getError)
+	}
+	var versionPayload profileVersionPayload
+	if unmarshalError := json.Unmarshal(payload, &versionPayload); unmarshalError != nil {
+		return nil, fmt.Errorf("parsing stack profile version v%d: %w", version, unmarshalError)
+	}
+	return profileVersionResources(&versionPayload)
+}
+
+var stackProfilesDeploymentsCmd = &cobra.Command{
+	Use:   "deployments [profile-id|profile-name]",
+	Short: "List the stacks deployed from a profile across the fleet",
+	Long: `List every stack your organisation deployed from this profile: the target
+cluster, the stack, the profile version it runs, and whether a newer
+version is available. --outdated keeps only the ones behind the current
+version; -o json returns the raw records.`,
+	Example: `  ankra stack-profiles deployments hello-fleet
+  ankra stack-profiles deployments hello-fleet --outdated
+  ankra stack-profiles deployments hello-fleet -o json`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
+		}
+		profileID, resolveError := resolveStackProfileID(apiClient, args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		payload, deployments, listError := loadStackProfileDeployments(cmd.Context(), profileID)
+		if listError != nil {
+			return listError
+		}
+		format, _ := structuredFormatFromFlags(cmd)
+		if format != outputDefault {
+			return renderApplicationPayload(cmd, payload)
+		}
+		onlyOutdated, _ := cmd.Flags().GetBool("outdated")
+		renderStackProfileDeployments(cmd.OutOrStdout(), deployments, onlyOutdated)
+		return nil
+	},
+}
+
+func init() {
+	stackProfilesCreateCmd.Flags().String("name", "", "Profile name (required)")
+	stackProfilesCreateCmd.Flags().String("stack", "", "Source stack name to snapshot (required)")
+	stackProfilesCreateCmd.Flags().String("cluster", "", "Source cluster name or ID (defaults to the selected cluster)")
+	stackProfilesCreateCmd.Flags().String("description", "", "Profile description shown in the catalogue")
+	stackProfilesCreateCmd.Flags().String("category", "general", "Profile category (e.g. 'database')")
+	stackProfilesCreateCmd.Flags().StringArray("tag", nil, "Catalogue tag (repeatable)")
+	stackProfilesCreateCmd.Flags().String("logo-url", "", "Logo image URL shown in the catalogue")
+	stackProfilesCreateCmd.Flags().String("visibility", "", "Profile visibility: organisation (default) or public")
+	stackProfilesCreateCmd.Flags().String("changelog", "", "Changelog note for version 1")
+	stackProfilesCreateCmd.Flags().Bool("include-addon-configurations", true, "Carry the source add-ons' values into the profile")
+	registerStructuredOutputFlags(stackProfilesCreateCmd)
+
+	stackProfilesUpdateCmd.Flags().String("name", "", "New profile name")
+	stackProfilesUpdateCmd.Flags().String("description", "", "New description (empty clears)")
+	stackProfilesUpdateCmd.Flags().String("category", "", "New category")
+	stackProfilesUpdateCmd.Flags().StringArray("tag", nil, "New tag set (repeatable; replaces the stored tags)")
+	stackProfilesUpdateCmd.Flags().String("logo-url", "", "New logo image URL (empty clears)")
+	stackProfilesUpdateCmd.Flags().String("visibility", "", "Profile visibility: organisation or public")
+	registerStructuredOutputFlags(stackProfilesUpdateCmd)
+
+	stackProfilesDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	registerStructuredOutputFlags(stackProfilesDeleteCmd)
+
+	stackProfilesSaveVersionCmd.Flags().String("stack", "", "Source stack name to snapshot (required)")
+	stackProfilesSaveVersionCmd.Flags().String("cluster", "", "Source cluster name or ID (defaults to the selected cluster)")
+	stackProfilesSaveVersionCmd.Flags().String("channel", "stable", "Release channel for the new version")
+	stackProfilesSaveVersionCmd.Flags().String("changelog", "", "Changelog note for the new version")
+	stackProfilesSaveVersionCmd.Flags().Bool("include-addon-configurations", true, "Carry the source add-ons' values into the version")
+	registerStructuredOutputFlags(stackProfilesSaveVersionCmd)
+
+	registerStructuredOutputFlags(stackProfilesSetCurrentVersionCmd)
+	registerStructuredOutputFlags(stackProfilesVersionCmd)
+
+	stackProfilesDeprecateCmd.Flags().String("reason", "",
+		"Why the version is withdrawn: incompatibility, critical-bug or cve (required)")
+	stackProfilesDeprecateCmd.Flags().String("note", "",
+		"Sentence shown when the platform refuses the version, e.g. which version fixes it")
+	stackProfilesDeprecateCmd.Flags().StringArray("reference", nil,
+		"Advisory, CVE id or issue URL behind the deprecation (repeatable)")
+	registerStructuredOutputFlags(stackProfilesDeprecateCmd)
+	registerStructuredOutputFlags(stackProfilesUndeprecateCmd)
+
+	stackProfilesDiffCmd.Flags().String("from", "", "Version to compare from, as 1 or v1 (required)")
+	stackProfilesDiffCmd.Flags().String("to", "", "Version to compare to, as 1 or v1 (required)")
+	registerStructuredOutputFlags(stackProfilesDiffCmd)
+
+	stackProfilesDeploymentsCmd.Flags().Bool("outdated", false, "Only the deployments behind the current version")
+	registerStructuredOutputFlags(stackProfilesDeploymentsCmd)
+
+	stackProfilesCmd.AddCommand(
+		stackProfilesCreateCmd,
+		stackProfilesUpdateCmd,
+		stackProfilesDeleteCmd,
+		stackProfilesSaveVersionCmd,
+		stackProfilesSetCurrentVersionCmd,
+		stackProfilesDeprecateCmd,
+		stackProfilesUndeprecateCmd,
+		stackProfilesVersionCmd,
+		stackProfilesDiffCmd,
+		stackProfilesDeploymentsCmd,
+	)
+}

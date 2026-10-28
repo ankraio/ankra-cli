@@ -1,0 +1,1186 @@
+package cmd
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
+	"ankra/internal/client"
+
+	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/jedib0t/go-pretty/v6/text"
+	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
+)
+
+func getNestedString(obj map[string]interface{}, keys ...string) string {
+	current := obj
+	for i, key := range keys {
+		val, ok := current[key]
+		if !ok {
+			return ""
+		}
+		if i == len(keys)-1 {
+			switch v := val.(type) {
+			case string:
+				return v
+			case float64:
+				if v == float64(int(v)) {
+					return fmt.Sprintf("%d", int(v))
+				}
+				return fmt.Sprintf("%g", v)
+			case bool:
+				return fmt.Sprintf("%t", v)
+			case nil:
+				return ""
+			default:
+				return fmt.Sprintf("%v", v)
+			}
+		}
+		nested, ok := val.(map[string]interface{})
+		if !ok {
+			return ""
+		}
+		current = nested
+	}
+	return ""
+}
+
+func getNestedMap(obj map[string]interface{}, key string) (map[string]interface{}, bool) {
+	val, ok := obj[key]
+	if !ok {
+		return nil, false
+	}
+	m, ok := val.(map[string]interface{})
+	return m, ok
+}
+
+// loadBalancerAddresses reads the ip-or-hostname list out of a
+// status.loadBalancer.ingress[] array - the field kubectl derives both a
+// Service's EXTERNAL-IP and an Ingress's ADDRESS from. Entries carrying
+// neither, and repeats, are skipped; the API's order is kept. kubectl elides
+// this to 16 columns unless asked for -o wide, which these commands do not
+// offer, so the addresses are rendered in full.
+func loadBalancerAddresses(obj map[string]interface{}) []string {
+	statusMap, ok := getNestedMap(obj, "status")
+	if !ok {
+		return nil
+	}
+	loadBalancer, ok := getNestedMap(statusMap, "loadBalancer")
+	if !ok {
+		return nil
+	}
+	entries, ok := loadBalancer["ingress"].([]interface{})
+	if !ok {
+		return nil
+	}
+	addresses := make([]string, 0, len(entries))
+	seen := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		entryMap, ok := entry.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		address := getNestedString(entryMap, "ip")
+		if address == "" {
+			address = getNestedString(entryMap, "hostname")
+		}
+		if address == "" || seen[address] {
+			continue
+		}
+		seen[address] = true
+		addresses = append(addresses, address)
+	}
+	return addresses
+}
+
+// stringListField reads a list-of-strings field one level down, such as
+// spec.externalIPs, skipping entries that are not non-empty strings.
+func stringListField(obj map[string]interface{}, parentKey string, key string) []string {
+	parent, ok := getNestedMap(obj, parentKey)
+	if !ok {
+		return nil
+	}
+	rawList, ok := parent[key].([]interface{})
+	if !ok {
+		return nil
+	}
+	values := make([]string, 0, len(rawList))
+	for _, raw := range rawList {
+		if value, ok := raw.(string); ok && value != "" {
+			values = append(values, value)
+		}
+	}
+	return values
+}
+
+// serviceExternalIP renders the EXTERNAL-IP cell the way kubectl does: a
+// LoadBalancer reports whatever the cloud controller wrote into
+// status.loadBalancer.ingress (plus any spec.externalIPs), and <pending>
+// while that status is still empty; an ExternalName reports its target; every
+// other type reports only spec.externalIPs.
+func serviceExternalIP(obj map[string]interface{}) string {
+	externalIPs := stringListField(obj, "spec", "externalIPs")
+	switch getNestedString(obj, "spec", "type") {
+	case "ExternalName":
+		if externalName := getNestedString(obj, "spec", "externalName"); externalName != "" {
+			return externalName
+		}
+		return "<none>"
+	case "LoadBalancer":
+		addresses := append(loadBalancerAddresses(obj), externalIPs...)
+		if len(addresses) > 0 {
+			return strings.Join(addresses, ",")
+		}
+		return "<pending>"
+	default:
+		if len(externalIPs) > 0 {
+			return strings.Join(externalIPs, ",")
+		}
+		return "<none>"
+	}
+}
+
+// ingressPorts mirrors kubectl: an ingress serves 80, and 443 as well once it
+// carries any TLS block.
+func ingressPorts(obj map[string]interface{}) string {
+	if specMap, ok := getNestedMap(obj, "spec"); ok {
+		if tlsList, ok := specMap["tls"].([]interface{}); ok && len(tlsList) > 0 {
+			return "80, 443"
+		}
+	}
+	return "80"
+}
+
+func formatK8sAge(timestamp string) string {
+	if timestamp == "" {
+		return ""
+	}
+	t, err := time.Parse(time.RFC3339, timestamp)
+	if err != nil {
+		return timestamp
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
+}
+
+type kindConfig struct {
+	commandName   string
+	kind          string
+	group         string
+	version       string
+	clusterScoped bool
+	short         string
+	headers       table.Row
+	formatRow     func(obj map[string]interface{}) table.Row
+	// emptyHint, when set, is printed after the table-mode "No X found."
+	// message. The generic resources command uses it to point at --group
+	// for kinds that live outside the core API group.
+	emptyHint string
+	// registerFlags and fieldSelectorsFor let one kind add its own flags to
+	// the generated command and turn them into server-side field selectors.
+	// Only events uses it today, for --for.
+	registerFlags     func(command *cobra.Command)
+	fieldSelectorsFor func(command *cobra.Command, namespace string, allNamespaces bool) ([]client.FieldSelector, error)
+	postFilter        func(items []interface{}, command *cobra.Command) []interface{}
+	// revealable adds --reveal, which asks the platform for one named
+	// Secret's plaintext values instead of their digests. Only secrets
+	// sets it.
+	revealable bool
+}
+
+var kindConfigs = []kindConfig{
+	{
+		commandName: "deployments", kind: "Deployment", group: "apps", version: "v1",
+		short:   "List deployments in the cluster",
+		headers: table.Row{"Name", "Namespace", "Ready", "Up-to-date", "Available", "Age"},
+		formatRow: func(obj map[string]interface{}) table.Row {
+			readyCount := getNestedString(obj, "status", "readyReplicas")
+			if readyCount == "" {
+				readyCount = "0"
+			}
+			desired := getNestedString(obj, "spec", "replicas")
+			if desired == "" {
+				desired = "0"
+			}
+			updatedReplicas := getNestedString(obj, "status", "updatedReplicas")
+			if updatedReplicas == "" {
+				updatedReplicas = "0"
+			}
+			availableReplicas := getNestedString(obj, "status", "availableReplicas")
+			if availableReplicas == "" {
+				availableReplicas = "0"
+			}
+			return table.Row{
+				getNestedString(obj, "metadata", "name"),
+				getNestedString(obj, "metadata", "namespace"),
+				fmt.Sprintf("%s/%s", readyCount, desired),
+				updatedReplicas,
+				availableReplicas,
+				formatK8sAge(getNestedString(obj, "metadata", "creationTimestamp")),
+			}
+		},
+	},
+	{
+		commandName: "services", kind: "Service", group: "", version: "v1",
+		short:   "List services in the cluster",
+		headers: table.Row{"Name", "Namespace", "Type", "Cluster-IP", "External-IP", "Ports", "Age"},
+		formatRow: func(obj map[string]interface{}) table.Row {
+			ports := ""
+			if specMap, ok := getNestedMap(obj, "spec"); ok {
+				if specPorts, ok := specMap["ports"]; ok {
+					if portList, ok := specPorts.([]interface{}); ok {
+						portStrs := make([]string, 0, len(portList))
+						for _, p := range portList {
+							if pm, ok := p.(map[string]interface{}); ok {
+								portStr := fmt.Sprintf("%s/%s",
+									getNestedString(pm, "port"),
+									getNestedString(pm, "protocol"))
+								portStrs = append(portStrs, portStr)
+							}
+						}
+						ports = strings.Join(portStrs, ",")
+					}
+				}
+			}
+			return table.Row{
+				getNestedString(obj, "metadata", "name"),
+				getNestedString(obj, "metadata", "namespace"),
+				getNestedString(obj, "spec", "type"),
+				getNestedString(obj, "spec", "clusterIP"),
+				serviceExternalIP(obj),
+				ports,
+				formatK8sAge(getNestedString(obj, "metadata", "creationTimestamp")),
+			}
+		},
+	},
+	{
+		commandName: "nodes", kind: "Node", group: "", version: "v1", clusterScoped: true,
+		short:   "List nodes in the cluster",
+		headers: table.Row{"Name", "Status", "Roles", "Version", "Age"},
+		formatRow: func(obj map[string]interface{}) table.Row {
+			status := "Unknown"
+			if statusMap, ok := getNestedMap(obj, "status"); ok {
+				if conditions, ok := statusMap["conditions"]; ok {
+					if condList, ok := conditions.([]interface{}); ok {
+						for _, c := range condList {
+							if cm, ok := c.(map[string]interface{}); ok {
+								if getNestedString(cm, "type") == "Ready" {
+									if getNestedString(cm, "status") == "True" {
+										status = text.FgGreen.Sprint("Ready")
+									} else {
+										status = text.FgRed.Sprint("NotReady")
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+			roles := ""
+			if metaMap, ok := getNestedMap(obj, "metadata"); ok {
+				if labelMap, ok := metaMap["labels"].(map[string]interface{}); ok {
+					roleList := []string{}
+					for key := range labelMap {
+						if strings.HasPrefix(key, "node-role.kubernetes.io/") {
+							roleList = append(roleList, strings.TrimPrefix(key, "node-role.kubernetes.io/"))
+						}
+					}
+					if len(roleList) > 0 {
+						roles = strings.Join(roleList, ",")
+					} else {
+						roles = "<none>"
+					}
+				}
+			}
+			return table.Row{
+				getNestedString(obj, "metadata", "name"),
+				status,
+				roles,
+				getNestedString(obj, "status", "nodeInfo", "kubeletVersion"),
+				formatK8sAge(getNestedString(obj, "metadata", "creationTimestamp")),
+			}
+		},
+	},
+	{
+		commandName: "namespaces", kind: "Namespace", group: "", version: "v1", clusterScoped: true,
+		short:   "List namespaces in the cluster",
+		headers: table.Row{"Name", "Status", "Age"},
+		formatRow: func(obj map[string]interface{}) table.Row {
+			return table.Row{
+				getNestedString(obj, "metadata", "name"),
+				getNestedString(obj, "status", "phase"),
+				formatK8sAge(getNestedString(obj, "metadata", "creationTimestamp")),
+			}
+		},
+	},
+	{
+		commandName: "ingresses", kind: "Ingress", group: "networking.k8s.io", version: "v1",
+		short:   "List ingresses in the cluster",
+		headers: table.Row{"Name", "Namespace", "Hosts", "Address", "Ports", "Age"},
+		formatRow: func(obj map[string]interface{}) table.Row {
+			hosts := ""
+			if specMap, ok := getNestedMap(obj, "spec"); ok {
+				if rules, ok := specMap["rules"]; ok {
+					if ruleList, ok := rules.([]interface{}); ok {
+						hostList := []string{}
+						for _, r := range ruleList {
+							if rm, ok := r.(map[string]interface{}); ok {
+								if h := getNestedString(rm, "host"); h != "" {
+									hostList = append(hostList, h)
+								}
+							}
+						}
+						hosts = strings.Join(hostList, ",")
+					}
+				}
+			}
+			return table.Row{
+				getNestedString(obj, "metadata", "name"),
+				getNestedString(obj, "metadata", "namespace"),
+				hosts,
+				strings.Join(loadBalancerAddresses(obj), ","),
+				ingressPorts(obj),
+				formatK8sAge(getNestedString(obj, "metadata", "creationTimestamp")),
+			}
+		},
+	},
+	{
+		commandName: "events", kind: "Event", group: "", version: "v1",
+		short:   "List events in the cluster",
+		headers: table.Row{"Last Seen", "Type", "Reason", "Object", "Message"},
+		formatRow: func(obj map[string]interface{}) table.Row {
+			lastSeen := getNestedString(obj, "lastTimestamp")
+			if lastSeen == "" {
+				lastSeen = getNestedString(obj, "metadata", "creationTimestamp")
+			}
+			object := fmt.Sprintf("%s/%s",
+				strings.ToLower(getNestedString(obj, "involvedObject", "kind")),
+				getNestedString(obj, "involvedObject", "name"))
+			return table.Row{
+				formatK8sAge(lastSeen),
+				getNestedString(obj, "type"),
+				getNestedString(obj, "reason"),
+				object,
+				getNestedString(obj, "message"),
+			}
+		},
+		registerFlags: func(command *cobra.Command) {
+			command.Flags().String("for", "", "Scope to one object's events, as kind/name (e.g. pod/web-7d9f-2xkvp)")
+			command.Flags().String("type", "", "Filter by event type: Normal or Warning")
+			// The get family's shared --name matches the Event resource's own
+			// generated name, not the workload the event is about; --for is
+			// the flag for the latter.
+			if nameFlag := command.Flags().Lookup("name"); nameFlag != nil {
+				nameFlag.Usage = "Filter by the Event resource's own name; to scope by the object an event is about, use --for"
+			}
+		},
+		fieldSelectorsFor: eventFieldSelectorsFromFlags,
+		postFilter:        eventTypeFilterFromFlags,
+	},
+	{
+		commandName: "configmaps", kind: "ConfigMap", group: "", version: "v1",
+		short:   "List configmaps in the cluster",
+		headers: table.Row{"Name", "Namespace", "Data", "Age"},
+		formatRow: func(obj map[string]interface{}) table.Row {
+			dataCount := 0
+			if data, ok := obj["data"]; ok {
+				if dm, ok := data.(map[string]interface{}); ok {
+					dataCount = len(dm)
+				}
+			}
+			return table.Row{
+				getNestedString(obj, "metadata", "name"),
+				getNestedString(obj, "metadata", "namespace"),
+				dataCount,
+				formatK8sAge(getNestedString(obj, "metadata", "creationTimestamp")),
+			}
+		},
+	},
+	{
+		commandName: "secrets", kind: "Secret", group: "", version: "v1",
+		short:      "List secrets, or read one Secret (values are digests unless --reveal)",
+		revealable: true,
+		headers:    table.Row{"Name", "Namespace", "Type", "Data", "Age"},
+		formatRow: func(obj map[string]interface{}) table.Row {
+			dataCount := 0
+			if data, ok := obj["data"]; ok {
+				if dm, ok := data.(map[string]interface{}); ok {
+					dataCount = len(dm)
+				}
+			}
+			return table.Row{
+				getNestedString(obj, "metadata", "name"),
+				getNestedString(obj, "metadata", "namespace"),
+				getNestedString(obj, "type"),
+				dataCount,
+				formatK8sAge(getNestedString(obj, "metadata", "creationTimestamp")),
+			}
+		},
+	},
+	{
+		commandName: "statefulsets", kind: "StatefulSet", group: "apps", version: "v1",
+		short:   "List statefulsets in the cluster",
+		headers: table.Row{"Name", "Namespace", "Ready", "Age"},
+		formatRow: func(obj map[string]interface{}) table.Row {
+			readyCount := getNestedString(obj, "status", "readyReplicas")
+			if readyCount == "" {
+				readyCount = "0"
+			}
+			desired := getNestedString(obj, "spec", "replicas")
+			if desired == "" {
+				desired = "0"
+			}
+			ready := fmt.Sprintf("%s/%s", readyCount, desired)
+			return table.Row{
+				getNestedString(obj, "metadata", "name"),
+				getNestedString(obj, "metadata", "namespace"),
+				ready,
+				formatK8sAge(getNestedString(obj, "metadata", "creationTimestamp")),
+			}
+		},
+	},
+	{
+		commandName: "daemonsets", kind: "DaemonSet", group: "apps", version: "v1",
+		short:   "List daemonsets in the cluster",
+		headers: table.Row{"Name", "Namespace", "Desired", "Current", "Ready", "Age"},
+		formatRow: func(obj map[string]interface{}) table.Row {
+			return table.Row{
+				getNestedString(obj, "metadata", "name"),
+				getNestedString(obj, "metadata", "namespace"),
+				getNestedString(obj, "status", "desiredNumberScheduled"),
+				getNestedString(obj, "status", "currentNumberScheduled"),
+				getNestedString(obj, "status", "numberReady"),
+				formatK8sAge(getNestedString(obj, "metadata", "creationTimestamp")),
+			}
+		},
+	},
+	{
+		commandName: "k8s-jobs", kind: "Job", group: "batch", version: "v1",
+		short:   "List Kubernetes jobs in the cluster",
+		headers: table.Row{"Name", "Namespace", "Completions", "Duration", "Age"},
+		formatRow: func(obj map[string]interface{}) table.Row {
+			completions := fmt.Sprintf("%s/%s",
+				getNestedString(obj, "status", "succeeded"),
+				getNestedString(obj, "spec", "completions"))
+			duration := ""
+			startTime := getNestedString(obj, "status", "startTime")
+			completionTime := getNestedString(obj, "status", "completionTime")
+			if startTime != "" && completionTime != "" {
+				st, _ := time.Parse(time.RFC3339, startTime)
+				ct, _ := time.Parse(time.RFC3339, completionTime)
+				if !st.IsZero() && !ct.IsZero() {
+					duration = ct.Sub(st).Round(time.Second).String()
+				}
+			}
+			return table.Row{
+				getNestedString(obj, "metadata", "name"),
+				getNestedString(obj, "metadata", "namespace"),
+				completions,
+				duration,
+				formatK8sAge(getNestedString(obj, "metadata", "creationTimestamp")),
+			}
+		},
+	},
+	{
+		commandName: "cronjobs", kind: "CronJob", group: "batch", version: "v1",
+		short:   "List cronjobs in the cluster",
+		headers: table.Row{"Name", "Namespace", "Schedule", "Suspend", "Active", "Last Schedule"},
+		formatRow: func(obj map[string]interface{}) table.Row {
+			activeCount := 0
+			if statusMap, ok := getNestedMap(obj, "status"); ok {
+				if active, ok := statusMap["active"]; ok {
+					if al, ok := active.([]interface{}); ok {
+						activeCount = len(al)
+					}
+				}
+			}
+			return table.Row{
+				getNestedString(obj, "metadata", "name"),
+				getNestedString(obj, "metadata", "namespace"),
+				getNestedString(obj, "spec", "schedule"),
+				getNestedString(obj, "spec", "suspend"),
+				activeCount,
+				formatK8sAge(getNestedString(obj, "status", "lastScheduleTime")),
+			}
+		},
+	},
+	{
+		commandName: "storageclasses", kind: "StorageClass", group: "storage.k8s.io", version: "v1", clusterScoped: true,
+		short:   "List storage classes in the cluster",
+		headers: table.Row{"Name", "Provisioner", "Reclaim Policy", "Binding Mode", "Age"},
+		formatRow: func(obj map[string]interface{}) table.Row {
+			return table.Row{
+				getNestedString(obj, "metadata", "name"),
+				getNestedString(obj, "provisioner"),
+				getNestedString(obj, "reclaimPolicy"),
+				getNestedString(obj, "volumeBindingMode"),
+				formatK8sAge(getNestedString(obj, "metadata", "creationTimestamp")),
+			}
+		},
+	},
+}
+
+// validateK8sOutputFormat guards the kubernetes command family's -o flag, which
+// accepts table|json|yaml only. Unknown values (e.g. the kubectl habit of
+// "-o wide") are rejected up front with exitUsage so they never reach the table
+// renderer, whose named-resource path carries a nil formatRow and would panic.
+func validateK8sOutputFormat(outputFormat string) error {
+	switch outputFormat {
+	case "table", "json", "yaml":
+		return nil
+	default:
+		return withExitCode(exitUsage, fmt.Errorf("unsupported output format %q: use table, json or yaml", outputFormat))
+	}
+}
+
+func renderSingleResource(item interface{}, outputFormat string) error {
+	switch outputFormat {
+	case "json":
+		jsonData, err := json.MarshalIndent(item, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshalling to JSON: %w", err)
+		}
+		fmt.Println(string(jsonData))
+	default:
+		yamlData, err := yaml.Marshal(item)
+		if err != nil {
+			return fmt.Errorf("marshalling to YAML: %w", err)
+		}
+		fmt.Print(string(yamlData))
+	}
+	return nil
+}
+
+// resourceQuery carries the optional narrowing a kind command can apply.
+// Both members are nil for every command except events, and bundling them
+// keeps two same-shaped optional arguments off the call signature where they
+// could be transposed silently.
+type resourceQuery struct {
+	fieldSelectors []client.FieldSelector
+	postFilter     func([]interface{}) []interface{}
+	// revealSecretValues asks for one named Secret's plaintext values
+	// (--reveal). Callers validate that the read is a named, namespaced one
+	// before setting it.
+	revealSecretValues bool
+}
+
+func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, outputFormat string, cfg kindConfig, query resourceQuery) error {
+	reqItem := client.ResourceRequestItem{
+		Kind:    cfg.kind,
+		Version: cfg.version,
+	}
+	if len(query.fieldSelectors) > 0 {
+		reqItem.FieldSelectors = query.fieldSelectors
+	}
+	if cfg.group != "" {
+		reqItem.Group = cfg.group
+	}
+	if namespace != "" && !cfg.clusterScoped {
+		reqItem.Namespace = namespace
+	}
+	if nameFilter != "" {
+		reqItem.Name = nameFilter
+	}
+	if labelSelector != "" {
+		reqItem.LabelSelector = labelSelector
+	}
+
+	response, err := apiClient.GetResources(clusterID, client.GetResourcesRequest{
+		ResourceRequests:   []client.ResourceRequestItem{reqItem},
+		RevealSecretValues: query.revealSecretValues,
+	})
+	if err != nil {
+		return err
+	}
+	if nameFilter != "" {
+		// A named read must not render a deleted object's last body, or
+		// a failed read as "No X found." (namedReadItems).
+		if _, namedReadError := namedReadItems(response, cfg.kind, nameFilter, reqItem.Namespace); namedReadError != nil {
+			return namedReadError
+		}
+	} else {
+		// A listing that failed, or that the reply never answered, is not an
+		// empty one.
+		subject := cfg.commandName + namespaceSuffix(reqItem.Namespace)
+		if len(response.ResourceResponses) == 0 {
+			return noItemInReplyError(subject)
+		}
+		if readError := failedReadError(response.ResourceResponses[0], subject); readError != nil {
+			return readError
+		}
+	}
+
+	var items []interface{}
+	if len(response.ResourceResponses) > 0 {
+		items = response.ResourceResponses[0].Items
+	}
+	if err := checkSecretValues(response, items, namespace, nameFilter, outputFormat, query.revealSecretValues); err != nil {
+		return err
+	}
+	if query.postFilter != nil {
+		items = query.postFilter(items)
+		// Keep the structured envelope and the table showing the same set:
+		// a filter the caller asked for must not be visible in one and
+		// absent from the other.
+		if len(response.ResourceResponses) > 0 {
+			response.ResourceResponses[0].Items = items
+		}
+	}
+
+	isSingleResourceLookup := nameFilter != "" && len(items) == 1
+	if isSingleResourceLookup {
+		return renderSingleResource(items[0], outputFormat)
+	}
+
+	// Structured output renders before the empty-list early return so that
+	// -o json/yaml stays parseable even when nothing was found; the human
+	// "No X found." message is table-mode only.
+	if outputFormat == "json" {
+		jsonData, err := json.MarshalIndent(response, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshalling to JSON: %w", err)
+		}
+		fmt.Println(string(jsonData))
+		return nil
+	}
+	if outputFormat == "yaml" {
+		yamlData, err := yaml.Marshal(response)
+		if err != nil {
+			return fmt.Errorf("marshalling to YAML: %w", err)
+		}
+		fmt.Print(string(yamlData))
+		return nil
+	}
+
+	if len(items) == 0 {
+		fmt.Printf("No %s found.\n", cfg.commandName)
+		if cfg.emptyHint != "" {
+			fmt.Println(cfg.emptyHint)
+		}
+		return nil
+	}
+
+	t := table.NewWriter()
+	t.SetOutputMirror(os.Stdout)
+	t.SetStyle(table.StyleRounded)
+	t.AppendHeader(cfg.headers)
+
+	for _, item := range items {
+		if obj, ok := item.(map[string]interface{}); ok {
+			t.AppendRow(cfg.formatRow(obj))
+		}
+	}
+	t.Render()
+	return nil
+}
+
+func registerKindCommand(cfg kindConfig) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:         cfg.commandName + " [name]",
+		Short:       cfg.short,
+		Args:        cobra.MaximumNArgs(1),
+		Annotations: map[string]string{"group": "kubernetes"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cluster, err := resolveActiveCluster(cmd)
+			if err != nil {
+				return err
+			}
+			namespace, _ := cmd.Flags().GetString("namespace")
+			allNamespaces, _ := cmd.Flags().GetBool("all-namespaces")
+			nameFilter, _ := cmd.Flags().GetString("name")
+			labelSelector, _ := cmd.Flags().GetString("selector")
+			outputFormat, _ := cmd.Flags().GetString("output")
+
+			if err := validateK8sOutputFormat(outputFormat); err != nil {
+				return err
+			}
+
+			if len(args) == 1 {
+				nameFilter = args[0]
+				if outputFormat == "table" {
+					outputFormat = "yaml"
+				}
+			}
+
+			if allNamespaces {
+				namespace = ""
+			}
+
+			query := resourceQuery{}
+			if cfg.revealable {
+				reveal, _ := cmd.Flags().GetBool("reveal")
+				if reveal {
+					if err := validateSecretReveal(args, namespace, allNamespaces, labelSelector); err != nil {
+						return err
+					}
+					query.revealSecretValues = true
+				}
+			}
+			if cfg.fieldSelectorsFor != nil {
+				var selectorError error
+				// The resolved namespace is handed over rather than re-read,
+				// so a kind's selectors cannot scope differently from the
+				// request they travel on.
+				query.fieldSelectors, selectorError = cfg.fieldSelectorsFor(cmd, namespace, allNamespaces)
+				if selectorError != nil {
+					return selectorError
+				}
+			}
+			if cfg.postFilter != nil {
+				query.postFilter = func(items []interface{}) []interface{} { return cfg.postFilter(items, cmd) }
+			}
+			return fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, cfg, query)
+		},
+	}
+
+	if !cfg.clusterScoped {
+		cmd.Flags().StringP("namespace", "n", "", "Kubernetes namespace")
+		cmd.Flags().BoolP("all-namespaces", "A", false, "List across all namespaces")
+	}
+	cmd.Flags().String("name", "", "Filter by resource name")
+	cmd.Flags().StringP("selector", "l", "", "Label selector")
+	cmd.Flags().StringP("output", "o", "table", "Output format: table, json, yaml")
+
+	// After the shared flags, so a kind can both add its own and adjust the
+	// wording of one it inherits.
+	if cfg.registerFlags != nil {
+		cfg.registerFlags(cmd)
+	}
+	if cfg.revealable {
+		cmd.Flags().Bool("reveal", false, "Print the plaintext values of the one named Secret instead of sha256 digests (needs -n and the kubernetes.secrets_reveal permission; every reveal is audited)")
+		cmd.Long = secretsLongHelp
+	}
+
+	return cmd
+}
+
+var clusterPodsCmd = &cobra.Command{
+	Use:         "pods [name]",
+	Short:       "List pods or get a specific pod's manifest",
+	Args:        cobra.MaximumNArgs(1),
+	Annotations: map[string]string{"group": "kubernetes"},
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cluster, err := resolveActiveCluster(cmd)
+		if err != nil {
+			return err
+		}
+		namespace, _ := cmd.Flags().GetString("namespace")
+		allNamespaces, _ := cmd.Flags().GetBool("all-namespaces")
+		nodeName, _ := cmd.Flags().GetString("node")
+		nameContains, _ := cmd.Flags().GetString("name")
+		outputFormat, _ := cmd.Flags().GetString("output")
+
+		if err := validateK8sOutputFormat(outputFormat); err != nil {
+			return err
+		}
+
+		if len(args) == 1 {
+			podName := args[0]
+			if outputFormat == "table" {
+				outputFormat = "yaml"
+			}
+			podCfg := kindConfig{
+				commandName: "pods",
+				kind:        "Pod",
+				version:     "v1",
+			}
+			return fetchAndRenderResources(cluster.ID, namespace, podName, "", outputFormat, podCfg, resourceQuery{})
+		}
+
+		if allNamespaces {
+			namespace = ""
+		}
+
+		allPods := []client.PodSummary{}
+		var firstResponse *client.ListPodsResponse
+		page := 1
+		for {
+			opts := &client.ListPodsOptions{
+				Page:         page,
+				PageSize:     100,
+				Namespace:    namespace,
+				NameContains: nameContains,
+				NodeName:     nodeName,
+			}
+
+			response, err := apiClient.ListPods(cluster.ID, opts)
+			if err != nil {
+				return err
+			}
+			if firstResponse == nil {
+				firstResponse = response
+			}
+
+			allPods = append(allPods, response.Pods...)
+
+			if page >= response.TotalPages {
+				break
+			}
+			page++
+		}
+
+		if outputFormat == "json" {
+			// One shape regardless of how many pages were walked: the
+			// ListPodsResponse envelope with every page's pods merged and
+			// the pagination describing the merged result. Multi-page
+			// listings used to fall back to a bare pod array, so scripts
+			// saw a different document above 100 pods.
+			merged := *firstResponse
+			merged.Pods = allPods
+			merged.TotalCount = len(allPods)
+			merged.Page = 1
+			merged.PageSize = len(allPods)
+			merged.TotalPages = 1
+			jsonData, err := json.MarshalIndent(merged, "", "  ")
+			if err != nil {
+				return fmt.Errorf("marshalling to JSON: %w", err)
+			}
+			fmt.Println(string(jsonData))
+			return nil
+		}
+		if outputFormat == "yaml" {
+			yamlData, err := yaml.Marshal(allPods)
+			if err != nil {
+				return fmt.Errorf("marshalling to YAML: %w", err)
+			}
+			fmt.Print(string(yamlData))
+			return nil
+		}
+
+		if len(allPods) == 0 {
+			fmt.Println("No pods found.")
+			return nil
+		}
+
+		t := table.NewWriter()
+		t.SetOutputMirror(os.Stdout)
+		t.SetStyle(table.StyleRounded)
+		t.AppendHeader(table.Row{"Name", "Namespace", "Status", "Ready", "Restarts", "Node", "Age"})
+
+		for _, pod := range allPods {
+			ns := ""
+			if pod.Namespace != nil {
+				ns = *pod.Namespace
+			}
+			node := ""
+			if pod.NodeName != nil {
+				node = *pod.NodeName
+			}
+			status := pod.Phase
+			switch strings.ToLower(status) {
+			case "running":
+				status = text.FgGreen.Sprint(status)
+			case "failed", "error":
+				status = text.FgRed.Sprint(status)
+			case "pending":
+				status = text.FgYellow.Sprint(status)
+			}
+			age := ""
+			if pod.StartTime != nil {
+				age = formatK8sAge(*pod.StartTime)
+			}
+			t.AppendRow(table.Row{pod.Name, ns, status, pod.Ready, pod.Restarts, node, age})
+		}
+		t.Render()
+
+		fmt.Printf("\n%d pods total.\n", len(allPods))
+		return nil
+	},
+}
+
+var clusterLogsCmd = &cobra.Command{
+	Use:   "logs [pod_name]",
+	Short: "Stream logs from one pod, a label selector, or every container",
+	Long: `Stream log output from the active cluster.
+
+By default the stream stays open and prints new lines as they arrive, like
+kubectl logs -f. Pass --follow=false to print the current backlog and exit,
+which is what a pipeline into grep or a script wants.
+
+--previous reads the log of the container instance that terminated. For a
+pod in CrashLoopBackOff that is the only log with the failure in it, and it
+is the case where reaching for kubectl through a broad access grant used to
+be the only option. A previous log is closed, so --previous always makes a
+bounded read.
+
+-l/--selector reads every pod matching a label selector instead of one pod
+name, and --all-containers expands each pod to all of its containers (init
+and ephemeral containers included). With more than one target each line is
+prefixed with [pod] or [pod/container] so the interleaved output stays
+attributable.
+
+Examples:
+  ankra cluster logs my-pod -n default -c my-container --tail 100
+  ankra cluster logs my-pod -n default --previous
+  ankra cluster logs -l app=web -n default --tail 50 --follow=false
+  ankra cluster logs my-pod -n default --all-containers --previous
+  ankra cluster logs -l app=web -n default --follow=false -o json`,
+	Args:        cobra.MaximumNArgs(1),
+	Annotations: map[string]string{"group": "kubernetes"},
+	RunE: func(cmd *cobra.Command, args []string) error {
+		namespace, _ := cmd.Flags().GetString("namespace")
+		container, _ := cmd.Flags().GetString("container")
+		tailLines, _ := cmd.Flags().GetInt("tail")
+		sinceSeconds, _ := cmd.Flags().GetInt("since")
+		follow, _ := cmd.Flags().GetBool("follow")
+		previous, _ := cmd.Flags().GetBool("previous")
+		labelSelector, _ := cmd.Flags().GetString("selector")
+		allContainers, _ := cmd.Flags().GetBool("all-containers")
+		outputFormat, _ := cmd.Flags().GetString("output")
+
+		if err := validateK8sOutputFormat(outputFormat); err != nil {
+			return err
+		}
+		if namespace == "" {
+			return withExitCode(exitUsage, errors.New("--namespace (-n) is required for logs"))
+		}
+		podName := ""
+		if len(args) == 1 {
+			podName = args[0]
+		}
+		if podName == "" && labelSelector == "" {
+			return withExitCode(exitUsage,
+				errors.New("logs needs a pod name or a label selector (-l)"))
+		}
+		if podName != "" && labelSelector != "" {
+			return withExitCode(exitUsage,
+				errors.New("pass either a pod name or -l/--selector, not both"))
+		}
+		if container != "" && allContainers {
+			return withExitCode(exitUsage,
+				errors.New("--container and --all-containers select different things; pass only one"))
+		}
+
+		// A structured read has to terminate before it can be encoded, so
+		// -o json|yaml is a bounded read. Saying so is better than
+		// emitting a document that never closes.
+		isStructured := outputFormat == "json" || outputFormat == "yaml"
+		if isStructured {
+			if cmd.Flags().Changed("follow") && follow {
+				return withExitCode(exitUsage, errors.New(
+					"-o json|yaml cannot follow a stream; drop --follow or use -o table"))
+			}
+			follow = false
+		}
+		if previous {
+			if cmd.Flags().Changed("follow") && follow {
+				return withExitCode(exitUsage, errors.New(
+					"--previous reads a terminated container's log, which is closed and cannot be followed; drop --follow"))
+			}
+			follow = false
+		}
+
+		cluster, err := resolveActiveCluster(cmd)
+		if err != nil {
+			return err
+		}
+
+		targets, targetsError := resolveLogTargets(
+			cluster.ID, namespace, podName, labelSelector, container, allContainers)
+		if targetsError != nil {
+			return targetsError
+		}
+		if follow && len(targets) > maxConcurrentLogFollows {
+			return withExitCode(exitUsage, fmt.Errorf(
+				"following %d containers at once exceeds the limit of %d: narrow the selector or pass --follow=false",
+				len(targets), maxConcurrentLogFollows))
+		}
+		if !follow && len(targets) > maxBoundedLogTargets {
+			return withExitCode(exitUsage, fmt.Errorf(
+				"reading %d containers in one command exceeds the limit of %d: narrow the selector with -l, or pass --tail to bound each read",
+				len(targets), maxBoundedLogTargets))
+		}
+
+		opts := client.PodLogOptions{
+			Namespace:     namespace,
+			ContainerName: container,
+			TailLines:     tailLines,
+			SinceSeconds:  sinceSeconds,
+			Follow:        follow,
+			Previous:      previous,
+		}
+
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+
+		if isStructured {
+			groups, collectError := collectLogTargets(ctx, cluster.ID, targets, opts)
+			if collectError != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
+				return collectError
+			}
+			return renderLogGroups(groups, outputFormat)
+		}
+
+		showPrefix := len(targets) > 1
+		if err := streamLogTargets(ctx, cluster.ID, targets, opts, showPrefix, os.Stdout); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
+		}
+		return nil
+	},
+}
+
+// coreV1Kinds enumerates the kinds served by the core ("") v1 API group,
+// for which the generic resources command's default empty --group is
+// correct. The resources/get backend echoes the request group back and
+// reports only a generic success/error status — there is no distinct
+// not-found signal on the wire — so the CLI infers the likely mistake
+// from the requested kind instead.
+var coreV1Kinds = map[string]bool{
+	"binding":               true,
+	"componentstatus":       true,
+	"configmap":             true,
+	"endpoints":             true,
+	"event":                 true,
+	"limitrange":            true,
+	"namespace":             true,
+	"node":                  true,
+	"persistentvolume":      true,
+	"persistentvolumeclaim": true,
+	"pod":                   true,
+	"podtemplate":           true,
+	"replicationcontroller": true,
+	"resourcequota":         true,
+	"secret":                true,
+	"service":               true,
+	"serviceaccount":        true,
+}
+
+// genericResourcesEmptyHint returns the guidance appended to the empty
+// "No <Kind> found." message of `cluster get resources <Kind>`: when
+// --group was left at its default and the kind is not a core/v1 kind, an
+// empty result usually means the group was simply not specified.
+func genericResourcesEmptyHint(kind, apiGroup string) string {
+	if apiGroup != "" {
+		return ""
+	}
+	lowered := strings.ToLower(kind)
+	if coreV1Kinds[lowered] || coreV1Kinds[strings.TrimSuffix(lowered, "s")] {
+		return ""
+	}
+	return fmt.Sprintf("If %s lives outside the core API group, pass --group (e.g. --group storage.k8s.io for StorageClass, --group networking.k8s.io for NetworkPolicy).", kind)
+}
+
+var clusterGenericResourcesCmd = &cobra.Command{
+	Use:   "resources <kind>",
+	Short: "Get any Kubernetes resource by kind",
+	Long: `Fetch any Kubernetes resource type. Use for kinds not covered by dedicated commands.
+
+Kinds outside the core API group need --group (and sometimes --api-version).
+
+Example:
+  ankra cluster resources PersistentVolumeClaim -n default
+  ankra cluster resources NetworkPolicy --group networking.k8s.io --all-namespaces
+  ankra cluster resources StorageClass --group storage.k8s.io`,
+	Args:        cobra.ExactArgs(1),
+	Annotations: map[string]string{"group": "kubernetes"},
+	RunE: func(cmd *cobra.Command, args []string) error {
+		kind := args[0]
+		cluster, err := resolveActiveCluster(cmd)
+		if err != nil {
+			return err
+		}
+		namespace, _ := cmd.Flags().GetString("namespace")
+		allNamespaces, _ := cmd.Flags().GetBool("all-namespaces")
+		nameFilter, _ := cmd.Flags().GetString("name")
+		labelSelector, _ := cmd.Flags().GetString("selector")
+		outputFormat, _ := cmd.Flags().GetString("output")
+		apiVersion, _ := cmd.Flags().GetString("api-version")
+		apiGroup, _ := cmd.Flags().GetString("group")
+
+		if err := validateK8sOutputFormat(outputFormat); err != nil {
+			return err
+		}
+
+		if allNamespaces {
+			namespace = ""
+		}
+
+		genericCfg := kindConfig{
+			commandName: kind,
+			kind:        kind,
+			group:       apiGroup,
+			version:     apiVersion,
+			emptyHint:   genericResourcesEmptyHint(kind, apiGroup),
+			headers:     table.Row{"Name", "Namespace", "Age"},
+			formatRow: func(obj map[string]interface{}) table.Row {
+				return table.Row{
+					getNestedString(obj, "metadata", "name"),
+					getNestedString(obj, "metadata", "namespace"),
+					formatK8sAge(getNestedString(obj, "metadata", "creationTimestamp")),
+				}
+			},
+		}
+
+		return fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, genericCfg, resourceQuery{})
+	},
+}
+
+var clusterGetCmd = &cobra.Command{
+	Use:   "get",
+	Short: "Get Kubernetes resources from the active cluster",
+	Long: `Get Kubernetes resources from the active cluster.
+
+Examples:
+  ankra cluster get pods
+  ankra cluster get deployments -n kube-system
+  ankra cluster get nodes
+  ankra cluster get services --all-namespaces`,
+}
+
+func init() {
+	clusterPodsCmd.Flags().StringP("namespace", "n", "", "Kubernetes namespace")
+	clusterPodsCmd.Flags().BoolP("all-namespaces", "A", false, "List across all namespaces")
+	clusterPodsCmd.Flags().String("node", "", "Filter by node name")
+	clusterPodsCmd.Flags().String("name", "", "Filter by pod name (contains)")
+	clusterPodsCmd.Flags().StringP("output", "o", "table", "Output format: table, json, yaml")
+
+	clusterLogsCmd.Flags().StringP("namespace", "n", "", "Kubernetes namespace (required)")
+	clusterLogsCmd.Flags().StringP("container", "c", "", "Container name (defaults to pod name)")
+	clusterLogsCmd.Flags().Int("tail", 0, "Number of lines from the end of the logs")
+	clusterLogsCmd.Flags().Int("since", 0, "Seconds of logs to retrieve")
+	clusterLogsCmd.Flags().BoolP("follow", "f", true, "Keep the stream open for new lines; --follow=false prints the current backlog and exits")
+	clusterLogsCmd.Flags().BoolP("previous", "p", false, "Read the terminated container's log (the one a CrashLoopBackOff wrote); always a bounded read")
+	clusterLogsCmd.Flags().StringP("selector", "l", "", "Read every pod matching this label selector instead of one pod name")
+	clusterLogsCmd.Flags().Bool("all-containers", false, "Read every container of each selected pod, including init and ephemeral containers")
+	clusterLogsCmd.Flags().StringP("output", "o", "table", "Output format: table, json, yaml")
+
+	clusterGenericResourcesCmd.Flags().StringP("namespace", "n", "", "Kubernetes namespace")
+	clusterGenericResourcesCmd.Flags().BoolP("all-namespaces", "A", false, "List across all namespaces")
+	clusterGenericResourcesCmd.Flags().String("name", "", "Filter by resource name")
+	clusterGenericResourcesCmd.Flags().StringP("selector", "l", "", "Label selector")
+	clusterGenericResourcesCmd.Flags().StringP("output", "o", "table", "Output format: table, json, yaml")
+	clusterGenericResourcesCmd.Flags().String("api-version", "v1", "API version (e.g. v1, v1beta1)")
+	clusterGenericResourcesCmd.Flags().String("group", "", "API group (e.g. apps, networking.k8s.io)")
+
+	clusterGetCmd.AddCommand(clusterPodsCmd)
+	clusterGetCmd.AddCommand(clusterGenericResourcesCmd)
+
+	for _, cfg := range kindConfigs {
+		clusterGetCmd.AddCommand(registerKindCommand(cfg))
+	}
+
+	clusterCmd.AddCommand(clusterGetCmd)
+	clusterCmd.AddCommand(clusterLogsCmd)
+}

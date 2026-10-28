@@ -1,0 +1,380 @@
+package client
+
+import (
+	"fmt"
+	"net/url"
+)
+
+type ManagedK8sProvider string
+
+const (
+	ManagedK8sProviderDoks    ManagedK8sProvider = "doks"
+	ManagedK8sProviderUks     ManagedK8sProvider = "uks"
+	ManagedK8sProviderGke     ManagedK8sProvider = "gke"
+	ManagedK8sProviderOvhMks  ManagedK8sProvider = "ovh_mks"
+	ManagedK8sProviderAks     ManagedK8sProvider = "aks"
+	ManagedK8sProviderEks     ManagedK8sProvider = "eks"
+	ManagedK8sProviderKapsule ManagedK8sProvider = "kapsule"
+	// ManagedK8sProviderAnkraCloudK8s is Ankra Cloud Kubernetes: the control
+	// plane is run by the Ankra team, and it reuses the ankracloud credential.
+	ManagedK8sProviderAnkraCloudK8s ManagedK8sProvider = "ankracloud_k8s"
+)
+
+// managedProviderDeleteIsExplicit reports whether a provider keeps the bare
+// DELETE as a disconnect and deletes the provider-side cluster only through
+// POST .../delete-provider-cluster. Kapsule and Ankra Cloud Kubernetes do.
+func managedProviderDeleteIsExplicit(provider ManagedK8sProvider) bool {
+	return provider == ManagedK8sProviderKapsule || provider == ManagedK8sProviderAnkraCloudK8s
+}
+
+// ManagedNodePoolAutoscaling mirrors the backend's node-pool autoscaling
+// request member: when Enabled, the pool scales between MinCount and MaxCount.
+type ManagedNodePoolAutoscaling struct {
+	Enabled  bool `json:"enabled"`
+	MinCount int  `json:"min_count"`
+	MaxCount int  `json:"max_count"`
+}
+
+// ManagedNodePoolSpot asks for a pool on spot / preemptible capacity (AKS);
+// MaxPrice is the hourly cap in the provider's currency, nil = on-demand cap.
+type ManagedNodePoolSpot struct {
+	Enabled  bool     `json:"enabled"`
+	MaxPrice *float64 `json:"max_price,omitempty"`
+}
+
+// ManagedNodePoolPlacement carries the provider-specific pool placement
+// members shared by the create and add-pool requests: availability
+// zone(s), the OS / root disk, and spot capacity.
+type ManagedNodePoolPlacement struct {
+	Zone             *string              `json:"zone,omitempty"`
+	RootVolumeType   *string              `json:"root_volume_type,omitempty"`
+	RootVolumeSizeGB *int                 `json:"root_volume_size_gb,omitempty"`
+	Spot             *ManagedNodePoolSpot `json:"spot,omitempty"`
+}
+
+type ManagedClusterNodePoolRequest struct {
+	Name        string                      `json:"name"`
+	Size        string                      `json:"size"`
+	Count       int                         `json:"count"`
+	Labels      map[string]string           `json:"labels,omitempty"`
+	Taints      []NodeTaint                 `json:"taints,omitempty"`
+	Autoscaling *ManagedNodePoolAutoscaling `json:"autoscaling,omitempty"`
+	ManagedNodePoolPlacement
+}
+
+// AksMaintenanceWindow pins when Azure may run control-plane upgrades and
+// node reboots: an English weekday, a 0-23 UTC start hour, 4-24 hours.
+type AksMaintenanceWindow struct {
+	Day           string `json:"day"`
+	StartHour     int    `json:"start_hour"`
+	DurationHours int    `json:"duration_hours"`
+}
+
+// AksClusterOptions carries the Azure-specific create options.
+type AksClusterOptions struct {
+	ResourceGroup     *string               `json:"resource_group,omitempty"`
+	NetworkPlugin     string                `json:"network_plugin,omitempty"`
+	PrivateCluster    bool                  `json:"private_cluster"`
+	SkuTier           *string               `json:"sku_tier,omitempty"`
+	VnetSubnetID      *string               `json:"vnet_subnet_id,omitempty"`
+	MaintenanceWindow *AksMaintenanceWindow `json:"maintenance_window,omitempty"`
+}
+
+// KapsuleClusterOptions carries the Scaleway Kapsule-specific create options;
+// the backend requires private_network_id for Kapsule clusters.
+type KapsuleClusterOptions struct {
+	PrivateNetworkID string `json:"private_network_id"`
+}
+
+// AnkraCloudK8sClusterOptions carries the optional Ankra Cloud Kubernetes
+// create options: adopt an existing private network, or size the ankra-<name>
+// network the platform creates (server default 10.100.0.0/24), and whether
+// the API endpoint takes a public IPv4 address (server default true).
+// DevCluster asks for a dev cluster instead: one Ankra Cloud server that is
+// the control plane, the only node, the load balancer and its own gateway,
+// sized by the single one-node pool. ControlPlane names the control plane
+// tier of a managed cluster, development or production; empty leaves the
+// platform default.
+type AnkraCloudK8sClusterOptions struct {
+	PrivateNetworkID *string `json:"private_network_id,omitempty"`
+	NetworkCIDR      *string `json:"network_cidr,omitempty"`
+	PublicIPv4       *bool   `json:"public_ipv4,omitempty"`
+	DevCluster       bool    `json:"dev_cluster,omitempty"`
+	ControlPlane     string  `json:"control_plane,omitempty"`
+}
+
+type CreateManagedClusterRequest struct {
+	Name                 string                          `json:"name"`
+	Description          *string                         `json:"description,omitempty"`
+	CredentialID         string                          `json:"credential_id,omitempty"`
+	Location             string                          `json:"location"`
+	KubernetesVersion    *string                         `json:"kubernetes_version,omitempty"`
+	NodePools            []ManagedClusterNodePoolRequest `json:"node_pools"`
+	GitopsCredentialName *string                         `json:"gitops_credential_name,omitempty"`
+	GitopsRepository     *string                         `json:"gitops_repository,omitempty"`
+	GitopsBranch         *string                         `json:"gitops_branch,omitempty"`
+	Kapsule              *KapsuleClusterOptions          `json:"kapsule,omitempty"`
+	AnkraCloudK8s        *AnkraCloudK8sClusterOptions    `json:"ankracloud_k8s,omitempty"`
+	Aks                  *AksClusterOptions              `json:"aks,omitempty"`
+	Environment          *string                         `json:"environment,omitempty"`
+	Criticality          *string                         `json:"criticality,omitempty"`
+}
+
+type CreateManagedClusterResponse struct {
+	ClusterID string `json:"cluster_id"`
+	Name      string `json:"name"`
+}
+
+type DeprovisionManagedClusterResponse struct {
+	Success         bool     `json:"success"`
+	ClusterID       string   `json:"cluster_id"`
+	OperationID     *string  `json:"operation_id,omitempty"`
+	ResourcesMarked int      `json:"resources_marked"`
+	Errors          []string `json:"errors"`
+}
+
+type ScaleManagedNodePoolRequest struct {
+	Count int `json:"count"`
+}
+
+type ScaleManagedNodePoolResponse struct {
+	ClusterID    string `json:"cluster_id"`
+	NodePoolName string `json:"node_pool_name"`
+	Count        int    `json:"count"`
+}
+
+type AddManagedNodePoolRequest struct {
+	Name        string                      `json:"name"`
+	Size        string                      `json:"size"`
+	Count       int                         `json:"count"`
+	Labels      map[string]string           `json:"labels,omitempty"`
+	Taints      []NodeTaint                 `json:"taints,omitempty"`
+	Autoscaling *ManagedNodePoolAutoscaling `json:"autoscaling,omitempty"`
+	ManagedNodePoolPlacement
+}
+
+type AddManagedNodePoolResponse struct {
+	ClusterID    string `json:"cluster_id"`
+	NodePoolName string `json:"node_pool_name"`
+	Count        int    `json:"count"`
+}
+
+type DeleteManagedNodePoolResponse struct {
+	ClusterID    string `json:"cluster_id"`
+	NodePoolName string `json:"node_pool_name"`
+}
+
+// UpdateManagedNodePoolRequest mirrors the backend's ManagedPoolUpdateRequest:
+// every member is optional, but the backend rejects an empty body, so callers
+// must set at least one field.
+type UpdateManagedNodePoolRequest struct {
+	Count              *int  `json:"count,omitempty"`
+	AutoscalingEnabled *bool `json:"autoscaling_enabled,omitempty"`
+	AutoscalingMin     *int  `json:"autoscaling_min,omitempty"`
+	AutoscalingMax     *int  `json:"autoscaling_max,omitempty"`
+	ExternallyManaged  *bool `json:"externally_managed,omitempty"`
+}
+
+// UpdateManagedNodePoolResponse mirrors the backend's
+// ManagedPoolOperationResponse; nullable members stay pointers.
+type UpdateManagedNodePoolResponse struct {
+	ClusterID          string `json:"cluster_id"`
+	NodePoolName       string `json:"node_pool_name"`
+	Count              *int   `json:"count"`
+	AutoscalingEnabled *bool  `json:"autoscaling_enabled"`
+	AutoscalingMin     *int   `json:"autoscaling_min"`
+	AutoscalingMax     *int   `json:"autoscaling_max"`
+	ExternallyManaged  *bool  `json:"externally_managed"`
+}
+
+// ManagedClusterLifecycleResponse is the status payload the stop and start
+// endpoints return.
+type ManagedClusterLifecycleResponse struct {
+	ClusterID string `json:"cluster_id"`
+	Status    string `json:"status"`
+}
+
+type UpgradeManagedK8sVersionRequest struct {
+	Version string `json:"version"`
+}
+
+type UpgradeManagedK8sVersionResponse struct {
+	ClusterID string `json:"cluster_id"`
+	Version   string `json:"version"`
+}
+
+func (c *Client) managedClusterBasePath(provider ManagedK8sProvider) string {
+	return fmt.Sprintf("%s/api/v1/clusters/managed/%s", c.BaseURL, url.PathEscape(string(provider)))
+}
+
+func (c *Client) CreateManagedCluster(provider ManagedK8sProvider, request CreateManagedClusterRequest) (*CreateManagedClusterResponse, error) {
+	requestURL := c.managedClusterBasePath(provider)
+	var response CreateManagedClusterResponse
+	if err := c.postCSRFJSON(requestURL, request, &response, "create managed cluster"); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+// DeprovisionManagedCluster deletes the cluster at the provider and in
+// Ankra. For the providers whose bare DELETE only disconnects (Kapsule,
+// Ankra Cloud Kubernetes) it goes through delete-provider-cluster, so the
+// provider-side cluster is really removed.
+func (c *Client) DeprovisionManagedCluster(provider ManagedK8sProvider, clusterID string, force bool) (*DeprovisionManagedClusterResponse, error) {
+	requestURL := fmt.Sprintf("%s/%s", c.managedClusterBasePath(provider), url.PathEscape(clusterID))
+	if managedProviderDeleteIsExplicit(provider) {
+		requestURL += "/delete-provider-cluster"
+	}
+	if force {
+		requestURL += "?force=true"
+	}
+	var response DeprovisionManagedClusterResponse
+	if managedProviderDeleteIsExplicit(provider) {
+		if deleteError := c.postCSRFJSON(requestURL, nil, &response, "delete provider managed cluster"); deleteError != nil {
+			return nil, deleteError
+		}
+		return &response, nil
+	}
+	if deleteError := c.deleteCSRFJSON(requestURL, &response, "deprovision managed cluster"); deleteError != nil {
+		return nil, deleteError
+	}
+	return &response, nil
+}
+
+func (c *Client) ScaleManagedNodePool(provider ManagedK8sProvider, clusterID, nodePoolName string, count int) (*ScaleManagedNodePoolResponse, error) {
+	requestURL := fmt.Sprintf(
+		"%s/%s/node-pools/%s/scale",
+		c.managedClusterBasePath(provider),
+		url.PathEscape(clusterID),
+		url.PathEscape(nodePoolName),
+	)
+	var response ScaleManagedNodePoolResponse
+	requestBody := ScaleManagedNodePoolRequest{Count: count}
+	if err := c.postCSRFJSON(requestURL, requestBody, &response, "scale managed node pool"); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func (c *Client) AddManagedNodePool(provider ManagedK8sProvider, clusterID string, request AddManagedNodePoolRequest) (*AddManagedNodePoolResponse, error) {
+	requestURL := fmt.Sprintf("%s/%s/node-pools", c.managedClusterBasePath(provider), url.PathEscape(clusterID))
+	var response AddManagedNodePoolResponse
+	if err := c.postCSRFJSON(requestURL, request, &response, "add managed node pool"); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func (c *Client) DeleteManagedNodePool(provider ManagedK8sProvider, clusterID, nodePoolName string) (*DeleteManagedNodePoolResponse, error) {
+	requestURL := fmt.Sprintf(
+		"%s/%s/node-pools/%s",
+		c.managedClusterBasePath(provider),
+		url.PathEscape(clusterID),
+		url.PathEscape(nodePoolName),
+	)
+	var response DeleteManagedNodePoolResponse
+	if err := c.deleteCSRFJSON(requestURL, &response, "delete managed node pool"); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func (c *Client) UpdateManagedNodePool(provider ManagedK8sProvider, clusterID, nodePoolName string, request UpdateManagedNodePoolRequest) (*UpdateManagedNodePoolResponse, error) {
+	requestURL := fmt.Sprintf(
+		"%s/%s/node-pools/%s",
+		c.managedClusterBasePath(provider),
+		url.PathEscape(clusterID),
+		url.PathEscape(nodePoolName),
+	)
+	var response UpdateManagedNodePoolResponse
+	if err := c.patchCSRFJSON(requestURL, request, &response, "update managed node pool"); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func (c *Client) StopManagedCluster(provider ManagedK8sProvider, clusterID string) (*ManagedClusterLifecycleResponse, error) {
+	requestURL := fmt.Sprintf("%s/%s/stop", c.managedClusterBasePath(provider), url.PathEscape(clusterID))
+	var response ManagedClusterLifecycleResponse
+	if err := c.postCSRFJSON(requestURL, nil, &response, "stop managed cluster"); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func (c *Client) StartManagedCluster(provider ManagedK8sProvider, clusterID string) (*ManagedClusterLifecycleResponse, error) {
+	requestURL := fmt.Sprintf("%s/%s/start", c.managedClusterBasePath(provider), url.PathEscape(clusterID))
+	var response ManagedClusterLifecycleResponse
+	if err := c.postCSRFJSON(requestURL, nil, &response, "start managed cluster"); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func (c *Client) UpgradeManagedK8sVersion(provider ManagedK8sProvider, clusterID, version string) (*UpgradeManagedK8sVersionResponse, error) {
+	requestURL := fmt.Sprintf("%s/%s/upgrade", c.managedClusterBasePath(provider), url.PathEscape(clusterID))
+	var response UpgradeManagedK8sVersionResponse
+	requestBody := UpgradeManagedK8sVersionRequest{Version: version}
+	if err := c.postCSRFJSON(requestURL, requestBody, &response, "upgrade managed kubernetes version"); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+// DiscoveredManagedCluster is one cluster the provider account already runs,
+// as returned by the discover endpoint. Fields the CLI does not render
+// (node pools, CNI, ownership) are deliberately left undecoded.
+type DiscoveredManagedCluster struct {
+	ProviderClusterID string  `json:"provider_cluster_id"`
+	Name              string  `json:"name"`
+	Location          string  `json:"location"`
+	Version           *string `json:"version"`
+	Status            string  `json:"status"`
+	NodeCount         int     `json:"node_count"`
+	AlreadyImported   bool    `json:"already_imported"`
+}
+
+type DiscoverManagedClustersResponse struct {
+	Clusters          []DiscoveredManagedCluster `json:"clusters"`
+	Incomplete        bool                       `json:"incomplete"`
+	IncompleteRegions []string                   `json:"incomplete_regions"`
+}
+
+// DiscoverManagedClusters lists the managed Kubernetes clusters the
+// credential can see at the provider, marking the ones already imported.
+func (c *Client) DiscoverManagedClusters(provider ManagedK8sProvider, credentialID string) (*DiscoverManagedClustersResponse, error) {
+	requestURL := fmt.Sprintf("%s/discover?credential_id=%s",
+		c.managedClusterBasePath(provider), url.QueryEscape(credentialID))
+	var response DiscoverManagedClustersResponse
+	if err := c.getJSON(requestURL, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+type ImportManagedClusterRequest struct {
+	ProviderClusterID string  `json:"provider_cluster_id"`
+	CredentialID      string  `json:"credential_id"`
+	Name              *string `json:"name,omitempty"`
+	Description       *string `json:"description,omitempty"`
+	Environment       *string `json:"environment,omitempty"`
+	Criticality       *string `json:"criticality,omitempty"`
+}
+
+type ImportManagedClusterResponse struct {
+	ClusterID         string `json:"cluster_id"`
+	Name              string `json:"name"`
+	ProviderClusterID string `json:"provider_cluster_id"`
+}
+
+// ImportManagedCluster adopts an existing provider-side managed cluster into
+// Ankra: the backend fetches the kubeconfig through the provider API and
+// installs the agent, so there is nothing to run against the cluster.
+func (c *Client) ImportManagedCluster(provider ManagedK8sProvider, request ImportManagedClusterRequest) (*ImportManagedClusterResponse, error) {
+	requestURL := c.managedClusterBasePath(provider) + "/import"
+	var response ImportManagedClusterResponse
+	if err := c.postCSRFJSON(requestURL, request, &response, "import managed cluster"); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}

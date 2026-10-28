@@ -1,0 +1,15 @@
+version: "2"
+
+# The standard linter set, as with no config file, plus one exclusion.
+linters:
+  exclusions:
+    rules:
+      # staticcheck intermittently stops reading t.Fatal as ending the test
+      # since the go1.26.10 toolchain, and flags the dereference after every
+      # `if x == nil { t.Fatal(...) }` guard as SA5011 (ankra-av8z1k;
+      # golangci/golangci-lint#5979, dominikh/go-tools#641). Production code
+      # keeps the check; drop this once the cause is found.
+      - path: _test\.go
+        text: "SA5011"
+        linters:
+          - staticcheck

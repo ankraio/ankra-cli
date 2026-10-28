@@ -1,0 +1,805 @@
+package cmd
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+	"testing"
+
+	"ankra/internal/client"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+)
+
+// orgCISettingsMock captures the reads and writes, keeping the exact change
+// map so the present-vs-absent contract can be asserted: the endpoint
+// distinguishes "not in the body" from "null", and a set that quietly restated
+// a neighbouring setting would clobber it.
+type orgCISettingsMock struct {
+	baseMock
+
+	settings   client.OrganisationCISettings
+	updateSeen []map[string]any
+	clusters   []client.ClusterListItem
+
+	// capacity is what the capacity read answers; nil with no
+	// capacityError is a platform that predates the endpoint.
+	capacity      *client.OrganisationCICapacity
+	capacityError error
+}
+
+func (m *orgCISettingsMock) GetOrganisationCICapacity(
+	ctx context.Context) (*client.OrganisationCICapacity, error) {
+	if m.capacityError != nil {
+		return nil, m.capacityError
+	}
+	if m.capacity == nil {
+		return nil, client.ErrCICapacityUnavailable
+	}
+	capacity := *m.capacity
+	return &capacity, nil
+}
+
+func (m *orgCISettingsMock) GetOrganisationCISettings(
+	ctx context.Context) (*client.OrganisationCISettings, error) {
+	settings := m.settings
+	return &settings, nil
+}
+
+func (m *orgCISettingsMock) UpdateOrganisationCISettings(ctx context.Context,
+	changes map[string]any) (*client.OrganisationCISettings, error) {
+	m.updateSeen = append(m.updateSeen, changes)
+	settings := m.settings
+	return &settings, nil
+}
+
+func (m *orgCISettingsMock) ListClusters(page int, pageSize int) (*client.ClusterListResponse, error) {
+	response := &client.ClusterListResponse{Result: m.clusters}
+	response.Pagination.TotalPages = 1
+	return response, nil
+}
+
+func resetOrgCISettingsFlags(t *testing.T) {
+	t.Helper()
+	for _, command := range []*cobra.Command{orgCISettingsGetCmd, orgCISettingsSetCmd} {
+		command.Flags().VisitAll(func(flag *pflag.Flag) {
+			_ = flag.Value.Set(flag.DefValue)
+			if sliceValue, isSlice := flag.Value.(pflag.SliceValue); isSlice {
+				_ = sliceValue.Replace(nil)
+			}
+			flag.Changed = false
+		})
+	}
+}
+
+func runOrgCISettings(t *testing.T, mock *orgCISettingsMock, args ...string) (string, error) {
+	t.Helper()
+	setMockClient(t, mock)
+	resetOrgCISettingsFlags(t)
+	output := new(bytes.Buffer)
+	rootCmd.SetOut(output)
+	rootCmd.SetErr(output)
+	rootCmd.SetArgs(args)
+	executeError := rootCmd.Execute()
+	return output.String(), executeError
+}
+
+func defaultCISettings() client.OrganisationCISettings {
+	return client.OrganisationCISettings{
+		BuildFallback:         client.CIBuildFallbackPlatformBuilders,
+		MaxParallelRuns:       4,
+		MaxParallelSteps:      8,
+		ArtifactRetentionDays: 30,
+		CacheRetentionDays:    14,
+		ImageGate:             client.CIImageGateApplicationDependencies,
+		IsDefault:             true,
+	}
+}
+
+// The gap this command exists to close: the settings that decide whether a
+// pipeline can start were unreadable from the CLI, so an operator whose runs
+// all failed had no way to see what the build fallback was set to (PLA-825).
+func TestRunOrgCISettingsGet_ShowsTheBuildFallbackAndPipelineCluster(t *testing.T) {
+	clusterName := "launch-week-2026"
+	clusterID := "4b1f0f8e-9c1a-4c2f-9e6f-2a1d8b3c4d5e"
+	mock := &orgCISettingsMock{settings: client.OrganisationCISettings{
+		ClusterID:             &clusterID,
+		ClusterName:           &clusterName,
+		BuildFallback:         client.CIBuildFallbackNone,
+		MaxParallelRuns:       4,
+		MaxParallelSteps:      8,
+		ArtifactRetentionDays: 30,
+		CacheRetentionDays:    14,
+		ImageGate:             client.CIImageGateApplicationDependencies,
+	}}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "launch-week-2026") {
+		t.Errorf("the pipeline cluster must be named, got %s", output)
+	}
+	if !strings.Contains(output, "Build fallback:          none") {
+		t.Errorf("the build fallback must be shown verbatim, got %s", output)
+	}
+}
+
+func TestRunOrgCISettingsGet_SaysWhenNoPipelineClusterIsChosen(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "nowhere to run") {
+		t.Errorf("an unset pipeline cluster must say what that costs, got %s", output)
+	}
+	if !strings.Contains(output, "Ankra's default") {
+		t.Errorf("settings nobody has changed must say so, got %s", output)
+	}
+}
+
+// A cluster id with no name is the deleted-cluster case. Printing the id alone
+// would read as a healthy setting; the run that fails for it never says the
+// target stopped existing.
+func TestRunOrgCISettingsGet_CallsOutAPipelineClusterThatNoLongerExists(t *testing.T) {
+	clusterID := "4b1f0f8e-9c1a-4c2f-9e6f-2a1d8b3c4d5e"
+	settings := defaultCISettings()
+	settings.ClusterID = &clusterID
+	settings.IsDefault = false
+	mock := &orgCISettingsMock{settings: settings}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "deleted") {
+		t.Errorf("a cluster id with no name must be called out, got %s", output)
+	}
+}
+
+// The contradiction that cost PLA-825 its thread: opting into the fallback is
+// necessary but not sufficient, and the step's own failure message names the
+// setting rather than the capability that is actually missing. Reading
+// platform_builders here must not read as "the fallback will run".
+func TestRunOrgCISettingsGet_WarnsThatPlatformBuildersNeedsTheCapabilityToo(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "platform-builders capability") {
+		t.Errorf("the capability gate must be named, got %s", output)
+	}
+}
+
+// PLA-868: the note quotes the sentence a dark-grant build step concludes
+// with, so a reader can match it against the step in front of them. The
+// platform stopped emitting "build fallback is 'none'" for a missing grant -
+// that sentence is now reserved for an organisation whose setting really is
+// none - and a note quoting it sent people looking for text no step carries.
+func TestRunOrgCISettingsGet_QuotesTheSentenceTheStepActuallyFailsWith(t *testing.T) {
+	isDenied := false
+	for name, grant := range map[string]*bool{"unreported": nil, "denied": &isDenied} {
+		t.Run(name, func(t *testing.T) {
+			settings := defaultCISettings()
+			settings.PlatformBuildsEnabled = grant
+			mock := &orgCISettingsMock{settings: settings}
+			output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+			if executeError != nil {
+				t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+			}
+			// The note wraps, so the quote is matched with its line breaks
+			// collapsed rather than pinning where the wrap happens to fall.
+			unwrapped := strings.Join(strings.Fields(output), " ")
+			if !strings.Contains(unwrapped,
+				`"Ankra's platform-operated build fallback is not enabled for this organisation yet"`) {
+				t.Errorf("the note must quote the sentence the platform emits today, got %s", output)
+			}
+			if strings.Contains(unwrapped, `build fallback is 'none'`) {
+				t.Errorf("the retired sentence must not be quoted for a missing grant, got %s", output)
+			}
+		})
+	}
+}
+
+// On a platform that predates platform_builds_enabled the grant is unknown,
+// not denied: the caveat stays, it names the read that does reveal the grant,
+// and nothing prints a line claiming an answer the platform never gave.
+func TestRunOrgCISettingsGet_KeepsTheCaveatWhenThePlatformDoesNotReportTheGrant(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "ankra application build list") {
+		t.Errorf("the caveat must name the read that reveals the grant, got %s", output)
+	}
+	if strings.Contains(output, "Platform builds enabled:") {
+		t.Errorf("an unreported grant must not be printed as an answer, got %s", output)
+	}
+}
+
+// PLA-850: a platform that reports the grant replaces the caveat with the
+// answer, so an administrator reading platform_builders knows the lane is on.
+func TestRunOrgCISettingsGet_ShowsAGrantedPlatformBuildsCapabilityInsteadOfTheCaveat(t *testing.T) {
+	settings := defaultCISettings()
+	isGranted := true
+	settings.PlatformBuildsEnabled = &isGranted
+	mock := &orgCISettingsMock{settings: settings}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "Platform builds enabled: yes") {
+		t.Errorf("the grant must be shown, got %s", output)
+	}
+	if strings.Contains(output, "Note:") {
+		t.Errorf("nothing is left to warn about once the grant is reported, got %s", output)
+	}
+}
+
+func TestRunOrgCISettingsGet_SaysWhoseGrantIsMissingWhenPlatformBuildsIsOff(t *testing.T) {
+	settings := defaultCISettings()
+	isGranted := false
+	settings.PlatformBuildsEnabled = &isGranted
+	mock := &orgCISettingsMock{settings: settings}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "Platform builds enabled: no") {
+		t.Errorf("the denial must be shown, got %s", output)
+	}
+	if !strings.Contains(output, "Ankra has not granted this organisation") {
+		t.Errorf("a denial beside platform_builders must say whose grant is missing, got %s", output)
+	}
+	if strings.Contains(output, "which these\nsettings do not show") {
+		t.Errorf("the settings do show the grant now; the old caveat must not print, got %s", output)
+	}
+}
+
+// -o json carries the grant as the platform reported it: true and false as
+// themselves, and an unreported grant left out rather than invented as false.
+func TestRunOrgCISettingsGet_StructuredOutputCarriesThePlatformBuildsGrant(t *testing.T) {
+	isGranted := true
+	isDenied := false
+	for name, testCase := range map[string]struct {
+		grant       *bool
+		wantPresent bool
+		wantValue   bool
+	}{
+		"granted":    {grant: &isGranted, wantPresent: true, wantValue: true},
+		"denied":     {grant: &isDenied, wantPresent: true, wantValue: false},
+		"unreported": {grant: nil, wantPresent: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			settings := defaultCISettings()
+			settings.PlatformBuildsEnabled = testCase.grant
+			mock := &orgCISettingsMock{settings: settings}
+			output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get", "-o", "json")
+			if executeError != nil {
+				t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+			}
+			var decoded map[string]any
+			if decodeError := json.Unmarshal([]byte(output), &decoded); decodeError != nil {
+				t.Fatalf("stdout is not parseable JSON (%v):\n%s", decodeError, output)
+			}
+			value, isPresent := decoded["platform_builds_enabled"]
+			if isPresent != testCase.wantPresent {
+				t.Fatalf("platform_builds_enabled present = %v, want %v:\n%s",
+					isPresent, testCase.wantPresent, output)
+			}
+			if testCase.wantPresent && value != testCase.wantValue {
+				t.Errorf("platform_builds_enabled = %v, want %v", value, testCase.wantValue)
+			}
+		})
+	}
+}
+
+// The same caveat must not fire for an organisation that opted out: there is
+// no contradiction to warn about when the fallback really is 'none'.
+func TestRunOrgCISettingsGet_StaysQuietAboutTheCapabilityWhenTheFallbackIsNone(t *testing.T) {
+	settings := defaultCISettings()
+	settings.BuildFallback = client.CIBuildFallbackNone
+	settings.IsDefault = false
+	mock := &orgCISettingsMock{settings: settings}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if strings.Contains(output, "platform-builders capability") {
+		t.Errorf("nothing to warn about when the fallback is refused, got %s", output)
+	}
+}
+
+// Only what was passed may reach the body. The endpoint reads presence, so a
+// set that restated its neighbours would let one flag overwrite settings the
+// caller never mentioned.
+func TestRunOrgCISettingsSet_SendsOnlyTheFlagsThatWerePassed(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock,
+		"org", "ci-settings", "set", "--build-fallback", "none")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if len(mock.updateSeen) != 1 {
+		t.Fatalf("expected exactly one write, got %d", len(mock.updateSeen))
+	}
+	changes := mock.updateSeen[0]
+	if len(changes) != 1 {
+		t.Fatalf("only the named setting may be written, got %v", changes)
+	}
+	if changes["ci_build_fallback"] != client.CIBuildFallbackNone {
+		t.Errorf("expected ci_build_fallback none, got %v", changes["ci_build_fallback"])
+	}
+}
+
+// --cluster takes a name, like every other cluster flag in the CLI, and the
+// endpoint takes a uuid. The resolution happens here so a name is not the one
+// form that silently fails.
+func TestRunOrgCISettingsSet_ResolvesAClusterNameToItsID(t *testing.T) {
+	mock := &orgCISettingsMock{
+		settings: defaultCISettings(),
+		clusters: []client.ClusterListItem{
+			{ID: "4b1f0f8e-9c1a-4c2f-9e6f-2a1d8b3c4d5e", Name: "launch-week-2026"},
+		},
+	}
+	output, executeError := runOrgCISettings(t, mock,
+		"org", "ci-settings", "set", "--cluster", "launch-week-2026")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if len(mock.updateSeen) != 1 {
+		t.Fatalf("expected exactly one write, got %d", len(mock.updateSeen))
+	}
+	if got := mock.updateSeen[0]["ci_cluster_id"]; got != "4b1f0f8e-9c1a-4c2f-9e6f-2a1d8b3c4d5e" {
+		t.Errorf("expected the resolved cluster id, got %v", got)
+	}
+}
+
+// Clearing has to be distinguishable from not naming the setting at all: the
+// key must be present and null, not absent.
+func TestRunOrgCISettingsSet_ClearsThePipelineClusterWithAnExplicitNull(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock,
+		"org", "ci-settings", "set", "--cluster", "")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	changes := mock.updateSeen[0]
+	value, isPresent := changes["ci_cluster_id"]
+	if !isPresent {
+		t.Fatalf("clearing must name the setting, got %v", changes)
+	}
+	if value != nil {
+		t.Errorf("clearing must send null, got %v", value)
+	}
+}
+
+// The list setting replaces rather than appends, and an empty list is a real
+// value meaning "no restriction" - dropping it would make the clear a no-op.
+func TestRunOrgCISettingsSet_ClearsTheImagePolicyWithAnEmptyList(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock,
+		"org", "ci-settings", "set", "--allowed-image-prefix", "")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	prefixes, isList := mock.updateSeen[0]["ci_allowed_image_prefixes"].([]string)
+	if !isList {
+		t.Fatalf("the policy must be sent as a list, got %v", mock.updateSeen[0])
+	}
+	if len(prefixes) != 0 {
+		t.Errorf("an empty value clears the list, got %v", prefixes)
+	}
+}
+
+func TestRunOrgCISettingsSet_KeepsEveryPrefixThatWasPassed(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "set",
+		"--allowed-image-prefix", "ghcr.io/ankraio", "--allowed-image-prefix", "docker.io/library")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	prefixes, _ := mock.updateSeen[0]["ci_allowed_image_prefixes"].([]string)
+	if len(prefixes) != 2 || prefixes[0] != "ghcr.io/ankraio" || prefixes[1] != "docker.io/library" {
+		t.Errorf("both prefixes must reach the body in order, got %v", prefixes)
+	}
+}
+
+// A mistyped value is the case this whole command is about, so the refusal
+// names what may be used rather than only which field was wrong.
+func TestRunOrgCISettingsSet_NamesTheVocabularyForAnUnknownBuildFallback(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock,
+		"org", "ci-settings", "set", "--build-fallback", "ankra_builders")
+	if executeError == nil {
+		t.Fatalf("an unknown build fallback must be refused, output: %s", output)
+	}
+	if !strings.Contains(executeError.Error(), client.CIBuildFallbackPlatformBuilders) {
+		t.Errorf("the refusal must name the allowed values, got %v", executeError)
+	}
+	if len(mock.updateSeen) != 0 {
+		t.Errorf("a refused value must not be written, got %v", mock.updateSeen)
+	}
+}
+
+func TestRunOrgCISettingsSet_RefusesAWriteThatNamesNothing(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "set")
+	if executeError == nil {
+		t.Fatalf("a set naming no setting must be refused, output: %s", output)
+	}
+	if len(mock.updateSeen) != 0 {
+		t.Errorf("nothing may be written, got %v", mock.updateSeen)
+	}
+}
+
+// The platform stores eleven settings; a `get` that showed eight would read as
+// the whole record to anyone who did not already know the other three existed,
+// which is the discoverability gap this command exists to close.
+func TestRunOrgCISettingsGet_ShowsEveryStoredSetting(t *testing.T) {
+	settings := defaultCISettings()
+	settings.IsDefault = false
+	settings.RunRetentionDays = 180
+	settings.IgnoreUnfixed = false
+	settings.EgressAllowedCIDRs = []string{"10.0.0.0/8", "192.168.10.0/24"}
+	mock := &orgCISettingsMock{settings: settings}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	for _, want := range []string{
+		"Run retention:           180 days",
+		"Egress allowed CIDRs:    10.0.0.0/8, 192.168.10.0/24",
+		"Ignore unfixed findings: no",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("missing %q in:\n%s", want, output)
+		}
+	}
+}
+
+func TestRunOrgCISettingsGet_SaysWhatAnEmptyEgressListMeans(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "public internet only") {
+		t.Errorf("an empty egress list must say what it permits, got %s", output)
+	}
+}
+
+// A bool flag has no absent state, so the write must come from Changed and
+// carry the false: dropping it as a zero value would make "turn the floor off"
+// silently a no-op.
+func TestRunOrgCISettingsSet_SendsAnExplicitFalseForIgnoreUnfixed(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock,
+		"org", "ci-settings", "set", "--ignore-unfixed=false")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	changes := mock.updateSeen[0]
+	if len(changes) != 1 {
+		t.Fatalf("only ci_ignore_unfixed may be written, got %v", changes)
+	}
+	if value, isPresent := changes["ci_ignore_unfixed"]; !isPresent || value != false {
+		t.Errorf("expected ci_ignore_unfixed false, got %v", changes)
+	}
+}
+
+func TestRunOrgCISettingsSet_DoesNotWriteIgnoreUnfixedWhenUntouched(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock,
+		"org", "ci-settings", "set", "--run-retention-days", "30")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	changes := mock.updateSeen[0]
+	if _, isPresent := changes["ci_ignore_unfixed"]; isPresent {
+		t.Errorf("an untouched bool flag must not reach the body, got %v", changes)
+	}
+	if changes["ci_run_retention_days"] != 30 {
+		t.Errorf("expected ci_run_retention_days 30, got %v", changes)
+	}
+}
+
+// PLA-868: a cluster whose agent runs pipeline steps perfectly well can still
+// be unable to build, because its node runtime confines the rootless builder
+// (AppArmor or seccomp, as on k3s and Ubuntu nodes). Help that named only the
+// agent cause read as "this does not apply to me" to exactly the customer the
+// fallback exists for.
+func TestOrgCISettingsHelp_NamesBothReasonsABuildLeavesTheCluster(t *testing.T) {
+	help := orgCISettingsCmd.Long + "\n" +
+		orgCISettingsSetCmd.Flags().Lookup("build-fallback").Usage
+	for _, want := range []string{"does not run pipeline steps", "confines the rootless"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("the --build-fallback help must name %q, got:\n%s", want, help)
+		}
+	}
+}
+
+// PLA-868: platform_builds_enabled is printed by `get` and is not a setting
+// anyone here can write - the endpoint answers 422 for a body that names it.
+// A `set` help that did not say so left the field looking like a flag that
+// had been forgotten, and writing a `get` payload back wholesale is refused.
+func TestOrgCISettingsSetHelp_SaysThePlatformBuildsGrantIsReadOnly(t *testing.T) {
+	help := orgCISettingsSetCmd.Long
+	if !strings.Contains(help, "platform_builds_enabled") {
+		t.Fatalf("the set help must name the field it cannot write, got:\n%s", help)
+	}
+	if !strings.Contains(help, "422") {
+		t.Errorf("the set help must say the endpoint refuses it, got:\n%s", help)
+	}
+	if !strings.Contains(help, "Ankra's grant") {
+		t.Errorf("the set help must say whose decision it is, got:\n%s", help)
+	}
+	if orgCISettingsSetCmd.Flags().Lookup("platform-builds-enabled") != nil {
+		t.Errorf("a read-only grant must not grow a flag")
+	}
+}
+
+func TestRunOrgCISettingsSet_ClearsTheEgressListWithAnEmptyValue(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock,
+		"org", "ci-settings", "set", "--egress-allowed-cidr", "")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	cidrs, isList := mock.updateSeen[0]["ci_egress_allowed_cidrs"].([]string)
+	if !isList {
+		t.Fatalf("the egress list must be sent as a list, got %v", mock.updateSeen[0])
+	}
+	if len(cidrs) != 0 {
+		t.Errorf("an empty value clears the list, got %v", cidrs)
+	}
+}
+
+func busyCICapacity() *client.OrganisationCICapacity {
+	clusterID := "4b1f0f8e-9c1a-4c2f-9e6f-2a1d8b3c4d5e"
+	clusterName := "build-01"
+	return &client.OrganisationCICapacity{
+		ClusterID:                       &clusterID,
+		ClusterName:                     &clusterName,
+		CIWorkerCount:                   32,
+		IsLiveResizeSupported:           true,
+		StepsInFlightOnCluster:          32,
+		OrganisationRunsQueued:          3,
+		OrganisationRunsInFlight:        9,
+		OrganisationStepsPending:        12,
+		OrganisationStepsWaitingOnSlots: 4,
+		MaxParallelRuns:                 16,
+		MaxParallelSteps:                6,
+	}
+}
+
+// The capacity block answers the question a slow pipeline raises: are the
+// cluster's slots full, and how much of this organisation's work waits behind
+// them. A full cluster names the command that adds slots, and the block says a
+// slot is not a node, because the two are fixed in different places.
+func TestRunOrgCISettingsGet_ShowsTheCapacityOfAFullCluster(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings(), capacity: busyCICapacity()}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	for _, expected := range []string{
+		"Capacity:",
+		"CI slots:                32 of 32 in use on build-01",
+		"Live resize:             supported",
+		"Runs in flight:          9 of 16",
+		"Runs queued:             3",
+		"Steps pending:           12",
+		"Steps waiting on a slot: 4",
+		"not a node",
+		"ankra cluster agent ci set --workers N --cluster build-01",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("output missing %q:\n%s", expected, output)
+		}
+	}
+}
+
+// With no pipeline cluster there are no slots to report, and the block says so
+// rather than printing "0 of 0 in use".
+func TestRunOrgCISettingsGet_CapacityWithoutAPipelineClusterNamesNoSlots(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings(), capacity: &client.OrganisationCICapacity{
+		OrganisationRunsQueued: 1, MaxParallelRuns: 16, MaxParallelSteps: 6,
+	}}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "(no pipeline cluster") || strings.Contains(output, "0 of 0 in use") {
+		t.Errorf("no pipeline cluster must be said as such, got %s", output)
+	}
+	if strings.Contains(output, "--workers N") {
+		t.Errorf("with nothing waiting on a slot there is nothing to raise, got %s", output)
+	}
+}
+
+// A platform that predates the capacity read answers 404: the settings print
+// exactly as before, with no capacity block, no warning and no error.
+func TestRunOrgCISettingsGet_OlderPlatformOmitsTheCapacity(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("an older platform is not an error: %v\noutput: %s", executeError, output)
+	}
+	if strings.Contains(output, "Capacity") {
+		t.Errorf("an older platform has no capacity block or warning, got %s", output)
+	}
+
+	jsonOutput, jsonError := runOrgCISettings(t, mock, "org", "ci-settings", "get", "-o", "json")
+	if jsonError != nil {
+		t.Fatalf("execute failed: %v", jsonError)
+	}
+	var decoded map[string]any
+	if decodeError := json.Unmarshal([]byte(jsonOutput), &decoded); decodeError != nil {
+		t.Fatalf("-o json must stay parseable: %v\n%s", decodeError, jsonOutput)
+	}
+	if _, hasCapacity := decoded["capacity"]; hasCapacity {
+		t.Errorf("an older platform's capacity is absent, not zero: %s", jsonOutput)
+	}
+	if decoded["ci_build_fallback"] != client.CIBuildFallbackPlatformBuilders {
+		t.Errorf("the settings stay at the top level: %s", jsonOutput)
+	}
+}
+
+// -o json keeps every settings field where scripts already read it and adds
+// the capacity under its own key.
+func TestRunOrgCISettingsGet_JSONCarriesTheCapacityUnderItsOwnKey(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings(), capacity: busyCICapacity()}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get", "-o", "json")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	var decoded struct {
+		BuildFallback   string                         `json:"ci_build_fallback"`
+		MaxParallelRuns int                            `json:"ci_max_parallel_runs"`
+		Capacity        *client.OrganisationCICapacity `json:"capacity"`
+	}
+	if decodeError := json.Unmarshal([]byte(output), &decoded); decodeError != nil {
+		t.Fatalf("-o json must stay parseable: %v\n%s", decodeError, output)
+	}
+	if decoded.BuildFallback != client.CIBuildFallbackPlatformBuilders || decoded.MaxParallelRuns != 4 {
+		t.Errorf("settings moved off the top level: %s", output)
+	}
+	if decoded.Capacity == nil || decoded.Capacity.CIWorkerCount != 32 ||
+		decoded.Capacity.OrganisationStepsWaitingOnSlots != 4 || !decoded.Capacity.IsLiveResizeSupported {
+		t.Errorf("capacity = %+v, want the platform's record", decoded.Capacity)
+	}
+
+	yamlOutput, yamlError := runOrgCISettings(t, mock, "org", "ci-settings", "get", "-o", "yaml")
+	if yamlError != nil {
+		t.Fatalf("execute failed: %v", yamlError)
+	}
+	if !strings.Contains(yamlOutput, "\nci_build_fallback: platform_builders\n") ||
+		!strings.Contains(yamlOutput, "\ncapacity:\n") ||
+		!strings.Contains(yamlOutput, "  organisation_steps_waiting_on_slots: 4\n") {
+		t.Errorf("-o yaml keeps the settings inline and nests the capacity:\n%s", yamlOutput)
+	}
+}
+
+// A capacity read that fails costs the block, not the command: the settings
+// still print, and the failure is said on stderr so -o json stays parseable
+// and "no block" is never read as "nothing is queued".
+func TestRunOrgCISettingsGet_ACapacityFailureIsReportedOnStderr(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings(), capacityError: errors.New("status 500")}
+	setMockClient(t, mock)
+	resetOrgCISettingsFlags(t)
+	standardOutput := new(bytes.Buffer)
+	standardError := new(bytes.Buffer)
+	rootCmd.SetOut(standardOutput)
+	rootCmd.SetErr(standardError)
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+	})
+	rootCmd.SetArgs([]string{"org", "ci-settings", "get", "-o", "json"})
+	if executeError := rootCmd.Execute(); executeError != nil {
+		t.Fatalf("the settings were read, so the command succeeds: %v", executeError)
+	}
+	var decoded map[string]any
+	if decodeError := json.Unmarshal(standardOutput.Bytes(), &decoded); decodeError != nil {
+		t.Fatalf("stdout must stay parseable: %v\n%s", decodeError, standardOutput.String())
+	}
+	if !strings.Contains(standardError.String(), "Pipeline capacity could not be read: status 500") {
+		t.Errorf("stderr = %q, want the failure named", standardError.String())
+	}
+}
+
+func TestRunOrgCISettingsSet_WritesThePathFilterSafetyNet(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock,
+		"org", "ci-settings", "set",
+		"--always-run-stage", "security-scan", "--always-run-stage", " lint ",
+		"--full-run-on-default-branch", "--skip-markers", "never")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	changes := mock.updateSeen[0]
+	stages, isList := changes["ci_always_run_stages"].([]string)
+	if !isList || len(stages) != 2 || stages[0] != "security-scan" || stages[1] != "lint" {
+		t.Errorf("ci_always_run_stages = %#v, want [security-scan lint]", changes["ci_always_run_stages"])
+	}
+	if changes["ci_full_run_on_default_branch"] != true {
+		t.Errorf("ci_full_run_on_default_branch = %v, want true", changes["ci_full_run_on_default_branch"])
+	}
+	if changes["ci_skip_markers"] != client.CISkipMarkersNever {
+		t.Errorf("ci_skip_markers = %v, want never", changes["ci_skip_markers"])
+	}
+	if len(changes) != 3 {
+		t.Errorf("only the three passed settings may be written, got %v", changes)
+	}
+}
+
+func TestRunOrgCISettingsSet_ClearsTheAlwaysRunStagesAndSendsAnExplicitFalse(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock,
+		"org", "ci-settings", "set", "--always-run-stage", "", "--full-run-on-default-branch=false")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	changes := mock.updateSeen[0]
+	stages, isList := changes["ci_always_run_stages"].([]string)
+	if !isList || len(stages) != 0 {
+		t.Errorf("ci_always_run_stages = %#v, want an empty list", changes["ci_always_run_stages"])
+	}
+	if value, isPresent := changes["ci_full_run_on_default_branch"]; !isPresent || value != false {
+		t.Errorf("ci_full_run_on_default_branch = %v, want an explicit false", changes)
+	}
+}
+
+func TestRunOrgCISettingsSet_NamesTheVocabularyForAnUnknownSkipMarkersValue(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	_, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "set", "--skip-markers", "sometimes")
+	if executeError == nil || exitCodeFor(executeError) != exitUsage {
+		t.Fatalf("expected a usage error, got %v", executeError)
+	}
+	if !strings.Contains(executeError.Error(), "everywhere, except_default_branch or never") {
+		t.Errorf("error = %v, want the vocabulary named", executeError)
+	}
+	if len(mock.updateSeen) != 0 {
+		t.Errorf("expected no write, got %v", mock.updateSeen)
+	}
+}
+
+func TestRunOrgCISettingsGet_ShowsThePathFilterSafetyNet(t *testing.T) {
+	settings := defaultCISettings()
+	fullRun := true
+	settings.AlwaysRunStages = []string{"security-scan"}
+	settings.FullRunOnDefaultBranch = &fullRun
+	settings.SkipMarkers = client.CISkipMarkersExceptDefaultBranch
+	mock := &orgCISettingsMock{settings: settings}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	for _, want := range []string{
+		"Always-run stages:       security-scan",
+		"Full run on default:     yes",
+		"Skip markers honoured:   except_default_branch",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("get output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestRunOrgCISettingsGet_OlderPlatformShowsNoSafetyNetLines(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	for _, unwanted := range []string{"Always-run stages", "Full run on default", "Skip markers"} {
+		if strings.Contains(output, unwanted) {
+			t.Errorf("a platform that sends none of these must not show %q:\n%s", unwanted, output)
+		}
+	}
+}

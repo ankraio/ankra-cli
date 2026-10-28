@@ -1,0 +1,776 @@
+package cmd
+
+// `ankra cluster agent ci get|set` (ankra-vn0bd, item 5 of the agent CI
+// settings contract): the CLI surface over GET/PUT
+// /api/v1/org/clusters/{cluster_id}/agent/ci-settings, which size the
+// cluster agent's own pipeline-step scheduler.
+//
+// Before these routes existed the agent's `ci_worker_count` chart value
+// could only be raised with a hand-run `helm upgrade --set`, and the next
+// platform-driven agent install or upgrade rendered the chart default (0)
+// back over it - so a cluster stopped running pipeline steps for no reason
+// anyone could see in Ankra. The setting now lives on the platform, every
+// generated Helm command carries it, and this pair of verbs is how it is
+// read and written.
+//
+// The cluster is resolved exactly like the sibling `cluster agent
+// status|upgrade` verbs, through the shared --cluster override.
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"regexp"
+	"sort"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"ankra/internal/client"
+)
+
+// defaultAgentCIWorkerCount is the worker count a bare `set` turns pipeline
+// steps on with, on a cluster whose agent runs none (0 workers).
+const defaultAgentCIWorkerCount = 50
+
+// The sentences the platform's three apply states are reported with. They
+// are frozen by the agent CI settings contract and shared by both verbs, so
+// the state a `set` reports and the state a later `get` reports cannot drift
+// into two vocabularies for the same thing.
+const (
+	agentCIAppliedSentence = "The agent is re-rendering its release with %d pipeline-step workers; " +
+		"it advertises the capability on its next check-in."
+	agentCIPendingUpgradeSentence = "The agent on this cluster predates chart values; " +
+		"the setting is stored and takes effect with the next agent upgrade."
+	agentCIAgentOfflineSentence = "The agent on this cluster is offline; " +
+		"the setting is stored and applies when it reconnects and is upgraded."
+	// agentCIAppliedLiveSentence is the applied state for a write the agent
+	// takes live: the platform stored the count and did not re-render the
+	// release, so saying "re-rendering" would tell an operator to expect an
+	// agent restart - and cancelled long steps - that never happens.
+	agentCIAppliedLiveSentence = "Applied live, no agent restart: the agent runs %d pipeline-step " +
+		"workers from its next job pull."
+)
+
+// agentCIApplyStateSentence renders one apply state. An apply state this
+// build does not know is a newer platform's, not a broken response, so it is
+// reported as itself rather than swallowed. An applied write the platform
+// marks applies_live reached the agent without a re-render; a platform that
+// does not say keeps the re-render sentence, which is what it did.
+func agentCIApplyStateSentence(settings *client.AgentCISettings) string {
+	switch settings.ApplyState {
+	case client.AgentCIApplyStateApplied:
+		if settings.AppliesLive != nil && *settings.AppliesLive {
+			return fmt.Sprintf(agentCIAppliedLiveSentence, settings.CIWorkerCount)
+		}
+		return fmt.Sprintf(agentCIAppliedSentence, settings.CIWorkerCount)
+	case client.AgentCIApplyStatePendingUpgrade:
+		return agentCIPendingUpgradeSentence
+	case client.AgentCIApplyStateAgentOffline:
+		return agentCIAgentOfflineSentence
+	case "":
+		return ""
+	default:
+		return fmt.Sprintf("The platform reports apply state %q, which this CLI version does not recognise; "+
+			"the setting is stored.", settings.ApplyState)
+	}
+}
+
+func newClusterAgentCICommand() *cobra.Command {
+	ciCommand := &cobra.Command{
+		Use:   "ci",
+		Short: "Read and set the cluster agent's pipeline-step CI settings",
+		Long: `The cluster agent runs Ankra Pipelines steps itself, and these settings
+size that: how many steps it runs at once, and the storage class its step
+workspaces are carved from.
+
+The worker count is the agent's CI slots: each slot is one pipeline step the
+agent watches at a time, not a node. The nodes those steps run on come from
+the cluster's node group autoscaler ('ankra cluster node-group autoscaling
+get'), so a cluster whose steps wait for a slot needs more workers, and one
+whose step pods sit Pending needs more nodes.
+
+Both are stored on the platform, so every install or upgrade command Ankra
+generates for this cluster carries them - unlike a hand-run
+'helm upgrade --set ci_worker_count=...', which the next agent upgrade
+renders away again.
+
+The placement says which nodes every pipeline pod runs on - step pods, their
+cache and artifact helpers, and image builds - so CI can live on a dedicated,
+tainted node group without editing any pipeline's runs_on.
+
+The run reservation decides whether a run first reserves the room its later
+steps need on its node, so another run's pods cannot take it between two
+steps: off (the default), shadow (sized and recorded, nothing held) or on.
+
+The image pre-pull decides whether the agent keeps the images the platform's
+own steps run in - the checkout's git client, the scanners, the rootless
+builder - pulled on every node pipeline steps can land on, so a node that
+just joined pulls them as it joins rather than while a step waits: off (the
+default) or on.`,
+	}
+	ciCommand.AddCommand(newClusterAgentCIGetCommand(), newClusterAgentCISetCommand())
+	return ciCommand
+}
+
+func newClusterAgentCIGetCommand() *cobra.Command {
+	getCommand := &cobra.Command{
+		Use:   "get",
+		Short: "Show the cluster agent's pipeline-step CI settings",
+		Long: `Show the stored worker count, storage class and placement, the agent version
+that has to honour them, whether that agent currently advertises it can run
+pipeline steps, and how the last write was applied. The placement block names
+the node group, node selector, tolerations and mode, and how many Ready nodes
+it admits right now. The run reservation and image pre-pull modes are shown
+with whether the agent advertises each; a platform that predates a setting
+shows neither of its lines.
+
+An agent that has not yet re-rendered its release reports pipeline steps as
+not advertised even with a non-zero worker count stored: the capability is
+what the agent reported on its last check-in, not what the settings ask for.`,
+		Example: `  ankra cluster agent ci get
+  ankra cluster agent ci get --cluster edge-01 -o json`,
+		Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, arguments []string) error {
+			return runClusterAgentCIGet(command)
+		},
+	}
+	registerStructuredOutputFlags(getCommand)
+	return getCommand
+}
+
+func runClusterAgentCIGet(command *cobra.Command) error {
+	format, formatError := structuredFormatFromFlags(command)
+	if formatError != nil {
+		return formatError
+	}
+	cluster, resolveError := resolveActiveCluster(command)
+	if resolveError != nil {
+		return resolveError
+	}
+	settings, getError := apiClient.GetAgentCISettings(command.Context(), cluster.ID)
+	if getError != nil {
+		// Returned as it came: the platform owns this surface's refusals
+		// (an RBAC 403 naming agents.manage, a 404 for a cluster outside
+		// the organisation, a 422 naming the value it rejected) and
+		// rewording them here would only put a second, staler vocabulary
+		// in front of the user.
+		return getError
+	}
+	if settings == nil {
+		return fmt.Errorf("the platform returned no agent CI settings for cluster %q", cluster.Name)
+	}
+	if format != outputDefault {
+		return encodeStructured(command.OutOrStdout(), format, settings)
+	}
+	out := command.OutOrStdout()
+	_, _ = fmt.Fprintf(out, "Agent CI settings for cluster '%s':\n\n", cluster.Name)
+	printAgentCISettings(out, settings, false)
+	return nil
+}
+
+func newClusterAgentCISetCommand() *cobra.Command {
+	setCommand := &cobra.Command{
+		Use:   "set",
+		Short: "Set the cluster agent's pipeline-step CI settings",
+		Long: `Store how many pipeline steps this cluster's agent runs at once, the storage
+class its step workspaces are carved from, and where its pipeline pods run.
+
+--workers 0 disables the agent's pipeline-step scheduler; the cluster keeps
+its agent and everything else it does. --storage-class is only sent when you
+pass it, so setting the worker count alone keeps the storage class already
+stored; pass an empty value to fall back to the cluster's default class.
+
+--workers is the agent's CI slots: how many pipeline steps it watches at
+once. A slot is not a node; the nodes steps run on come from the cluster's
+node group autoscaler. Agents that support live resize accept up to 128
+workers, older agents up to 32.
+
+The write always stores the values. Whether they reach the agent now depends
+on the agent: an agent that supports live resize takes a new worker count on
+its next job pull without restarting, an online agent new enough to accept
+chart values re-renders its release immediately, an older one picks them up
+at its next upgrade, and an offline one when it reconnects. The command says
+which happened.
+
+Placement puts every pipeline pod of the cluster - step pods, their cache and
+artifact helpers, and image builds - on chosen nodes. --node-group names one
+of the cluster's Ankra node groups: the platform selects its nodes by the
+ankra.cloud/node-group label (or the labels the group declares) and tolerates
+every taint the group carries, so a dedicated, tainted pool needs nothing
+else. --node-selector and --toleration add to it, or stand alone on a cluster
+without Ankra node groups. --placement required (the default) keeps pods on
+those nodes; preferred favours them and lets pods run elsewhere when they have
+no room, and still carries the tolerations. The placement is replaced whole by
+any placement flag, applies to the next step dispatched with no agent restart,
+and is never held to the organisation's runs_on allow-lists. --clear-placement
+removes it. --workers is optional when only the storage class or the placement
+changes.
+
+On a cluster with pipeline steps off (0 workers), 'set' with no flags turns
+them on with 50 workers. On a cluster that already runs steps, it names
+nothing to change and asks for a flag.
+
+--run-reservation off|shadow|on decides whether each run first reserves, on
+its node, the room its later steps will need, held by one placeholder pod per
+run, so another run's pods cannot take that room between two steps. off (every
+cluster's default) reserves nothing. shadow sizes each run's reservation and
+records it beside what its steps requested, and holds nothing: use it to check
+the estimate first. on holds it, which can add a node or keep one up while a
+run is between steps; it needs an agent that advertises run reservation, and
+until the agent does, on behaves as shadow. Like the placement it applies to
+the next step dispatched, with no agent restart, and off is the way back.
+
+--image-prepull off|on decides whether the agent keeps the platform's own
+step images (the checkout's git client, the trivy, checkov and semgrep
+scanners, the rootless builder) pulled on every node pipeline steps can land
+on, honouring the placement, with one DaemonSet in the agent's namespace. A
+node that just joined then pulls them as it joins instead of while a
+checkout, scan or build waits. The images are pinned by digest and follow
+the platform: a platform release that moves one moves the pre-pull with the
+next step dispatched. Each node keeps about 0.9 GB of images it would
+otherwise pull on demand. It needs an agent that advertises image pre-pull;
+off (the default) removes it with the next step dispatched.
+
+--build-apparmor-profile <name> runs the rootless image builder under a
+Localhost AppArmor profile installed on the cluster's nodes under that name.
+On nodes whose container runtime confines the builder with its default
+AppArmor profile (containerd on Ubuntu denies the builder its mount), builds
+otherwise fail in-cluster and fall back to Ankra's builders. The build
+namespace's Pod Security Baseline admits a Localhost profile, so nothing else
+is relaxed. Install the profile on every node builds can run on first: a node
+without it makes the build wait rather than run. The name is a DNS-1123
+subdomain other than unconfined; pass an empty value to go back to the
+runtime's default. It needs an agent that advertises the capability, applies
+to the next build dispatched with no agent restart, and the next build is
+probed in-cluster again even if the cluster was known to confine the builder.`,
+		Example: `  ankra cluster agent ci set
+  ankra cluster agent ci set --workers 50 --storage-class proxmox-csi
+  ankra cluster agent ci set --workers 0 --cluster edge-01
+  ankra cluster agent ci set --node-group pipelines
+  ankra cluster agent ci set --node-selector pool=ci --toleration dedicated=ci:NoSchedule --placement preferred
+  ankra cluster agent ci set --clear-placement
+  ankra cluster agent ci set --run-reservation shadow --cluster ci-01
+  ankra cluster agent ci set --image-prepull on --cluster ci-01
+  ankra cluster agent ci set --build-apparmor-profile ankra-rootless-buildkit --cluster ci-01`,
+		Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, arguments []string) error {
+			return runClusterAgentCISet(command)
+		},
+	}
+	setCommand.Flags().Int("workers", 0,
+		"CI slots: pipeline steps the agent watches at once, not nodes (nodes come from the node group "+
+			"autoscaler); up to 128 on agents that support live resize, 32 otherwise; 0 disables the scheduler; "+
+			"omitted with no other flag on a cluster with pipeline steps off, 50")
+	setCommand.Flags().String("storage-class", "",
+		"Storage class for pipeline step workspaces; pass empty to use the cluster default (omit the flag to keep the stored value)")
+	setCommand.Flags().String("node-group", "",
+		"Run every pipeline pod on this Ankra node group: selects its nodes and tolerates its taints")
+	setCommand.Flags().StringArray("node-selector", nil,
+		"Node label every pipeline pod selects, as key=value (repeatable)")
+	setCommand.Flags().StringArray("toleration", nil,
+		"Taint every pipeline pod tolerates, as key[=value]:Effect with Effect NoSchedule, PreferNoSchedule "+
+			"or NoExecute (repeatable)")
+	setCommand.Flags().String("placement", "",
+		"Placement mode: required (default) keeps pipeline pods on the selected nodes, preferred favours them")
+	setCommand.Flags().Bool("clear-placement", false, "Remove the cluster's CI placement")
+	setCommand.Flags().String("run-reservation", "",
+		"Run reservation: off (default) reserves nothing, shadow sizes and records each run's reservation "+
+			"without holding it, on holds a run's room on its node between its steps")
+	setCommand.Flags().String("image-prepull", "",
+		"Image pre-pull: off (default) pulls the platform's step images on demand, on keeps them pulled on "+
+			"every node pipeline steps can land on")
+	setCommand.Flags().String("build-apparmor-profile", "",
+		"Node-installed AppArmor profile the rootless image builder runs under (Localhost); pass empty to "+
+			"use the runtime's default (omit the flag to keep the stored value)")
+	registerStructuredOutputFlags(setCommand)
+	return setCommand
+}
+
+// agentCIPlacementFlags are the flags that write the placement block.
+var agentCIPlacementFlags = []string{"node-group", "node-selector", "toleration", "placement"}
+
+// agentCIPlacementFromFlags builds the placement a set names, nil when it
+// names no placement flag. It refuses malformed values as usage errors before
+// anything is sent; what the values mean - a node group the cluster has, a
+// label key Kubernetes accepts - is the platform's to judge.
+func agentCIPlacementFromFlags(command *cobra.Command) (*client.AgentCIPlacement, bool, error) {
+	isClearing := mustFlagBool(command, "clear-placement")
+	isNamed := false
+	for _, flagName := range agentCIPlacementFlags {
+		if command.Flags().Changed(flagName) {
+			isNamed = true
+		}
+	}
+	if isClearing && isNamed {
+		return nil, false, withExitCode(exitUsage, fmt.Errorf(
+			"--clear-placement removes the placement; it cannot be combined with --%s",
+			strings.Join(agentCIPlacementFlags, ", --")))
+	}
+	if !isNamed {
+		return nil, isClearing, nil
+	}
+	placement := &client.AgentCIPlacement{
+		NodeGroup: strings.TrimSpace(mustFlagString(command, "node-group")),
+		Mode:      strings.TrimSpace(mustFlagString(command, "placement")),
+	}
+	switch placement.Mode {
+	case "", client.AgentCIPlacementModeRequired, client.AgentCIPlacementModePreferred:
+	default:
+		return nil, false, withExitCode(exitUsage, fmt.Errorf(
+			"--placement must be %q or %q, got %q", client.AgentCIPlacementModeRequired,
+			client.AgentCIPlacementModePreferred, placement.Mode))
+	}
+	selectorValues, _ := command.Flags().GetStringArray("node-selector")
+	for _, selectorValue := range selectorValues {
+		key, value, hasValue := strings.Cut(selectorValue, "=")
+		key = strings.TrimSpace(key)
+		if !hasValue || key == "" {
+			return nil, false, withExitCode(exitUsage, fmt.Errorf(
+				"--node-selector takes key=value, got %q", selectorValue))
+		}
+		if placement.NodeSelector == nil {
+			placement.NodeSelector = map[string]string{}
+		}
+		placement.NodeSelector[key] = strings.TrimSpace(value)
+	}
+	tolerationValues, _ := command.Flags().GetStringArray("toleration")
+	for _, tolerationValue := range tolerationValues {
+		toleration, parseError := parseAgentCIToleration(tolerationValue)
+		if parseError != nil {
+			return nil, false, withExitCode(exitUsage, parseError)
+		}
+		placement.Tolerations = append(placement.Tolerations, toleration)
+	}
+	return placement, false, nil
+}
+
+// parseAgentCIToleration reads key[=value]:Effect. A toleration naming a
+// value matches that value (Equal); one without matches any value of the key
+// (Exists).
+func parseAgentCIToleration(text string) (client.AgentCIPlacementToleration, error) {
+	separator := strings.LastIndex(text, ":")
+	if separator <= 0 || separator == len(text)-1 {
+		return client.AgentCIPlacementToleration{}, fmt.Errorf(
+			"--toleration takes key[=value]:Effect, for example dedicated=ci:NoSchedule, got %q", text)
+	}
+	keyAndValue, effect := text[:separator], strings.TrimSpace(text[separator+1:])
+	key, value, hasValue := strings.Cut(keyAndValue, "=")
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return client.AgentCIPlacementToleration{}, fmt.Errorf(
+			"--toleration names no taint key, got %q", text)
+	}
+	switch effect {
+	case "NoSchedule", "PreferNoSchedule", "NoExecute":
+	default:
+		return client.AgentCIPlacementToleration{}, fmt.Errorf(
+			"--toleration effect must be NoSchedule, PreferNoSchedule or NoExecute, got %q in %q", effect, text)
+	}
+	toleration := client.AgentCIPlacementToleration{Key: key, Operator: "Exists", Effect: effect}
+	if hasValue {
+		toleration.Operator = "Equal"
+		toleration.Value = strings.TrimSpace(value)
+	}
+	return toleration, nil
+}
+
+// agentCIRunReservationFromFlag reads --run-reservation, nil when it is not
+// named. The value is checked here, before anything is sent, because the
+// vocabulary is closed and a misspelling should not cost a round trip; the
+// platform validates it again.
+func agentCIRunReservationFromFlag(command *cobra.Command) (*string, error) {
+	if !command.Flags().Changed("run-reservation") {
+		return nil, nil
+	}
+	mode := strings.ToLower(strings.TrimSpace(mustFlagString(command, "run-reservation")))
+	for _, known := range client.AgentCIRunReservationModes {
+		if mode == known {
+			return &mode, nil
+		}
+	}
+	return nil, withExitCode(exitUsage, fmt.Errorf("--run-reservation must be %s, got %q",
+		strings.Join(client.AgentCIRunReservationModes, ", "), mustFlagString(command, "run-reservation")))
+}
+
+// agentCIImagePrepullFromFlag reads --image-prepull, nil when it is not named.
+// The vocabulary is closed, so a misspelling is refused here before anything
+// is sent; the platform validates it again.
+func agentCIImagePrepullFromFlag(command *cobra.Command) (*string, error) {
+	if !command.Flags().Changed("image-prepull") {
+		return nil, nil
+	}
+	mode := strings.ToLower(strings.TrimSpace(mustFlagString(command, "image-prepull")))
+	for _, known := range client.AgentCIImagePrepullModes {
+		if mode == known {
+			return &mode, nil
+		}
+	}
+	return nil, withExitCode(exitUsage, fmt.Errorf("--image-prepull must be %s, got %q",
+		strings.Join(client.AgentCIImagePrepullModes, ", "), mustFlagString(command, "image-prepull")))
+}
+
+// agentCIBuildAppArmorProfilePattern is the DNS-1123 subdomain grammar, label
+// by label, that the platform and the agent hold the profile name to.
+var agentCIBuildAppArmorProfilePattern = regexp.MustCompile(
+	`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
+
+// agentCIBuildAppArmorProfileFromFlag reads --build-apparmor-profile, nil when
+// it is not named and a pointer to "" when it is named empty, which clears the
+// stored profile. A malformed name is refused here before anything is sent;
+// the platform validates it again.
+func agentCIBuildAppArmorProfileFromFlag(command *cobra.Command) (*string, error) {
+	if !command.Flags().Changed("build-apparmor-profile") {
+		return nil, nil
+	}
+	profile := strings.TrimSpace(mustFlagString(command, "build-apparmor-profile"))
+	if profile == "" {
+		return &profile, nil
+	}
+	if len(profile) > 253 || profile == "unconfined" || !agentCIBuildAppArmorProfilePattern.MatchString(profile) {
+		return nil, withExitCode(exitUsage, fmt.Errorf("--build-apparmor-profile must name a profile installed on "+
+			"the cluster's nodes: lower-case letters, digits, '-' and '.', each dot-separated part starting and "+
+			"ending with a letter or digit, at most 253 characters, and not unconfined; got %q", profile))
+	}
+	return &profile, nil
+}
+
+func runClusterAgentCISet(command *cobra.Command) error {
+	format, formatError := structuredFormatFromFlags(command)
+	if formatError != nil {
+		return formatError
+	}
+	cluster, resolveError := resolveActiveCluster(command)
+	if resolveError != nil {
+		return resolveError
+	}
+
+	// Each setting is only sent when its flag is named, which is what keeps a
+	// worker-count change from resetting a storage class or a placement
+	// someone set earlier.
+	placement, isClearingPlacement, placementError := agentCIPlacementFromFlags(command)
+	if placementError != nil {
+		return placementError
+	}
+	runReservation, runReservationError := agentCIRunReservationFromFlag(command)
+	if runReservationError != nil {
+		return runReservationError
+	}
+	imagePrepull, imagePrepullError := agentCIImagePrepullFromFlag(command)
+	if imagePrepullError != nil {
+		return imagePrepullError
+	}
+	buildAppArmorProfile, buildAppArmorProfileError := agentCIBuildAppArmorProfileFromFlag(command)
+	if buildAppArmorProfileError != nil {
+		return buildAppArmorProfileError
+	}
+	update := client.AgentCISettingsUpdate{
+		CIWorkerCount:          changedIntFlag(command, "workers"),
+		CIStorageClass:         changedStringFlag(command, "storage-class"),
+		CIPlacement:            placement,
+		ClearPlacement:         isClearingPlacement,
+		CIRunReservation:       runReservation,
+		CIImagePrepull:         imagePrepull,
+		CIBuildAppArmorProfile: buildAppArmorProfile,
+	}
+	isNamingNothing := !update.NamesChartSetting() && placement == nil && !isClearingPlacement && runReservation == nil &&
+		imagePrepull == nil && buildAppArmorProfile == nil
+	if isNamingNothing {
+		current, getError := apiClient.GetAgentCISettings(command.Context(), cluster.ID)
+		if getError != nil {
+			return getError
+		}
+		if current != nil && current.CIWorkerCount == 0 {
+			workerCount := defaultAgentCIWorkerCount
+			update.CIWorkerCount = &workerCount
+			isNamingNothing = false
+		}
+	}
+	if isNamingNothing {
+		return withExitCode(exitUsage, fmt.Errorf(`required flag(s) "workers" not set: pass --workers, `+
+			`--storage-class, --run-reservation, --image-prepull, --build-apparmor-profile, or a placement flag (--node-group, `+
+			`--node-selector, --toleration, --placement, --clear-placement)`))
+	}
+
+	settings, updateError := apiClient.UpdateAgentCISettings(command.Context(), cluster.ID, update)
+	if updateError != nil {
+		return updateError
+	}
+	if settings == nil {
+		return fmt.Errorf("the platform returned no agent CI settings for cluster %q", cluster.Name)
+	}
+	// A platform older than the run reservation ignores the member it does
+	// not know when another setting is named, stores the rest and answers
+	// without ci_run_reservation. Saying "updated" and exiting 0 would tell
+	// the caller a mode is in force that the platform never stored.
+	unstoredError := errors.Join(agentCIRunReservationNotStored(update, settings),
+		agentCIImagePrepullNotStored(update, settings), agentCIBuildAppArmorProfileNotStored(update, settings))
+	if format != outputDefault {
+		if encodeError := encodeStructured(command.OutOrStdout(), format, settings); encodeError != nil {
+			return encodeError
+		}
+		return unstoredError
+	}
+	out := command.OutOrStdout()
+	_, _ = fmt.Fprintf(out, "Agent CI settings updated for cluster '%s'.\n\n", cluster.Name)
+	printAgentCISettings(out, settings, !update.NamesChartSetting())
+	return unstoredError
+}
+
+// agentCIRunReservationNotStored is the error for a write that named a run
+// reservation the platform's answer does not carry: the platform predates the
+// setting, so whatever else the write named is stored and the mode is not.
+func agentCIRunReservationNotStored(update client.AgentCISettingsUpdate, settings *client.AgentCISettings) error {
+	if update.CIRunReservation == nil || settings.CIRunReservation != nil {
+		return nil
+	}
+	return fmt.Errorf("the platform did not store --run-reservation %s: it predates the run reservation "+
+		"setting; the other settings shown were stored", *update.CIRunReservation)
+}
+
+// agentCIImagePrepullNotStored is the error for a write that named an image
+// pre-pull mode the platform's answer does not carry: the platform predates
+// the setting, so whatever else the write named is stored and the mode is not.
+func agentCIImagePrepullNotStored(update client.AgentCISettingsUpdate, settings *client.AgentCISettings) error {
+	if update.CIImagePrepull == nil || settings.CIImagePrepull != nil {
+		return nil
+	}
+	return fmt.Errorf("the platform did not store --image-prepull %s: it predates the image pre-pull "+
+		"setting; the other settings shown were stored", *update.CIImagePrepull)
+}
+
+// agentCIBuildAppArmorProfileNotStored is the error for a write that named a
+// build AppArmor profile the platform's answer does not carry: the platform
+// predates the setting, so whatever else the write named is stored and the
+// profile is not.
+func agentCIBuildAppArmorProfileNotStored(update client.AgentCISettingsUpdate,
+	settings *client.AgentCISettings) error {
+	if update.CIBuildAppArmorProfile == nil || settings.CIBuildAppArmorProfile != nil {
+		return nil
+	}
+	return fmt.Errorf("the platform did not store --build-apparmor-profile %q: it predates the build AppArmor "+
+		"profile setting; the other settings shown were stored", *update.CIBuildAppArmorProfile)
+}
+
+// agentCIPayloadOnlySentence reports a write that named only settings the
+// platform carries on each step's payload (the placement, the run
+// reservation, the image pre-pull, the build AppArmor profile). Nothing was published to the agent, so the apply state, which
+// describes the agent's release, would say "re-rendering" for a release
+// nobody touched.
+const agentCIPayloadOnlySentence = "Stored; it applies to the next pipeline step dispatched, " +
+	"with no agent restart."
+
+// printAgentCISettings renders the settings block. isPayloadOnlyWrite is a
+// set that named neither the worker count nor the storage class, whose
+// outcome is agentCIPayloadOnlySentence rather than the apply state.
+func printAgentCISettings(out io.Writer, settings *client.AgentCISettings, isPayloadOnlyWrite bool) {
+	_, _ = fmt.Fprintf(out, "  Pipeline-step workers: %d\n", settings.CIWorkerCount)
+	_, _ = fmt.Fprintf(out, "  Storage class:         %s\n", agentCIStorageClassLabel(settings.CIStorageClass))
+	_, _ = fmt.Fprintf(out, "  Agent version:         %s\n", agentCIVersionLabel(settings.AgentVersion))
+	_, _ = fmt.Fprintf(out, "  Pipeline steps:        %s\n", agentCICapabilityLabel(settings.SupportsPipelineSteps))
+	if settings.UpdatedAt != nil && *settings.UpdatedAt != "" {
+		_, _ = fmt.Fprintf(out, "  Last changed:          %s\n", formatTimeAgo(*settings.UpdatedAt))
+	} else {
+		_, _ = fmt.Fprintln(out, "  Last changed:          never")
+	}
+	printAgentCIRunReservation(out, settings)
+	printAgentCIImagePrepull(out, settings)
+	printAgentCIBuildAppArmorProfile(out, settings)
+	printAgentCIPlacement(out, settings)
+	if isPayloadOnlyWrite {
+		_, _ = fmt.Fprintf(out, "\n%s\n", agentCIPayloadOnlySentence)
+	} else if sentence := agentCIApplyStateSentence(settings); sentence != "" {
+		_, _ = fmt.Fprintf(out, "\n%s\n", sentence)
+	}
+	if note := agentCIRunReservationNote(settings); note != "" {
+		_, _ = fmt.Fprintf(out, "\n%s\n", note)
+	}
+	if note := agentCIImagePrepullNote(settings); note != "" {
+		_, _ = fmt.Fprintf(out, "\n%s\n", note)
+	}
+	if note := agentCIBuildAppArmorProfileNote(settings); note != "" {
+		_, _ = fmt.Fprintf(out, "\n%s\n", note)
+	}
+}
+
+// printAgentCIBuildAppArmorProfile renders the profile and whether the agent
+// can render it. A platform that predates the setting sends neither, and the
+// lines are left out rather than printed as "none": nobody chose none there.
+func printAgentCIBuildAppArmorProfile(out io.Writer, settings *client.AgentCISettings) {
+	if settings.CIBuildAppArmorProfile == nil {
+		return
+	}
+	profile := *settings.CIBuildAppArmorProfile
+	if profile == "" {
+		profile = "(runtime default)"
+	}
+	_, _ = fmt.Fprintf(out, "  Build AppArmor:        %s\n", profile)
+	switch {
+	case settings.SupportsBuildAppArmorProfile != nil:
+		_, _ = fmt.Fprintf(out, "  AppArmor support:      %s\n",
+			agentCICapabilityLabel(*settings.SupportsBuildAppArmorProfile))
+	case *settings.CIBuildAppArmorProfile != "":
+		// A named profile with no word on whether the agent renders it is
+		// neither in force nor known not to be; say so rather than print the
+		// name alone, which reads as a profile builds run under.
+		_, _ = fmt.Fprintln(out, "  AppArmor support:      not reported")
+	}
+}
+
+// agentCIBuildAppArmorProfileNote says what a named profile means when the
+// agent cannot render it: the builder still runs under the runtime's default
+// profile, and an operator reading the name would otherwise believe it does
+// not.
+func agentCIBuildAppArmorProfileNote(settings *client.AgentCISettings) string {
+	if settings.CIBuildAppArmorProfile == nil || *settings.CIBuildAppArmorProfile == "" {
+		return ""
+	}
+	if settings.SupportsBuildAppArmorProfile == nil || *settings.SupportsBuildAppArmorProfile {
+		return ""
+	}
+	return "A build AppArmor profile is named, but this cluster's agent does not advertise it: builds run " +
+		"under the runtime's default profile until the agent is upgraded."
+}
+
+// printAgentCIImagePrepull renders the mode and whether the agent can honour
+// it. A platform that predates the setting sends neither, and the lines are
+// left out rather than printed as "off": nobody chose off there.
+func printAgentCIImagePrepull(out io.Writer, settings *client.AgentCISettings) {
+	if settings.CIImagePrepull == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "  Image pre-pull:        %s\n", *settings.CIImagePrepull)
+	if settings.SupportsImagePrepull != nil {
+		_, _ = fmt.Fprintf(out, "  Pre-pull support:      %s\n",
+			agentCICapabilityLabel(*settings.SupportsImagePrepull))
+	}
+}
+
+// agentCIImagePrepullNote says what "on" means when the agent cannot do it:
+// with an agent that does not advertise image pre-pull nothing is pulled
+// ahead, and an operator reading "on" would otherwise believe it is.
+func agentCIImagePrepullNote(settings *client.AgentCISettings) string {
+	if settings.CIImagePrepull == nil || *settings.CIImagePrepull != client.AgentCIImagePrepullOn {
+		return ""
+	}
+	if settings.SupportsImagePrepull == nil || *settings.SupportsImagePrepull {
+		return ""
+	}
+	return "Image pre-pull is on, but this cluster's agent does not advertise it: steps pull the " +
+		"platform's images on demand, as under off, until the agent is upgraded."
+}
+
+// printAgentCIRunReservation renders the mode and whether the agent can honour
+// it. A platform that predates the setting sends neither, and the lines are
+// left out rather than printed as "off": nobody chose off there.
+func printAgentCIRunReservation(out io.Writer, settings *client.AgentCISettings) {
+	if settings.CIRunReservation == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "  Run reservation:       %s\n", *settings.CIRunReservation)
+	if settings.SupportsRunReservation != nil {
+		_, _ = fmt.Fprintf(out, "  Reservation support:   %s\n",
+			agentCICapabilityLabel(*settings.SupportsRunReservation))
+	}
+}
+
+// agentCIRunReservationNote says what a mode means when the agent cannot do
+// what it asks: "on" with an agent that does not advertise run reservation
+// holds nothing, and an operator reading "on" would otherwise believe every
+// run is reserved.
+func agentCIRunReservationNote(settings *client.AgentCISettings) string {
+	if settings.CIRunReservation == nil || *settings.CIRunReservation != client.AgentCIRunReservationOn {
+		return ""
+	}
+	if settings.SupportsRunReservation == nil || *settings.SupportsRunReservation {
+		return ""
+	}
+	return "Run reservation is on, but this cluster's agent does not advertise it: its runs are sized " +
+		"and recorded as under shadow, and nothing is held until the agent is upgraded."
+}
+
+// printAgentCIPlacement renders the placement block. A cluster with none
+// says so, because "any node" is an answer an operator is looking for.
+func printAgentCIPlacement(out io.Writer, settings *client.AgentCISettings) {
+	placement := settings.CIPlacement
+	if placement == nil {
+		_, _ = fmt.Fprintln(out, "  Placement:             none (pipeline pods run on any node)")
+		return
+	}
+	_, _ = fmt.Fprintln(out, "\n  Placement:")
+	nodeGroup := placement.NodeGroup
+	if nodeGroup == "" {
+		nodeGroup = "none"
+	}
+	mode := placement.Mode
+	if mode == "" {
+		mode = client.AgentCIPlacementModeRequired
+	}
+	_, _ = fmt.Fprintf(out, "    Node group:          %s\n", nodeGroup)
+	_, _ = fmt.Fprintf(out, "    Node selector:       %s\n", agentCISelectorLabel(placement.NodeSelector))
+	_, _ = fmt.Fprintf(out, "    Tolerations:         %s\n", agentCITolerationsLabel(placement.Tolerations))
+	_, _ = fmt.Fprintf(out, "    Mode:                %s\n", mode)
+	if settings.PlacementAdmittingNodes != nil {
+		_, _ = fmt.Fprintf(out, "    Admitting nodes:     %d Ready\n", *settings.PlacementAdmittingNodes)
+	}
+}
+
+func agentCISelectorLabel(selector map[string]string) string {
+	if len(selector) == 0 {
+		return "none"
+	}
+	keys := make([]string, 0, len(selector))
+	for key := range selector {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	pairs := make([]string, 0, len(keys))
+	for _, key := range keys {
+		pairs = append(pairs, key+"="+selector[key])
+	}
+	return strings.Join(pairs, ", ")
+}
+
+func agentCITolerationsLabel(tolerations []client.AgentCIPlacementToleration) string {
+	if len(tolerations) == 0 {
+		return "none"
+	}
+	rendered := make([]string, 0, len(tolerations))
+	for _, toleration := range tolerations {
+		taint := toleration.Key
+		if toleration.Operator != "Exists" && toleration.Value != "" {
+			taint += "=" + toleration.Value
+		}
+		rendered = append(rendered, taint+":"+toleration.Effect)
+	}
+	return strings.Join(rendered, ", ")
+}
+
+// agentCIStorageClassLabel says which class step workspaces land on. An
+// empty stored value is the cluster's default class, not a missing setting.
+func agentCIStorageClassLabel(storageClass string) string {
+	if storageClass == "" {
+		return "cluster default"
+	}
+	return storageClass
+}
+
+func agentCIVersionLabel(agentVersion string) string {
+	if agentVersion == "" {
+		return "unknown (the agent has not checked in)"
+	}
+	return agentVersion
+}
+
+// agentCICapabilityLabel reports the capability the agent advertised, which
+// is a fact about the running agent rather than about the stored settings.
+func agentCICapabilityLabel(supportsPipelineSteps bool) string {
+	if supportsPipelineSteps {
+		return "advertised"
+	}
+	return "not advertised"
+}
+
+func init() {
+	clusterAgentCmd.AddCommand(newClusterAgentCICommand())
+}

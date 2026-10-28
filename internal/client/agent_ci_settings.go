@@ -1,0 +1,256 @@
+package client
+
+// The per-cluster agent CI settings surface (ankra-vn0bd, item 5 of the
+// agent CI settings contract): GET/PUT
+// /api/v1/org/clusters/{cluster_id}/agent/ci-settings, the bearer twin of
+// the routes the cluster-api mounts alongside the agent upgrade route.
+//
+// The settings size the agent's own pipeline-step scheduler - how many
+// pipeline steps it runs at once (chart value `ci_worker_count`, env
+// AGENT_CI_WORKER_COUNT) and the storage class its step workspaces are
+// carved from (`ci_storage_class`). Before these routes existed the only way
+// to set either was a hand-run `helm upgrade --set`, which the next
+// platform-driven agent upgrade rendered away again.
+//
+// A PUT stores the values and then tries to apply them, and ApplyState says
+// which of the three outcomes happened: the agent is re-rendering its
+// release now (applied), it is too old to accept chart values and the next
+// upgrade will carry them (pending_upgrade), or it is not connected
+// (agent_offline). The stored values are kept in all three cases, so a
+// refusal to apply is never a refusal to store.
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+)
+
+// The apply states the platform reports for a stored CI setting. A newer
+// platform may add one, so callers render an unrecognised state rather than
+// treating the set as closed.
+const (
+	// AgentCIApplyStateApplied means the agent was online and new enough:
+	// the platform published an upgrade at the agent's current version so
+	// it re-renders its own release with the stored values.
+	AgentCIApplyStateApplied = "applied"
+	// AgentCIApplyStatePendingUpgrade means the agent predates chart
+	// values; the stored values ride the next agent upgrade instead.
+	AgentCIApplyStatePendingUpgrade = "pending_upgrade"
+	// AgentCIApplyStateAgentOffline means the agent is not connected; the
+	// stored values apply once it reconnects and is upgraded.
+	AgentCIApplyStateAgentOffline = "agent_offline"
+)
+
+// AgentCISettings is the wire shape both the GET and the PUT answer with:
+// the stored settings plus what the platform currently knows about the
+// agent that has to honour them.
+//
+// SupportsPipelineSteps is what the agent advertised on its last check-in,
+// not what the settings ask for: an agent that has not yet re-rendered its
+// release still reports false with a non-zero CIWorkerCount stored.
+// AgentVersion is empty for a cluster whose agent has never checked in, and
+// UpdatedAt is nil until the settings are written for the first time.
+//
+// AppliesLive is set on a write the agent takes live: a new worker count
+// for an agent whose running CI pool reads it off its job pull, which the
+// platform stores without re-rendering the agent's release, so the agent is
+// not restarted. Nil means the platform did not say - an older platform, or
+// a read - and the apply state's own sentence stands.
+type AgentCISettings struct {
+	CIWorkerCount         int     `json:"ci_worker_count" yaml:"ci_worker_count"`
+	CIStorageClass        string  `json:"ci_storage_class" yaml:"ci_storage_class"`
+	AgentVersion          string  `json:"agent_version" yaml:"agent_version"`
+	SupportsPipelineSteps bool    `json:"supports_pipeline_steps" yaml:"supports_pipeline_steps"`
+	ApplyState            string  `json:"apply_state" yaml:"apply_state"`
+	AppliesLive           *bool   `json:"applies_live,omitempty" yaml:"applies_live,omitempty"`
+	UpdatedAt             *string `json:"updated_at" yaml:"updated_at"`
+	// CIPlacement is where every pipeline pod of the cluster is placed, nil
+	// when the cluster sets no placement (or the platform predates it).
+	CIPlacement *AgentCIPlacement `json:"ci_placement" yaml:"ci_placement"`
+	// PlacementAdmittingNodes is how many Ready nodes the placement admits,
+	// nil when there is no placement or the platform could not count them.
+	PlacementAdmittingNodes *int `json:"placement_admitting_nodes,omitempty" yaml:"placement_admitting_nodes,omitempty"`
+	// CIRunReservation is the cluster's run reservation mode (off, shadow or
+	// on): whether the platform sizes one placeholder pod per run that holds
+	// the room the run's later steps need on its node. SupportsRunReservation
+	// says whether the cluster's agent advertises the capability; without it
+	// "on" reserves nothing and the cluster's steps run exactly as under
+	// "shadow". Both are nil on a platform older than the setting, which is
+	// "not reported", never "off".
+	CIRunReservation       *string `json:"ci_run_reservation,omitempty" yaml:"ci_run_reservation,omitempty"`
+	SupportsRunReservation *bool   `json:"supports_run_reservation,omitempty" yaml:"supports_run_reservation,omitempty"`
+	// CIImagePrepull is the cluster's platform step image pre-pull mode (off
+	// or on): whether the cluster's agent keeps the images the platform's own
+	// steps run in (the checkout's git client, the scanners, the rootless
+	// builder) pulled on every node its pipeline steps can land on, so a node
+	// that just joined does not pull them while a step waits.
+	// SupportsImagePrepull says whether the cluster's agent advertises the
+	// capability; without it "on" pre-pulls nothing. Both are nil on a
+	// platform older than the setting, which is "not reported", never "off".
+	CIImagePrepull       *string `json:"ci_image_prepull,omitempty" yaml:"ci_image_prepull,omitempty"`
+	SupportsImagePrepull *bool   `json:"supports_image_prepull,omitempty" yaml:"supports_image_prepull,omitempty"`
+	// CIBuildAppArmorProfile is the node-installed AppArmor profile the
+	// cluster's rootless image builder runs under, as a Localhost profile, ""
+	// for none. SupportsBuildAppArmorProfile says whether the cluster's agent
+	// advertises the capability; without it a named profile renders nothing.
+	// Both are nil on a platform older than the setting, which is "not
+	// reported", never "none".
+	CIBuildAppArmorProfile       *string `json:"ci_build_apparmor_profile,omitempty" yaml:"ci_build_apparmor_profile,omitempty"`
+	SupportsBuildAppArmorProfile *bool   `json:"supports_build_apparmor_profile,omitempty" yaml:"supports_build_apparmor_profile,omitempty"`
+}
+
+// The run reservation modes. off computes nothing (every cluster's default),
+// shadow computes and records each run's reservation without holding any
+// capacity, and on asks the cluster's agent to hold it.
+const (
+	AgentCIRunReservationOff    = "off"
+	AgentCIRunReservationShadow = "shadow"
+	AgentCIRunReservationOn     = "on"
+)
+
+// AgentCIRunReservationModes lists the modes in the order help text and
+// refusals name them.
+var AgentCIRunReservationModes = []string{
+	AgentCIRunReservationOff, AgentCIRunReservationShadow, AgentCIRunReservationOn,
+}
+
+// The image pre-pull modes. off sends nothing and removes a pre-pull the
+// agent kept (every cluster's default); on asks the cluster's agent to keep
+// the platform's step images pulled.
+const (
+	AgentCIImagePrepullOff = "off"
+	AgentCIImagePrepullOn  = "on"
+)
+
+// AgentCIImagePrepullModes lists the modes in the order help text and
+// refusals name them.
+var AgentCIImagePrepullModes = []string{AgentCIImagePrepullOff, AgentCIImagePrepullOn}
+
+// The placement modes: required pins every pipeline pod to the selected
+// nodes, preferred favours them and lets pods run elsewhere when they have no
+// room. Both carry the tolerations.
+const (
+	AgentCIPlacementModeRequired  = "required"
+	AgentCIPlacementModePreferred = "preferred"
+)
+
+// AgentCIPlacement is the cluster-level CI placement every pipeline pod
+// carries - step pods, their cache and artifact helpers, and image builds.
+// NodeGroup is the node group it was set from, when one was named; the
+// platform resolves it into NodeSelector and Tolerations, which are what the
+// pods carry.
+type AgentCIPlacement struct {
+	NodeGroup    string                       `json:"node_group,omitempty" yaml:"node_group,omitempty"`
+	NodeSelector map[string]string            `json:"node_selector,omitempty" yaml:"node_selector,omitempty"`
+	Tolerations  []AgentCIPlacementToleration `json:"tolerations,omitempty" yaml:"tolerations,omitempty"`
+	Mode         string                       `json:"mode,omitempty" yaml:"mode,omitempty"`
+}
+
+// AgentCIPlacementToleration is one taint every pipeline pod tolerates.
+type AgentCIPlacementToleration struct {
+	Key      string `json:"key" yaml:"key"`
+	Operator string `json:"operator,omitempty" yaml:"operator,omitempty"`
+	Value    string `json:"value,omitempty" yaml:"value,omitempty"`
+	Effect   string `json:"effect" yaml:"effect"`
+}
+
+// AgentCISettingsUpdate is a partial write: a nil member is left out of the
+// body entirely and the platform keeps the value it has, so setting the
+// worker count never silently resets the storage class.
+//
+// Both members are pointers rather than plain values precisely because zero
+// is meaningful on this surface - 0 workers disables the pipeline-step
+// scheduler and an empty storage class means "the cluster default" - and
+// `omitempty` on a pointer only drops a nil one, so a pointer to 0 or to ""
+// is still sent.
+//
+// The placement is written whole: CIPlacement replaces the stored one, and
+// ClearPlacement sends null, which removes it. Neither leaves it untouched.
+//
+// CIRunReservation, CIImagePrepull and CIBuildAppArmorProfile are sent only
+// when named; a pointer to "" clears the profile. Like the
+// placement they ride the next step's payload rather than the agent's release,
+// so a write naming nothing else re-renders nothing.
+type AgentCISettingsUpdate struct {
+	CIWorkerCount    *int
+	CIStorageClass   *string
+	CIPlacement      *AgentCIPlacement
+	ClearPlacement   bool
+	CIRunReservation *string
+	CIImagePrepull   *string
+	// CIBuildAppArmorProfile is documented on the type.
+	CIBuildAppArmorProfile *string
+}
+
+// NamesChartSetting reports whether the write names a setting rendered into
+// the agent's release (the worker count or the storage class). A write that
+// names only the placement or the run reservation publishes nothing to the
+// agent, and the apply state the platform answers it with describes the
+// release as it already was.
+func (update AgentCISettingsUpdate) NamesChartSetting() bool {
+	return update.CIWorkerCount != nil || update.CIStorageClass != nil
+}
+
+// MarshalJSON renders the partial body: only the named members, and
+// ci_placement as null when the write clears it - the one member whose null
+// means something, which a struct tag cannot express.
+func (update AgentCISettingsUpdate) MarshalJSON() ([]byte, error) {
+	body := map[string]any{}
+	if update.CIWorkerCount != nil {
+		body["ci_worker_count"] = *update.CIWorkerCount
+	}
+	if update.CIStorageClass != nil {
+		body["ci_storage_class"] = *update.CIStorageClass
+	}
+	if update.ClearPlacement {
+		body["ci_placement"] = nil
+	} else if update.CIPlacement != nil {
+		body["ci_placement"] = update.CIPlacement
+	}
+	if update.CIRunReservation != nil {
+		body["ci_run_reservation"] = *update.CIRunReservation
+	}
+	if update.CIImagePrepull != nil {
+		body["ci_image_prepull"] = *update.CIImagePrepull
+	}
+	if update.CIBuildAppArmorProfile != nil {
+		body["ci_build_apparmor_profile"] = *update.CIBuildAppArmorProfile
+	}
+	return json.Marshal(body)
+}
+
+// agentCISettingsURL builds the settings URL for one cluster. The id is
+// escaped because it reaches the client straight from --cluster resolution.
+func agentCISettingsURL(baseURL string, clusterID string) string {
+	return fmt.Sprintf("%s/api/v1/org/clusters/%s/agent/ci-settings", baseURL, url.PathEscape(clusterID))
+}
+
+// GetAgentCISettings reads one cluster's stored agent CI settings.
+func (c *Client) GetAgentCISettings(ctx context.Context, clusterID string) (*AgentCISettings, error) {
+	var settings AgentCISettings
+	if getError := c.sendJSONContext(ctx, http.MethodGet,
+		agentCISettingsURL(c.BaseURL, clusterID), nil, &settings); getError != nil {
+		return nil, getError
+	}
+	return &settings, nil
+}
+
+// UpdateAgentCISettings stores a partial change to one cluster's agent CI
+// settings and returns the resulting state, including how the platform
+// applied it.
+//
+// The platform owns the vocabulary this write is validated against - the
+// worker range and the storage class's DNS-1123 shape - so a rejected value
+// comes back as the server's own 422 detail rather than a message this
+// client invents and then has to keep in step.
+func (c *Client) UpdateAgentCISettings(ctx context.Context, clusterID string,
+	update AgentCISettingsUpdate) (*AgentCISettings, error) {
+	var settings AgentCISettings
+	if putError := c.sendJSONContext(ctx, http.MethodPut,
+		agentCISettingsURL(c.BaseURL, clusterID), update, &settings); putError != nil {
+		return nil, putError
+	}
+	return &settings, nil
+}

@@ -1,0 +1,147 @@
+package client
+
+import (
+	"fmt"
+	"net/http"
+	neturl "net/url"
+)
+
+// PowerSchedule is one scheduled stop/start entry on a cluster, as returned
+// by the power-schedule routes. A "once" schedule fires a single time at
+// RunAt; a "cron" schedule fires repeatedly per CronExpression evaluated in
+// Timezone. NextRunAt is the armed next fire (nil while disabled), and the
+// LastRun fields report the most recent outcome (completed, skipped,
+// deferred, or failed, with detail).
+type PowerSchedule struct {
+	ID             string  `json:"id"`
+	Action         string  `json:"action"`
+	StopMode       string  `json:"stop_mode"`
+	PreserveState  bool    `json:"preserve_state"`
+	ScheduleKind   string  `json:"schedule_kind"`
+	RunAt          *string `json:"run_at"`
+	CronExpression *string `json:"cron_expression"`
+	Timezone       string  `json:"timezone"`
+	Enabled        bool    `json:"enabled"`
+	NextRunAt      *string `json:"next_run_at"`
+	LastRunAt      *string `json:"last_run_at"`
+	LastRunStatus  *string `json:"last_run_status"`
+	LastRunDetail  *string `json:"last_run_detail"`
+	CreatedAt      string  `json:"created_at"`
+	UpdatedAt      string  `json:"updated_at"`
+}
+
+// PowerScheduleListResult wraps the cluster's schedule listing. Create and
+// update answer the same refreshed listing, so callers always render the
+// full post-write state.
+type PowerScheduleListResult struct {
+	Schedules []PowerSchedule `json:"schedules"`
+}
+
+// PowerScheduleRequest is the shared create/update body. Exactly one of
+// RunAt (schedule kind "once") or CronExpression (+ Timezone, schedule kind
+// "cron") applies. Updates are full replaces on the backend: Enabled must
+// always be sent, and Timezone must be restated for "cron" schedules.
+type PowerScheduleRequest struct {
+	Action string `json:"action"`
+	// StopMode is how a stop schedule stops the cluster: "delete_resources"
+	// (the default) or "scale_to_zero"; omitted for start schedules.
+	StopMode string `json:"stop_mode,omitempty"`
+	// PreserveState makes a delete_resources stop capture the cluster's
+	// state (an encrypted etcd snapshot the next start restores) on the
+	// providers that support it. nil leaves the backend default (true).
+	PreserveState  *bool   `json:"preserve_state,omitempty"`
+	ScheduleKind   string  `json:"schedule_kind"`
+	RunAt          *string `json:"run_at,omitempty"`
+	CronExpression *string `json:"cron_expression,omitempty"`
+	Timezone       *string `json:"timezone,omitempty"`
+	Enabled        bool    `json:"enabled"`
+	// AcceptNodeLocalDataLoss is the caller's acknowledgement that a
+	// scale_to_zero stop loses the data on the worker disks. The backend
+	// refuses an enabled scale_to_zero stop on a cluster with such volumes
+	// (409) without it.
+	AcceptNodeLocalDataLoss bool `json:"accept_node_local_data_loss,omitempty"`
+}
+
+// PowerScheduleNodeLocalStorage is what a scale_to_zero stop would lose on
+// a cluster: the stop deletes the worker servers, so persistent volume
+// claims keeping their data on a worker's own disk are emptied at every
+// stop. State is "present", "none" or "unknown" (the inventory could not
+// tell); PVCCount and PVCNames are nil when it is unknown, and PVCNames
+// holds up to 25 claims as namespace/name. ConsentRequired is true when the
+// backend refuses an enabled scale_to_zero stop without
+// AcceptNodeLocalDataLoss.
+type PowerScheduleNodeLocalStorage struct {
+	State           string   `json:"state"`
+	PVCCount        *int     `json:"pvc_count"`
+	PVCNames        []string `json:"pvc_names"`
+	Warning         string   `json:"warning"`
+	ConsentRequired bool     `json:"consent_required"`
+}
+
+// DeletePowerScheduleResult reports a schedule deletion.
+type DeletePowerScheduleResult struct {
+	Deleted bool `json:"deleted"`
+}
+
+// ListPowerSchedules returns the cluster's power schedules, newest first.
+// GET /api/v1/org/clusters/imported/{cluster_id}/power-schedules
+func (c *Client) ListPowerSchedules(clusterID string) (*PowerScheduleListResult, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/power-schedules",
+		c.BaseURL, neturl.PathEscape(clusterID))
+	var result PowerScheduleListResult
+	if err := c.getJSON(url, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetPowerScheduleNodeLocalStorage reads the cluster's node-local storage:
+// the volumes a scale_to_zero stop would empty.
+// GET /api/v1/org/clusters/imported/{cluster_id}/power-schedules/node-local-storage
+func (c *Client) GetPowerScheduleNodeLocalStorage(clusterID string) (*PowerScheduleNodeLocalStorage, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/power-schedules/node-local-storage",
+		c.BaseURL, neturl.PathEscape(clusterID))
+	var result PowerScheduleNodeLocalStorage
+	if err := c.getJSON(url, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// CreatePowerSchedule creates one schedule and returns the cluster's
+// refreshed schedule listing.
+// POST /api/v1/org/clusters/imported/{cluster_id}/power-schedules
+func (c *Client) CreatePowerSchedule(clusterID string, request PowerScheduleRequest) (*PowerScheduleListResult, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/power-schedules",
+		c.BaseURL, neturl.PathEscape(clusterID))
+	var result PowerScheduleListResult
+	if err := c.sendJSON(http.MethodPost, url, request, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// UpdatePowerSchedule replaces a schedule's action, timing, and enabled
+// flag (a full replace, not a patch) and returns the refreshed listing.
+// PUT /api/v1/org/clusters/imported/{cluster_id}/power-schedules/{schedule_id}
+func (c *Client) UpdatePowerSchedule(clusterID, scheduleID string, request PowerScheduleRequest) (*PowerScheduleListResult, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/power-schedules/%s",
+		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(scheduleID))
+	var result PowerScheduleListResult
+	if err := c.sendJSON(http.MethodPut, url, request, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// DeletePowerSchedule soft-deletes one schedule.
+// DELETE /api/v1/org/clusters/imported/{cluster_id}/power-schedules/{schedule_id}
+func (c *Client) DeletePowerSchedule(clusterID, scheduleID string) (*DeletePowerScheduleResult, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/power-schedules/%s",
+		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(scheduleID))
+	var result DeletePowerScheduleResult
+	if err := c.sendJSON(http.MethodDelete, url, nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}

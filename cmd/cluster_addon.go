@@ -1,0 +1,748 @@
+package cmd
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"ankra/internal/client"
+
+	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
+)
+
+var clusterAddonsCmd = &cobra.Command{
+	Use:   "addons",
+	Short: "Manage addons for clusters",
+	Long:  "Commands to list, manage settings, and uninstall addons.",
+}
+
+var clusterAddonSortFields = []sortField[client.ClusterAddonListItem]{
+	{"name", func(a, b client.ClusterAddonListItem) int { return compareFold(a.Name, b.Name) }},
+	{"chart", func(a, b client.ClusterAddonListItem) int { return compareFold(a.ChartName, b.ChartName) }},
+	{"version", func(a, b client.ClusterAddonListItem) int { return compareFold(a.ChartVersion, b.ChartVersion) }},
+	{"namespace", func(a, b client.ClusterAddonListItem) int { return compareFold(a.Namespace, b.Namespace) }},
+	{"health", func(a, b client.ClusterAddonListItem) int { return compareFoldPtr(a.Health, b.Health) }},
+	{"state", func(a, b client.ClusterAddonListItem) int { return compareFoldPtr(a.State, b.State) }},
+	{"created", func(a, b client.ClusterAddonListItem) int { return compareTimePtrs(a.CreatedAt, b.CreatedAt) }},
+	{"updated", func(a, b client.ClusterAddonListItem) int { return compareTimePtrs(a.UpdatedAt, b.UpdatedAt) }},
+}
+
+var clusterAddonsListCmd = &cobra.Command{
+	Use:   "list [addon name]",
+	Short: "List addons for the active cluster; or show details for a single addon",
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		sortAddons, err := resolveSort(cmd, clusterAddonSortFields)
+		if err != nil {
+			return err
+		}
+		cluster, err := resolveActiveCluster(cmd)
+		if err != nil {
+			return err
+		}
+
+		listing, err := apiClient.ListClusterAddonListing(cluster.ID)
+		if err != nil {
+			return fmt.Errorf("listing addons: %w", err)
+		}
+		addons := listing.Addons
+		sortAddons(addons)
+		annotateAddonPortalURLs(cluster, addons)
+		feed := newAddonAdvisoryFeed(listing)
+		if len(args) == 0 {
+			if addons == nil {
+				addons = []client.ClusterAddonListItem{}
+			}
+			if handled, err := renderStructured(cmd, addons); err != nil {
+				return err
+			} else if handled {
+				// The JSON/YAML shape is the addon array, so the feed
+				// state that qualifies its "checked" answers goes to
+				// stderr rather than into stdout.
+				if feed.qualifies(addons) {
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), feed.note())
+				}
+				return nil
+			}
+			if len(addons) == 0 {
+				fmt.Println("No addons found for the active cluster.")
+				return nil
+			}
+		}
+
+		if len(args) == 1 {
+			name := strings.TrimSpace(args[0])
+			var found *client.ClusterAddonListItem
+			for i := range addons {
+				if addons[i].Name == name {
+					found = &addons[i]
+					break
+				}
+			}
+			if found == nil {
+				return withExitCode(exitNotFound, fmt.Errorf("addon %q not found on the active cluster", name))
+			}
+			if handled, err := renderStructured(cmd, found); err != nil {
+				return err
+			} else if handled {
+				return nil
+			}
+
+			fmt.Println("Addon Details:")
+			fmt.Printf("  Name:            %s\n", found.Name)
+			fmt.Printf("  Chart:           %s\n", found.ChartName)
+			fmt.Printf("  Version:         %s\n", found.ChartVersion)
+			fmt.Printf("  Registry:        %s\n", found.RegistryURL)
+			fmt.Printf("  Namespace:       %s\n", found.Namespace)
+			if found.StackName != nil {
+				fmt.Printf("  Stack:           %s\n", *found.StackName)
+			}
+			fmt.Printf("  Through Ankra:   %t\n", found.ThroughAnkra)
+			if found.Health != nil {
+				fmt.Printf("  Health:          %s\n", *found.Health)
+			}
+			if found.State != nil {
+				fmt.Printf("  State:           %s\n", *found.State)
+			}
+			if found.LatestChartVersion != nil && *found.LatestChartVersion != found.ChartVersion {
+				fmt.Printf("  Latest Version:  %s\n", *found.LatestChartVersion)
+			}
+			fmt.Printf("  Created:         %s\n", formatOptionalTimeAgo(found.CreatedAt))
+			fmt.Printf("  Updated:         %s\n", formatOptionalTimeAgo(found.UpdatedAt))
+			if found.PortalURL != "" {
+				fmt.Printf("  Portal:          %s\n", found.PortalURL)
+			}
+			printAddonSecurityDetails(*found, cluster.Name, feed)
+			return nil
+		}
+
+		t := table.NewWriter()
+		t.SetOutputMirror(os.Stdout)
+		t.SetStyle(table.StyleRounded)
+		t.AppendHeader(table.Row{
+			"Name", "Chart", "Version", "Namespace", "Health", "Ankra?", "Created At", "Updated At", "State", "Security",
+		})
+		t.SetColumnConfigs([]table.ColumnConfig{
+			{Number: 1, WidthMin: 20},
+			{Number: 2, WidthMin: 20},
+			{Number: 3, WidthMin: 10},
+			{Number: 4, WidthMin: 15},
+			{Number: 5, WidthMin: 10},
+			{Number: 6, WidthMin: 8},
+			{Number: 7, WidthMin: 15},
+			{Number: 8, WidthMin: 15},
+			{Number: 9, WidthMin: 10},
+			{Number: 10, WidthMin: 8},
+		})
+
+		for _, a := range addons {
+			health := ""
+			if a.Health != nil {
+				health = *a.Health
+			}
+			state := ""
+			if a.State != nil {
+				state = *a.State
+			}
+			t.AppendRow(table.Row{
+				a.Name,
+				a.ChartName,
+				a.ChartVersion,
+				a.Namespace,
+				health,
+				a.ThroughAnkra,
+				formatOptionalTimeAgo(a.CreatedAt),
+				formatOptionalTimeAgo(a.UpdatedAt),
+				state,
+				addonSecuritySummary(a, feed),
+			})
+		}
+		t.Render()
+		if affected := countAddonsWithSecurityUpdates(addons); affected > 0 {
+			noun := "addons have"
+			if affected == 1 {
+				noun = "addon has"
+			}
+			fmt.Printf("\n%d %s a security update available. Run `ankra cluster addons list <name>` for the advisory and the fixed version.\n",
+				affected, noun)
+		}
+		if feed.qualifies(addons) {
+			fmt.Printf("\n%s\n", feed.note())
+		}
+		return nil
+	},
+}
+
+var clusterAddonsAvailableCmd = &cobra.Command{
+	Use:   "available",
+	Short: "List addons available for installation",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cluster, err := resolveActiveCluster(cmd)
+		if err != nil {
+			return err
+		}
+
+		addons, err := apiClient.ListAvailableAddons(cluster.ID)
+		if err != nil {
+			return fmt.Errorf("listing available addons: %w", err)
+		}
+		if addons == nil {
+			addons = []client.AvailableAddon{}
+		}
+		if handled, err := renderStructured(cmd, addons); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+
+		if len(addons) == 0 {
+			fmt.Println("No addons available for installation.")
+			return nil
+		}
+
+		t := table.NewWriter()
+		t.SetOutputMirror(os.Stdout)
+		t.SetStyle(table.StyleRounded)
+		t.AppendHeader(table.Row{"ID", "Name", "Chart", "Version", "Category"})
+		t.SetColumnConfigs([]table.ColumnConfig{
+			{Number: 1, WidthMin: 36},
+			{Number: 2, WidthMin: 20},
+			{Number: 3, WidthMin: 20},
+			{Number: 4, WidthMin: 10},
+			{Number: 5, WidthMin: 15},
+		})
+
+		for _, a := range addons {
+			category := ""
+			if a.Category != nil {
+				category = *a.Category
+			}
+			t.AppendRow(table.Row{
+				a.ID,
+				a.Name,
+				a.ChartName,
+				a.Version,
+				category,
+			})
+		}
+		t.Render()
+		return nil
+	},
+}
+
+// clusterAddonsSettingsCmd carries both the group and the original bare form.
+// `ankra cluster addons settings <addon>` shipped before `get` and `set`
+// existed, so cobra falls through to this RunE whenever the first argument is
+// not one of the subcommands - the old spelling keeps working rather than
+// turning into an unknown-command error in every script that uses it.
+var clusterAddonsSettingsCmd = &cobra.Command{
+	Use:   "settings <addon_name>",
+	Short: "Read and write an addon's settings",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runAddonSettingsGet(cmd, args[0])
+	},
+}
+
+var clusterAddonsSettingsGetCmd = &cobra.Command{
+	Use:   "get <addon_name>",
+	Short: "Get settings for an addon",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runAddonSettingsGet(cmd, args[0])
+	},
+}
+
+func runAddonSettingsGet(cmd *cobra.Command, addonName string) error {
+	cluster, err := resolveActiveCluster(cmd)
+	if err != nil {
+		return err
+	}
+
+	settings, err := apiClient.GetAddonSettings(cluster.ID, addonName)
+	if err != nil {
+		return fmt.Errorf("getting addon settings: %w", err)
+	}
+	if handled, err := renderStructured(cmd, settings); err != nil {
+		return err
+	} else if handled {
+		return nil
+	}
+
+	fmt.Printf("Settings for addon '%s':\n\n", settings.AddonName)
+
+	jsonData, err := json.MarshalIndent(settings.Settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("formatting settings: %w", err)
+	}
+	fmt.Println(string(jsonData))
+	return nil
+}
+
+var clusterAddonsValuesCmd = &cobra.Command{
+	Use:   "values <addon_name>",
+	Short: "Print the current Helm values for an addon",
+	Long: `Print the current Helm values document for an addon.
+
+By default the decoded YAML is written to stdout, making it easy to pipe into
+a file or edit and re-apply with --values-from-file:
+
+  ankra cluster addons values my-addon > values.yaml
+  ankra cluster addons values my-addon -o raw   # base64-encoded form`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		addonName := args[0]
+		clusterFlag, _ := cmd.Flags().GetString("cluster")
+		outRaw, _ := cmd.Flags().GetString("output")
+
+		clusterID, _, err := resolveClusterForCmd(clusterFlag)
+		if err != nil {
+			return err
+		}
+
+		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+		defer cancel()
+
+		values, err := apiClient.GetClusterAddonValues(ctx, clusterID, addonName)
+		if err != nil {
+			return fmt.Errorf("fetch addon values: %w", err)
+		}
+		return writeDecodedDoc(cmd.OutOrStdout(), values, outRaw)
+	},
+}
+
+var clusterAddonsUninstallCmd = &cobra.Command{
+	Use:   "uninstall <addon_name>",
+	Short: "Uninstall an addon from the cluster",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		addonName := args[0]
+		deletePermanently, _ := cmd.Flags().GetBool("delete")
+		yes, _ := cmd.Flags().GetBool("yes")
+
+		cluster, err := resolveActiveCluster(cmd)
+		if err != nil {
+			return err
+		}
+
+		addon, err := apiClient.GetAddonByName(cluster.ID, addonName)
+		if err != nil {
+			if errors.Is(err, client.ErrAddonNotFound) {
+				return withExitCode(exitNotFound, fmt.Errorf("finding addon: %w", err))
+			}
+			return fmt.Errorf("finding addon: %w", err)
+		}
+
+		// The addon listing carries no resource id; the uninstall endpoint
+		// takes only the resource UUID, which the stack history exposes.
+		if addon.StackName == nil || *addon.StackName == "" {
+			return fmt.Errorf("addon %q is not part of an Ankra-managed stack and cannot be uninstalled via the CLI", addonName)
+		}
+		addonResourceID, err := apiClient.GetStackAddonResourceID(cluster.ID, *addon.StackName, addonName)
+		if err != nil {
+			if errors.Is(err, client.ErrAddonNotFound) {
+				return withExitCode(exitNotFound, fmt.Errorf("resolving addon: %w", err))
+			}
+			return fmt.Errorf("resolving addon: %w", err)
+		}
+
+		var msg string
+		if deletePermanently {
+			msg = fmt.Sprintf("Uninstall and PERMANENTLY delete addon %q from cluster %q? [y/N]: ", addonName, cluster.Name)
+		} else {
+			msg = fmt.Sprintf("Uninstall addon %q from cluster %q? [y/N]: ", addonName, cluster.Name)
+		}
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(), msg, yes); err != nil {
+			return err
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		result, err := apiClient.UninstallAddon(ctx, cluster.ID, addonResourceID, deletePermanently)
+		if err != nil {
+			return fmt.Errorf("uninstalling addon: %w", err)
+		}
+
+		if result.Success {
+			if deletePermanently {
+				fmt.Printf("Addon '%s' uninstalled and deleted successfully!\n", addonName)
+			} else {
+				fmt.Printf("Addon '%s' uninstalled successfully!\n", addonName)
+			}
+			printGitPushDeferral(cmd.OutOrStdout(), result.GitPushDeferred, result.Message)
+		}
+		return nil
+	},
+}
+
+var clusterAddonsUpdateCmd = &cobra.Command{
+	Use:   "update <addon_name>",
+	Short: "Update settings for an addon from a JSON file",
+	Long: `Update addon settings by providing a JSON file that conforms to the settings schema.
+
+Example JSON file:
+  {
+    "retry_policy": { "limit": 3, "backoff": { "duration": "5s", "factor": 2, "max_duration": "3m" } },
+    "sync_policy": { "automated": true, "self_heal": true, "auto_prune": false },
+    "revision_history_limit": 10
+  }
+
+Usage:
+  ankra cluster addons update my-addon -f settings.json`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		addonName := args[0]
+		filePath, _ := cmd.Flags().GetString("file")
+
+		cluster, err := resolveActiveCluster(cmd)
+		if err != nil {
+			return err
+		}
+
+		fileData, err := os.ReadFile(filePath)
+		if err != nil {
+			return fmt.Errorf("reading file %s: %w", filePath, err)
+		}
+
+		var settings client.AddonSettings
+		if err := json.Unmarshal(fileData, &settings); err != nil {
+			return fmt.Errorf("parsing settings JSON: %w", err)
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		result, err := apiClient.UpdateAddonSettings(ctx, cluster.ID, addonName, settings)
+		if err != nil {
+			return fmt.Errorf("updating addon settings: %w", err)
+		}
+
+		fmt.Printf("Settings for addon '%s' updated successfully!\n", addonName)
+		printGitPushDeferral(cmd.OutOrStdout(), result.GitPushDeferred, result.GitPushMessage)
+		return nil
+	},
+}
+
+var clusterAddonsUpgradeCmd = &cobra.Command{
+	Use:   "upgrade <addon_name>",
+	Short: "Upgrade an addon in-place (chart version, values, registry, namespace)",
+	Long: `Upgrade an addon by patching just the fields you supply.
+
+At least one mutating flag is required. Examples:
+
+  # Bump chart version
+  ankra cluster addons upgrade ankra-website --chart-version 1.0.146 \
+    --cluster website-demo
+
+  # Tweak a single Helm values field with --set (mutates the existing values)
+  ankra cluster addons upgrade website --set image.tag=1.0.146 \
+    --cluster website-demo
+
+  # Address a list item by a field instead of an index
+  ankra cluster addons upgrade website --set 'env[name=LOG_LEVEL].value=debug' \
+    --cluster website-demo
+
+  # Replace the whole values document
+  ankra cluster addons upgrade website \
+    --values-from-file ./values.yaml --cluster website-demo
+
+--set* and --values-from-file are mutually exclusive: --set* mutates the
+existing values document while --values-from-file replaces it.
+
+Changing --namespace is destructive (Helm reinstall in the new namespace,
+leaves the old release orphaned). Use --yes to skip the confirmation prompt
+or interactively confirm.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runAddonsUpgrade,
+}
+
+func runAddonsUpgrade(cmd *cobra.Command, args []string) error {
+	addonName := args[0]
+	flags, err := parseAddonsUpgradeFlags(cmd)
+	if err != nil {
+		return err
+	}
+	if !flags.HasAnyMutation() {
+		return errors.New("at least one mutating flag is required (--chart-version, --values-from-file, --values, --set*, --registry-*, or --namespace)")
+	}
+	if flags.HasValuesReplace() && flags.HasSet() {
+		return errors.New("--values-from-file / --values - are mutually exclusive with --set/--set-string/--set-file (the former REPLACES the entire values document; the latter MUTATES the existing one)")
+	}
+
+	clusterID, clusterName, err := resolveClusterForCmd(flags.Cluster)
+	if err != nil {
+		return err
+	}
+
+	// The command ends in a partial-stack PATCH, which the backend serves
+	// synchronously (DB transaction + a full GitOps commit/push when the
+	// cluster has a linked repo) rather than enqueuing it - that can
+	// legitimately take longer than 60s on a large cluster, so the timeout
+	// matches the HTTP client's slow-write ceiling (see httpClientForSlowWrite).
+	ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Minute)
+	defer cancel()
+
+	iacYAML, err := apiClient.GetClusterIaC(ctx, clusterID)
+	if err != nil {
+		if errors.Is(err, client.ErrClusterEmpty) {
+			return fmt.Errorf("no resources on cluster %q; nothing to upgrade", clusterName)
+		}
+		return fmt.Errorf("fetch cluster IaC: %w", err)
+	}
+	doc, err := parseImportClusterYAML([]byte(iacYAML))
+	if err != nil {
+		return err
+	}
+	stack, addon, err := findAddonInIaC(doc, addonName, flags.Stack)
+	if err != nil {
+		return err
+	}
+
+	var newValuesB64 *string
+	var notices []string
+
+	encryptedPaths := []string{}
+	if addon.Configuration != nil && len(addon.Configuration.EncryptedPaths) > 0 {
+		encryptedPaths = addon.Configuration.EncryptedPaths
+	}
+
+	switch {
+	case flags.HasValuesReplace():
+		raw, readErr := readSource(flags.ValuesFromFile, flags.ValuesStdin)
+		if readErr != nil {
+			return fmt.Errorf("read values source: %w", readErr)
+		}
+		encoded := base64.StdEncoding.EncodeToString(raw)
+		newValuesB64 = &encoded
+		if len(encryptedPaths) > 0 {
+			notices = append(notices, fmt.Sprintf("values will be SOPS-encrypted on git push (encrypted_paths: %s)", strings.Join(encryptedPaths, ", ")))
+		}
+	case flags.HasSet():
+		currentYAML, valErr := apiClient.GetClusterAddonValues(ctx, clusterID, addonName)
+		if valErr != nil {
+			return fmt.Errorf("fetch current addon values: %w", valErr)
+		}
+		var root yaml.Node
+		if currentYAML != "" {
+			if err := yaml.Unmarshal([]byte(currentYAML), &root); err != nil {
+				return fmt.Errorf("parse current addon values: %w", err)
+			}
+		}
+		assignments, err := collectSetAssignments(flags.SetEntries, flags.SetStrings, flags.SetFiles)
+		if err != nil {
+			return err
+		}
+		if err := ApplySetAssignments(&root, assignments); err != nil {
+			return err
+		}
+		var buf strings.Builder
+		enc := yaml.NewEncoder(stringWriter{w: &buf})
+		enc.SetIndent(2)
+		if err := enc.Encode(&root); err != nil {
+			return fmt.Errorf("re-encode addon values: %w", err)
+		}
+		_ = enc.Close()
+		encoded := base64.StdEncoding.EncodeToString([]byte(buf.String()))
+		newValuesB64 = &encoded
+		if len(encryptedPaths) > 0 {
+			notices = append(notices, fmt.Sprintf("values will be SOPS-encrypted on git push (encrypted_paths: %s)", strings.Join(encryptedPaths, ", ")))
+		}
+	}
+
+	mutatedAddon := applyAddonMutations(*addon, flags, newValuesB64)
+	// The values travel inline, but the pointer stays: say which GitOps file
+	// they land in, since the dry-run diff shows only the inline bytes
+	// (ankra-syg75).
+	if newValuesB64 != nil && addon.Configuration != nil && addon.Configuration.FromFile != "" {
+		notices = append(notices, fmt.Sprintf(
+			"values are written to the GitOps file configuration.from_file %q", addon.Configuration.FromFile))
+	}
+	if flags.HasParentEdit() {
+		parents, pErr := mergeParents(addon.Parents, flags.AddParents, flags.RemoveParents, flags.SetParents)
+		if pErr != nil {
+			return pErr
+		}
+		mutatedAddon.Parents = parents
+	}
+	patchStack := copyStackMetadata(stack)
+	patchStack.Addons = []client.AddonSpec{mutatedAddon}
+
+	beforeStack := previewStackBefore(stack, *addon)
+
+	if flags.Namespace != "" && flags.Namespace != addon.Namespace {
+		notices = append(notices, fmt.Sprintf("addon will be re-installed in namespace %q; the old release in %q is left orphaned", flags.Namespace, addon.Namespace))
+	}
+
+	if flags.DryRun {
+		return renderDryRun(cmd.OutOrStdout(), beforeStack, patchStack, notices, flags.Output)
+	}
+
+	if flags.Namespace != "" && flags.Namespace != addon.Namespace {
+		if err := confirmNamespaceChange(cmd.Context(), cmd.InOrStdin(), cmd.ErrOrStderr(), addon.Namespace, flags.Namespace, flags.Yes); err != nil {
+			return err
+		}
+	}
+
+	req := buildPartialStackPatch(patchStack)
+	res, err := apiClient.PatchClusterStackPartial(ctx, clusterID, stack.Name, req)
+	if err != nil {
+		var perr *client.PatchStackError
+		if errors.As(err, &perr) {
+			return mapPatchError(perr)
+		}
+		return err
+	}
+	if len(res.Errors) > 0 {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Update completed with resource errors:")
+		renderPatchResourceErrors(cmd.ErrOrStderr(), res.Errors)
+		return errors.New("update partially failed; see errors above")
+	}
+	return printAsOutput(cmd.OutOrStdout(), res, flags.Output)
+}
+
+// stringWriter adapts a *strings.Builder to io.Writer.
+type stringWriter struct{ w *strings.Builder }
+
+func (s stringWriter) Write(p []byte) (int, error) { return s.w.Write(p) }
+
+// previewStackBefore returns a stack with just the original addon for the
+// dry-run "before" rendering, matching the shape of the "after" stack.
+func previewStackBefore(src *client.StackSpec, orig client.AddonSpec) client.StackSpec {
+	before := copyStackMetadata(src)
+	before.Addons = []client.AddonSpec{orig}
+	return before
+}
+
+func parseAddonsUpgradeFlags(cmd *cobra.Command) (addonsUpgradeFlags, error) {
+	chartVersion, _ := cmd.Flags().GetString("chart-version")
+	namespace, _ := cmd.Flags().GetString("namespace")
+	regName, _ := cmd.Flags().GetString("registry-name")
+	regURL, _ := cmd.Flags().GetString("registry-url")
+	regCred, _ := cmd.Flags().GetString("registry-credential-name")
+
+	valuesFile, _ := cmd.Flags().GetString("values-from-file")
+	valuesStdin, _ := cmd.Flags().GetString("values")
+	setEntries, _ := cmd.Flags().GetStringArray("set")
+	setStrings, _ := cmd.Flags().GetStringArray("set-string")
+	setFiles, _ := cmd.Flags().GetStringArray("set-file")
+
+	addParents, _ := cmd.Flags().GetStringArray("add-parent")
+	removeParents, _ := cmd.Flags().GetStringArray("remove-parent")
+	setParents, _ := cmd.Flags().GetStringArray("set-parent")
+
+	cluster, _ := cmd.Flags().GetString("cluster")
+	stack, _ := cmd.Flags().GetString("stack")
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	yes, _ := cmd.Flags().GetBool("yes")
+
+	out, err := structuredFormatFromFlags(cmd)
+	if err != nil {
+		return addonsUpgradeFlags{}, err
+	}
+	if valuesStdin != "" && valuesStdin != "-" {
+		return addonsUpgradeFlags{}, fmt.Errorf("--values currently only accepts `-` (stdin); use --values-from-file for a file path")
+	}
+	return addonsUpgradeFlags{
+		ChartVersion:           chartVersion,
+		Namespace:              namespace,
+		RegistryName:           regName,
+		RegistryURL:            regURL,
+		RegistryCredentialName: regCred,
+		ValuesFromFile:         valuesFile,
+		ValuesStdin:            valuesStdin,
+		SetEntries:             setEntries,
+		SetStrings:             setStrings,
+		SetFiles:               setFiles,
+		AddParents:             addParents,
+		RemoveParents:          removeParents,
+		SetParents:             setParents,
+		Cluster:                cluster,
+		Stack:                  stack,
+		DryRun:                 dryRun,
+		Yes:                    yes,
+		Output:                 out,
+	}, nil
+}
+
+// collectSetAssignments parses the raw --set / --set-string / --set-file flag
+// slices into a single ordered list of assignments. Shared by both the addon
+// and manifest upgrade commands.
+func collectSetAssignments(setEntries, setStrings, setFiles []string) ([]SetAssignment, error) {
+	var all []SetAssignment
+	if len(setEntries) > 0 {
+		got, err := ParseSetAssignments(setEntries, setKindCoerce)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, got...)
+	}
+	if len(setStrings) > 0 {
+		got, err := ParseSetAssignments(setStrings, setKindString)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, got...)
+	}
+	if len(setFiles) > 0 {
+		got, err := ParseSetAssignments(setFiles, setKindFile)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, got...)
+	}
+	return all, nil
+}
+
+func init() {
+	clusterAddonsUninstallCmd.Flags().Bool("delete", false, "Also delete the addon permanently")
+	clusterAddonsUninstallCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+
+	clusterAddonsUpdateCmd.Flags().StringP("file", "f", "", "Path to JSON settings file (required)")
+	_ = clusterAddonsUpdateCmd.MarkFlagRequired("file")
+
+	clusterAddonsUpgradeCmd.Flags().String("chart-version", "", "New chart version to install")
+	clusterAddonsUpgradeCmd.Flags().String("namespace", "", "Change the addon's namespace (destructive: Helm reinstall)")
+	clusterAddonsUpgradeCmd.Flags().String("registry-name", "", "New helm registry name")
+	clusterAddonsUpgradeCmd.Flags().String("registry-url", "", "New helm registry URL")
+	clusterAddonsUpgradeCmd.Flags().String("registry-credential-name", "", "New helm registry credential name")
+	clusterAddonsUpgradeCmd.Flags().String("values-from-file", "", "Path to YAML values file (REPLACES the entire values document)")
+	clusterAddonsUpgradeCmd.Flags().String("values", "", "Use `-` to read values YAML from stdin (REPLACES the entire values document)")
+	clusterAddonsUpgradeCmd.Flags().StringArray("set", nil, "Helm-style values mutation, e.g. --set image.tag=1.0.0 (MUTATES existing values; repeatable, comma-separated)")
+	clusterAddonsUpgradeCmd.Flags().StringArray("set-string", nil, "Like --set but always treats the value as a string")
+	clusterAddonsUpgradeCmd.Flags().StringArray("set-file", nil, "Like --set but reads the value from a file: key=path or key=@path")
+	clusterAddonsUpgradeCmd.Flags().StringArray("add-parent", nil, "Add a dependency parent, e.g. --add-parent name=infisical-ns,kind=manifest (kind defaults to manifest; repeatable)")
+	clusterAddonsUpgradeCmd.Flags().StringArray("remove-parent", nil, "Remove a dependency parent, e.g. --remove-parent name=infisical-ns,kind=manifest (repeatable)")
+	clusterAddonsUpgradeCmd.Flags().StringArray("set-parent", nil, "Replace ALL dependency parents with the given set (repeatable); pass none with the others to clear")
+	clusterAddonsUpgradeCmd.Flags().String("cluster", "", "Target cluster (name or ID); defaults to the active selection")
+	clusterAddonsUpgradeCmd.Flags().String("stack", "", "Stack name (required when the addon exists in multiple stacks)")
+	clusterAddonsUpgradeCmd.Flags().Bool("dry-run", false, "Print the proposed before/after spec without applying changes")
+	clusterAddonsUpgradeCmd.Flags().Bool("yes", false, "Skip the confirmation prompt for destructive changes (--namespace)")
+	clusterAddonsUpgradeCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
+	registerStructuredOutputFlags(clusterAddonsListCmd, clusterAddonsAvailableCmd,
+		clusterAddonsSettingsCmd, clusterAddonsSettingsGetCmd)
+	registerAddonSettingsSetFlags(clusterAddonsSettingsSetCmd)
+	registerSortFlags(clusterAddonsListCmd, clusterAddonSortFields)
+
+	clusterAddonsValuesCmd.Flags().String("cluster", "", "Target cluster (name or ID); defaults to the active selection")
+	clusterAddonsValuesCmd.Flags().StringP("output", "o", "", "Output format: yaml (decoded, default) or raw (base64)")
+
+	clusterAddonsCmd.AddCommand(clusterAddonsListCmd)
+	clusterAddonsCmd.AddCommand(clusterAddonsAvailableCmd)
+	clusterAddonsSettingsCmd.AddCommand(clusterAddonsSettingsGetCmd)
+	clusterAddonsSettingsCmd.AddCommand(clusterAddonsSettingsSetCmd)
+	clusterAddonsCmd.AddCommand(clusterAddonsSettingsCmd)
+	clusterAddonsCmd.AddCommand(clusterAddonsValuesCmd)
+	clusterAddonsCmd.AddCommand(clusterAddonsUninstallCmd)
+	clusterAddonsCmd.AddCommand(clusterAddonsUpdateCmd)
+	clusterAddonsCmd.AddCommand(clusterAddonsUpgradeCmd)
+
+	clusterCmd.AddCommand(clusterAddonsCmd)
+}

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ImportCluster
+metadata:
+  name: validation-stack-without-manifests-key
+spec:
+  stacks:
+    - name: logging
+      description: Stack that omits the manifests key entirely
+      addons:
+        - name: fluent-bit
+          chart_name: fluent-bit
+          chart_version: 0.49.1
+          repository_url: https://fluent.github.io/helm-charts
+          namespace: fluent-bit
+          configuration_type: standalone

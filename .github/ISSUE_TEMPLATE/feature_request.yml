@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest a new command, flag, or improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: >-
+        Describe the workflow or task that the CLI currently makes hard or
+        impossible.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: >-
+        What should the CLI do? If you have a command or flag in mind, sketch
+        the invocation and expected output.
+      placeholder: |
+        ankra cluster frobnicate --wait
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: >-
+        Workarounds you use today (scripts, the web UI, kubectl, ...) and why
+        they fall short.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else that helps us understand the request.

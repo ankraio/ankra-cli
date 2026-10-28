@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ImportCluster
+metadata:
+  name: validation-manifest-missing-file
+spec:
+  stacks:
+    - name: logging
+      manifests:
+        - name: namespace-fluent-bit
+          from_file: manifests/does-not-exist.yaml
+      addons: []

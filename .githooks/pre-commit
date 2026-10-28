@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# git exports GIT_DIR / GIT_INDEX_FILE to hooks. Tests that spawn git inside
+# a temp repository then act on THIS repository instead ("remote origin
+# already exists" from TestApplicationAddCommand was a `git remote add` aimed
+# at the real checkout). Strip them so the tests see the repo they created.
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX
+
+# Tests and the linter run for the packages this commit changes, not the
+# whole module.
+# ankra/cmd is one ~105k-line package whose test binary needs more than
+# 12 GiB to compile and link (measured 2026-10-16, ankra-klaw40), more than an
+# Ankra Workspace on a default node or most laptops can give, so it is left
+# to CI's lint-test-build (16 GB runner, GOMEMLIMIT=5GiB), which tests and
+# lints the whole module on every push; golangci-lint builds it too, and needs
+# as much. ANKRA_PRECOMMIT_FULL=1 runs `go test ./...` and
+# `golangci-lint run ./...` here instead. A go.mod or go.sum change tests and
+# lints every package (except cmd).
+# Packages are worked out from git's file list as relative directories, so the
+# hook needs no local Go toolchain beyond the `go test` the Ankra dev shims
+# route to the workspace (`go list` is not routed).
+staged="$(git diff --cached --name-only --diff-filter=ACMR)"
+
+if [ "${ANKRA_PRECOMMIT_FULL:-0}" = "1" ]; then
+  echo "Running tests (ANKRA_PRECOMMIT_FULL=1: the whole module)..."
+  go test ./...
+  echo "Running linter (the whole module)..."
+  golangci-lint run ./...
+else
+  if printf '%s\n' "$staged" | grep -qE '^(go\.mod|go\.sum)$'; then
+    changed_files="$(git ls-files '*.go')"
+  else
+    changed_files="$(printf '%s\n' "$staged" | grep -E '\.go$' || true)"
+  fi
+  tested=()
+  skipped_cmd=0
+  while IFS= read -r directory; do
+    [ -z "$directory" ] && continue
+    case "$directory" in
+      cmd) skipped_cmd=1 ;;
+      testdata | */testdata | */testdata/*) ;;
+      .) tested+=(".") ;;
+      *) tested+=("./$directory") ;;
+    esac
+  done < <(printf '%s\n' "$changed_files" | while IFS= read -r file; do
+    case "$file" in
+      "") ;;
+      */*) printf '%s\n' "${file%/*}" ;;
+      *) printf '.\n' ;;
+    esac
+  done | sort -u)
+  if [ "${#tested[@]}" -gt 0 ]; then
+    echo "Running tests for the changed packages: ${tested[*]}"
+    go test "${tested[@]}"
+    echo "Running linter for the changed packages..."
+    golangci-lint run "${tested[@]}"
+  else
+    echo "No Go package to test or lint locally in this commit."
+  fi
+  if [ "$skipped_cmd" = "1" ]; then
+    echo "ankra/cmd changed: it is tested and linted in CI's lint-test-build (too large to build here; ANKRA_PRECOMMIT_FULL=1 runs it locally)."
+  fi
+fi
+
+echo "Pre-commit checks passed."

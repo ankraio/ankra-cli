@@ -1,0 +1,108 @@
+package cmd
+
+import (
+	"fmt"
+	"strconv"
+
+	"ankra/internal/client"
+
+	"github.com/jedib0t/go-pretty/v6/text"
+	"github.com/spf13/cobra"
+)
+
+type workerScaleFunc func(clusterID string, workerCount int, drainOptions client.DrainOptions) (*client.ScaleWorkersResult, error)
+
+// scaleFunctionForKind maps a cluster's kind (as returned by the backend) to
+// the provider-specific worker scaling call. Only the cloud-managed kinds
+// support worker scaling.
+func scaleFunctionForKind(kind string) (workerScaleFunc, bool) {
+	switch kind {
+	case "hetzner":
+		return apiClient.ScaleHetznerWorkers, true
+	case "ovh":
+		return apiClient.ScaleOvhWorkers, true
+	case "upcloud":
+		return apiClient.ScaleUpcloudWorkers, true
+	case "digitalocean":
+		return apiClient.ScaleDigitaloceanWorkers, true
+	case "scaleway":
+		return apiClient.ScaleScalewayWorkers, true
+	case "ankracloud":
+		return apiClient.ScaleAnkraCloudWorkers, true
+	case "aws":
+		return apiClient.ScaleAwsWorkers, true
+	case "proxmox":
+		return apiClient.ScaleProxmoxWorkers, true
+	case "morpheus":
+		return apiClient.ScaleMorpheusWorkers, true
+	default:
+		return nil, false
+	}
+}
+
+var clusterScaleCmd = &cobra.Command{
+	Use:   "scale <cluster_id|name> <worker_count>",
+	Short: "Scale the default worker pool of a cloud cluster",
+	Long: `Scale the number of default-pool worker nodes up or down for a cloud cluster.
+
+The cloud provider (Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, Ankra Cloud, AWS, Proxmox VE, or
+HPE Morpheus) is detected automatically from the cluster, so you do not need to
+remember which provider it runs on. To scale a named node group instead, use
+'ankra cluster node-group scale'.
+
+A scale-down picks the workers to remove. ` + guardedDrainHelp + `
+
+Examples:
+  ankra cluster scale 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 3
+  ankra cluster scale 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 2 --force-drain`,
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		workerCount, convertError := strconv.Atoi(args[1])
+		if convertError != nil {
+			return fmt.Errorf("invalid worker count: %w", convertError)
+		}
+
+		cluster, lookupError := apiClient.GetClusterByID(clusterID)
+		if lookupError != nil {
+			return fmt.Errorf("looking up cluster %q: %w", clusterID, lookupError)
+		}
+
+		scale, supported := scaleFunctionForKind(cluster.Kind)
+		if !supported {
+			return unsupportedClusterKindError(args[0], cluster.Kind, "worker scaling")
+		}
+
+		result, scaleError := scale(clusterID, workerCount, drainOptionsFromFlags(cmd))
+		if scaleError != nil {
+			return fmt.Errorf("scaling workers: %w", scaleError)
+		}
+
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+
+		fmt.Printf("  Provider: %s\n", cluster.Kind)
+		if result.PreviousCount == result.NewCount {
+			fmt.Printf("Worker count is already %d, no changes needed.\n", result.NewCount)
+		} else if result.NewCount > result.PreviousCount {
+			fmt.Printf("Scaling %s from %d to %d workers.\n",
+				text.FgGreen.Sprint("up"), result.PreviousCount, result.NewCount)
+		} else {
+			fmt.Printf("Scaling %s from %d to %d workers.\n",
+				text.FgYellow.Sprint("down"), result.PreviousCount, result.NewCount)
+		}
+		return nil
+	},
+}
+
+func init() {
+	registerStructuredOutputFlags(clusterScaleCmd)
+	registerForceDrainFlag(clusterScaleCmd, forceDrainScaleUsage)
+	clusterCmd.AddCommand(clusterScaleCmd)
+}

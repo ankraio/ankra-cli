@@ -1,0 +1,335 @@
+package client
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+)
+
+type CreateUpcloudClusterRequest struct {
+	Name               string  `json:"name"`
+	Description        *string `json:"description,omitempty"`
+	CredentialID       string  `json:"credential_id"`
+	SSHKeyCredentialID string  `json:"ssh_key_credential_id"`
+	Zone               string  `json:"zone"`
+	// Zones is the multi-zone pool (primary first, at least three zones with
+	// three control planes); NetworkMode is private_network or
+	// wireguard_mesh (derived when empty). Both need the organisation's
+	// network_overlay feature.
+	Zones          []string `json:"zones,omitempty"`
+	NetworkMode    string   `json:"network_mode,omitempty"`
+	NetworkIPRange string   `json:"network_ip_range,omitempty"`
+	BastionPlan    string   `json:"bastion_plan,omitempty"`
+	// BastionAllowedIPs narrows the bastion's SSH port to these IPv4
+	// addresses or CIDRs, plus the platform's own egress. Omitted (nil)
+	// keeps the bastion open, as on every platform before the field existed.
+	BastionAllowedIPs     []string `json:"bastion_allowed_ips,omitempty"`
+	ControlPlaneCount     int      `json:"control_plane_count"`
+	ControlPlanePlan      string   `json:"control_plane_plan,omitempty"`
+	WorkerCount           int      `json:"worker_count"`
+	WorkerPlan            string   `json:"worker_plan,omitempty"`
+	Distribution          string   `json:"distribution"`
+	CNI                   string   `json:"cni,omitempty"`
+	KubernetesVersion     *string  `json:"kubernetes_version,omitempty"`
+	EtcdTopology          string   `json:"etcd_topology,omitempty"`
+	EtcdNodeCount         int      `json:"etcd_node_count,omitempty"`
+	EtcdPlan              string   `json:"etcd_plan,omitempty"`
+	ExternalCloudProvider bool     `json:"external_cloud_provider"`
+	IncludeNetworking     bool     `json:"include_networking"`
+	IncludeDNS            bool     `json:"include_dns"`
+	GitopsCredentialName  *string  `json:"gitops_credential_name,omitempty"`
+	GitopsRepository      *string  `json:"gitops_repository,omitempty"`
+	GitopsBranch          *string  `json:"gitops_branch,omitempty"`
+	Environment           *string  `json:"environment,omitempty"`
+	Criticality           *string  `json:"criticality,omitempty"`
+}
+
+type CreateUpcloudClusterResponse struct {
+	ClusterID string `json:"cluster_id"`
+	Name      string `json:"name"`
+}
+
+type StopUpcloudClusterResponse struct {
+	Success        bool              `json:"success"`
+	ClusterID      string            `json:"cluster_id"`
+	OperationID    *string           `json:"operation_id,omitempty"`
+	StatePreserved bool              `json:"state_preserved"`
+	StateSnapshot  *StateSnapshotRef `json:"state_snapshot,omitempty"`
+	Message        string            `json:"message,omitempty"`
+	StopMode       string            `json:"stop_mode,omitempty"`
+}
+
+type StartUpcloudClusterResult struct {
+	MarkedToStartAt   string  `json:"marked_to_start_at"`
+	Scope             string  `json:"scope"`
+	CreatedOperations int     `json:"created_operations"`
+	StateRestore      string  `json:"state_restore,omitempty"`
+	StateSnapshotID   *string `json:"state_snapshot_id,omitempty"`
+}
+
+// DeprovisionUpcloudClusterResponse mirrors the backend's shared
+// DeprovisionClusterResponse.
+type DeprovisionUpcloudClusterResponse struct {
+	Success     bool    `json:"success"`
+	ClusterID   string  `json:"cluster_id"`
+	OperationID *string `json:"operation_id,omitempty"`
+}
+
+func (c *Client) CreateUpcloudCluster(req CreateUpcloudClusterRequest) (*CreateUpcloudClusterResponse, error) {
+	url := c.BaseURL + "/api/v1/clusters/upcloud"
+	payload, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer closeBody(resp)
+
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, newUnexpectedResponseError("create failed", resp.StatusCode, redactedBodyForError(body, 500))
+	}
+
+	var result CreateUpcloudClusterResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) DeprovisionUpcloudCluster(clusterID string, options DeprovisionOptions) (*DeprovisionUpcloudClusterResponse, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s", c.BaseURL, clusterID) + options.query()
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer closeBody(resp)
+
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, newUnexpectedResponseError("deprovision failed", resp.StatusCode, redactedBodyForError(body, 500))
+	}
+
+	var result DeprovisionUpcloudClusterResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) GetUpcloudWorkerCount(clusterID string) (*WorkerCountResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/worker-count", c.BaseURL, clusterID)
+	var result WorkerCountResult
+	if err := c.getJSON(url, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) GetUpcloudK8sVersion(clusterID string) (*K8sVersionInfo, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/k8s-version", c.BaseURL, clusterID)
+	var result K8sVersionInfo
+	if err := c.getJSON(url, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) UpgradeUpcloudK8sVersion(clusterID, targetVersion string, force bool) (*UpgradeK8sVersionResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/upgrade-k8s-version", c.BaseURL, clusterID)
+	return c.doUpgradeK8sVersion(url, targetVersion, force)
+}
+
+func (c *Client) ListUpcloudNodeGroups(clusterID string) (*NodeGroupListResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups", c.BaseURL, clusterID)
+	var result NodeGroupListResult
+	if err := c.getJSON(url, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) AddUpcloudNodeGroup(ctx context.Context, clusterID string, req AddNodeGroupRequest, wait bool) (*AddNodeGroupResult, bool, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups", c.BaseURL, clusterID)
+	payload, err := json.Marshal(req)
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal request: %w", err)
+	}
+	return c.doAddNodeGroup(ctx, url, payload, wait)
+}
+
+func (c *Client) ScaleUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions DrainOptions, wait bool) (*ScaleNodeGroupResult, bool, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/scale", c.BaseURL, clusterID, groupName)
+	payload, err := json.Marshal(ScaleNodeGroupRequest{Count: count, ForceDrain: drainOptions.ForceDrain})
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal request: %w", err)
+	}
+	return c.doScaleNodeGroup(ctx, url, payload, wait)
+}
+
+func (c *Client) GetUpcloudNodeGroupAutoscaling(clusterID, groupName string) (*NodeGroupAutoscalingResult, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/autoscaling", c.BaseURL, clusterID, groupName)
+	return c.doGetNodeGroupAutoscaling(url)
+}
+
+func (c *Client) UpdateUpcloudNodeGroupAutoscaling(ctx context.Context, clusterID, groupName string, req NodeGroupAutoscalingRequest, wait bool) (*NodeGroupAutoscalingResult, bool, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/autoscaling", c.BaseURL, clusterID, groupName)
+	payload, err := json.Marshal(req)
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal request: %w", err)
+	}
+	return c.doUpdateNodeGroupAutoscaling(ctx, url, payload, wait)
+}
+
+func (c *Client) UpdateUpcloudNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions DrainOptions, wait bool) (*UpdateNodeGroupResult, bool, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/instance-type", c.BaseURL, clusterID, groupName)
+	payload, err := json.Marshal(UpdateNodeGroupInstanceTypeRequest{InstanceType: instanceType, ForceDrain: drainOptions.ForceDrain})
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal request: %w", err)
+	}
+	return c.doUpdateNodeGroup(ctx, url, payload, wait)
+}
+
+func (c *Client) UpdateUpcloudNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*UpdateNodeGroupResult, bool, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/labels", c.BaseURL, clusterID, groupName)
+	payload, err := json.Marshal(UpdateLabelsRequest{Labels: labels})
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal request: %w", err)
+	}
+	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
+}
+
+func (c *Client) UpdateUpcloudNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []NodeTaint, wait bool) (*UpdateNodeGroupResult, bool, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/taints", c.BaseURL, clusterID, groupName)
+	payload, err := json.Marshal(UpdateTaintsRequest{Taints: taints})
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal request: %w", err)
+	}
+	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
+}
+
+func (c *Client) DeleteUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions DrainOptions, wait bool) (*DeleteNodeGroupResult, bool, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s", c.BaseURL, clusterID, groupName)
+	return c.doDeleteNodeGroup(ctx, url, drainOptions, wait)
+}
+
+func (c *Client) ScaleUpcloudWorkers(clusterID string, workerCount int, drainOptions DrainOptions) (*ScaleWorkersResult, error) {
+	scaleURL := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/scale-workers", c.BaseURL, clusterID)
+	return c.doScaleWorkers(scaleURL, workerCount, drainOptions)
+}
+
+func (c *Client) StopUpcloudCluster(clusterID string, options StopClusterOptions) (*StopUpcloudClusterResponse, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/stop", c.BaseURL, url.PathEscape(clusterID)) + options.query()
+	req, err := http.NewRequest(http.MethodPost, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer closeBody(resp)
+
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("stop failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+	}
+
+	var result StopUpcloudClusterResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
+}
+
+func (c *Client) StartUpcloudCluster(clusterID string, options StartClusterOptions) (*StartUpcloudClusterResult, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/start", c.BaseURL, url.PathEscape(clusterID)) + options.query()
+	req, err := http.NewRequest(http.MethodPost, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer closeBody(resp)
+
+	body, err := readResponseBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("start failed: status %d, body: %s", resp.StatusCode, redactedBodyForError(body, 500))
+	}
+
+	var result StartUpcloudClusterResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+	return &result, nil
+}
+
+// UpdateUpcloudZonePoolRequest is the desired zone pool of a multi-zone
+// UpCloud cluster (primary first). Zones can only be added.
+type UpdateUpcloudZonePoolRequest struct {
+	Zones []string `json:"zones"`
+}
+
+// UpdateUpcloudZonePoolResult reports the pool as persisted and the zones
+// the call added.
+type UpdateUpcloudZonePoolResult struct {
+	Zones      []string `json:"zones"`
+	AddedZones []string `json:"added_zones"`
+}
+
+// UpdateUpcloudZonePool extends a multi-zone UpCloud cluster's zone pool
+// (PUT /api/v1/clusters/upcloud/{id}/zones). With wait=false the platform
+// answers 202 and the second result is true.
+func (c *Client) UpdateUpcloudZonePool(ctx context.Context, clusterID string, zones []string, wait bool) (*UpdateUpcloudZonePoolResult, bool, error) {
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/zones", c.BaseURL, clusterID)
+	payload, err := json.Marshal(UpdateUpcloudZonePoolRequest{Zones: zones})
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal request: %w", err)
+	}
+	var result UpdateUpcloudZonePoolResult
+	submitted, err := c.doJSONWriteRequest(ctx, http.MethodPut, url, payload, wait, &result)
+	if err != nil {
+		return nil, false, err
+	}
+	if submitted {
+		return nil, true, nil
+	}
+	return &result, false, nil
+}

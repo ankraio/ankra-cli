@@ -1,0 +1,591 @@
+package cmd
+
+// The organisation's Ankra Pipelines settings, over GET/PUT
+// /api/v1/org/ci-settings. The endpoint has existed since the pipelines lane
+// shipped; nothing in the CLI read it, so the two settings that decide whether
+// a pipeline run can start at all - the pipeline cluster and the build
+// fallback - were discoverable only by asking Ankra (PLA-825).
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+	"time"
+
+	"ankra/internal/client"
+
+	"github.com/spf13/cobra"
+)
+
+var orgCISettingsCmd = &cobra.Command{
+	Use:     "ci-settings",
+	Aliases: []string{"ci"},
+	Short:   "Show or change the organisation's Ankra Pipelines settings",
+	Long: `Show or change the settings every pipeline in this organisation runs under.
+
+  ankra org ci-settings get
+  ankra org ci-settings set --cluster build-cluster
+  ankra org ci-settings set --build-fallback platform_builders
+
+'get' also shows the pipeline cluster's capacity: how many of its CI slots
+are in use, and how many of this organisation's runs and steps are waiting.
+
+The two that decide whether a run can start at all:
+
+  --cluster           The cluster pipeline steps execute on. Without one,
+                      steps have nowhere to run and conclude with a named
+                      reason rather than guessing a cluster.
+  --build-fallback    Whether a 'build' step may fall back to the
+                      Ankra-operated build cluster when the pipeline cluster
+                      cannot build it. Two things put a build there: the
+                      cluster's agent does not run pipeline steps at all, or
+                      it does but the node runtime confines the rootless
+                      image builder (AppArmor or seccomp, as on k3s and
+                      Ubuntu nodes), so the build cannot run in-cluster.
+                        platform_builders  keep the fallback available (default)
+                        none               refuse the build instead, for
+                                           organisations whose source may not
+                                           leave their own infrastructure
+
+Reading requires organisation membership; changing requires organisation admin.
+Both act on the selected organisation; pass the global --org flag to read or
+change another organisation you administer.`,
+}
+
+var orgCISettingsGetCmd = &cobra.Command{
+	Use:   "get",
+	Short: "Show the organisation's pipeline settings and capacity",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+		defer cancel()
+
+		settings, requestError := apiClient.GetOrganisationCISettings(ctx)
+		if requestError != nil {
+			return fmt.Errorf("get organisation CI settings: %w", requestError)
+		}
+		capacity := readOrganisationCICapacity(ctx, cmd)
+		view := organisationCISettingsView{OrganisationCISettings: *settings, Capacity: capacity}
+		if rendered, renderError := renderStructured(cmd, view); rendered || renderError != nil {
+			return renderError
+		}
+		renderOrganisationCISettings(cmd, settings)
+		renderOrganisationCICapacity(cmd, capacity)
+		return nil
+	},
+}
+
+// organisationCISettingsView is what `get` prints under -o json|yaml: every
+// settings field at the top level, exactly as before the capacity read
+// existed, and the capacity under its own key. The key is left out when the
+// platform does not report capacity, so a script reads "absent" rather than a
+// block of zeros that would say the cluster is idle.
+type organisationCISettingsView struct {
+	client.OrganisationCISettings `yaml:",inline"`
+	Capacity                      *client.OrganisationCICapacity `json:"capacity,omitempty" yaml:"capacity,omitempty"`
+}
+
+// readOrganisationCICapacity reads the capacity block for `get`. The settings
+// are the command's answer and the capacity is context for them, so a
+// capacity read that fails costs the block, not the command: a platform that
+// predates the endpoint leaves it out silently, and any other failure says so
+// on stderr - where -o json stays parseable - rather than printing nothing,
+// which would read as "nothing is queued".
+func readOrganisationCICapacity(ctx context.Context, cmd *cobra.Command) *client.OrganisationCICapacity {
+	capacity, capacityError := apiClient.GetOrganisationCICapacity(ctx)
+	if capacityError == nil {
+		return capacity
+	}
+	if !errors.Is(capacityError, client.ErrCICapacityUnavailable) {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Pipeline capacity could not be read: %v\n", capacityError)
+	}
+	return nil
+}
+
+// renderOrganisationCICapacity prints how full the pipeline cluster is and how
+// much of this organisation's work waits behind it. A slot is one pipeline
+// step the cluster's agent watches at a time, not a node, so the block says
+// so: an administrator whose steps wait on slots raises the agent's workers,
+// and one whose steps sit Pending on the cluster adds nodes.
+func renderOrganisationCICapacity(cmd *cobra.Command, capacity *client.OrganisationCICapacity) {
+	if capacity == nil {
+		return
+	}
+	out := cmd.OutOrStdout()
+	_, _ = fmt.Fprintln(out, "\nCapacity:")
+	clusterName := ""
+	if capacity.ClusterName != nil {
+		clusterName = *capacity.ClusterName
+	}
+	if capacity.ClusterID == nil || clusterName == "" {
+		_, _ = fmt.Fprintln(out, "  CI slots:                (no pipeline cluster - nothing to run steps on)")
+	} else {
+		_, _ = fmt.Fprintf(out, "  CI slots:                %d of %d in use on %s\n",
+			capacity.StepsInFlightOnCluster, capacity.CIWorkerCount, clusterName)
+		_, _ = fmt.Fprintf(out, "  Live resize:             %s\n", liveResizeLabel(capacity.IsLiveResizeSupported))
+	}
+	if capacity.IsPooled {
+		renderOrganisationCIPoolCapacity(out, capacity.PoolMembers)
+	}
+	renderOrganisationCIScaleUpBlockers(out, capacity.PoolMembers)
+	_, _ = fmt.Fprintf(out, "  Runs in flight:          %d of %d\n",
+		capacity.OrganisationRunsInFlight, capacity.MaxParallelRuns)
+	_, _ = fmt.Fprintf(out, "  Runs queued:             %d\n", capacity.OrganisationRunsQueued)
+	_, _ = fmt.Fprintf(out, "  Steps pending:           %d\n", capacity.OrganisationStepsPending)
+	_, _ = fmt.Fprintf(out, "  Steps waiting on a slot: %d\n", capacity.OrganisationStepsWaitingOnSlots)
+	_, _ = fmt.Fprintln(out,
+		"\nA CI slot is one pipeline step the cluster's agent watches at a time, not a node;\n"+
+			"nodes come from the cluster's node group autoscaler.")
+	renderOrganisationCICapacityHints(out, capacity, clusterName)
+}
+
+// renderOrganisationCIPoolCapacity prints one line per CI pool member: how
+// many of its slots are in use, and why it takes no runs when it cannot.
+func renderOrganisationCIPoolCapacity(out io.Writer, members []client.OrganisationCICapacityMember) {
+	_, _ = fmt.Fprintf(out, "  CI pool:                 %d clusters, runs go to the least loaded\n", len(members))
+	for _, member := range members {
+		state := ""
+		switch {
+		case !member.CanRunSteps:
+			state = " (takes no runs: its agent is offline or does not run pipeline steps)"
+		case member.IsFull:
+			state = " (full)"
+		}
+		role := ""
+		if member.IsPrimary {
+			role = ", primary"
+		}
+		_, _ = fmt.Fprintf(out, "    %-22s %d of %d in use, weight %d%s%s\n", member.ClusterName,
+			member.StepsInFlight, member.CIWorkerCount, member.Weight, role, state)
+	}
+}
+
+// scaleUpBlockersUnreadable is said for a cluster with waiting steps whose
+// blockers the platform could not read and gave no sentence for: silence
+// there would read as "nothing is stopping it".
+const scaleUpBlockersUnreadable = "Ankra could not read whether anything is stopping this cluster from adding nodes."
+
+// renderOrganisationCIScaleUpBlockers prints what is stopping each CI
+// cluster from running the organisation's waiting steps, with the next step
+// the platform gives for each (ankra-q573dh.15). A cluster whose events could
+// not be read says so when steps are waiting on it, because silence there
+// would read as "nothing is wrong". A platform that predates blockers prints
+// nothing here.
+func renderOrganisationCIScaleUpBlockers(out io.Writer, members []client.OrganisationCICapacityMember) {
+	isHeaderPrinted := false
+	header := func() {
+		if !isHeaderPrinted {
+			_, _ = fmt.Fprintln(out, "  Blocked:")
+			isHeaderPrinted = true
+		}
+	}
+	for _, member := range members {
+		for _, blocker := range member.ScaleUpBlockers {
+			header()
+			_, _ = fmt.Fprintf(out, "    %s: %s [%s]\n", member.ClusterName, blocker.Title, blocker.Code)
+			if blocker.WaitingSteps > 0 {
+				_, _ = fmt.Fprintf(out, "      Holds %d waiting step(s).\n", blocker.WaitingSteps)
+			}
+			_, _ = fmt.Fprintf(out, "      %s\n", blocker.NextStep)
+			if blocker.Detail != nil && *blocker.Detail != "" {
+				_, _ = fmt.Fprintf(out, "      Reported: %s\n", *blocker.Detail)
+			}
+		}
+		isWaiting := member.WaitingSteps != nil && *member.WaitingSteps > 0
+		if member.ScaleUpBlockersState == "unknown" && isWaiting {
+			header()
+			sentence := scaleUpBlockersUnreadable
+			if member.ScaleUpBlockersUnavailable != nil && *member.ScaleUpBlockersUnavailable != "" {
+				sentence = *member.ScaleUpBlockersUnavailable
+			}
+			_, _ = fmt.Fprintf(out, "    %s: %s\n", member.ClusterName, sentence)
+		}
+	}
+}
+
+// liveResizeLabel says whether a worker-count change reaches the agent
+// without restarting it.
+func liveResizeLabel(isLiveResizeSupported bool) string {
+	if isLiveResizeSupported {
+		return "supported (a new worker count applies without an agent restart)"
+	}
+	return "not supported (a new worker count re-renders the agent's release)"
+}
+
+var orgCISettingsSetCmd = &cobra.Command{
+	Use:   "set",
+	Short: "Change the organisation's pipeline settings",
+	Long: `Change the settings every pipeline in this organisation runs under.
+
+Only the flags you pass are written; every other setting keeps its stored
+value, so raising one number can never clear the image policy. Clear the
+pipeline cluster with an empty value:
+
+  ankra org ci-settings set --cluster build-cluster
+  ankra org ci-settings set --cluster ""
+  ankra org ci-settings set --build-fallback none
+  ankra org ci-settings set --allowed-image-prefix ghcr.io/ankraio --allowed-image-prefix docker.io/library
+  ankra org ci-settings set --allowed-image-prefix ""
+  ankra org ci-settings set --egress-allowed-cidr 10.0.0.0/8 --egress-allowed-cidr 192.168.10.0/24
+  ankra org ci-settings set --run-retention-days 180
+  ankra org ci-settings set --ignore-unfixed=false
+  ankra org ci-settings set --always-run-stage security-scan --always-run-stage lint
+  ankra org ci-settings set --full-run-on-default-branch --skip-markers never
+
+--always-run-stage, --full-run-on-default-branch and --skip-markers are the
+safety net around path filters. An always-run stage (and every stage it
+needs) runs whatever its path filters say; a full run on the default branch
+sets the filters aside for every push there; --skip-markers decides where a
+[skip ci] marker in a pushed commit skips the run: everywhere,
+except_default_branch (Ankra's default) or never. A merge train car and a tag
+push never honour a marker.
+
+--allowed-image-prefix and --egress-allowed-cidr replace their whole list
+rather than adding to it, because a list you can only grow is one you cannot
+correct. Passing either once with an empty value clears it: no image
+restriction, or no private egress beyond the public internet.
+
+--ignore-unfixed is the floor under every pipeline's image gate. It is true by
+default, letting a gate stage leave findings with no available fix out of its
+verdict; set it to false and every unfixed finding blocks, whatever any
+pipeline asks for.
+
+One thing 'get' shows has no flag here and never will:
+platform_builds_enabled, printed as "Platform builds enabled". It is Ankra's
+grant of the platform-builders capability to this organisation, not a setting
+of it - a read-only report of a decision only Ankra can take. The endpoint
+refuses a body that names it with HTTP 422 ("platform_builds_enabled is
+Ankra's grant, not a setting of this organisation"), so writing back a 'get'
+payload wholesale is refused rather than half-applied. Ask Ankra to enable it.
+
+Requires organisation admin. A member's attempt is refused with exit code 7.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		changes, changesError := organisationCISettingsChanges(cmd)
+		if changesError != nil {
+			return changesError
+		}
+		if len(changes) == 0 {
+			return withExitCode(exitUsage, errors.New(
+				"pass at least one setting to change: --cluster, --build-fallback, "+
+					"--max-parallel-runs, --max-parallel-steps, --allowed-image-prefix, "+
+					"--egress-allowed-cidr, --artifact-retention-days, --cache-retention-days, "+
+					"--run-retention-days, --image-gate, --ignore-unfixed, --always-run-stage, "+
+					"--full-run-on-default-branch or --skip-markers"))
+		}
+
+		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+		defer cancel()
+
+		settings, requestError := apiClient.UpdateOrganisationCISettings(ctx, changes)
+		if requestError != nil {
+			return fmt.Errorf("set organisation CI settings: %w", requestError)
+		}
+		if rendered, renderError := renderStructured(cmd, settings); rendered || renderError != nil {
+			return renderError
+		}
+		renderOrganisationCISettings(cmd, settings)
+		return nil
+	},
+}
+
+// organisationCISettingsChanges turns the flags the caller actually passed
+// into the endpoint's tri-state body. A flag left alone is absent from the map
+// and its stored value is untouched; --cluster with an empty value is the
+// explicit null that clears the organisation's pipeline cluster.
+func organisationCISettingsChanges(cmd *cobra.Command) (map[string]any, error) {
+	changes := map[string]any{}
+
+	if cmd.Flags().Changed("cluster") {
+		nameOrID, _ := cmd.Flags().GetString("cluster")
+		if strings.TrimSpace(nameOrID) == "" {
+			changes["ci_cluster_id"] = nil
+		} else {
+			// Resolved here rather than sent as typed: the endpoint takes a
+			// uuid, and a command whose sibling flags all accept a cluster
+			// name would otherwise be the one place a name silently fails.
+			clusterID, resolveError := resolveClusterID(strings.TrimSpace(nameOrID))
+			if resolveError != nil {
+				return nil, resolveError
+			}
+			changes["ci_cluster_id"] = clusterID
+		}
+	}
+
+	if cmd.Flags().Changed("build-fallback") {
+		fallback, _ := cmd.Flags().GetString("build-fallback")
+		fallback = strings.TrimSpace(fallback)
+		// Checked here as well as on the platform because the value is the
+		// answer to "what may this be set to", and a round trip that comes
+		// back naming the field but not the vocabulary leaves the caller
+		// exactly where they started.
+		if fallback != client.CIBuildFallbackPlatformBuilders && fallback != client.CIBuildFallbackNone {
+			return nil, withExitCode(exitUsage, fmt.Errorf("--build-fallback must be %s or %s",
+				client.CIBuildFallbackPlatformBuilders, client.CIBuildFallbackNone))
+		}
+		changes["ci_build_fallback"] = fallback
+	}
+
+	if cmd.Flags().Changed("image-gate") {
+		gate, _ := cmd.Flags().GetString("image-gate")
+		gate = strings.TrimSpace(gate)
+		switch gate {
+		case client.CIImageGateApplicationDependencies, client.CIImageGateAllFindings, client.CIImageGateNothing:
+			changes["ci_image_gate"] = gate
+		default:
+			return nil, withExitCode(exitUsage, fmt.Errorf("--image-gate must be %s, %s or %s",
+				client.CIImageGateApplicationDependencies, client.CIImageGateAllFindings,
+				client.CIImageGateNothing))
+		}
+	}
+
+	for flagName, field := range organisationCISettingsIntFields {
+		if !cmd.Flags().Changed(flagName) {
+			continue
+		}
+		value, _ := cmd.Flags().GetInt(flagName)
+		// The bounds are the platform's, and it refuses with a sentence
+		// naming them, so nothing is duplicated here.
+		changes[field] = value
+	}
+
+	if cmd.Flags().Changed("allowed-image-prefix") {
+		raw, _ := cmd.Flags().GetStringArray("allowed-image-prefix")
+		prefixes := make([]string, 0, len(raw))
+		for _, prefix := range raw {
+			if trimmed := strings.TrimSpace(prefix); trimmed != "" {
+				prefixes = append(prefixes, trimmed)
+			}
+		}
+		// An empty list is a real value here, not an omission: it is how the
+		// organisation says "no restriction". Sent as [] rather than dropped.
+		changes["ci_allowed_image_prefixes"] = prefixes
+	}
+
+	if cmd.Flags().Changed("egress-allowed-cidr") {
+		raw, _ := cmd.Flags().GetStringArray("egress-allowed-cidr")
+		cidrs := make([]string, 0, len(raw))
+		for _, cidr := range raw {
+			if trimmed := strings.TrimSpace(cidr); trimmed != "" {
+				cidrs = append(cidrs, trimmed)
+			}
+		}
+		// Same contract as the image policy: [] is "no private egress", not
+		// "leave it alone". The platform owns the CIDR rules (network
+		// address, private range, at most 32) and refuses with a sentence
+		// naming them, so nothing is re-validated here.
+		changes["ci_egress_allowed_cidrs"] = cidrs
+	}
+
+	if cmd.Flags().Changed("ignore-unfixed") {
+		// A bool flag has no absent state of its own, so presence is read
+		// from Changed rather than from the value: --ignore-unfixed=false is
+		// a write, an untouched flag is not.
+		ignoreUnfixed, _ := cmd.Flags().GetBool("ignore-unfixed")
+		changes["ci_ignore_unfixed"] = ignoreUnfixed
+	}
+
+	if cmd.Flags().Changed("always-run-stage") {
+		raw, _ := cmd.Flags().GetStringArray("always-run-stage")
+		stages := make([]string, 0, len(raw))
+		for _, stage := range raw {
+			if trimmed := strings.TrimSpace(stage); trimmed != "" {
+				stages = append(stages, trimmed)
+			}
+		}
+		// [] keeps every path filter as the definitions wrote them; the
+		// platform owns the stage-name rules and the bound on the list.
+		changes["ci_always_run_stages"] = stages
+	}
+
+	if cmd.Flags().Changed("full-run-on-default-branch") {
+		fullRunOnDefaultBranch, _ := cmd.Flags().GetBool("full-run-on-default-branch")
+		changes["ci_full_run_on_default_branch"] = fullRunOnDefaultBranch
+	}
+
+	if cmd.Flags().Changed("skip-markers") {
+		skipMarkers, _ := cmd.Flags().GetString("skip-markers")
+		skipMarkers = strings.TrimSpace(skipMarkers)
+		switch skipMarkers {
+		case client.CISkipMarkersEverywhere, client.CISkipMarkersExceptDefaultBranch, client.CISkipMarkersNever:
+			changes["ci_skip_markers"] = skipMarkers
+		default:
+			return nil, withExitCode(exitUsage, fmt.Errorf("--skip-markers must be %s, %s or %s",
+				client.CISkipMarkersEverywhere, client.CISkipMarkersExceptDefaultBranch,
+				client.CISkipMarkersNever))
+		}
+	}
+
+	return changes, nil
+}
+
+// organisationCISettingsIntFields maps each numeric flag to the wire field it
+// writes. Registration and parsing both walk it, so a renamed flag cannot
+// become a no-op that cobra accepts and the change loop never matches.
+var organisationCISettingsIntFields = map[string]string{
+	"max-parallel-runs":       "ci_max_parallel_runs",
+	"max-parallel-steps":      "ci_max_parallel_steps",
+	"artifact-retention-days": "ci_artifact_retention_days",
+	"cache-retention-days":    "ci_cache_retention_days",
+	"run-retention-days":      "ci_run_retention_days",
+}
+
+// organisationCISettingsIntUsage is the help string for each field in
+// organisationCISettingsIntFields, kept beside it so init can catch a field
+// added without one rather than registering no flag at all.
+var organisationCISettingsIntUsage = map[string]string{
+	"max-parallel-runs":       "How many of this organisation's pipeline runs may be in flight at once",
+	"max-parallel-steps":      "How many steps of one run may be in flight at once",
+	"artifact-retention-days": "How long a run's artifacts survive",
+	"cache-retention-days":    "How long a run's caches survive",
+	"run-retention-days":      "How long a repository's concluded run history survives (7-365)",
+}
+
+func renderOrganisationCISettings(cmd *cobra.Command, settings *client.OrganisationCISettings) {
+	out := cmd.OutOrStdout()
+
+	switch {
+	case settings.ClusterID == nil:
+		_, _ = fmt.Fprintln(out,
+			"Pipeline cluster:        (none - pipeline steps have nowhere to run)")
+	case settings.ClusterName == nil || *settings.ClusterName == "":
+		// The id without a name is the deleted-cluster case, and it is worth
+		// saying out loud: the settings still point somewhere, and the run
+		// that fails for it gives no hint that the target stopped existing.
+		_, _ = fmt.Fprintf(out,
+			"Pipeline cluster:        %s (no such cluster - it has been deleted)\n", *settings.ClusterID)
+	default:
+		_, _ = fmt.Fprintf(out, "Pipeline cluster:        %s\n", *settings.ClusterName)
+	}
+
+	_, _ = fmt.Fprintf(out, "Build fallback:          %s\n", settings.BuildFallback)
+	_, _ = fmt.Fprintf(out, "Max parallel runs:       %d\n", settings.MaxParallelRuns)
+	_, _ = fmt.Fprintf(out, "Max parallel steps:      %d\n", settings.MaxParallelSteps)
+	if len(settings.AllowedImagePrefixes) == 0 {
+		_, _ = fmt.Fprintln(out, "Allowed image prefixes:  (any)")
+	} else {
+		_, _ = fmt.Fprintf(out, "Allowed image prefixes:  %s\n",
+			strings.Join(settings.AllowedImagePrefixes, ", "))
+	}
+	if len(settings.EgressAllowedCIDRs) == 0 {
+		_, _ = fmt.Fprintln(out, "Egress allowed CIDRs:    (none - steps reach the public internet only)")
+	} else {
+		_, _ = fmt.Fprintf(out, "Egress allowed CIDRs:    %s\n",
+			strings.Join(settings.EgressAllowedCIDRs, ", "))
+	}
+	_, _ = fmt.Fprintf(out, "Artifact retention:      %d days\n", settings.ArtifactRetentionDays)
+	_, _ = fmt.Fprintf(out, "Cache retention:         %d days\n", settings.CacheRetentionDays)
+	_, _ = fmt.Fprintf(out, "Run retention:           %d days\n", settings.RunRetentionDays)
+	_, _ = fmt.Fprintf(out, "Image gate:              %s\n", settings.ImageGate)
+	_, _ = fmt.Fprintf(out, "Ignore unfixed findings: %s\n", yesNo(settings.IgnoreUnfixed))
+	if len(settings.AlwaysRunStages) > 0 {
+		_, _ = fmt.Fprintf(out, "Always-run stages:       %s\n", strings.Join(settings.AlwaysRunStages, ", "))
+	} else if settings.FullRunOnDefaultBranch != nil {
+		_, _ = fmt.Fprintln(out, "Always-run stages:       (none - path filters apply as written)")
+	}
+	if settings.FullRunOnDefaultBranch != nil {
+		_, _ = fmt.Fprintf(out, "Full run on default:     %s\n", yesNo(*settings.FullRunOnDefaultBranch))
+	}
+	if settings.SkipMarkers != "" {
+		_, _ = fmt.Fprintf(out, "Skip markers honoured:   %s\n", settings.SkipMarkers)
+	}
+	if settings.PlatformBuildsEnabled != nil {
+		_, _ = fmt.Fprintf(out, "Platform builds enabled: %s\n", yesNo(*settings.PlatformBuildsEnabled))
+	}
+
+	if settings.IsDefault {
+		_, _ = fmt.Fprintln(out,
+			"\nEvery value above is Ankra's default; nothing has been set on this organisation.")
+	}
+
+	renderPlatformBuildsNote(cmd, settings)
+}
+
+// renderPlatformBuildsNote says what platform_builders cannot promise on its
+// own. Opting into the fallback is necessary but not sufficient: the
+// Ankra-operated build lane is additionally gated on a capability Ankra grants
+// per organisation. When it is off, a build step concludes with a sentence
+// about the fallback, and an administrator who reads it as being about the
+// setting goes and changes a setting that was already correct (PLA-825,
+// PLA-850).
+//
+// The sentence this note quotes is the one the platform emits today, and it
+// is quoted so a reader can match it against the step in front of them. It
+// used to be "the organisation's build fallback is 'none'", which named the
+// setting for a failure that was never about the setting; cluster-scheduler's
+// pipeline_step_dispatch now says "Ankra's platform-operated build fallback is
+// not enabled for this organisation yet" for the dark grant, and keeps the
+// 'none' sentence for an organisation whose setting really is none - which
+// this note never prints for, since there is no contradiction to warn about
+// then. Quoting the retired sentence sent a reader looking for text no step
+// carries any more (PLA-868).
+//
+// A platform that reports the grant settles it, so only a denial needs a
+// sentence. A platform that predates the field leaves the grant unknown, and
+// the caveat stays, with the one read that does reveal it.
+func renderPlatformBuildsNote(cmd *cobra.Command, settings *client.OrganisationCISettings) {
+	if settings.BuildFallback != client.CIBuildFallbackPlatformBuilders {
+		return
+	}
+	out := cmd.OutOrStdout()
+	switch {
+	case settings.PlatformBuildsEnabled == nil:
+		_, _ = fmt.Fprintln(out,
+			"\nNote: platform_builders also needs the platform-builders capability, which these\n"+
+				"settings do not show. A build step that fails with \"Ankra's platform-operated\n"+
+				"build fallback is not enabled for this organisation yet\" while this reads\n"+
+				"platform_builders is missing the capability, not the setting.\n"+
+				"`ankra application build list <application-id>` answering 404 means it is off.")
+	case !*settings.PlatformBuildsEnabled:
+		_, _ = fmt.Fprintln(out,
+			"\nNote: Ankra has not granted this organisation the platform-builders capability, so\n"+
+				"no build falls back to Ankra's builders even though this reads platform_builders.\n"+
+				"A build step that fails with \"Ankra's platform-operated build fallback is not\n"+
+				"enabled for this organisation yet\" is missing that grant, not the setting, and\n"+
+				"only Ankra can enable it.")
+	}
+}
+
+func init() {
+	registerStructuredOutputFlags(orgCISettingsGetCmd, orgCISettingsSetCmd)
+
+	orgCISettingsSetCmd.Flags().String("cluster", "",
+		"Cluster name or id that pipeline steps run on; empty clears it")
+	orgCISettingsSetCmd.Flags().String("build-fallback", "",
+		"Whether a build may fall back to Ankra's build cluster when the pipeline cluster's agent "+
+			"does not run pipeline steps, or its node runtime confines the rootless builder: "+
+			"platform_builders or none")
+	orgCISettingsSetCmd.Flags().StringArray("allowed-image-prefix", nil,
+		"Image prefix a step may name (repeatable); replaces the list, empty clears it")
+	orgCISettingsSetCmd.Flags().String("image-gate", "",
+		"Which image findings block a publish: app, all or off")
+	orgCISettingsSetCmd.Flags().StringArray("egress-allowed-cidr", nil,
+		"Private CIDR pipeline steps may reach (repeatable); replaces the list, empty clears it")
+	orgCISettingsSetCmd.Flags().Bool("ignore-unfixed", true,
+		"Let a gate stage leave findings with no available fix out of its verdict; =false makes every unfixed finding block")
+	orgCISettingsSetCmd.Flags().StringArray("always-run-stage", nil,
+		"Stage that runs whatever its path filters say, with every stage it needs (repeatable); replaces the list, empty clears it")
+	orgCISettingsSetCmd.Flags().Bool("full-run-on-default-branch", false,
+		"Run every stage on a push to a repository's default branch, setting path filters aside; =false applies them")
+	orgCISettingsSetCmd.Flags().String("skip-markers", "",
+		"Where a [skip ci] marker in a pushed commit skips the run: everywhere, except_default_branch (default) or never")
+	// Both directions of drift are fatal: walking the field map catches a
+	// field with no usage string, the count check catches a usage string
+	// naming a flag that writes nothing.
+	if len(organisationCISettingsIntUsage) != len(organisationCISettingsIntFields) {
+		panic("CI settings int flag usage and wire-field maps disagree")
+	}
+	for flagName := range organisationCISettingsIntFields {
+		usage, hasUsage := organisationCISettingsIntUsage[flagName]
+		if !hasUsage {
+			panic("CI setting flag " + flagName + " has no usage string")
+		}
+		orgCISettingsSetCmd.Flags().Int(flagName, 0, usage)
+	}
+
+	orgCISettingsCmd.AddCommand(orgCISettingsGetCmd)
+	orgCISettingsCmd.AddCommand(orgCISettingsSetCmd)
+	orgCmd.AddCommand(orgCISettingsCmd)
+}

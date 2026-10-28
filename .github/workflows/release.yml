@@ -1,0 +1,211 @@
+name: Release ankra-cli
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  create-release:
+    name: Create release
+    permissions:
+      contents: write
+    runs-on: ${{ vars.CI_RUNNER_2 || 'ubuntu-latest' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          awk -v version="${VERSION}" '
+            $0 ~ "^## v?"version"([[:space:]]|$)" {found=1; next}
+            found && /^## / {exit}
+            found {print}
+          ' CHANGELOG.md > release-notes.md
+          if [ -s release-notes.md ]; then
+            echo "Release notes extracted from CHANGELOG.md:"
+            cat release-notes.md
+          else
+            echo "No CHANGELOG.md section found for ${TAG}; will fall back to generated notes"
+          fi
+
+      - name: Create release and upload install script
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PRERELEASE_FLAG=""
+          case "${{ github.ref_name }}" in
+            *-*) PRERELEASE_FLAG="--prerelease" ;;
+          esac
+          if ! gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+            if [ -s release-notes.md ]; then
+              gh release create "${{ github.ref_name }}" \
+                ${PRERELEASE_FLAG} \
+                --title "${{ github.ref_name }}" \
+                --notes-file release-notes.md
+            else
+              gh release create "${{ github.ref_name }}" \
+                ${PRERELEASE_FLAG} \
+                --title "${{ github.ref_name }}" \
+                --generate-notes
+            fi
+          fi
+          gh release upload "${{ github.ref_name }}" install.sh --clobber
+
+  build-and-release:
+    name: Build and Release
+    needs: create-release
+    permissions:
+      contents: write
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ${{ vars.CI_RUNNER_2 || 'ubuntu-latest' }}
+            goos: linux
+            goarch: amd64
+          - os: ${{ vars.CI_RUNNER_2 || 'ubuntu-latest' }}
+            goos: linux
+            goarch: arm64
+          - os: ${{ vars.CI_RUNNER_2 || 'ubuntu-latest' }}
+            goos: windows
+            goarch: amd64
+          - os: ${{ vars.CI_RUNNER_2 || 'ubuntu-latest' }}
+            goos: windows
+            goarch: arm64
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+          VERSION: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          OUTPUT="ankra-cli-${GOOS}-${GOARCH}"
+          if [ "${GOOS}" = "windows" ]; then
+            OUTPUT="${OUTPUT}.exe"
+          fi
+          go build -trimpath -ldflags="-w -s -X main.version=${VERSION}" -o "dist/${OUTPUT}"
+
+      - name: Sign macOS binary
+        if: matrix.goos == 'darwin'
+        run: |
+          chmod +x dist/ankra-cli-darwin-${{ matrix.goarch }}
+          if command -v xattr >/dev/null 2>&1; then
+            xattr -d com.apple.quarantine dist/ankra-cli-darwin-${{ matrix.goarch }} 2>/dev/null || true
+          fi
+          # Ad-hoc sign to reduce Gatekeeper warnings until proper
+          # Developer ID signing/notarization is configured.
+          codesign --force --sign - dist/ankra-cli-darwin-${{ matrix.goarch }}
+
+      - name: Compute SHA256 checksum
+        shell: bash
+        run: |
+          cd dist
+          BINARY=$(ls ankra-cli-${{ matrix.goos }}-${{ matrix.goarch }}* 2>/dev/null | head -n 1)
+          if [ -z "${BINARY}" ]; then
+            echo "no binary found to checksum" >&2
+            exit 1
+          fi
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${BINARY}" > "${BINARY}.sha256"
+          else
+            shasum -a 256 "${BINARY}" > "${BINARY}.sha256"
+          fi
+          cat "${BINARY}.sha256"
+
+      - name: Upload binary and checksum
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            dist/ankra-cli-${{ matrix.goos }}-${{ matrix.goarch }}* \
+            --clobber
+
+      - name: Print version smoke test
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: ./dist/ankra-cli-linux-amd64 --version
+
+  publish-homebrew:
+    name: Publish Homebrew formula
+    needs: build-and-release
+    # Pre-release tags (containing a hyphen) never reach the tap; brew users
+    # only ever see stable releases.
+    if: ${{ !contains(github.ref_name, '-') }}
+    permissions:
+      contents: read
+    runs-on: ${{ vars.CI_RUNNER_2 || 'ubuntu-latest' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Render formula from template
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          fetch_checksum() {
+            curl -fsSL "https://github.com/ankraio/ankra-cli/releases/download/${TAG}/ankra-cli-$1.sha256" | awk '{print $1}'
+          }
+          SHA_DARWIN_ARM64="$(fetch_checksum darwin-arm64)"
+          SHA_DARWIN_AMD64="$(fetch_checksum darwin-amd64)"
+          SHA_LINUX_ARM64="$(fetch_checksum linux-arm64)"
+          SHA_LINUX_AMD64="$(fetch_checksum linux-amd64)"
+          for checksum in "${SHA_DARWIN_ARM64}" "${SHA_DARWIN_AMD64}" "${SHA_LINUX_ARM64}" "${SHA_LINUX_AMD64}"; do
+            if ! printf '%s' "${checksum}" | grep -Eq '^[0-9a-f]{64}$'; then
+              echo "refusing to publish formula: invalid checksum '${checksum}'" >&2
+              exit 1
+            fi
+          done
+          sed \
+            -e "s/__VERSION__/${VERSION}/g" \
+            -e "s/__SHA_DARWIN_ARM64__/${SHA_DARWIN_ARM64}/g" \
+            -e "s/__SHA_DARWIN_AMD64__/${SHA_DARWIN_AMD64}/g" \
+            -e "s/__SHA_LINUX_ARM64__/${SHA_LINUX_ARM64}/g" \
+            -e "s/__SHA_LINUX_AMD64__/${SHA_LINUX_AMD64}/g" \
+            packaging/homebrew/ankra.rb.tmpl > /tmp/ankra.rb
+
+      - name: Push formula to ankraio/homebrew-tap
+        env:
+          TAG: ${{ github.ref_name }}
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${HOMEBREW_TAP_DEPLOY_KEY}" > ~/.ssh/homebrew_tap_deploy_key
+          chmod 600 ~/.ssh/homebrew_tap_deploy_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/homebrew_tap_deploy_key -o IdentitiesOnly=yes"
+          git clone --depth 1 git@github.com:ankraio/homebrew-tap.git tap
+          cp /tmp/ankra.rb tap/Formula/ankra.rb
+          cd tap
+          if git diff --quiet; then
+            echo "Formula already up to date for ${TAG}; nothing to push."
+            exit 0
+          fi
+          git config user.name "ankra-release-bot"
+          git config user.email "hello@ankra.io"
+          git add Formula/ankra.rb
+          git commit -m "ankra ${TAG}"
+          git push origin master

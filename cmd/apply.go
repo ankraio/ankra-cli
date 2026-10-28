@@ -1,0 +1,1345 @@
+package cmd
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+
+	"ankra/internal/client"
+	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
+)
+
+var clusterApplyCmd = &cobra.Command{
+	Use:   "apply",
+	Short: "Apply an ImportCluster YAML to the Ankra API",
+	Args:  cobra.NoArgs,
+	RunE:  runApply,
+}
+
+func init() {
+	clusterApplyCmd.Flags().StringP("file", "f", "", "Path to the ImportCluster YAML file to apply")
+	clusterApplyCmd.Flags().Bool("dry-run", false, "Validate the ImportCluster YAML locally without calling the API")
+	// Repointing a cluster's GitOps source writes the cluster's state to the new
+	// source first and makes it authoritative from then on. The server refuses
+	// it without these, so they are the CLI half of that gate rather than a
+	// local check (ankra-po6d, ankra-apjjn).
+	clusterApplyCmd.Flags().Bool("allow-repoint", false,
+		"Allow this apply to change the cluster's GitOps repository or branch. Ankra writes the cluster's current state to the new source first, then syncs from it; anything that later leaves that source is pruned. A target that cannot be written leaves the cluster unchanged")
+	clusterApplyCmd.Flags().Bool("allow-repoint-destroying-data", false,
+		"Additionally allow a repoint on a cluster holding PersistentVolumeClaims, whose data is destroyed if the new source stops defining their workloads. Requires --allow-repoint")
+	// The apply replaces every stack the file names, so a member of such a
+	// stack that the file no longer lists is uninstalled - which is also what
+	// a file saved before that member was added looks like. The platform
+	// refuses such an apply unless one of these declares the removal
+	// (ankra-kwr1sp).
+	clusterApplyCmd.Flags().Bool("prune", false,
+		"Remove the members (add-ons, manifests, applications) of the file's stacks that the file no longer lists. Use it when the file is the complete, current definition of those stacks; without it, or --confirm-removal, such an apply is refused and changes nothing")
+	clusterApplyCmd.Flags().StringArray("confirm-removal", nil,
+		"Allow the apply to remove this member, which the file no longer lists, as kind/name (kind addon, manifest or application; repeatable)")
+	registerAsyncWriteFlags(clusterApplyCmd)
+	// The shared wording ("wait for the operation to finish") is true of the
+	// node-group and bastion writes, but on apply it promises more than it
+	// delivers: the server commits the configuration, pushes to Git and
+	// returns, and the reconciler dispatches the add-on deploys afterwards.
+	// A reporter read the old text as a rollout gate and took a clean exit 0
+	// as proof the deploy had succeeded while three add-ons crash-looped
+	// (ankra-6j2w / PLA-748, from Ankra #1059).
+	if waitFlag := clusterApplyCmd.Flags().Lookup("wait"); waitFlag != nil {
+		waitFlag.Usage = "Wait for the configuration write to be applied and report its result. " +
+			"Add-on deploys are dispatched afterwards and are NOT covered by this flag - " +
+			"watch them with 'ankra cluster operations list'"
+	}
+	registerStructuredOutputFlags(clusterApplyCmd)
+	setDryRunOffline(clusterApplyCmd)
+	_ = clusterApplyCmd.MarkFlagRequired("file")
+	clusterCmd.AddCommand(clusterApplyCmd)
+}
+
+func runApply(cmd *cobra.Command, _ []string) error {
+	filePath, err := cmd.Flags().GetString("file")
+	if err != nil {
+		return fmt.Errorf("reading --file: %w", err)
+	}
+	if filePath == "" {
+		return errors.New("--file is required")
+	}
+	dryRun, err := cmd.Flags().GetBool("dry-run")
+	if err != nil {
+		return fmt.Errorf("reading --dry-run: %w", err)
+	}
+
+	allowRepoint, err := cmd.Flags().GetBool("allow-repoint")
+	if err != nil {
+		return fmt.Errorf("reading --allow-repoint: %w", err)
+	}
+	allowRepointDestroyingData, err := cmd.Flags().GetBool("allow-repoint-destroying-data")
+	if err != nil {
+		return fmt.Errorf("reading --allow-repoint-destroying-data: %w", err)
+	}
+	if allowRepointDestroyingData && !allowRepoint {
+		return errors.New("--allow-repoint-destroying-data requires --allow-repoint")
+	}
+	importRequest, err := loadImportCluster(filePath, allowRepoint, allowRepointDestroyingData)
+	if err != nil {
+		return err
+	}
+	importRequest.Prune, err = cmd.Flags().GetBool("prune")
+	if err != nil {
+		return fmt.Errorf("reading --prune: %w", err)
+	}
+	confirmRemovalFlags, err := cmd.Flags().GetStringArray("confirm-removal")
+	if err != nil {
+		return fmt.Errorf("reading --confirm-removal: %w", err)
+	}
+	for _, value := range confirmRemovalFlags {
+		if strings.Contains(value, ":") {
+			return withExitCode(exitUsage, fmt.Errorf("--confirm-removal %q: apply writes one cluster, so name the member as kind/name", value))
+		}
+	}
+	confirmations, err := parseConfirmedRemovals(confirmRemovalFlags, nil)
+	if err != nil {
+		return err
+	}
+	for _, confirmation := range confirmations {
+		importRequest.ConfirmedMemberRemovals = append(importRequest.ConfirmedMemberRemovals, confirmation.Member)
+	}
+	printUnreadImportMetadataWarnings(cmd, filePath)
+	if dryRun {
+		fmt.Printf("Validation succeeded for %q; no changes applied (--dry-run).\n", filePath)
+		if override := clusterFlagOverride(cmd); override != "" {
+			fmt.Printf("--cluster %q is resolved when the file is applied; --dry-run validates it offline.\n", override)
+		}
+		return nil
+	}
+	targetNote, err := applyClusterOverride(cmd, &importRequest)
+	if err != nil {
+		return err
+	}
+
+	if targetNote != "" {
+		fmt.Println(targetNote)
+	}
+
+	wait, err := asyncWriteWaitFlag(cmd)
+	if err != nil {
+		return err
+	}
+	requestContext, cancelRequestContext, err := asyncWriteRequestContext(cmd)
+	if err != nil {
+		return err
+	}
+	defer cancelRequestContext()
+
+	importResponse, submitted, err := applyImportCluster(requestContext, importRequest, wait)
+	if refusal, isRemovalRefusal := asMemberRemovalRefusal(err); isRemovalRefusal {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), refusal.Message)
+		if len(refusal.Members) > 0 {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "If these should go, apply again with %s, or with --prune when the file is the complete, current definition of its stacks. Otherwise add them to the file.\n",
+				confirmApplyRemovalFlags(refusal.Members))
+		}
+		return withExitCode(exitError, errors.New("the apply would remove members the file no longer lists; nothing was changed"))
+	}
+	if err != nil {
+		return err
+	}
+	if submitted {
+		operationID := ""
+		if importResponse != nil {
+			operationID = importResponse.OperationID
+		}
+		if rendered, err := renderStructured(cmd, newAsyncSubmittedOperationResult("Cluster apply", operationID)); rendered || err != nil {
+			return err
+		}
+		printAsyncWriteSubmitted("Cluster apply")
+		if operationID != "" {
+			fmt.Printf("Follow it with: %s\n", followOperationCommand(operationID))
+			fmt.Println("The operation records whether the platform applied the definition or refused it, and why.")
+		}
+		fmt.Println("For a new cluster, the agent install command is only shown when you use --wait.")
+		return nil
+	}
+
+	if importResponse.GitPushDeferred {
+		// Designed refusal: the cluster write is committed and live, only the
+		// commit back to Git waits on the background sync. The response
+		// carries no name/id payload, so render the deferral instead of the
+		// name-based success output. The message is printed verbatim — deploy
+		// tooling substring-matches it.
+		if rendered, err := renderStructured(cmd, importResponse); rendered || err != nil {
+			return err
+		}
+		printGitPushDeferral(cmd.OutOrStdout(), true, importResponse.GitPushMessage)
+		return nil
+	}
+
+	if len(importResponse.Errors) > 0 {
+		rendered, renderErr := renderStructured(cmd, importResponse)
+		if renderErr != nil {
+			return renderErr
+		}
+		if !rendered {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Import failed with the following issues:")
+			for _, resourceError := range importResponse.Errors {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "- %s %q:\n", resourceError.Kind, resourceError.Name)
+				for _, detail := range resourceError.Errors {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "    • %s: %s\n", detail.Key, detail.Message)
+				}
+			}
+		}
+		return errors.New("import failed")
+	}
+
+	if rendered, err := renderStructured(cmd, importResponse); rendered || err != nil {
+		return err
+	}
+
+	if importResponse.ImportCommand == "" {
+		fmt.Printf("Cluster '%s' configuration applied.\n\n", importResponse.Name)
+		fmt.Println("Add-on and manifest deploys run in the background from here.")
+		fmt.Println("Track them with 'ankra cluster operations list' before treating this as deployed.")
+	} else {
+		fmt.Printf("Cluster '%s' imported!\n\n", importResponse.Name)
+		fmt.Println("To install the Ankra agent, run:")
+		commandParts := strings.Fields(importResponse.ImportCommand)
+		flattenedCommand := strings.Join(commandParts, " ")
+		fmt.Println(flattenedCommand)
+	}
+
+	fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
+		strings.TrimRight(baseURL, "/"), importResponse.ClusterId)
+	printValidationWarnings(cmd.ErrOrStderr(), importResponse.Warnings)
+	return nil
+}
+
+// confirmApplyRemovalFlags renders --confirm-removal flags for a hint.
+func confirmApplyRemovalFlags(members []string) string {
+	flags := make([]string, 0, len(members))
+	for _, member := range members {
+		flags = append(flags, "--confirm-removal "+member)
+	}
+	return strings.Join(flags, " ")
+}
+
+// applyClusterOverride makes --cluster the target of the apply. The document's
+// metadata.name is the cluster name the platform addresses, so a file written
+// for one cluster (or exported from a profile, where the name is the profile's)
+// used to import a NEW cluster under that name whenever --cluster was passed
+// alongside it - the flag was read by nothing. With the flag set, the cluster
+// is resolved (name or id) and its name replaces metadata.name; the note says
+// so when the two differ so the substitution is never silent.
+func applyClusterOverride(cmd *cobra.Command, importRequest *client.CreateImportClusterRequest) (string, error) {
+	override := clusterFlagOverride(cmd)
+	if override == "" {
+		return "", nil
+	}
+	cluster, lookupError := lookupClusterByNameOrID(override)
+	if lookupError != nil {
+		return "", lookupError
+	}
+	if cluster.Name == importRequest.Name {
+		return "", nil
+	}
+	note := fmt.Sprintf("Applying to cluster '%s' (--cluster), not '%s' (metadata.name in the file).", cluster.Name, importRequest.Name)
+	importRequest.Name = cluster.Name
+	return note, nil
+}
+
+// loadImportCluster reads and validates an ImportCluster file into the
+// request the platform accepts, with the repoint permissions set.
+func loadImportCluster(filePath string, allowRepoint bool, allowRepointDestroyingData bool) (client.CreateImportClusterRequest, error) {
+	importRequest, err := buildImportRequest(filePath)
+	if err != nil {
+		return client.CreateImportClusterRequest{}, fmt.Errorf("invalid ImportCluster in %q:\n  %w", filePath, err)
+	}
+	importRequest.AllowRepoint = allowRepoint
+	importRequest.AllowRepointDestroyingData = allowRepointDestroyingData
+	if err := validateResourceGraph(importRequest); err != nil {
+		return client.CreateImportClusterRequest{}, fmt.Errorf("invalid ImportCluster in %q:\n  %w", filePath, err)
+	}
+	return importRequest, nil
+}
+
+// unreadImportMetadata lists the metadata keys a cluster file plausibly
+// carries that apply does not send, with what each one names and the
+// 'ankra cluster update' flag that does change it. A file setting one passed
+// validate and apply in silence, leaving its author unable to tell whether
+// the value took effect (PLA-913). It does not: this CLI never sends it, and
+// the platform applies an import's environment only when the import creates
+// the cluster, so no file edit changes an existing cluster's.
+var unreadImportMetadata = []struct{ key, names, flag string }{
+	{"environment", "environment", "--environment"},
+	{"criticality", "reporting level", "--criticality"},
+}
+
+// unreadImportMetadataWarnings returns one line per unread key the file at
+// filePath sets. A file that cannot be read or parsed yields none; loading it
+// reports that. It parses with the same yaml.Unmarshal as
+// buildImportRequestFromBytes, which reads only the first document of a
+// '---' stream, so it inspects exactly the document apply sends. The
+// suggestion says "once the cluster exists" because validate, a dry run, or
+// the apply that creates the cluster all print it before there is one.
+func unreadImportMetadataWarnings(filePath string) []string {
+	data, readError := os.ReadFile(filePath)
+	if readError != nil {
+		return nil
+	}
+	var document struct {
+		Metadata map[string]interface{} `yaml:"metadata"`
+	}
+	if yaml.Unmarshal(data, &document) != nil {
+		return nil
+	}
+	clusterName, _ := document.Metadata["name"].(string)
+	var warnings []string
+	for _, unread := range unreadImportMetadata {
+		value, present := document.Metadata[unread.key]
+		if !present {
+			continue
+		}
+		suggestedValue := "<value>"
+		if text, isText := value.(string); isText && strings.TrimSpace(text) != "" {
+			suggestedValue = shellWordOrQuoted(strings.TrimSpace(text))
+		}
+		warnings = append(warnings, fmt.Sprintf(
+			"metadata.%s is not read: a cluster file does not set or change the cluster's %s. Once the cluster exists, set it with: ankra cluster update %s %s %s",
+			unread.key, unread.names, shellWordOrQuoted(clusterName), unread.flag, suggestedValue))
+	}
+	return warnings
+}
+
+// printUnreadImportMetadataWarnings writes those lines to stderr, so a
+// structured -o json/yaml result on stdout stays parseable.
+func printUnreadImportMetadataWarnings(cmd *cobra.Command, filePath string) {
+	for _, warning := range unreadImportMetadataWarnings(filePath) {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
+	}
+}
+
+// shellWordOrQuoted leaves a value that is one plain shell word as it is and
+// single-quotes anything else, so a suggested command can be pasted as shown.
+func shellWordOrQuoted(value string) string {
+	if value == "" {
+		return shellQuote(value)
+	}
+	for _, character := range value {
+		isPlain := character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' || strings.ContainsRune("._-/:@", character)
+		if !isPlain {
+			return shellQuote(value)
+		}
+	}
+	return value
+}
+
+// applyImportCluster sends the request; submitted is true when the platform
+// accepted the write without waiting for it. Errors carry the wait exit code
+// when the --wait deadline expired.
+func applyImportCluster(ctx context.Context, importRequest client.CreateImportClusterRequest, wait bool) (*client.ImportResponse, bool, error) {
+	importResponse, submitted, err := apiClient.ApplyCluster(ctx, importRequest, wait)
+	if err != nil {
+		return nil, false, asyncWriteError("applying cluster", wait, err)
+	}
+	return importResponse, submitted, nil
+}
+
+func buildImportRequest(path string) (client.CreateImportClusterRequest, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return client.CreateImportClusterRequest{}, fmt.Errorf("could not read the file: %w", err)
+	}
+	return buildImportRequestFromBytes(data, filepath.Dir(path))
+}
+
+// buildImportRequestFromBytes parses an ImportCluster document that is
+// already in memory (an exported profile version, for instance). from_file
+// references inside it resolve against baseDirectory.
+func buildImportRequestFromBytes(data []byte, baseDirectory string) (client.CreateImportClusterRequest, error) {
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return client.CreateImportClusterRequest{}, fmt.Errorf("the file is not valid YAML: %w", err)
+	}
+
+	kind, _ := raw["kind"].(string)
+	if kind == "" {
+		return client.CreateImportClusterRequest{}, errors.New("the 'kind' field is missing; it must be set to \"ImportCluster\"")
+	}
+	if kind != "ImportCluster" {
+		return client.CreateImportClusterRequest{}, fmt.Errorf("the 'kind' field must be \"ImportCluster\", but found %q", kind)
+	}
+
+	meta, ok := raw["metadata"].(map[string]interface{})
+	if !ok {
+		return client.CreateImportClusterRequest{}, errors.New("the 'metadata' section is missing (it must contain at least 'name')")
+	}
+	clusterName, _ := meta["name"].(string)
+	if clusterName == "" {
+		return client.CreateImportClusterRequest{}, errors.New("'metadata.name' is required (this is the cluster name)")
+	}
+	clusterDescription, _ := meta["description"].(string)
+
+	spec, ok := raw["spec"].(map[string]interface{})
+	if !ok {
+		return client.CreateImportClusterRequest{}, errors.New("the 'spec' section is missing (it must contain 'stacks' and optionally 'git_repository')")
+	}
+
+	var gitRepository *client.GitRepository
+	if gr, ok := spec["git_repository"].(map[string]interface{}); ok {
+		gitRepository = &client.GitRepository{
+			Provider:       optString(gr, "provider"),
+			CredentialName: optString(gr, "credential_name"),
+			Branch:         optString(gr, "branch"),
+			Repository:     optString(gr, "repository"),
+			Workspace:      optString(gr, "workspace"),
+			RepoSlug:       optString(gr, "repo_slug"),
+			ProjectKey:     optString(gr, "project_key"),
+			InstanceURL:    optString(gr, "instance_url"),
+		}
+		if gitRepository.Provider == "" {
+			gitRepository.Provider = "github"
+		}
+	}
+
+	var prometheusMetrics *client.PrometheusMetrics
+	if pm, ok := spec["prometheus_metrics"].(map[string]interface{}); ok {
+		endpoint := optString(pm, "endpoint")
+		if endpoint != "" {
+			prometheusMetrics = &client.PrometheusMetrics{
+				Endpoint:       endpoint,
+				CredentialName: optString(pm, "credential_name"),
+				Flavor:         optString(pm, "flavor"),
+			}
+		}
+	}
+
+	rawStackItems, _ := spec["stacks"].([]interface{})
+	stacks := make([]client.Stack, 0, len(rawStackItems))
+	for index, rawStack := range rawStackItems {
+		stackLabel := fmt.Sprintf("stack #%d", index+1)
+		stackMap, ok := rawStack.(map[string]interface{})
+		if !ok {
+			return client.CreateImportClusterRequest{}, fmt.Errorf("%s is not a valid object (expected fields such as 'name', 'manifests', 'addons')", stackLabel)
+		}
+		if stackName, _ := stackMap["name"].(string); stackName != "" {
+			stackLabel = fmt.Sprintf("stack %q", stackName)
+		}
+		builtStack, err := buildStack(stackMap, baseDirectory)
+		if err != nil {
+			return client.CreateImportClusterRequest{}, fmt.Errorf("%s: %w", stackLabel, err)
+		}
+		stacks = append(stacks, builtStack)
+	}
+
+	return client.CreateImportClusterRequest{
+		Name:        clusterName,
+		Description: clusterDescription,
+		Spec: client.CreateResourceSpec{
+			GitRepository:     gitRepository,
+			PrometheusMetrics: prometheusMetrics,
+			Stacks:            stacks,
+		},
+	}, nil
+}
+
+// addonConfigurationKeys is every key an addon's 'configuration' block may
+// carry. Anything else in there is a key this CLI would drop on the floor, so
+// buildAddon refuses the file rather than deploying chart defaults.
+var addonConfigurationKeys = map[string]bool{
+	"from_file":       true,
+	"values":          true,
+	"values_base64":   true,
+	"encrypted_paths": true,
+}
+
+// unknownConfigurationKeys lists, in a stable order, the keys of an addon
+// configuration block that this CLI does not read.
+func unknownConfigurationKeys(conf map[string]interface{}) []string {
+	unknown := make([]string, 0)
+	for _, key := range sortedKeys(conf) {
+		if !addonConfigurationKeys[key] {
+			unknown = append(unknown, key)
+		}
+	}
+	return unknown
+}
+
+// describeVariableValue renders a rejected variable for an error message: the
+// value itself when it is a scalar (the hint only lands if you can see the
+// 1.20 that provoked it), the type alone when it is a map or a list, whose
+// contents may be a credential and whose shape is the actual problem anyway.
+func describeVariableValue(value interface{}) string {
+	switch value.(type) {
+	case map[string]interface{}, []interface{}, map[interface{}]interface{}:
+		return fmt.Sprintf("a %T", value)
+	default:
+		return fmt.Sprintf("%v", value)
+	}
+}
+
+// checkConfigurationTypes rejects a recognised addon 'configuration' key whose
+// value is not the type that key is read as. Without it the read below simply
+// fails its type assertion and the block collapses to no configuration at all,
+// which is the ankra-yxxa failure: the addon installs on chart defaults, over
+// whatever it was running, and apply reports success.
+//
+// A key present but explicitly nil is left alone - 'values:' with nothing
+// after it means the same deliberate "no configuration" as 'values: ""'.
+func checkConfigurationTypes(conf map[string]interface{}) error {
+	for _, key := range []string{"from_file", "values", "values_base64"} {
+		value, present := conf[key]
+		if !present || value == nil {
+			continue
+		}
+		if _, ok := value.(string); !ok {
+			return fmt.Errorf("addon 'configuration.%s' must be a string, got %T", key, value)
+		}
+	}
+	if value, present := conf["encrypted_paths"]; present && value != nil {
+		if _, ok := value.([]interface{}); !ok {
+			return fmt.Errorf("addon 'configuration.encrypted_paths' must be a list of strings, got %T", value)
+		}
+	}
+	return nil
+}
+
+// sortedKeys returns a map's keys in a stable order, so an error message that
+// lists what a block did contain reads the same on every run.
+func sortedKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func optString(m map[string]interface{}, key string) string {
+	value, ok := m[key]
+	if !ok || value == nil {
+		return ""
+	}
+	if str, ok := value.(string); ok {
+		return str
+	}
+	return ""
+}
+
+// validateYAMLDocuments confirms that content parses as one or more valid YAML
+// documents (manifests may contain several `---`-separated documents). Empty
+// content is treated as valid (no documents).
+func validateYAMLDocuments(content []byte) error {
+	decoder := yaml.NewDecoder(bytes.NewReader(content))
+	for {
+		var document interface{}
+		err := decoder.Decode(&document)
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
+}
+
+type resourceNode struct {
+	kind string
+	name string
+}
+
+func (node resourceNode) String() string {
+	return fmt.Sprintf("%s %q", node.kind, node.name)
+}
+
+// validateResourceGraph checks the parent/dependency tree of an assembled
+// ImportCluster offline: resource names must be unique per kind, every parent
+// reference must name a real manifest or addon declared in the same document,
+// must use a valid kind, and the resulting graph must be acyclic. This catches
+// the dependency errors the backend would otherwise only reject at apply time
+// (HTTP 422).
+func validateResourceGraph(request client.CreateImportClusterRequest) error {
+	declaredResources := map[resourceNode]bool{}
+	resourceLabels := map[resourceNode]string{}
+	declarationOrder := make([]resourceNode, 0)
+
+	// Parent references resolve by (kind, name) with no stack qualifier, so the
+	// same (kind, name) declared twice - even across stacks - is ambiguous and
+	// the backend rejects it. Flag duplicates here rather than silently merging
+	// them into a single node.
+	addResource := func(kind, name, stackName string) error {
+		node := resourceNode{kind: kind, name: name}
+		if declaredResources[node] {
+			return fmt.Errorf("%s is declared more than once (most recently in stack %q); names must be unique per kind across the whole file", node, stackName)
+		}
+		declaredResources[node] = true
+		declarationOrder = append(declarationOrder, node)
+		resourceLabels[node] = fmt.Sprintf("%s in stack %q", node, stackName)
+		return nil
+	}
+
+	for _, stack := range request.Spec.Stacks {
+		for _, manifest := range stack.Manifests {
+			if err := addResource("manifest", manifest.Name, stack.Name); err != nil {
+				return err
+			}
+		}
+		for _, addon := range stack.Addons {
+			if err := addResource("addon", addon.Name, stack.Name); err != nil {
+				return err
+			}
+		}
+		for _, application := range stack.Applications {
+			if err := addResource("application", application.Name, stack.Name); err != nil {
+				return err
+			}
+		}
+	}
+
+	dependencyEdges := map[resourceNode][]resourceNode{}
+
+	collectParents := func(current resourceNode, parents []client.Parent) error {
+		label := resourceLabels[current]
+		for parentIndex, parent := range parents {
+			kind := strings.ToLower(strings.TrimSpace(string(parent.Kind)))
+			if kind != "manifest" && kind != "addon" && kind != "application" {
+				return fmt.Errorf("%s: parent #%d has invalid kind %q (must be \"manifest\", \"addon\" or \"application\")", label, parentIndex+1, parent.Kind)
+			}
+			parentNode := resourceNode{kind: kind, name: parent.Name}
+			if !declaredResources[parentNode] {
+				return fmt.Errorf("%s: parent %s is not defined anywhere in this file", label, parentNode)
+			}
+			dependencyEdges[current] = append(dependencyEdges[current], parentNode)
+		}
+		return nil
+	}
+
+	for _, stack := range request.Spec.Stacks {
+		for _, manifest := range stack.Manifests {
+			if err := collectParents(resourceNode{kind: "manifest", name: manifest.Name}, manifest.Parents); err != nil {
+				return err
+			}
+		}
+		for _, addon := range stack.Addons {
+			if err := collectParents(resourceNode{kind: "addon", name: addon.Name}, addon.Parents); err != nil {
+				return err
+			}
+		}
+		for _, application := range stack.Applications {
+			if err := collectParents(resourceNode{kind: "application", name: application.Name}, application.Parents); err != nil {
+				return err
+			}
+		}
+	}
+
+	return detectDependencyCycle(declarationOrder, dependencyEdges)
+}
+
+func detectDependencyCycle(declarationOrder []resourceNode, dependencyEdges map[resourceNode][]resourceNode) error {
+	const (
+		unvisited = iota
+		onCurrentPath
+		fullyExplored
+	)
+	visitState := map[resourceNode]int{}
+	currentPath := make([]resourceNode, 0, len(declarationOrder))
+
+	var visit func(node resourceNode) error
+	visit = func(node resourceNode) error {
+		visitState[node] = onCurrentPath
+		currentPath = append(currentPath, node)
+		for _, parent := range dependencyEdges[node] {
+			switch visitState[parent] {
+			case onCurrentPath:
+				return fmt.Errorf("dependency cycle detected: %s", formatCycle(currentPath, parent))
+			case unvisited:
+				if err := visit(parent); err != nil {
+					return err
+				}
+			}
+		}
+		currentPath = currentPath[:len(currentPath)-1]
+		visitState[node] = fullyExplored
+		return nil
+	}
+
+	for _, node := range declarationOrder {
+		if visitState[node] == unvisited {
+			if err := visit(node); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func formatCycle(currentPath []resourceNode, cycleStart resourceNode) string {
+	startIndex := 0
+	for index, node := range currentPath {
+		if node == cycleStart {
+			startIndex = index
+			break
+		}
+	}
+	cycle := append([]resourceNode{}, currentPath[startIndex:]...)
+	cycle = append(cycle, cycleStart)
+	parts := make([]string, 0, len(cycle))
+	for _, node := range cycle {
+		parts = append(parts, node.String())
+	}
+	return strings.Join(parts, " -> ")
+}
+
+func buildStack(sm map[string]interface{}, baseDir string) (client.Stack, error) {
+	name, _ := sm["name"].(string)
+	if name == "" {
+		return client.Stack{}, errors.New("every stack needs a 'name'")
+	}
+	desc, _ := sm["description"].(string)
+	if descFile, ok := sm["description_from_file"].(string); ok && descFile != "" {
+		full, err := resolveSafePath(baseDir, descFile)
+		if err != nil {
+			return client.Stack{}, fmt.Errorf("refusing to read the file referenced by 'description_from_file' (%q): %w", descFile, err)
+		}
+		fileContent, err := os.ReadFile(full)
+		if err != nil {
+			return client.Stack{}, fmt.Errorf("could not read the file referenced by 'description_from_file' (%q): %w", full, err)
+		}
+		if desc == "" {
+			desc = string(fileContent)
+		}
+	}
+
+	var manifests []client.Manifest
+	if rawMan, ok := sm["manifests"].([]interface{}); ok {
+		for i, mi := range rawMan {
+			manifestLabel := fmt.Sprintf("manifest #%d", i+1)
+			mm, ok := mi.(map[string]interface{})
+			if !ok {
+				return client.Stack{}, fmt.Errorf("%s is not a valid object (expected fields such as 'name' and 'from_file' or 'manifest')", manifestLabel)
+			}
+			if manifestName, _ := mm["name"].(string); manifestName != "" {
+				manifestLabel = fmt.Sprintf("manifest %q", manifestName)
+			}
+			m, err := buildManifest(mm, baseDir)
+			if err != nil {
+				return client.Stack{}, fmt.Errorf("%s: %w", manifestLabel, err)
+			}
+			manifests = append(manifests, m)
+		}
+	}
+
+	var addons []client.Addon
+	if rawAdd, ok := sm["addons"].([]interface{}); ok {
+		for i, ai := range rawAdd {
+			addonLabel := fmt.Sprintf("addon #%d", i+1)
+			am, ok := ai.(map[string]interface{})
+			if !ok {
+				return client.Stack{}, fmt.Errorf("%s is not a valid object (expected fields such as 'name', 'chart_name', 'chart_version')", addonLabel)
+			}
+			if addonName, _ := am["name"].(string); addonName != "" {
+				addonLabel = fmt.Sprintf("addon %q", addonName)
+			}
+			a, err := buildAddon(am, baseDir)
+			if err != nil {
+				return client.Stack{}, fmt.Errorf("%s: %w", addonLabel, err)
+			}
+			addons = append(addons, a)
+		}
+	}
+
+	var applications []client.ImportApplication
+	if rawApplications, ok := sm["applications"].([]interface{}); ok {
+		for i, rawApplication := range rawApplications {
+			applicationLabel := fmt.Sprintf("application #%d", i+1)
+			applicationMap, ok := rawApplication.(map[string]interface{})
+			if !ok {
+				return client.Stack{}, fmt.Errorf("%s is not a valid object (expected fields such as 'name', 'platform_application_id' and 'from_file')", applicationLabel)
+			}
+			if applicationName, _ := applicationMap["name"].(string); applicationName != "" {
+				applicationLabel = fmt.Sprintf("application %q", applicationName)
+			}
+			application, err := buildApplication(applicationMap, baseDir)
+			if err != nil {
+				return client.Stack{}, fmt.Errorf("%s: %w", applicationLabel, err)
+			}
+			applications = append(applications, application)
+		}
+	}
+
+	deployWave, err := parseDeployWave(sm["deploy_wave"])
+	if err != nil {
+		return client.Stack{}, err
+	}
+
+	variables, err := parseStackVariables(sm["variables"])
+	if err != nil {
+		return client.Stack{}, err
+	}
+
+	backup, err := parseStackBackup(sm["backup"])
+	if err != nil {
+		return client.Stack{}, err
+	}
+
+	return client.Stack{
+		Name:         name,
+		Description:  desc,
+		Manifests:    manifests,
+		Addons:       addons,
+		Applications: applications,
+		DeployWave:   deployWave,
+		Variables:    variables,
+		Backup:       backup,
+	}, nil
+}
+
+// parseStackVariables reads the optional stack-level 'variables' map, the
+// scope that shadows cluster and organisation variables when this stack's
+// manifests and addons are rendered. Apply used to drop it (ankra-yxxa): the
+// stack came back with no variables at all and every '${VAR}' reached the
+// cluster as a literal token, so string fields got nonsense and numeric ones
+// failed the typed patch outright.
+//
+// The backend stores variables as strings. Integers and booleans are written
+// out as their literal text because that conversion is exact; anything a
+// conversion would mangle - a float such as 1.20, a nested structure, a key
+// with no value - is rejected with a hint to quote it, the same guard
+// requiredAddonString applies to chart_version.
+//
+// The int cases carry the common path, not the rare one: this file is decoded
+// by gopkg.in/yaml.v3, which yields a Go int for an unquoted 'REPLICAS: 2'.
+// A decoder that round-trips through JSON would hand every number over as a
+// float64 and send plain integers down the reject branch instead, so that
+// contract is pinned by a test rather than assumed.
+func parseStackVariables(raw interface{}) (map[string]string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	rawMap, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("'variables' must be a map of name to value, got %v", raw)
+	}
+	variables := make(map[string]string, len(rawMap))
+	for _, key := range sortedKeys(rawMap) {
+		switch typed := rawMap[key].(type) {
+		case string:
+			variables[key] = typed
+		case int:
+			variables[key] = strconv.Itoa(typed)
+		case int64:
+			variables[key] = strconv.FormatInt(typed, 10)
+		case uint64:
+			variables[key] = strconv.FormatUint(typed, 10)
+		case bool:
+			variables[key] = strconv.FormatBool(typed)
+		default:
+			// Echo a scalar, because seeing 1.20 is what makes the hint land,
+			// but describe a map or a list by type only: a nested block is
+			// where a credential would be hiding, and this error travels into
+			// CI logs.
+			return nil, fmt.Errorf(
+				"variable %q must be a string (got %s - quote it, as variables are stored as strings and an unquoted value like 1.20 would be rewritten to \"1.2\")",
+				key, describeVariableValue(rawMap[key]))
+		}
+	}
+	return variables, nil
+}
+
+// parseDeployWave validates the optional 'deploy_wave' stack field: a
+// non-negative integer that orders stacks against each other (stacks in wave
+// N deploy only after every stack in a lower wave finished).
+func parseDeployWave(raw interface{}) (*int, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	var wave int
+	switch typed := raw.(type) {
+	case int:
+		wave = typed
+	case int64:
+		wave = int(typed)
+	case float64:
+		if typed != float64(int(typed)) {
+			return nil, fmt.Errorf("'deploy_wave' must be a whole number, got %v", typed)
+		}
+		wave = int(typed)
+	default:
+		return nil, fmt.Errorf("'deploy_wave' must be an integer, got %v", raw)
+	}
+	if wave < 0 {
+		return nil, fmt.Errorf("'deploy_wave' must be zero or positive, got %d", wave)
+	}
+	return &wave, nil
+}
+
+// parseAgentsMdFields extracts the optional 'agents_md' /
+// 'agents_md_from_file' pair shared by manifests and addons. The returned
+// pointers carry the backend's tri-state semantics: nil = key absent (the
+// backend preserves the stored AGENTS.md), pointer to "" = explicit clear.
+// When 'agents_md_from_file' is set, the file's content is read (mirroring
+// how the stack-level 'description_from_file' is handled) and the path is
+// passed through so the stored pointer matches the file the user authored;
+// a non-empty inline 'agents_md' wins over the file content.
+func parseAgentsMdFields(m map[string]interface{}, baseDir string) (*string, *string, error) {
+	var agentsMd, agentsMdFromFile *string
+	if inline, ok := m["agents_md"].(string); ok {
+		agentsMd = &inline
+	}
+	if fileRef, ok := m["agents_md_from_file"].(string); ok && fileRef != "" {
+		full, err := resolveSafePath(baseDir, fileRef)
+		if err != nil {
+			return nil, nil, fmt.Errorf("refusing to read the file referenced by 'agents_md_from_file' (%q): %w", fileRef, err)
+		}
+		fileContent, err := os.ReadFile(full)
+		if err != nil {
+			return nil, nil, fmt.Errorf("could not read the file referenced by 'agents_md_from_file' (%q): %w", full, err)
+		}
+		if agentsMd == nil || *agentsMd == "" {
+			content := string(fileContent)
+			agentsMd = &content
+		}
+		agentsMdFromFile = &fileRef
+	}
+	return agentsMd, agentsMdFromFile, nil
+}
+
+// parseGroupField extracts the optional 'group' organizational label shared
+// by manifests and addons - the key the platform's own IaC export writes to
+// record which group a resource sits in within its stack.
+//
+// A non-string value is an error rather than an empty string: the platform
+// types 'group' as a string and would answer 422, and quietly turning a
+// mistyped value into "no group" is the same silent drop that made the label
+// disappear from applied exports in the first place (ankra-o0k2f). An absent
+// key stays "ungrouped", which apply then prunes server-side like any other
+// value the file no longer declares.
+func parseGroupField(m map[string]interface{}) (string, error) {
+	raw, present := m["group"]
+	if !present || raw == nil {
+		return "", nil
+	}
+	group, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("'group' must be a quoted string (got %v)", raw)
+	}
+	return group, nil
+}
+
+// parseBoolField extracts an optional boolean key such as a manifest's
+// 'force' or 'auto_remediate'. Absent (or explicitly null) is nil, which
+// the payload omits so the platform keeps the stored value (cluster#2843
+// inherits a flag whose key the request does not carry); an explicit true
+// or false comes back as a pointer to it and is sent, so `force: false` in
+// the file still clears the flag (ankra-mp2tr). A non-boolean value is an
+// error rather than nil: the platform types both as booleans and would
+// answer 422, and quietly reading "true" (a quoted string) as off is the
+// same silent drop that lost the flag in the first place (ankra-cbktk).
+func parseBoolField(m map[string]interface{}, key string) (*bool, error) {
+	raw, present := m[key]
+	if !present || raw == nil {
+		return nil, nil
+	}
+	value, ok := raw.(bool)
+	if !ok {
+		// Name the type as well as the value: force: "true" and force: true
+		// both print as true, and the quoted string is the case this guard
+		// exists for.
+		return nil, fmt.Errorf("'%s' must be true or false (got %v of type %T)", key, raw, raw)
+	}
+	return &value, nil
+}
+
+// buildApplication reads one application member. Its manifest comes from
+// 'manifest' (inline YAML), 'from_file' or 'manifest_base64', exactly like a
+// manifest's, and may be absent only when 'platform_application_id' names the
+// Ankra application whose manifests the platform renders instead.
+func buildApplication(applicationMap map[string]interface{}, baseDir string) (client.ImportApplication, error) {
+	name, _ := applicationMap["name"].(string)
+	if name == "" {
+		return client.ImportApplication{}, errors.New("every application needs a 'name'")
+	}
+	stringFields := map[string]string{}
+	for _, key := range []string{"platform_application_id", "platform_application_version", "namespace"} {
+		rawValue, isPresent := applicationMap[key]
+		if !isPresent || rawValue == nil {
+			continue
+		}
+		value, isString := rawValue.(string)
+		if !isString {
+			return client.ImportApplication{}, fmt.Errorf("'%s' must be a string (got %v of type %T)", key, rawValue, rawValue)
+		}
+		stringFields[key] = value
+	}
+
+	encoded := ""
+	manifestSource := map[string]interface{}{"name": name}
+	for _, key := range []string{"manifest", "from_file", "manifest_base64"} {
+		if value, isPresent := applicationMap[key]; isPresent && value != nil {
+			manifestSource[key] = value
+		}
+	}
+	if len(manifestSource) > 1 {
+		content, err := buildManifest(manifestSource, baseDir)
+		if err != nil {
+			return client.ImportApplication{}, err
+		}
+		encoded = content.ManifestBase64
+	} else if stringFields["platform_application_id"] == "" {
+		return client.ImportApplication{}, errors.New("an application must set 'manifest', 'from_file' or 'manifest_base64', or name the Ankra application whose manifests to render with 'platform_application_id'")
+	}
+
+	var parameters map[string]string
+	if rawParameters, isPresent := applicationMap["parameters"]; isPresent && rawParameters != nil {
+		parameterMap, isMap := rawParameters.(map[string]interface{})
+		if !isMap {
+			return client.ImportApplication{}, fmt.Errorf("'parameters' must be a map of strings (got %T)", rawParameters)
+		}
+		parameters = make(map[string]string, len(parameterMap))
+		for key, rawValue := range parameterMap {
+			value, isString := rawValue.(string)
+			if !isString {
+				return client.ImportApplication{}, fmt.Errorf("parameter %q must be a string (got %v of type %T)", key, rawValue, rawValue)
+			}
+			parameters[key] = value
+		}
+	}
+
+	var encryptedPaths []string
+	if rawPaths, isPresent := applicationMap["encrypted_paths"]; isPresent && rawPaths != nil {
+		pathList, isList := rawPaths.([]interface{})
+		if !isList {
+			return client.ImportApplication{}, fmt.Errorf("'encrypted_paths' must be a list of strings (got %T)", rawPaths)
+		}
+		for pathIndex, rawPath := range pathList {
+			path, isString := rawPath.(string)
+			if !isString {
+				return client.ImportApplication{}, fmt.Errorf("encrypted_paths entry %d must be a string (got %v of type %T)", pathIndex+1, rawPath, rawPath)
+			}
+			encryptedPaths = append(encryptedPaths, path)
+		}
+	}
+
+	return client.ImportApplication{
+		Name:                       name,
+		PlatformApplicationID:      stringFields["platform_application_id"],
+		PlatformApplicationVersion: stringFields["platform_application_version"],
+		Namespace:                  stringFields["namespace"],
+		ManifestBase64:             encoded,
+		Parameters:                 parameters,
+		Parents:                    parseParentList(applicationMap["parents"]),
+		EncryptedPaths:             encryptedPaths,
+	}, nil
+}
+
+func buildManifest(mm map[string]interface{}, baseDir string) (client.Manifest, error) {
+	name, _ := mm["name"].(string)
+	if name == "" {
+		return client.Manifest{}, errors.New("every manifest needs a 'name'")
+	}
+
+	var content []byte
+	var contentSource string
+	// encoded is what actually goes to the platform. When the manifest arrived
+	// already base64-encoded it is that same string, passed straight through,
+	// so an export -> apply round trip sends back byte-for-byte what it read.
+	var encoded string
+	if inline, ok := mm["manifest"].(string); ok && inline != "" {
+		content = []byte(inline)
+		encoded = base64.StdEncoding.EncodeToString(content)
+		contentSource = "the inline 'manifest' content"
+	} else if fileRef, ok := mm["from_file"].(string); ok {
+		full, err := resolveSafePath(baseDir, fileRef)
+		if err != nil {
+			return client.Manifest{}, fmt.Errorf("refusing to read the file referenced by 'from_file' (%q): %w", fileRef, err)
+		}
+		b, err := os.ReadFile(full)
+		if err != nil {
+			return client.Manifest{}, fmt.Errorf("could not read the file referenced by 'from_file' (%q): %w", full, err)
+		}
+		content = b
+		encoded = base64.StdEncoding.EncodeToString(content)
+		contentSource = fmt.Sprintf("the file referenced by 'from_file' (%q)", full)
+	} else if b64, ok := mm["manifest_base64"].(string); ok && b64 != "" {
+		// This is the form the platform's own IaC export emits (ManifestSpec),
+		// so it is what an export/clone -> apply round trip carries. Until
+		// ankra-62cvj nothing read it and every such manifest was rejected as
+		// having no content at all - loudly, unlike the ankra-yxxa addon drop,
+		// but it made an exported ImportCluster unappliable without hand-editing.
+		decoded, err := base64.StdEncoding.DecodeString(b64)
+		if err != nil {
+			return client.Manifest{}, fmt.Errorf("the manifest 'manifest_base64' is not valid base64: %w", err)
+		}
+		content = decoded
+		encoded = b64
+		contentSource = "the 'manifest_base64' content"
+	} else {
+		return client.Manifest{}, errors.New("a manifest must set either 'manifest' (inline YAML), 'from_file' (path to a YAML file) or 'manifest_base64' (base64-encoded YAML)")
+	}
+
+	if err := validateYAMLDocuments(content); err != nil {
+		return client.Manifest{}, fmt.Errorf("%s is not valid YAML: %w", contentSource, err)
+	}
+
+	ns, _ := mm["namespace"].(string)
+	parents := parseParentList(mm["parents"])
+
+	// Parse encrypted_paths if present
+	var encryptedPaths []string
+	if rawPaths, ok := mm["encrypted_paths"].([]interface{}); ok {
+		for _, p := range rawPaths {
+			if s, ok := p.(string); ok {
+				encryptedPaths = append(encryptedPaths, s)
+			}
+		}
+	}
+
+	group, err := parseGroupField(mm)
+	if err != nil {
+		return client.Manifest{}, err
+	}
+
+	agentsMd, agentsMdFromFile, err := parseAgentsMdFields(mm, baseDir)
+	if err != nil {
+		return client.Manifest{}, err
+	}
+
+	// The apply flags. Dropped on the floor until ankra-cbktk: a file that
+	// said force: true applied without it, and the platform stored false over
+	// the flag the customer had set through a GitOps PR (PLA-834). Then sent
+	// as false for every file that did not mention them, which cleared a
+	// stored true on every routine apply (ankra-mp2tr): a file that omits
+	// the key now omits it on the wire, and only an explicit false clears.
+	force, err := parseBoolField(mm, "force")
+	if err != nil {
+		return client.Manifest{}, err
+	}
+	autoRemediate, err := parseBoolField(mm, "auto_remediate")
+	if err != nil {
+		return client.Manifest{}, err
+	}
+
+	return client.Manifest{
+		Name:             name,
+		ManifestBase64:   encoded,
+		Namespace:        ns,
+		Parents:          parents,
+		EncryptedPaths:   encryptedPaths,
+		Force:            force,
+		AutoRemediate:    autoRemediate,
+		Group:            group,
+		AgentsMd:         agentsMd,
+		AgentsMdFromFile: agentsMdFromFile,
+	}, nil
+}
+
+func buildAddon(am map[string]interface{}, baseDir string) (client.Addon, error) {
+	name, _ := am["name"].(string)
+	if name == "" {
+		return client.Addon{}, errors.New("every addon needs a 'name'")
+	}
+	chart, err := requiredAddonString(am, name, "chart_name")
+	if err != nil {
+		return client.Addon{}, err
+	}
+	ver, err := requiredAddonString(am, name, "chart_version")
+	if err != nil {
+		return client.Addon{}, err
+	}
+	ns, _ := am["namespace"].(string)
+	parents := parseParentList(am["parents"])
+
+	// Handle legacy repository_url (optional now)
+	var repo string
+	if r, ok := am["repository_url"].(string); ok {
+		repo = r
+	}
+
+	// Handle new registry fields
+	registryName, _ := am["registry_name"].(string)
+	registryURL, _ := am["registry_url"].(string)
+	registryCredentialName, _ := am["registry_credential_name"].(string)
+
+	// Handle settings
+	var settings map[string]interface{}
+	if s, ok := am["settings"].(map[string]interface{}); ok {
+		settings = s
+	}
+
+	var cfg interface{}
+	if conf, ok := am["configuration"].(map[string]interface{}); ok {
+		// A key we DO read, holding the wrong type, used to fail its type
+		// assertion and fall through to a nil configuration - the ankra-yxxa
+		// silent drop again, entered through a malformed value rather than an
+		// unread key, and invisible to unknownConfigurationKeys because the
+		// key itself is recognised. An explicit nil ('values:' with nothing
+		// after it) stays equivalent to the deliberately-empty 'values: ""'.
+		if err := checkConfigurationTypes(conf); err != nil {
+			return client.Addon{}, err
+		}
+
+		// Computed once: the same list decides the hard error below (when the
+		// block yielded nothing) and the warning at the end (when it yielded
+		// values anyway), and two call sites would be free to drift apart.
+		unknownKeys := unknownConfigurationKeys(conf)
+
+		var encryptedPaths []string
+		if rawPaths, ok := conf["encrypted_paths"].([]interface{}); ok {
+			for i, p := range rawPaths {
+				s, ok := p.(string)
+				if !ok {
+					// Skipping one silently would ship the secret it names
+					// unencrypted.
+					return client.Addon{}, fmt.Errorf(
+						"addon 'configuration.encrypted_paths' entry %d must be a string, got %T", i+1, p)
+				}
+				encryptedPaths = append(encryptedPaths, s)
+			}
+		}
+
+		if pf, ok := conf["from_file"].(string); ok {
+			full, err := resolveSafePath(baseDir, pf)
+			if err != nil {
+				return client.Addon{}, fmt.Errorf("refusing to read addon configuration %q: %w", pf, err)
+			}
+			b, err := os.ReadFile(full)
+			if err != nil {
+				return client.Addon{}, fmt.Errorf("read addon configuration %q: %w", full, err)
+			}
+			if err := validateYAMLDocuments(b); err != nil {
+				return client.Addon{}, fmt.Errorf("the addon configuration file %q is not valid YAML: %w", full, err)
+			}
+			cfg = client.AddonStandaloneConfiguration{
+				ValuesBase64:   base64.StdEncoding.EncodeToString(b),
+				EncryptedPaths: encryptedPaths,
+			}
+		} else if inline, ok := conf["values"].(string); ok && inline != "" {
+			if err := validateYAMLDocuments([]byte(inline)); err != nil {
+				return client.Addon{}, fmt.Errorf("the inline addon 'configuration.values' is not valid YAML: %w", err)
+			}
+			cfg = client.AddonStandaloneConfiguration{
+				ValuesBase64:   base64.StdEncoding.EncodeToString([]byte(inline)),
+				EncryptedPaths: encryptedPaths,
+			}
+		} else if encoded, ok := conf["values_base64"].(string); ok && encoded != "" {
+			// This is the form the platform's own IaC export emits, so it is
+			// what a clone/export -> apply round trip carries. Reading it was
+			// missing until ankra-yxxa: the block fell through to a nil
+			// configuration and every addon in the file installed with chart
+			// defaults, silently and with validate passing.
+			decoded, err := base64.StdEncoding.DecodeString(encoded)
+			if err != nil {
+				return client.Addon{}, fmt.Errorf("the addon 'configuration.values_base64' is not valid base64: %w", err)
+			}
+			if err := validateYAMLDocuments(decoded); err != nil {
+				return client.Addon{}, fmt.Errorf("the addon 'configuration.values_base64' does not decode to valid YAML: %w", err)
+			}
+			cfg = client.AddonStandaloneConfiguration{
+				ValuesBase64:   encoded,
+				EncryptedPaths: encryptedPaths,
+			}
+		} else if len(unknownKeys) > 0 {
+			// Keys we do not read are either a typo or a dialect newer than
+			// this CLI. Either way, say so - a configuration block that turns
+			// into nothing means the addon deploys with chart defaults over
+			// whatever it is running, which is how this went unnoticed.
+			//
+			// This runs ahead of the encrypted_paths complaint below because
+			// a block with both a typo'd key and encrypted_paths is better
+			// served by the message that names the typo. Neither branch is
+			// reached unless the block yielded no values at all, so the set
+			// of files that apply is unchanged either way.
+			return client.Addon{}, fmt.Errorf(
+				"addon 'configuration' has no values this CLI can read: set 'from_file', 'values' or 'values_base64' (unrecognised: %s)",
+				strings.Join(unknownKeys, ", "))
+		} else if len(encryptedPaths) > 0 {
+			return client.Addon{}, errors.New("addon 'configuration.encrypted_paths' is set but there is nothing to decrypt (set 'from_file', 'values' or 'values_base64')")
+		}
+
+		// A key we cannot read alongside one we can: the values do reach the
+		// addon, so this is not the ankra-yxxa drop, but whatever the extra
+		// key meant to say is still being ignored. Warn rather than fail -
+		// the platform's own IaC export writes these files, and erroring
+		// would mean a dialect that gains a key breaks every older CLI on a
+		// file whose values it reads perfectly. Stderr keeps '-o json|yaml'
+		// parseable.
+		if cfg != nil && len(unknownKeys) > 0 {
+			_, _ = fmt.Fprintf(os.Stderr,
+				"Warning: addon %q has 'configuration' keys this CLI does not read, so they are ignored: %s. "+
+					"Check the spelling, or upgrade if the file came from a newer Ankra.\n",
+				name, strings.Join(unknownKeys, ", "))
+		}
+	}
+
+	group, err := parseGroupField(am)
+	if err != nil {
+		return client.Addon{}, err
+	}
+
+	agentsMd, agentsMdFromFile, err := parseAgentsMdFields(am, baseDir)
+	if err != nil {
+		return client.Addon{}, err
+	}
+
+	return client.Addon{
+		Name:                   name,
+		ChartName:              chart,
+		ChartVersion:           ver,
+		RepositoryURL:          repo,
+		Namespace:              ns,
+		Configuration:          cfg,
+		Parents:                parents,
+		RegistryName:           registryName,
+		RegistryURL:            registryURL,
+		RegistryCredentialName: registryCredentialName,
+		Settings:               settings,
+		Group:                  group,
+		AgentsMd:               agentsMd,
+		AgentsMdFromFile:       agentsMdFromFile,
+	}, nil
+}
+
+// requiredAddonString extracts a mandatory string field from an addon map.
+// A missing or empty value is an error; a non-string value (e.g. an unquoted
+// YAML number that parses as a float) is rejected with a hint to quote it,
+// since fmt.Sprint would otherwise mangle it (chart_version: 1.20 -> "1.2").
+func requiredAddonString(am map[string]interface{}, addonName, key string) (string, error) {
+	value, ok := am[key]
+	if !ok || value == nil {
+		return "", fmt.Errorf("addon %q: %s is required", addonName, key)
+	}
+	str, ok := value.(string)
+	if !ok {
+		return "", fmt.Errorf("addon %q: %s must be a quoted string (got %v - quote it, as YAML reads unquoted numbers like 1.20 as numbers, not \"1.20\")", addonName, key, value)
+	}
+	if str == "" {
+		return "", fmt.Errorf("addon %q: %s is required", addonName, key)
+	}
+	return str, nil
+}
+
+func parseParentList(raw interface{}) []client.Parent {
+	arr, ok := raw.([]interface{})
+	if !ok {
+		return []client.Parent{}
+	}
+	out := make([]client.Parent, 0, len(arr))
+	for _, item := range arr {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, okName := m["name"].(string)
+		kind, okKind := m["kind"].(string)
+		if okName && okKind {
+			out = append(out, client.Parent{Name: name, Kind: client.AnkraResourceKind(kind)})
+		}
+	}
+	return out
+}

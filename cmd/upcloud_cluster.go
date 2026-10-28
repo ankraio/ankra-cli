@@ -1,0 +1,743 @@
+package cmd
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"ankra/internal/client"
+
+	"github.com/jedib0t/go-pretty/v6/text"
+	"github.com/spf13/cobra"
+)
+
+var upcloudCmd = &cobra.Command{
+	Use:   "upcloud",
+	Short: "Manage UpCloud clusters",
+	Long:  "Commands to create, deprovision, and scale UpCloud clusters.",
+}
+
+var upcloudCreateCmd = &cobra.Command{
+	Use:   "create",
+	Short: "Create a new UpCloud cluster",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name, _ := cmd.Flags().GetString("name")
+		credentialID, _ := cmd.Flags().GetString("credential-id")
+		sshKeyCredentialID, _ := cmd.Flags().GetString("ssh-key-credential-id")
+		zone, _ := cmd.Flags().GetString("zone")
+		zones, _ := cmd.Flags().GetStringSlice("zones")
+		networkMode, _ := cmd.Flags().GetString("network-mode")
+		networkIPRange, _ := cmd.Flags().GetString("network-ip-range")
+		bastionPlan, _ := cmd.Flags().GetString("bastion-plan")
+		bastionAllowedIPs, _ := cmd.Flags().GetStringSlice("bastion-allowed-ips")
+		cpCount, _ := cmd.Flags().GetInt("control-plane-count")
+		cpPlan, _ := cmd.Flags().GetString("control-plane-plan")
+		workerCount, _ := cmd.Flags().GetInt("worker-count")
+		workerPlan, _ := cmd.Flags().GetString("worker-plan")
+		distribution, _ := cmd.Flags().GetString("distribution")
+		cni, _ := cmd.Flags().GetString("cni")
+		kubeVersion, _ := cmd.Flags().GetString("kubernetes-version")
+		etcdTopology, _ := cmd.Flags().GetString("etcd-topology")
+		etcdNodeCount, _ := cmd.Flags().GetInt("etcd-node-count")
+		etcdPlan, _ := cmd.Flags().GetString("etcd-plan")
+		externalCloudProvider, includeNetworking, err := resolveCloudProviderNetworking(cmd)
+		if err != nil {
+			return err
+		}
+		includeDNS, _ := cmd.Flags().GetBool("include-dns")
+		gitopsCredentialName, _ := cmd.Flags().GetString("gitops-credential-name")
+		gitopsRepository, _ := cmd.Flags().GetString("gitops-repository")
+		gitopsBranch, _ := cmd.Flags().GetString("gitops-branch")
+
+		req := client.CreateUpcloudClusterRequest{
+			Name:                  name,
+			CredentialID:          credentialID,
+			SSHKeyCredentialID:    sshKeyCredentialID,
+			Zone:                  zone,
+			Zones:                 zones,
+			NetworkMode:           networkMode,
+			NetworkIPRange:        networkIPRange,
+			BastionPlan:           bastionPlan,
+			BastionAllowedIPs:     bastionAllowedIPs,
+			ControlPlaneCount:     cpCount,
+			ControlPlanePlan:      cpPlan,
+			WorkerCount:           workerCount,
+			WorkerPlan:            workerPlan,
+			Distribution:          distribution,
+			CNI:                   cni,
+			EtcdTopology:          etcdTopology,
+			EtcdNodeCount:         etcdNodeCount,
+			EtcdPlan:              etcdPlan,
+			ExternalCloudProvider: externalCloudProvider,
+			IncludeNetworking:     includeNetworking,
+			IncludeDNS:            includeDNS,
+		}
+		if kubeVersion != "" {
+			req.KubernetesVersion = &kubeVersion
+		}
+		if gitopsCredentialName != "" {
+			req.GitopsCredentialName = &gitopsCredentialName
+		}
+		if gitopsRepository != "" {
+			req.GitopsRepository = &gitopsRepository
+			if gitopsBranch != "" {
+				req.GitopsBranch = &gitopsBranch
+			}
+		}
+
+		environment, criticality, classificationError := clusterClassificationFromFlags(cmd)
+		if classificationError != nil {
+			return classificationError
+		}
+		req.Environment = environment
+		req.Criticality = criticality
+
+		result, err := apiClient.CreateUpcloudCluster(req)
+		if err != nil {
+			return fmt.Errorf("creating UpCloud cluster: %w", err)
+		}
+
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+
+		fmt.Printf("UpCloud cluster '%s' created successfully!\n", result.Name)
+		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
+			strings.TrimRight(baseURL, "/"), result.ClusterID)
+		return nil
+	},
+}
+
+var upcloudDeprovisionCmd = &cobra.Command{
+	Use:   "deprovision <cluster_id|name>",
+	Short: "Deprovision an UpCloud cluster",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		yes, _ := cmd.Flags().GetBool("yes")
+		force, _ := cmd.Flags().GetBool("force")
+		acceptsVolumeDataLoss, volumeError := acknowledgeVolumeDataLoss(cmd, cloudClusterKindUpcloud, clusterID,
+			clusterTarget(args[0], clusterID))
+		if volumeError != nil {
+			return volumeError
+		}
+
+		warning := "This deletes all its servers, networks and SSH keys!"
+		if force {
+			warning = "This deletes all its servers, networks, SSH keys and load balancers!"
+		}
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+			fmt.Sprintf("Deprovision UpCloud cluster %s? %s [y/N]: ", clusterTarget(args[0], clusterID), warning),
+			yes); err != nil {
+			return err
+		}
+
+		result, err := apiClient.DeprovisionUpcloudCluster(clusterID,
+			client.DeprovisionOptions{Force: force, AcceptVolumeDataLoss: acceptsVolumeDataLoss})
+		if err != nil {
+			return fmt.Errorf("deprovisioning cluster: %w", err)
+		}
+
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+
+		if result.Success {
+			fmt.Println(text.FgGreen.Sprint("UpCloud cluster deprovision initiated!"))
+		} else {
+			fmt.Println("Cluster deprovision requested with issues.")
+		}
+
+		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+		if result.OperationID != nil {
+			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
+		}
+		return nil
+	},
+}
+
+var upcloudStopCmd = &cobra.Command{
+	Use:   "stop <cluster_id|name>",
+	Short: "Stop an UpCloud cluster",
+	Long: "Stop an UpCloud cluster's compute while keeping its configuration so it can be started again later.\n\n" +
+		"--force also deletes the cluster's load balancers. The CSI storage volumes are kept, forced or not, and keep " +
+		"billing while the cluster is stopped; deprovision the cluster to delete them.",
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		force, _ := cmd.Flags().GetBool("force")
+		stopMode, modeError := stopModeFlag(cmd)
+		if modeError != nil {
+			return modeError
+		}
+		stopOptions := client.StopClusterOptions{Force: force, PreserveState: preserveStateFlag(cmd), Mode: stopMode}
+
+		result, err := apiClient.StopUpcloudCluster(clusterID, stopOptions)
+		if err != nil {
+			return fmt.Errorf("stopping cluster: %w", err)
+		}
+
+		if result.Success {
+			fmt.Println(text.FgGreen.Sprint("UpCloud cluster stop initiated."))
+		} else {
+			fmt.Println("Cluster stop request submitted.")
+		}
+		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
+		if result.OperationID != nil {
+			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
+		}
+		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
+		return nil
+	},
+}
+
+var upcloudStartCmd = &cobra.Command{
+	Use:   "start <cluster_id|name>",
+	Short: "Start a stopped UpCloud cluster",
+	Long:  "Start (re-provision) a stopped UpCloud cluster. Use --scope control_plane to bring up only the control plane.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		scope, _ := cmd.Flags().GetString("scope")
+		if scope != "all" && scope != "control_plane" {
+			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
+		}
+
+		result, err := apiClient.StartUpcloudCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd)})
+		if err != nil {
+			return fmt.Errorf("starting cluster: %w", err)
+		}
+
+		fmt.Println(text.FgGreen.Sprint("UpCloud cluster start initiated."))
+		fmt.Printf("  Scope: %s\n", result.Scope)
+		if result.MarkedToStartAt != "" {
+			fmt.Printf("  Marked to start at: %s\n", result.MarkedToStartAt)
+		}
+		fmt.Printf("  Created operations: %d\n", result.CreatedOperations)
+		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
+		return nil
+	},
+}
+
+var upcloudWorkersCmd = &cobra.Command{
+	Use:   "workers <cluster_id|name>",
+	Short: "Get current worker count for an UpCloud cluster",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+
+		result, err := apiClient.GetUpcloudWorkerCount(clusterID)
+		if err != nil {
+			return fmt.Errorf("fetching worker count: %w", err)
+		}
+
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+
+		fmt.Printf("Worker Count: %d\n", result.WorkerCount)
+		fmt.Printf("  Min: %d\n", result.Min)
+		fmt.Printf("  Max: %d\n", result.Max)
+		return nil
+	},
+}
+
+var upcloudScaleCmd = &cobra.Command{
+	Use:   "scale <cluster_id|name> <worker_count>",
+	Short: "Scale workers for an UpCloud cluster",
+	Long:  "Scale the number of worker nodes up or down for an UpCloud cluster.",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		workerCount, err := strconv.Atoi(args[1])
+		if err != nil {
+			return fmt.Errorf("invalid worker count: %w", err)
+		}
+
+		result, err := apiClient.ScaleUpcloudWorkers(clusterID, workerCount, client.DrainOptions{})
+		if err != nil {
+			return fmt.Errorf("scaling workers: %w", err)
+		}
+
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+
+		if result.PreviousCount == result.NewCount {
+			fmt.Printf("Worker count is already %d, no changes needed.\n", result.NewCount)
+		} else if result.NewCount > result.PreviousCount {
+			fmt.Printf("Scaling %s from %d to %d workers.\n",
+				text.FgGreen.Sprint("up"), result.PreviousCount, result.NewCount)
+		} else {
+			fmt.Printf("Scaling %s from %d to %d workers.\n",
+				text.FgYellow.Sprint("down"), result.PreviousCount, result.NewCount)
+		}
+		return nil
+	},
+}
+
+var upcloudK8sVersionCmd = &cobra.Command{
+	Use:   "k8s-version <cluster_id|name>",
+	Short: "Get current Kubernetes version for an UpCloud cluster",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+
+		result, err := apiClient.GetUpcloudK8sVersion(clusterID)
+		if err != nil {
+			return fmt.Errorf("fetching Kubernetes version: %w", err)
+		}
+
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+
+		version := "not set (using latest stable)"
+		if result.CurrentVersion != nil {
+			version = *result.CurrentVersion
+		}
+		fmt.Printf("Kubernetes Version: %s\n", version)
+		fmt.Printf("  Distribution: %s\n", result.Distribution)
+		return nil
+	},
+}
+
+var upcloudUpgradeCmd = &cobra.Command{
+	Use:        "upgrade <cluster_id|name> <target_version>",
+	Short:      "Upgrade Kubernetes version for an UpCloud cluster",
+	Long:       "Upgrade the Kubernetes version on all nodes in an UpCloud cluster. This deprecated form always runs the safe non-forced rollout; use `ankra cluster upgrade` for --force (PodDisruptionBudget override) and operation progress tracking.",
+	Deprecated: "use `ankra cluster upgrade <cluster_id> <target_version>` instead; the cloud provider is detected automatically.",
+	Args:       cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		targetVersion := args[1]
+
+		result, err := apiClient.UpgradeUpcloudK8sVersion(clusterID, targetVersion, false)
+		if err != nil {
+			return fmt.Errorf("upgrading Kubernetes version: %w", err)
+		}
+
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+
+		prev := "none"
+		if result.PreviousVersion != nil {
+			prev = *result.PreviousVersion
+		}
+		fmt.Printf("Kubernetes version upgrade initiated.\n")
+		fmt.Printf("  Previous version: %s\n", prev)
+		fmt.Printf("  New version:      %s\n", text.FgGreen.Sprint(result.NewVersion))
+		fmt.Printf("  Nodes affected:   %d\n", result.NodesAffected)
+		return nil
+	},
+}
+
+var upcloudZonesCmd = &cobra.Command{
+	Use:   "zones <cluster_id|name>",
+	Short: "Extend a multi-zone cluster's zone pool",
+	Long: `Extend the zone pool of an UpCloud cluster created with --network-mode wireguard_mesh
+(or with --zones). Pass the full desired pool, primary zone first: zones can only be
+added, never removed, and the pool must keep at least 3 zones with 3 control planes.
+Every new zone gets its own private network and NAT gateway; node groups added or
+scaled afterwards spread across the grown pool, and the cloud-provider stack
+republishes with load balancers and volumes scoped to the primary zone.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		zones, _ := cmd.Flags().GetStringSlice("zones")
+
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.UpdateUpcloudZonePool(requestContext, clusterID, zones, wait)
+		if err != nil {
+			return asyncWriteError("updating the zone pool", wait, err)
+		}
+		if submitted {
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Zone pool update")); err != nil {
+				return err
+			} else if handled {
+				return nil
+			}
+			printAsyncWriteSubmitted("Zone pool update")
+			return nil
+		}
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		if len(result.AddedZones) == 0 {
+			fmt.Printf("Zone pool unchanged: %s\n", strings.Join(result.Zones, ", "))
+			return nil
+		}
+		fmt.Printf("Zone pool is now %s (added %s).\n", strings.Join(result.Zones, ", "), strings.Join(result.AddedZones, ", "))
+		return nil
+	},
+}
+
+var upcloudNodeGroupCmd = &cobra.Command{
+	Use:   "node-group",
+	Short: "Manage node groups for an UpCloud cluster",
+	Long:  "List, add, scale, upgrade, and delete node groups.",
+}
+
+var upcloudNodeGroupListCmd = &cobra.Command{
+	Use:   "list <cluster_id|name>",
+	Short: "List node groups",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		result, err := apiClient.ListUpcloudNodeGroups(clusterID)
+		if err != nil {
+			return fmt.Errorf("listing node groups: %w", err)
+		}
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		if len(result.NodeGroups) == 0 {
+			fmt.Println("No node groups found.")
+			return nil
+		}
+		for _, ng := range result.NodeGroups {
+			fmt.Printf("%-20s  type=%-12s  count=%d%s  labels=%d  taints=%d\n",
+				ng.Name, ng.InstanceType, ng.Count, nodeGroupJoinedSuffix(ng), len(ng.Labels), len(ng.Taints))
+			printNodeGroupUnregistered(ng)
+		}
+		return nil
+	},
+}
+
+var upcloudNodeGroupAddCmd = &cobra.Command{
+	Use:   "add <cluster_id|name>",
+	Short: "Add a node group",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		name, _ := cmd.Flags().GetString("name")
+		instanceType, _ := cmd.Flags().GetString("instance-type")
+		count, _ := cmd.Flags().GetInt("count")
+		zone, _ := cmd.Flags().GetString("zone")
+
+		req := client.AddNodeGroupRequest{
+			Name:         name,
+			InstanceType: instanceType,
+			Count:        count,
+			Zone:         zone,
+		}
+
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.AddUpcloudNodeGroup(requestContext, clusterID, req, wait)
+		if err != nil {
+			return asyncWriteError("adding node group", wait, err)
+		}
+		if submitted {
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group add")); err != nil {
+				return err
+			} else if handled {
+				return nil
+			}
+			printAsyncWriteSubmitted("Node group add")
+			return nil
+		}
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		fmt.Printf("Node group '%s' created with %d node(s).\n", result.GroupName, result.Count)
+		return nil
+	},
+}
+
+var upcloudNodeGroupScaleCmd = &cobra.Command{
+	Use:   "scale <cluster_id|name> <group_name> <count>",
+	Short: "Scale a node group",
+	Args:  cobra.ExactArgs(3),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		groupName := args[1]
+		count, err := strconv.Atoi(args[2])
+		if err != nil {
+			return fmt.Errorf("invalid count: %w", err)
+		}
+
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.ScaleUpcloudNodeGroup(requestContext, clusterID, groupName, count, client.DrainOptions{}, wait)
+		if err != nil {
+			return asyncWriteError("scaling node group", wait, err)
+		}
+		if submitted {
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group scale")); err != nil {
+				return err
+			} else if handled {
+				return nil
+			}
+			printAsyncWriteSubmitted("Node group scale")
+			return nil
+		}
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		fmt.Printf("Node group '%s' scaled from %d to %d.\n", result.GroupName, result.PreviousCount, result.NewCount)
+		return nil
+	},
+}
+
+var upcloudNodeGroupUpgradeCmd = &cobra.Command{
+	Use:   "upgrade <cluster_id|name> <group_name> <plan>",
+	Short: "Upgrade server plan for a node group",
+	Args:  cobra.ExactArgs(3),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		groupName := args[1]
+		plan := args[2]
+
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.UpdateUpcloudNodeGroupInstanceType(requestContext, clusterID, groupName, plan, client.DrainOptions{}, wait)
+		if err != nil {
+			return asyncWriteError("upgrading node group", wait, err)
+		}
+		if submitted {
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group plan update")); err != nil {
+				return err
+			} else if handled {
+				return nil
+			}
+			printAsyncWriteSubmitted("Node group plan update")
+			return nil
+		}
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		fmt.Printf("Node group '%s' plan upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
+		return nil
+	},
+}
+
+var upcloudNodeGroupDeleteCmd = &cobra.Command{
+	Use:   "delete <cluster_id|name> <group_name>",
+	Short: "Delete a node group and all its nodes",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		groupName := args[1]
+		yes, _ := cmd.Flags().GetBool("yes")
+
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+			fmt.Sprintf("Delete node group %q from cluster %s? This deletes all its nodes! [y/N]: ", groupName, clusterTarget(args[0], clusterID)),
+			yes); err != nil {
+			return err
+		}
+
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
+		defer cancelRequestContext()
+
+		result, submitted, err := apiClient.DeleteUpcloudNodeGroup(requestContext, clusterID, groupName, client.DrainOptions{}, wait)
+		if err != nil {
+			return asyncWriteError("deleting node group", wait, err)
+		}
+		if submitted {
+			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group delete")); err != nil {
+				return err
+			} else if handled {
+				return nil
+			}
+			printAsyncWriteSubmitted("Node group delete")
+			return nil
+		}
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		fmt.Printf("Node group '%s' deleted. %d node(s) removed.\n", result.GroupName, result.Deleted)
+		return nil
+	},
+}
+
+// upcloudDefaultNodeGroupPlan is the plan `cluster upcloud node-group add`
+// uses when --instance-type is not given. The node-group API has no default of
+// its own (instance_type is required there), so this follows the worker plan
+// the create API defaults to - cluster go/internal/providerapi/lifecycle.go,
+// decodeCreateUpcloudClusterRequest, worker_plan "PREMIUM-2xCPU-4GB"
+// (ankra-u70wp). TestCreateDefaultsFollowTheAPI pins it.
+const upcloudDefaultNodeGroupPlan = "PREMIUM-2xCPU-4GB"
+
+func init() {
+	upcloudCreateCmd.Flags().String("name", "", "Cluster name (required)")
+	upcloudCreateCmd.Flags().String("credential-id", "", "UpCloud API credential ID (required)")
+	upcloudCreateCmd.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (required)")
+	upcloudCreateCmd.Flags().String("zone", "", "UpCloud zone (required); the primary zone of a multi-zone cluster (bastion, first control plane, default network)")
+	upcloudCreateCmd.Flags().StringSlice("zones", nil, "Zone pool for a multi-zone cluster (e.g. fi-hel1,fi-hel2,se-sto1). Must include --zone. Needs at least 3 zones and --control-plane-count=3 so the control plane survives the loss of any one zone; each extra zone gets its own private network and NAT gateway, and the nodes are joined by a platform-managed WireGuard mesh. kubeadm only. Omitted keeps the cluster in --zone")
+	upcloudCreateCmd.Flags().String("network-mode", "", "Network mode: private_network or wireguard_mesh. Derived when omitted (wireguard_mesh for a multi-zone pool). Pass wireguard_mesh on a single-zone kubeadm cluster to make it mesh-capable so zones can be added later with 'ankra cluster upcloud zones'; a mesh cannot be retrofitted")
+	upcloudCreateCmd.Flags().String("network-ip-range", "", "Private network IP range (optional). Left unset, Ankra picks a range that is free in your UpCloud account; pass one only to pin it (a range overlapping an existing network in the zone is refused)")
+	upcloudCreateCmd.Flags().String("bastion-plan", "", "Bastion plan (server default: STARTER-1xCPU-1GB)")
+	upcloudCreateCmd.Flags().StringSlice("bastion-allowed-ips", nil, bastionAllowedIPsFlagUsage)
+	upcloudCreateCmd.Flags().Int("control-plane-count", 1, "Number of control plane nodes")
+	upcloudCreateCmd.Flags().String("control-plane-plan", "", "Control plane plan (server default: PREMIUM-2xCPU-4GB)")
+	upcloudCreateCmd.Flags().Int("worker-count", 1, "Number of worker nodes")
+	upcloudCreateCmd.Flags().String("worker-plan", "", "Worker plan (server default: PREMIUM-2xCPU-4GB)")
+	upcloudCreateCmd.Flags().String("distribution", "kubeadm", "Kubernetes distribution: kubeadm (default, vanilla upstream Kubernetes with Cilium) or k3s")
+	upcloudCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see `ankra cluster kubeadm-versions` or `ankra cluster k3s-versions`)")
+	upcloudCreateCmd.Flags().String("etcd-topology", "stacked", "etcd topology for kubeadm clusters: stacked (on control planes) or external (dedicated VMs)")
+	upcloudCreateCmd.Flags().Int("etcd-node-count", 3, "Number of dedicated etcd nodes when --etcd-topology=external (3 or 5)")
+	upcloudCreateCmd.Flags().String("etcd-plan", "", "Plan for dedicated etcd nodes when --etcd-topology=external (server default: PREMIUM-2xCPU-4GB)")
+	upcloudCreateCmd.Flags().Bool("external-cloud-provider", true, "Install the UpCloud CCM and CSI (cloud-provider=external) for LoadBalancers and persistent volumes (default on; pass --external-cloud-provider=false to skip, which also disables --include-networking)")
+	upcloudCreateCmd.Flags().String("cni", "", "CNI plugin: flannel, calico, or cilium (optional; the platform default is used when omitted)")
+	upcloudCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
+	registerIncludeDNSFlag(upcloudCreateCmd)
+	registerClusterClassificationFlags(upcloudCreateCmd)
+	upcloudCreateCmd.Flags().String("gitops-credential-name", "", "GitOps GitHub credential name; when set with --gitops-repository, the generated upcloud-cloud-provider stack is committed to Git (optional)")
+	upcloudCreateCmd.Flags().String("gitops-repository", "", "GitOps repository (e.g. org/repo) to commit the generated stack to (optional)")
+	upcloudCreateCmd.Flags().String("gitops-branch", "master", "GitOps branch to commit to")
+
+	_ = upcloudCreateCmd.MarkFlagRequired("name")
+	_ = upcloudCreateCmd.MarkFlagRequired("credential-id")
+	_ = upcloudCreateCmd.MarkFlagRequired("ssh-key-credential-id")
+	_ = upcloudCreateCmd.MarkFlagRequired("zone")
+
+	upcloudStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
+	registerThreeStateFlag(upcloudStartCmd, "restore-state", restoreStateFlagUsage)
+
+	upcloudDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	upcloudDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's load balancers, and tolerate unreachable infrastructure. The CSI storage volumes are deleted forced or not, and only with --accept-volume-data-loss or a yes at the prompt")
+	registerAcceptVolumeDataLossFlag(upcloudDeprovisionCmd)
+	upcloudStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's load balancers. The cluster's CSI storage volumes are kept and keep billing while stopped: only a deprovision deletes them")
+	registerThreeStateFlag(upcloudStopCmd, "preserve-state", preserveStateFlagUsage)
+	upcloudStopCmd.Flags().String("mode", "", stopModeFlagUsage)
+	upcloudNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+
+	upcloudNodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")
+	upcloudNodeGroupAddCmd.Flags().String("zone", "", "Pin every node of the group to one zone of a multi-zone cluster's pool (e.g. se-sto1). Pin the group when it runs zonal storage: an UpCloud volume cannot attach from another zone. Omitted spreads the group across the pool; on a single-zone cluster the flag is refused")
+	upcloudZonesCmd.Flags().StringSlice("zones", nil, "The desired zone pool, primary zone first (required). Every current zone must still be listed; new zones are added in the given order")
+	_ = upcloudZonesCmd.MarkFlagRequired("zones")
+	registerAsyncWriteFlags(upcloudZonesCmd)
+	upcloudNodeGroupAddCmd.Flags().String("instance-type", upcloudDefaultNodeGroupPlan, "Server plan for nodes")
+	upcloudNodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes (0-100)")
+	_ = upcloudNodeGroupAddCmd.MarkFlagRequired("name")
+	registerAsyncWriteFlags(upcloudNodeGroupAddCmd)
+	registerAsyncWriteFlags(upcloudNodeGroupScaleCmd)
+	registerAsyncWriteFlags(upcloudNodeGroupUpgradeCmd)
+	registerAsyncWriteFlags(upcloudNodeGroupDeleteCmd)
+
+	registerStructuredOutputFlags(
+		upcloudCreateCmd,
+		upcloudDeprovisionCmd,
+		upcloudWorkersCmd,
+		upcloudScaleCmd,
+		upcloudK8sVersionCmd,
+		upcloudUpgradeCmd,
+		upcloudNodeGroupListCmd,
+		upcloudNodeGroupAddCmd,
+		upcloudNodeGroupScaleCmd,
+		upcloudNodeGroupUpgradeCmd,
+		upcloudNodeGroupDeleteCmd,
+	)
+
+	markDeprecatedForGenericVerb("ankra cluster scale <cluster_id> <worker_count>", upcloudScaleCmd)
+	markDeprecatedForGenericVerb("ankra cluster deprovision <cluster_id> [--force]", upcloudDeprovisionCmd)
+	markDeprecatedForGenericVerb(
+		"ankra cluster node-group <list|add|scale|upgrade|delete>",
+		upcloudNodeGroupListCmd, upcloudNodeGroupAddCmd, upcloudNodeGroupScaleCmd, upcloudNodeGroupUpgradeCmd, upcloudNodeGroupDeleteCmd,
+	)
+
+	upcloudNodeGroupCmd.AddCommand(upcloudNodeGroupListCmd)
+	upcloudNodeGroupCmd.AddCommand(upcloudNodeGroupAddCmd)
+	upcloudNodeGroupCmd.AddCommand(upcloudNodeGroupScaleCmd)
+	upcloudNodeGroupCmd.AddCommand(upcloudNodeGroupUpgradeCmd)
+	upcloudNodeGroupCmd.AddCommand(upcloudNodeGroupDeleteCmd)
+
+	upcloudCmd.AddCommand(upcloudCreateCmd)
+	upcloudCmd.AddCommand(upcloudZonesCmd)
+	upcloudCmd.AddCommand(upcloudDeprovisionCmd)
+	upcloudCmd.AddCommand(upcloudStopCmd)
+	upcloudCmd.AddCommand(upcloudStartCmd)
+	upcloudCmd.AddCommand(upcloudWorkersCmd)
+	upcloudCmd.AddCommand(upcloudScaleCmd)
+	upcloudCmd.AddCommand(upcloudK8sVersionCmd)
+	upcloudCmd.AddCommand(upcloudUpgradeCmd)
+	upcloudCmd.AddCommand(upcloudNodeGroupCmd)
+
+	clusterCmd.AddCommand(upcloudCmd)
+}
