@@ -10,10 +10,11 @@ import (
 )
 
 // Exit codes are part of the CLI's scripting contract. 0 and 1 match the
-// historical behavior; 2-7 let scripts and CI distinguish failures they can
+// historical behavior; 2-8 let scripts and CI distinguish failures they can
 // act on (re-run usage errors after fixing the invocation, treat not-found
 // as idempotent success, re-authenticate on auth failures, retry on wait
-// expiry, ask for a role on a permission refusal) without parsing error text.
+// expiry, ask for a role on a permission refusal, hold a rollout a preflight
+// blocked) without parsing error text.
 const (
 	exitOK          = 0
 	exitError       = 1 // API or runtime failure
@@ -23,6 +24,7 @@ const (
 	exitWaitTimeout = 5 // --wait/--timeout expired before completion
 	exitAuth        = 6 // missing, expired, or rejected credentials
 	exitForbidden   = 7 // authenticated but the role lacks the permission (RBAC)
+	exitBlocked     = 8 // a preflight found a block, so nothing was changed
 )
 
 // codedError attaches an exit code to an error without changing its message.

@@ -79,8 +79,9 @@ the un-injected fallback; never bump it for a release.
 - **Exit codes are a scripting contract** (`cmd/exitcodes.go`): 0 success,
   1 API/runtime, 2 usage, 3 not-found, 4 confirmation declined, 5
   `--wait`/`--timeout` expiry, 6 auth, 7 RBAC permission denied (role lacks
-  the permission; re-login won't help). Commands use `RunE` and return errors
-  (wrapped with `withExitCode` where the class is known) — never `os.Exit`,
+  the permission; re-login won't help), 8 a preflight blocked (nothing
+  changed). Commands use `RunE` and return errors (wrapped with
+  `withExitCode` where the class is known) — never `os.Exit`,
   never printing errors to stdout. Declined prompts return the shared
   `errCancelled`.
 - **Destructive commands confirm first** (delete, uninstall, deprovision);

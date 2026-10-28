@@ -1922,6 +1922,10 @@ func (m baseMock) GetHetznerK8sVersion(clusterID string) (*client.K8sVersionInfo
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetUpgradePreflight(kind, clusterID, targetVersion string) (*client.UpgradePreflightReport, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) UpgradeHetznerK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error) {
 	return nil, errors.New("not implemented")
 }
