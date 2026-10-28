@@ -69,7 +69,7 @@ resource "ankra_hetzner_credential" "main" {
 
 resource "ankra_ssh_key_credential" "ops" {
   name           = "ops"
-  ssh_public_key = file("~/.ssh/id_ed25519.pub")
+  ssh_public_key = file(pathexpand("~/.ssh/id_ed25519.pub"))
 }
 
 resource "ankra_hetzner_cluster" "prod" {
