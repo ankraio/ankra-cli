@@ -32,6 +32,13 @@ func (m *clusterUpgradeMock) GetClusterByID(clusterID string) (client.ClusterLis
 	return m.cluster, nil
 }
 
+// GetUpgradePreflight answers ready, so these tests exercise the upgrade
+// dispatch; cluster_upgrade_preflight_test.go covers the gate itself.
+func (m *clusterUpgradeMock) GetUpgradePreflight(kind, clusterID, targetVersion string) (*client.UpgradePreflightReport, error) {
+	return &client.UpgradePreflightReport{ClusterID: clusterID, RequestedTargetVersion: targetVersion,
+		TargetVersion: targetVersion, Verdict: client.UpgradePreflightVerdictReady}, nil
+}
+
 func (m *clusterUpgradeMock) upgradeResult() *client.UpgradeK8sVersionResult {
 	previousVersion := "v1.35.0+k3s1"
 	return &client.UpgradeK8sVersionResult{

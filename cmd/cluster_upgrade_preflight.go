@@ -121,21 +121,22 @@ func upgradePreflightStatusLabel(finding client.UpgradePreflightFinding) string 
 // upgradePreflightHolds answers whether a report blocks an upgrade sent
 // with the given force: any block does without force, and with force every
 // block but the PodDisruptionBudget one still does. A blocked verdict that
-// no check marked as a block explains (an empty or capped check list, or a
-// status this CLI does not know) holds the upgrade even with force.
+// the listed blocks do not fully explain (an empty or capped check list, a
+// block count above the blocks listed, or a status this CLI does not know)
+// holds the upgrade even with force.
 func upgradePreflightHolds(report *client.UpgradePreflightReport, force bool) bool {
-	hasBlockingCheck := false
+	listedBlocks := 0
 	for _, finding := range report.Checks {
 		if finding.Status != client.UpgradePreflightStatusBlock {
 			continue
 		}
-		hasBlockingCheck = true
+		listedBlocks++
 		if force && finding.OverridableWithForce {
 			continue
 		}
 		return true
 	}
-	if report.Verdict == client.UpgradePreflightVerdictBlocked && !hasBlockingCheck {
+	if report.Verdict == client.UpgradePreflightVerdictBlocked && (listedBlocks == 0 || report.Blocks > listedBlocks) {
 		return true
 	}
 	return false

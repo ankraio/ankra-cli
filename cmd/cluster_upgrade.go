@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 
 	"ankra/internal/client"
 
@@ -87,8 +89,12 @@ Examples:
 
 		report, preflightError := apiClient.GetUpgradePreflight(cluster.Kind, clusterID, targetVersion)
 		if preflightError != nil {
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "The upgrade preflight could not be run (%v); the platform still checks before it changes anything.\n",
-				preflightError)
+			if !upgradePreflightRouteAbsent(preflightError) {
+				return fmt.Errorf("the upgrade preflight could not be run, so nothing was changed; "+
+					"run 'ankra cluster upgrade preflight %s %s' to see why: %w", args[0], targetVersion, preflightError)
+			}
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
+				"The platform does not offer the upgrade preflight yet; upgrading with the platform's own checks only.")
 		} else {
 			printUpgradePreflight(cmd.OutOrStdout(), report)
 			if upgradePreflightHolds(report, clusterUpgradeForce) {
@@ -126,4 +132,16 @@ func init() {
 	clusterUpgradeCmd.Flags().BoolVar(&clusterUpgradeForce, "force", false,
 		"proceed even when a node drain is blocked (bypasses PodDisruptionBudget failures and the preflight's PodDisruptionBudget block)")
 	clusterCmd.AddCommand(clusterUpgradeCmd)
+}
+
+// upgradePreflightRouteAbsent reports whether a preflight error is a platform
+// that predates the preflight (the router's own 404), the one failure the
+// upgrade goes ahead after. The cluster was found just before, so a 404 here
+// is the route, not the cluster.
+func upgradePreflightRouteAbsent(preflightError error) bool {
+	var unexpected *client.UnexpectedResponseError
+	if !errors.As(preflightError, &unexpected) || unexpected.StatusCode != http.StatusNotFound {
+		return false
+	}
+	return unexpected.Detail == "" || unexpected.Detail == routeAbsentDetail
 }

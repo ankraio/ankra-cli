@@ -226,7 +226,7 @@ func TestClusterUpgradePrintsTheReadyPreflightAndUpgrades(t *testing.T) {
 
 func TestClusterUpgradeProceedsWhenThePreflightCannotRun(t *testing.T) {
 	mock := newUpgradePreflightMock(nil)
-	mock.preflightError = errors.New("unexpected status: 404 Not Found")
+	mock.preflightError = &client.UnexpectedResponseError{StatusCode: 404, Detail: "Not Found"}
 	setMockClient(t, mock)
 	resetUpgradePreflightFlags(t)
 
@@ -235,11 +235,42 @@ func TestClusterUpgradeProceedsWhenThePreflightCannotRun(t *testing.T) {
 		if runError != nil {
 			t.Fatalf("a platform without the preflight still upgrades (it gates itself): %v", runError)
 		}
-		if !strings.Contains(output, "could not be run") {
+		if !strings.Contains(output, "does not offer the upgrade preflight") {
 			t.Fatalf("the missing preflight must be said on stderr:\n%s", output)
 		}
 	})
 	if len(mock.hetznerCalls) != 1 {
 		t.Fatalf("the upgrade must run once: %+v", mock.hetznerCalls)
+	}
+}
+
+func TestClusterUpgradeForceHoldsWhenTheBlockCountOutnumbersTheListedBlocks(t *testing.T) {
+	report := blockedPreflightReport(true)
+	report.Blocks = 2
+	mock := newUpgradePreflightMock(report)
+	setMockClient(t, mock)
+	resetUpgradePreflightFlags(t)
+
+	_, runError := executeCommand("cluster", "upgrade", upgradePreflightClusterID, "v1.35.9", "--force")
+	if exitCodeFor(runError) != exitBlocked {
+		t.Fatalf("a block the capped list leaves out stops even a forced upgrade: %v", runError)
+	}
+	if len(mock.hetznerCalls) != 0 {
+		t.Fatalf("an unlisted block must not upgrade: %+v", mock.hetznerCalls)
+	}
+}
+
+func TestClusterUpgradeStopsWhenThePreflightFails(t *testing.T) {
+	mock := newUpgradePreflightMock(nil)
+	mock.preflightError = &client.UnexpectedResponseError{StatusCode: 500}
+	setMockClient(t, mock)
+	resetUpgradePreflightFlags(t)
+
+	_, runError := executeCommand("cluster", "upgrade", upgradePreflightClusterID, "v1.35.9")
+	if runError == nil || !strings.Contains(runError.Error(), "nothing was changed") {
+		t.Fatalf("a preflight that failed must stop the upgrade: %v", runError)
+	}
+	if len(mock.hetznerCalls) != 0 {
+		t.Fatalf("a failed preflight must not upgrade: %+v", mock.hetznerCalls)
 	}
 }
