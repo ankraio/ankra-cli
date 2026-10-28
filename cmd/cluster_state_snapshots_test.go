@@ -177,9 +177,39 @@ func TestStateSnapshotRetentionRefusesAnOutOfRangeWindowAndSendsNothing(t *testi
 		if runError == nil || exitCodeFor(runError) != exitUsage {
 			t.Fatalf("--days %s must be a usage error, got %v", days, runError)
 		}
-		if len(recorder.seen()) != 0 {
-			t.Fatalf("--days %s sent %+v", days, recorder.seen())
+		for _, request := range recorder.seen() {
+			if request.method != http.MethodGet {
+				t.Fatalf("--days %s sent %+v", days, recorder.seen())
+			}
 		}
+	}
+}
+
+func TestStateSnapshotRetentionFollowsTheAdvertisedBounds(t *testing.T) {
+	recorder := newStateSnapshotRetentionServer(t)
+	recorder.state.MaximumRetentionDays = 120
+	if _, _, runError := runStateSnapshotRetention(t, "", "--days=100"); runError != nil {
+		t.Fatalf("a window inside the advertised bounds must be set, got %v", runError)
+	}
+	if recorder.state.RetentionDays != 100 {
+		t.Fatalf("expected 100 days stored, got %d", recorder.state.RetentionDays)
+	}
+	recorder.state.MaximumRetentionDays = 30
+	_, _, runError := runStateSnapshotRetention(t, "", "--days=40", "--yes")
+	if runError == nil || exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "1 to 30") {
+		t.Fatalf("a window above the advertised maximum must be a usage error naming it, got %v", runError)
+	}
+}
+
+func TestStateSnapshotRetentionWithoutKeepLatestDoesNotPrintZero(t *testing.T) {
+	recorder := newStateSnapshotRetentionServer(t)
+	recorder.state.KeepLatest = 0
+	stdout, _, runError := runStateSnapshotRetention(t, "")
+	if runError != nil {
+		t.Fatalf("show failed: %v", runError)
+	}
+	if strings.Contains(stdout, "0 newest") || !strings.Contains(stdout, "the newest backups") {
+		t.Fatalf("a missing keep_latest must not print as zero, got %q", stdout)
 	}
 }
 

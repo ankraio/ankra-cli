@@ -86,9 +86,9 @@ func runClusterStateSnapshotsRetention(command *cobra.Command) error {
 	}
 	isSetting := command.Flags().Changed("days")
 	days, _ := command.Flags().GetInt("days")
-	if isSetting && (days < stateSnapshotRetentionMinimumDays || days > stateSnapshotRetentionMaximumDays) {
-		return withExitCode(exitUsage, fmt.Errorf("--days must be %d to %d, got %d",
-			stateSnapshotRetentionMinimumDays, stateSnapshotRetentionMaximumDays, days))
+	if isSetting && days < stateSnapshotRetentionMinimumDays {
+		return withExitCode(exitUsage, fmt.Errorf("--days must be at least %d, got %d",
+			stateSnapshotRetentionMinimumDays, days))
 	}
 	cluster, resolveError := resolveActiveCluster(command)
 	if resolveError != nil {
@@ -108,6 +108,10 @@ func runClusterStateSnapshotsRetention(command *cobra.Command) error {
 		_, _ = fmt.Fprintf(out, "State snapshot retention for cluster '%s':\n\n", cluster.Name)
 		printStateSnapshotRetention(out, current)
 		return nil
+	}
+	minimumDays, maximumDays := stateSnapshotRetentionBounds(current)
+	if days < minimumDays || days > maximumDays {
+		return withExitCode(exitUsage, fmt.Errorf("--days must be %d to %d, got %d", minimumDays, maximumDays, days))
 	}
 	if days < current.RetentionDays {
 		isConfirmed, _ := command.Flags().GetBool("yes")
@@ -150,11 +154,24 @@ func printStateSnapshotRetention(out io.Writer, retention *client.StateSnapshotR
 		window += " (default)"
 	}
 	_, _ = fmt.Fprintf(out, "  Retention window: %s\n", window)
-	_, _ = fmt.Fprintf(out, "  Kept:             the %d newest backups, plus the newest of each UTC day in the window\n",
-		retention.KeepLatest)
+	newest := "the newest backups"
+	if retention.KeepLatest > 0 {
+		newest = fmt.Sprintf("the %d newest backups", retention.KeepLatest)
+	}
+	_, _ = fmt.Fprintf(out, "  Kept:             %s, plus the newest of each UTC day in the window\n", newest)
 	if retention.MinimumRetentionDays > 0 && retention.MaximumRetentionDays > 0 {
 		_, _ = fmt.Fprintf(out, "  Allowed:          %d to %d days\n", retention.MinimumRetentionDays, retention.MaximumRetentionDays)
 	}
+}
+
+// stateSnapshotRetentionBounds is the window the platform advertises, or the
+// built-in 1 to 90 days when it does not advertise one.
+func stateSnapshotRetentionBounds(retention *client.StateSnapshotRetention) (int, int) {
+	minimumDays, maximumDays := stateSnapshotRetentionMinimumDays, stateSnapshotRetentionMaximumDays
+	if retention.MinimumRetentionDays > 0 && retention.MaximumRetentionDays >= retention.MinimumRetentionDays {
+		minimumDays, maximumDays = retention.MinimumRetentionDays, retention.MaximumRetentionDays
+	}
+	return minimumDays, maximumDays
 }
 
 // stateSnapshotRetentionError maps a refusal onto what the user can act on: a
