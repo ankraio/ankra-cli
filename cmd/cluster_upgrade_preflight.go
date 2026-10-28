@@ -80,9 +80,12 @@ Examples:
 // printUpgradePreflight renders a preflight report as a verdict line and one
 // table row per check.
 func printUpgradePreflight(out io.Writer, report *client.UpgradePreflightReport) {
-	verdict := text.FgGreen.Sprint(strings.ToUpper(report.Verdict))
-	if report.Verdict == client.UpgradePreflightVerdictBlocked {
-		verdict = text.FgRed.Sprint(strings.ToUpper(report.Verdict))
+	verdict := strings.ToUpper(report.Verdict)
+	switch report.Verdict {
+	case client.UpgradePreflightVerdictReady:
+		verdict = text.FgGreen.Sprint(verdict)
+	case client.UpgradePreflightVerdictBlocked:
+		verdict = text.FgRed.Sprint(verdict)
 	}
 	_, _ = fmt.Fprintf(out, "Upgrade preflight to %s (%s): %s, %d blocking, %d warnings\n",
 		report.TargetVersion, report.Distribution, verdict, report.Blocks, report.Warnings)
@@ -117,15 +120,22 @@ func upgradePreflightStatusLabel(finding client.UpgradePreflightFinding) string 
 
 // upgradePreflightHolds answers whether a report blocks an upgrade sent
 // with the given force: any block does without force, and with force every
-// block but the PodDisruptionBudget one still does.
+// block but the PodDisruptionBudget one still does. A blocked verdict that
+// no check marked as a block explains (an empty or capped check list, or a
+// status this CLI does not know) holds the upgrade even with force.
 func upgradePreflightHolds(report *client.UpgradePreflightReport, force bool) bool {
+	hasBlockingCheck := false
 	for _, finding := range report.Checks {
 		if finding.Status != client.UpgradePreflightStatusBlock {
 			continue
 		}
+		hasBlockingCheck = true
 		if force && finding.OverridableWithForce {
 			continue
 		}
+		return true
+	}
+	if report.Verdict == client.UpgradePreflightVerdictBlocked && !hasBlockingCheck {
 		return true
 	}
 	return false

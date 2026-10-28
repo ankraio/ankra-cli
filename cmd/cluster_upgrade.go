@@ -94,7 +94,7 @@ Examples:
 			if upgradePreflightHolds(report, clusterUpgradeForce) {
 				return withExitCode(exitBlocked, errUpgradePreflightBlocked)
 			}
-			if report.Verdict == client.UpgradePreflightVerdictBlocked {
+			if report.Verdict == client.UpgradePreflightVerdictBlocked && clusterUpgradeForce {
 				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "--force goes past the PodDisruptionBudget block: the drain will ignore the budgets.")
 			}
 		}

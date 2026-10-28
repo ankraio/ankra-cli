@@ -176,6 +176,33 @@ func TestClusterUpgradeForceGoesPastOnlyTheBudgetBlock(t *testing.T) {
 	}
 }
 
+func TestClusterUpgradeHoldsABlockedVerdictNoCheckExplains(t *testing.T) {
+	report := readyPreflightReport()
+	report.Verdict = client.UpgradePreflightVerdictBlocked
+	report.Blocks = 1
+	mock := newUpgradePreflightMock(report)
+	setMockClient(t, mock)
+	resetUpgradePreflightFlags(t)
+
+	_, runError := executeCommand("cluster", "upgrade", upgradePreflightClusterID, "v1.35.9", "--force")
+	if exitCodeFor(runError) != exitBlocked || !errors.Is(runError, errUpgradePreflightBlocked) {
+		t.Fatalf("a blocked verdict with no blocking check stops even a forced upgrade: %v", runError)
+	}
+	if len(mock.hetznerCalls) != 0 {
+		t.Fatalf("an unexplained block must not upgrade: %+v", mock.hetznerCalls)
+	}
+}
+
+func TestPrintUpgradePreflightLeavesAnUnknownVerdictUncoloured(t *testing.T) {
+	report := readyPreflightReport()
+	report.Verdict = "inconclusive"
+	var output strings.Builder
+	printUpgradePreflight(&output, report)
+	if !strings.Contains(output.String(), ": INCONCLUSIVE,") {
+		t.Fatalf("an unknown verdict prints as is, without the ready colour:\n%s", output.String())
+	}
+}
+
 func TestClusterUpgradePrintsTheReadyPreflightAndUpgrades(t *testing.T) {
 	mock := newUpgradePreflightMock(readyPreflightReport())
 	setMockClient(t, mock)
