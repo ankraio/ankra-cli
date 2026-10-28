@@ -4,6 +4,17 @@
 
 ### Added
 
+- **`ankra cluster ankracloud cpu-pools` lists the CPU pools of an Ankra Cloud
+  zone, and `ankra cluster node-group add --cpu-pool <name>` pins a node group
+  to one.** A server's guest sees its host's CPU, so the pool decides which
+  instructions a workload may use: each pool carries its x86-64 level and
+  whether it has AVX2, which images built for x86-64-v3 need or they crash
+  with SIGILL. Pass `--cluster` for an existing cluster's zone, or
+  `--credential-id` with `--zone` before creating one; `-o json|yaml` works on
+  both. A level Ankra Cloud does not report prints as `unknown`, never as a
+  low level. `--cpu-pool` is Ankra Cloud only, applies to the group's
+  scale-ups too, and `node-group list` shows the pool a group is pinned to.
+
 - **`ankra project` manages the organisation's projects, the team-sized scope
   beneath an organisation.** `list`, `current`, `switch <slug|name|id>`,
   `create <name> [--slug --description]`, `get`, `rename`, `delete`, `members`
