@@ -1,9 +1,0 @@
-apiVersion: v1
-kind: ImportCluster
-metadata:
-  name: validation-stack-missing-name
-spec:
-  stacks:
-    - description: stack with no name
-      manifests: []
-      addons: []
