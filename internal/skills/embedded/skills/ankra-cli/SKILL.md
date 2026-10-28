@@ -177,6 +177,27 @@ ankra cluster agent status
 A failed platform execution explains more deploy failures than pod logs do - start there. See
 `ankra-troubleshooting`.
 
+## Recovering from a failed Kubernetes version hop (Ankra staff only)
+
+After a failed `ankra cluster upgrade` whose nodes were rolled back by hand, the platform still
+records the new version and re-runs the hop as soon as it may act again. Ankra staff hold the
+cluster still and put the record back with:
+
+```bash
+export ANKRA_STAFF_SESSION='<staff admin-portal session>'   # an API token is refused here
+ankra cluster operations hold set <cluster-id> --for 4h --reason "hop failed, manual rollback"
+ankra cluster upgrade rollback-record <cluster-id> v1.34.5+k3s1 --reason "control plane rolled back"
+ankra cluster operations hold get <cluster-id>    # wait until the record check says confirmed
+ankra cluster operations hold lift <cluster-id> --reason "record confirmed"
+```
+
+These commands take the cluster by id, not name, and never use the saved login: a customer
+login, a service token or an MCP client cannot run them, so do not offer them to a customer.
+While a hold is in force every write to the cluster through Ankra (a deploy, a scale) is refused
+with 409. `rollback-record` is refused without a hold, while a write is running, or when the
+platform's last read of the control planes does not show the version; the lift is refused until
+the platform has read every node at the recorded version (`--force` overrides, audited).
+
 ## Agent upgrades
 
 ```bash
@@ -228,6 +249,15 @@ planes are Ready and etcd keeps quorum without it. The switch is per cluster and
 ```bash
 ankra cluster control-plane-heal get                    # switch + latest NotReady episode (shadow = recorded only)
 ankra cluster control-plane-heal set --enabled=false    # stop the automatic restart (needs clusters.write)
+```
+
+Ankra backs up each running cluster's etcd state every six hours and keeps the 4 newest backups plus
+one a day for the cluster's retention window (7 days by default, 1 to 90). A shorter window deletes
+the daily backups outside it, so the command asks first; confirm with the user before passing `--yes`:
+
+```bash
+ankra cluster state-snapshots retention                 # the window in effect (and whether it is the default)
+ankra cluster state-snapshots retention --days 30       # keep 30 days (needs clusters.write)
 ```
 
 Shipping logs to Ankra's hosted log store is opt-in per cluster and off by default; turning it on

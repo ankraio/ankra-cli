@@ -589,6 +589,8 @@ type APIClient interface {
 	SetClusterHostedLogShipping(ctx context.Context, clusterID string, enabled bool) (*client.ClusterHostedLogs, error)
 	GetControlPlaneHeal(ctx context.Context, clusterID string) (*client.ControlPlaneHeal, error)
 	SetControlPlaneHeal(ctx context.Context, clusterID string, enabled bool) (*client.ControlPlaneHeal, error)
+	GetStateSnapshotRetention(ctx context.Context, clusterID string) (*client.StateSnapshotRetention, error)
+	SetStateSnapshotRetention(ctx context.Context, clusterID string, retentionDays int) (*client.StateSnapshotRetention, error)
 
 	GetOrganisationProvenancePolicy(ctx context.Context) (*client.OrganisationProvenancePolicy, error)
 	SetOrganisationProvenancePolicy(ctx context.Context, mode *string) (*client.OrganisationProvenancePolicy, error)
