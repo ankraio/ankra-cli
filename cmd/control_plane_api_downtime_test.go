@@ -8,6 +8,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -306,5 +307,39 @@ func TestAcceptAPIDowntimeFlagIsOffByDefaultOnEveryProvider(t *testing.T) {
 		if !strings.Contains(command.Long, "--accept-api-downtime") {
 			t.Errorf("%s long help does not explain --accept-api-downtime", command.CommandPath())
 		}
+	}
+}
+
+// A capability that names the downtime lane but is not allowed (a resize
+// already running, say) is not refused locally: "re-run with
+// --accept-api-downtime" could never succeed there, so the request goes to the
+// platform, whose refusal gives the real reason. (Ankra AI review on #637.)
+func TestSetInstanceTypeDisallowedDowntimeLaneIsLeftToThePlatform(t *testing.T) {
+	info := singleControllerLiveInfo()
+	busy := "A control-plane resize is already running on this cluster."
+	info.InstanceTypeChange.Allowed = false
+	info.InstanceTypeChange.Reason = &busy
+	var sent []client.ControlPlaneInstanceTypeOptions
+	ops := func() controlPlaneOps {
+		return controlPlaneOps{
+			provider: "hetzner",
+			get:      func(string) (*client.ControlPlaneInfo, error) { return &info, nil },
+			setInstanceType: func(_ string, _ string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+				sent = append(sent, options)
+				return nil, errors.New("request failed: status 409: " + busy)
+			},
+		}
+	}
+	command := &cobra.Command{}
+	command.Flags().Bool(acceptAPIDowntimeFlag, false, "")
+	runError := runControlPlaneSetInstanceType(command, ops, testClusterID, "cx32")
+	if len(sent) != 1 {
+		t.Fatalf("requests = %d, want 1: a lane not on offer must not be refused locally", len(sent))
+	}
+	if runError == nil || !strings.Contains(runError.Error(), busy) {
+		t.Errorf("expected the platform's reason, got: %v", runError)
+	}
+	if runError != nil && strings.Contains(runError.Error(), "--accept-api-downtime") {
+		t.Errorf("the flag would not help here and must not be suggested, got: %v", runError)
 	}
 }

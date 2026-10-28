@@ -239,14 +239,19 @@ Re-run with --%s to proceed, or scale to 3 controllers first for a resize withou
 // sends neither.
 //
 // Without --accept-api-downtime it first asks the platform which lane the
-// change would take, and refuses locally - nothing sent - when that lane takes
-// the Kubernetes API down. If that read fails it does not guess: the request
+// change would take, and refuses locally - nothing sent - when the lane on
+// offer takes the Kubernetes API down. If that read fails it does not guess: the request
 // goes out as given and the platform's own refusal (a 409) explains.
 func runControlPlaneSetInstanceType(cmd *cobra.Command, opsFn func() controlPlaneOps, clusterID, instanceType string) error {
 	ops := opsFn()
 	options := instanceTypeOptionsFromFlags(cmd)
 	if !options.AcceptAPIDowntime && ops.get != nil {
+		// Only a lane that is on offer is refused here. A disallowed answer
+		// that still names this mode (a resize already running, say) goes to
+		// the platform, whose refusal says why; telling the operator to add
+		// the flag would send them round a loop that cannot succeed.
 		if info, getError := ops.get(clusterID); getError == nil && info != nil && info.InstanceTypeChange != nil &&
+			info.InstanceTypeChange.Allowed &&
 			info.InstanceTypeChange.Mode == client.ControlPlaneChangeModeLiveWithAPIDowntime {
 			return apiDowntimeRefusal(ops.provider, clusterID)
 		}
