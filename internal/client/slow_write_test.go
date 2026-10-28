@@ -32,9 +32,9 @@ func slowHeaderServer(t *testing.T, headerDelay time.Duration, body string) *htt
 // while the server is still working.
 func TestSlowWriteOutlivesTheSharedResponseHeaderDeadline(t *testing.T) {
 	sharedTransport, isTransport := New("token", "http://example.invalid").
-		HTTP.Transport.(*orgOverrideTransport)
+		HTTP.Transport.(*scopeOverrideTransport)
 	if !isTransport {
-		t.Fatalf("shared transport = %T, want *orgOverrideTransport", sharedTransport)
+		t.Fatalf("shared transport = %T, want *scopeOverrideTransport", sharedTransport)
 	}
 	warning, isWarning := sharedTransport.base.(*tokenExpiryTransport)
 	if !isWarning {
@@ -54,7 +54,7 @@ func TestSlowWriteOutlivesTheSharedResponseHeaderDeadline(t *testing.T) {
 	}
 
 	slowClient := New("token", "http://example.invalid").httpClientForSlowWrite()
-	slowTransport, isSlowTransport := slowClient.Transport.(*orgOverrideTransport)
+	slowTransport, isSlowTransport := slowClient.Transport.(*scopeOverrideTransport)
 	if !isSlowTransport {
 		t.Fatalf("slow-write transport = %T", slowClient.Transport)
 	}

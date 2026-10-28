@@ -36,14 +36,19 @@ ankra login                 # browser SSO; stores credentials in ~/.ankra.yaml
 ankra org list
 ankra org switch <slug|name|id>
 ankra org current
+ankra project list                  # projects: the team-sized scope beneath an organisation
+ankra project switch <slug|name|id>
+ankra project current               # says whether a flag, a saved selection or the platform decides
 ankra cluster list
 ankra cluster select <name>         # persisted; omit the name for a picker
 ankra cluster info                  # confirm what you are about to change
 ```
 
 Most `ankra cluster ...` subcommands act on the **selected** cluster. Override per command with
-`--cluster <name|id>`, and the organisation with the global `--org <name|id>`. In a shared script,
-never rely on the selection - pass both explicitly.
+`--cluster <name|id>`, the organisation with the global `--org <name|id>`, and the project with the
+global `--project <slug|name|id>` (or `ANKRA_PROJECT`). In a shared script, never rely on the
+selection - pass all three explicitly. While an organisation has projects off, `ankra project`
+exits 3 saying so and everything else works as before.
 
 ## The command map
 
@@ -67,7 +72,8 @@ never rely on the selection - pass both explicitly.
 | Metrics and logs | `ankra cluster metrics\|top\|logs\|events\|logs-ship` | `ankra-observability`, `ankra-troubleshooting` |
 | Debugging inside a cluster | `ankra cluster exec\|terminal\|debug ...` | `ankra-troubleshooting` |
 | AI provider, tools, runs, board, memories | `ankra ai ...`, `ankra org mcp-servers ...`, `ankra agents ...`, `ankra tickets ...`, `ankra chat` | `ankra-ai-agents` |
-| Tokens, roles, cluster access | `ankra tokens create\|list\|rotate\|revoke\|delete` (`--service` for service accounts), `ankra org members\|roles\|invite`, `ankra cluster access grant\|list\|revoke\|elevate`, `ankra org access-policy get`, `ankra org oidc-trust` | `ankra-security` |
+| Tokens, roles, cluster access | `ankra tokens create\|list\|rotate\|revoke\|delete` (`--service` for service accounts, `--project` to pin one to a project), `ankra org members\|roles\|invite`, `ankra cluster access grant\|list\|revoke\|elevate`, `ankra org access-policy get`, `ankra org oidc-trust` | `ankra-security` |
+| Projects (scope beneath the organisation) | `ankra project list\|current\|switch\|create\|get\|rename\|delete\|members\|move`, global `--project`, `ankra cost ... --all-projects`, `ankra cost object project`, `ankra org usage --group-by project` | `ankra-security`, `ankra-platform-principles` |
 | Credentials | `ankra credentials ...` | `ankra-security` |
 | Vulnerabilities, CVEs, compliance | `ankra security overview\|findings\|clusters\|compliance\|dispositions ...` | `ankra-security` |
 | Backup vaults, object storage | `ankra backup vaults ...`, `ankra bucket ...` | `ankra-backups` |

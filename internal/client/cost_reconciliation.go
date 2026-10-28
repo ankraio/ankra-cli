@@ -114,7 +114,7 @@ func (c *Client) GetCostReconciliation(month string) (*CostReconciliation, error
 		path += "?month=" + url.QueryEscape(month)
 	}
 	var result CostReconciliation
-	if err := c.sendJSON(http.MethodGet, path, nil, &result); err != nil {
+	if err := c.sendJSON(http.MethodGet, c.costScopedURL(path), nil, &result); err != nil {
 		return nil, err
 	}
 	if result.Credentials == nil {

@@ -51,6 +51,7 @@ yaml) for the full document, including every cluster and unplaced line.`,
 		if cmd.Flags().Changed("month") && !costReconcileMonthPattern.MatchString(month) {
 			return withExitCode(exitUsage, fmt.Errorf("--month must be a calendar month as YYYY-MM, got %q", month))
 		}
+		applyCostProjectScope(cmd)
 		reconciliation, err := apiClient.GetCostReconciliation(month)
 		if err != nil {
 			return costReconcileReadError(err)
@@ -66,6 +67,7 @@ yaml) for the full document, including every cluster and unplaced line.`,
 func init() {
 	costReconcileCmd.Flags().String("month", "", "UTC calendar month as YYYY-MM (the last closed month when omitted)")
 	registerStructuredOutputFlags(costReconcileCmd)
+	registerCostProjectScopeFlag(costReconcileCmd)
 	costCmd.AddCommand(costReconcileCmd)
 }
 

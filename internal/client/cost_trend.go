@@ -128,7 +128,7 @@ func costTrendDaysQuery(days int) string {
 // GET /api/v1/org/cloud-cost/trend
 func (c *Client) GetFleetCostTrend(days int) (*FleetCostTrend, error) {
 	var result FleetCostTrend
-	if err := c.sendJSON(http.MethodGet, c.BaseURL+"/api/v1/org/cloud-cost/trend"+costTrendDaysQuery(days), nil, &result); err != nil {
+	if err := c.sendJSON(http.MethodGet, c.costScopedURL(c.BaseURL+"/api/v1/org/cloud-cost/trend"+costTrendDaysQuery(days)), nil, &result); err != nil {
 		return nil, err
 	}
 	if result.Points == nil {
@@ -157,7 +157,7 @@ func (c *Client) GetFleetCostTrend(days int) (*FleetCostTrend, error) {
 // GET /api/v1/org/cloud-cost/events
 func (c *Client) GetCostEvents(days int) (*CostEvents, error) {
 	var result CostEvents
-	if err := c.sendJSON(http.MethodGet, c.BaseURL+"/api/v1/org/cloud-cost/events"+costTrendDaysQuery(days), nil, &result); err != nil {
+	if err := c.sendJSON(http.MethodGet, c.costScopedURL(c.BaseURL+"/api/v1/org/cloud-cost/events"+costTrendDaysQuery(days)), nil, &result); err != nil {
 		return nil, err
 	}
 	if result.Events == nil {

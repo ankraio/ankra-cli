@@ -59,6 +59,7 @@ Every figure is a monthly run rate in the organisation's display currency.`,
 	Example: `  ankra cost ledger
   ankra cost ledger -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		applyCostProjectScope(cmd)
 		ledger, err := apiClient.GetCloudLedger()
 		if err != nil {
 			return cloudLedgerReadError(err)
@@ -73,6 +74,7 @@ Every figure is a monthly run rate in the organisation's display currency.`,
 
 func init() {
 	registerStructuredOutputFlags(costLedgerCmd)
+	registerCostProjectScopeFlag(costLedgerCmd)
 	costCmd.AddCommand(costLedgerCmd)
 }
 
