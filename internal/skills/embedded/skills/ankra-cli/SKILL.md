@@ -251,6 +251,15 @@ ankra cluster control-plane-heal get                    # switch + latest NotRea
 ankra cluster control-plane-heal set --enabled=false    # stop the automatic restart (needs clusters.write)
 ```
 
+Ankra backs up each running cluster's etcd state every six hours and keeps the 4 newest backups plus
+one a day for the cluster's retention window (7 days by default, 1 to 90). A shorter window deletes
+the daily backups outside it, so the command asks first; confirm with the user before passing `--yes`:
+
+```bash
+ankra cluster state-snapshots retention                 # the window in effect (and whether it is the default)
+ankra cluster state-snapshots retention --days 30       # keep 30 days (needs clusters.write)
+```
+
 Shipping logs to Ankra's hosted log store is opt-in per cluster and off by default; turning it on
 needs `clusters.write` and sends customer log content out of the cluster, so confirm with the user
 before passing `--yes`. `status` names an agent that does not follow the switch yet (too old: fix
