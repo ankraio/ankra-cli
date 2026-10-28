@@ -59,6 +59,8 @@ type FleetCostTrendCluster struct {
 // currency, with the days the set of priced clusters changed drawn apart from
 // the spend.
 type FleetCostTrend struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	Currency        string                  `json:"currency" yaml:"currency"`
 	GeneratedAt     string                  `json:"generated_at" yaml:"generated_at"`
 	Days            int                     `json:"days" yaml:"days"`
@@ -102,6 +104,8 @@ type CostEventSource struct {
 // the last Days UTC days, newest first. Truncated says the platform stopped at
 // its newest 500.
 type CostEvents struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	Currency    string            `json:"currency" yaml:"currency"`
 	GeneratedAt string            `json:"generated_at" yaml:"generated_at"`
 	Days        int               `json:"days" yaml:"days"`
@@ -124,7 +128,7 @@ func costTrendDaysQuery(days int) string {
 // GET /api/v1/org/cloud-cost/trend
 func (c *Client) GetFleetCostTrend(days int) (*FleetCostTrend, error) {
 	var result FleetCostTrend
-	if err := c.sendJSON(http.MethodGet, c.BaseURL+"/api/v1/org/cloud-cost/trend"+costTrendDaysQuery(days), nil, &result); err != nil {
+	if err := c.sendJSON(http.MethodGet, c.costScopedURL(c.BaseURL+"/api/v1/org/cloud-cost/trend"+costTrendDaysQuery(days)), nil, &result); err != nil {
 		return nil, err
 	}
 	if result.Points == nil {
@@ -153,7 +157,7 @@ func (c *Client) GetFleetCostTrend(days int) (*FleetCostTrend, error) {
 // GET /api/v1/org/cloud-cost/events
 func (c *Client) GetCostEvents(days int) (*CostEvents, error) {
 	var result CostEvents
-	if err := c.sendJSON(http.MethodGet, c.BaseURL+"/api/v1/org/cloud-cost/events"+costTrendDaysQuery(days), nil, &result); err != nil {
+	if err := c.sendJSON(http.MethodGet, c.costScopedURL(c.BaseURL+"/api/v1/org/cloud-cost/events"+costTrendDaysQuery(days)), nil, &result); err != nil {
 		return nil, err
 	}
 	if result.Events == nil {

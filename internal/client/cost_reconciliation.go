@@ -95,6 +95,8 @@ type CostReconciliationCredential struct {
 // credential and UTC month, what the provider billed against what the
 // metering estimated for the clusters those lines are placed on.
 type CostReconciliation struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	Month       string                         `json:"month" yaml:"month"`
 	MonthClosed bool                           `json:"month_closed" yaml:"month_closed"`
 	PeriodHours int                            `json:"period_hours" yaml:"period_hours"`
@@ -112,7 +114,7 @@ func (c *Client) GetCostReconciliation(month string) (*CostReconciliation, error
 		path += "?month=" + url.QueryEscape(month)
 	}
 	var result CostReconciliation
-	if err := c.sendJSON(http.MethodGet, path, nil, &result); err != nil {
+	if err := c.sendJSON(http.MethodGet, c.costScopedURL(path), nil, &result); err != nil {
 		return nil, err
 	}
 	if result.Credentials == nil {

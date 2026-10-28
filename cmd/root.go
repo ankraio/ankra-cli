@@ -127,6 +127,8 @@ func init() {
 		String("base-url", "", "Base URL for the Ankra API (or set ANKRA_BASE_URL)")
 	rootCmd.PersistentFlags().
 		String("org", "", "Organisation name or ID to run this command against, overriding the selected organisation (or set ANKRA_ORG)")
+	rootCmd.PersistentFlags().
+		String("project", "", "Project slug, name or ID to run this command in, overriding the selected project (or set ANKRA_PROJECT)")
 
 	_ = viper.BindPFlag("token", rootCmd.PersistentFlags().Lookup("token"))
 	_ = viper.BindPFlag("base-url", rootCmd.PersistentFlags().Lookup("base-url"))
@@ -281,6 +283,9 @@ func persistentPreRunE(cmd *cobra.Command, _ []string) error {
 	}
 
 	if err := applyOrganisationOverride(cmd, resolved.source); err != nil {
+		return err
+	}
+	if err := applyProjectOverride(cmd, resolved.source); err != nil {
 		return err
 	}
 	return nil

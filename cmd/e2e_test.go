@@ -41,6 +41,52 @@ func (m baseMock) RegenerateChatTitle(string) error { return errors.New("not imp
 
 func (m baseMock) OrganisationOverride() string { return "" }
 
+func (m baseMock) SetProjectOverride(string) {}
+
+func (m baseMock) ProjectOverride() string { return "" }
+
+func (m baseMock) SetCostProjectScope(string) {}
+
+func (m baseMock) ListProjects() ([]client.ProjectSummary, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetCurrentProject() (*client.ProjectSummary, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetProject(string) (*client.ProjectSummary, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateProject(client.CreateProjectRequest) (*client.ProjectSummary, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateProject(string, client.UpdateProjectRequest) (*client.ProjectSummary, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteProject(string) (*client.DeleteProjectResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SwitchProject(string) (*client.SwitchProjectResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListProjectMembers(string) ([]client.ProjectMember, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) MoveResourceToProject(client.ProjectMoveRequest) (*client.ProjectMoveResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetProjectShowback(int) (*client.ProjectShowback, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) UpdateUpcloudZonePool(context.Context, string, []string, bool) (*client.UpdateUpcloudZonePoolResult, bool, error) {
 	return nil, false, nil
 }
@@ -371,6 +417,10 @@ func (m baseMock) SetApplicationAutoDeploy(requestContext context.Context, appli
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) UpdateApplicationAutoDeploy(requestContext context.Context, applicationID string, autoDeployRequest client.SetApplicationAutoDeployRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) StartApplicationPlatformBuild(requestContext context.Context, applicationID string, request client.StartApplicationPlatformBuildRequest) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
@@ -679,7 +729,7 @@ func (m baseMock) CompleteBackupVaultImport(vaultID string, importID string) (*c
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) RestoreBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error) {
+func (m baseMock) RestoreBackupVaultImport(vaultID string, importID string, request client.RestoreBackupVaultImportRequest) (*client.BackupVaultImport, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1478,7 +1528,7 @@ func (m baseMock) GetApplicationSecurityVersions(context.Context, string, string
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) CreateAPIToken(name string, expiresAt *string, scopes []string) (*client.CreateAPITokenResponse, error) {
+func (m baseMock) CreateAPIToken(client.CreateAPITokenRequest) (*client.CreateAPITokenResponse, error) {
 	return nil, errors.New("not implemented")
 }
 

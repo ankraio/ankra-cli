@@ -39,8 +39,24 @@ Pass -o json (or yaml) for the projection exactly as the platform serves it.`
 
 var costObjectCmd = &cobra.Command{
 	Use:   "object",
-	Short: "What one cluster, namespace, stack, application or credential costs, now and over 30 days",
+	Short: "What one cluster, namespace, stack, application, credential or project costs, now and over 30 days",
 	Long:  costObjectLong,
+}
+
+var costObjectProjectCmd = &cobra.Command{
+	Use:   "project <project-slug-name-or-id>",
+	Short: "What one project costs: the run rate of its clusters, share of the fleet, open waste and 30-day trend",
+	Long:  costObjectLong,
+	Args:  cobra.ExactArgs(1),
+	Example: `  ankra cost object project platform-team
+  ankra cost object project 071d45b1-f8fe-4f47-b13a-4f13a01689f1 -o json`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		projectID, err := resolveProjectReferenceToID(args[0])
+		if err != nil {
+			return err
+		}
+		return runCostObject(cmd, client.ObjectCostKindProject, projectID, projectID)
+	},
 }
 
 var costObjectClusterCmd = &cobra.Command{
@@ -179,6 +195,7 @@ var costObjectRoutes = map[string]string{
 	client.ObjectCostKindStack:       "GET /api/v1/org/cloud-cost/objects/stack/{cluster_id}/{stack_name}",
 	client.ObjectCostKindApplication: "GET /api/v1/org/cloud-cost/objects/application/{application_id}",
 	client.ObjectCostKindCredential:  "GET /api/v1/org/cloud-cost/objects/credential/{credential_id}",
+	client.ObjectCostKindProject:     "GET /api/v1/org/cloud-cost/objects/project/{project_id}",
 }
 
 // costObjectReadError keeps the platform's own words, as cost namespaces
@@ -475,8 +492,8 @@ func renderObjectCostNamespaces(out io.Writer, projection *client.ObjectCostProj
 
 func init() {
 	registerStructuredOutputFlags(costObjectClusterCmd, costObjectNamespaceCmd, costObjectStackCmd,
-		costObjectApplicationCmd, costObjectCredentialCmd)
+		costObjectApplicationCmd, costObjectCredentialCmd, costObjectProjectCmd)
 	costObjectCmd.AddCommand(costObjectClusterCmd, costObjectNamespaceCmd, costObjectStackCmd,
-		costObjectApplicationCmd, costObjectCredentialCmd)
+		costObjectApplicationCmd, costObjectCredentialCmd, costObjectProjectCmd)
 	costCmd.AddCommand(costObjectCmd)
 }

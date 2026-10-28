@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -240,6 +242,69 @@ func TestServiceInstanceHasNoPlaceForCredentialValues(t *testing.T) {
 	}
 	if instance.Connection == nil || instance.Connection.Secret.Name != "postgresql-app" || len(instance.Connection.Secret.Keys) != 2 {
 		t.Fatalf("the Secret reference itself must survive: %+v", instance.Connection)
+	}
+}
+
+// A consumer's connection delivery keeps pickup and name_collisions as the
+// platform sent them (cluster#5248): a known pickup, one a later platform
+// adds, and none at all, which stays absent when re-encoded rather than
+// reading as an empty answer.
+func TestServiceConnectionDeliveryCarriesPickupAndNameCollisions(t *testing.T) {
+	decode := func(t *testing.T, delivery string) *ServiceConnectionDelivery {
+		t.Helper()
+		raw := `{"id":"` + testServiceInstanceID + `","name":"orders-db","consumers":[{"id":"c1","application_id":"a1",` +
+			`"cluster_id":"` + testServiceClusterID + `","namespace":"orders","connection_delivery":` + delivery + `}]}`
+		var instance ServiceInstance
+		if err := json.Unmarshal([]byte(raw), &instance); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(instance.Consumers) != 1 || instance.Consumers[0].ConnectionDelivery == nil {
+			t.Fatalf("the consumer's delivery must decode: %+v", instance.Consumers)
+		}
+		return instance.Consumers[0].ConnectionDelivery
+	}
+	encodings := func(t *testing.T, delivery *ServiceConnectionDelivery) (string, string) {
+		t.Helper()
+		encodedJSON, err := json.Marshal(delivery)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encodedYAML, err := yaml.Marshal(delivery)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(encodedJSON), string(encodedYAML)
+	}
+
+	for _, pickup := range []string{ServiceConnectionPickupWaitingForService, ServiceConnectionPickupDelivering,
+		ServiceConnectionPickupHolderGone, ServiceConnectionPickupRedeployNeeded, ServiceConnectionPickupRestartNeeded,
+		ServiceConnectionPickupInUse, "warming_up"} {
+		delivery := decode(t, `{"state":"pending","secret_name":"orders-db-connection","variables":["DATABASE_URL"],`+
+			`"reason":"","pickup":"`+pickup+`","name_collisions":["DATABASE_URL"]}`)
+		if delivery.Pickup != pickup {
+			t.Errorf("pickup %q decoded as %q", pickup, delivery.Pickup)
+		}
+		if len(delivery.NameCollisions) != 1 || delivery.NameCollisions[0] != "DATABASE_URL" {
+			t.Errorf("name_collisions decoded as %v", delivery.NameCollisions)
+		}
+		encodedJSON, encodedYAML := encodings(t, delivery)
+		if !strings.Contains(encodedJSON, `"pickup":"`+pickup+`"`) || !strings.Contains(encodedJSON, `"name_collisions":["DATABASE_URL"]`) {
+			t.Errorf("-o json must carry pickup and name_collisions: %s", encodedJSON)
+		}
+		if !strings.Contains(encodedYAML, "pickup: "+pickup+"\n") || !strings.Contains(encodedYAML, "name_collisions:\n    - DATABASE_URL\n") {
+			t.Errorf("-o yaml must carry pickup and name_collisions:\n%s", encodedYAML)
+		}
+	}
+
+	delivery := decode(t, `{"state":"unsupported","secret_name":"","variables":[],"reason":"Another cluster."}`)
+	if delivery.Pickup != "" || delivery.NameCollisions != nil {
+		t.Errorf("an absent pickup and name_collisions stay absent: %+v", delivery)
+	}
+	encodedJSON, encodedYAML := encodings(t, delivery)
+	for _, absent := range []string{"pickup", "name_collisions"} {
+		if strings.Contains(encodedJSON, absent) || strings.Contains(encodedYAML, absent) {
+			t.Errorf("%s the platform did not send must stay absent:\n%s\n%s", absent, encodedJSON, encodedYAML)
+		}
 	}
 }
 

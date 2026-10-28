@@ -11,6 +11,20 @@ import (
 type APIClient interface {
 	SetOrganisationOverride(orgID string)
 	OrganisationOverride() string
+	SetProjectOverride(projectID string)
+	ProjectOverride() string
+	SetCostProjectScope(scope string)
+
+	ListProjects() ([]client.ProjectSummary, error)
+	GetCurrentProject() (*client.ProjectSummary, error)
+	GetProject(projectID string) (*client.ProjectSummary, error)
+	CreateProject(request client.CreateProjectRequest) (*client.ProjectSummary, error)
+	UpdateProject(projectID string, request client.UpdateProjectRequest) (*client.ProjectSummary, error)
+	DeleteProject(projectID string) (*client.DeleteProjectResponse, error)
+	SwitchProject(projectID string) (*client.SwitchProjectResponse, error)
+	ListProjectMembers(projectID string) ([]client.ProjectMember, error)
+	MoveResourceToProject(request client.ProjectMoveRequest) (*client.ProjectMoveResponse, error)
+	GetProjectShowback(hours int) (*client.ProjectShowback, error)
 
 	ListClusters(page int, pageSize int) (*client.ClusterListResponse, error)
 	GetCluster(name string) (client.ClusterListItem, error)
@@ -130,7 +144,7 @@ type APIClient interface {
 	DeleteObjectStorageBucket(bucketID string, destroyProviderResources bool) error
 	CreateBackupVaultImport(vaultID string, request client.CreateBackupVaultImportRequest) (*client.CreateBackupVaultImportResult, error)
 	CompleteBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error)
-	RestoreBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error)
+	RestoreBackupVaultImport(vaultID string, importID string, request client.RestoreBackupVaultImportRequest) (*client.BackupVaultImport, error)
 	GetBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error)
 	ListBackupVaultImports(vaultID string) (*client.BackupVaultImportListResult, error)
 	DeleteBackupVaultImport(vaultID string, importID string) error
@@ -409,6 +423,7 @@ type APIClient interface {
 	ApplyApplicationEnvSecrets(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationAutoDeploy(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	SetApplicationAutoDeploy(requestContext context.Context, applicationID string, enabled bool) (json.RawMessage, error)
+	UpdateApplicationAutoDeploy(requestContext context.Context, applicationID string, autoDeployRequest client.SetApplicationAutoDeployRequest) (json.RawMessage, error)
 	StartApplicationPlatformBuild(requestContext context.Context, applicationID string, request client.StartApplicationPlatformBuildRequest) (json.RawMessage, error)
 	ListApplicationPlatformBuilds(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationPlatformBuild(requestContext context.Context, applicationID string, buildID string) (json.RawMessage, error)
@@ -445,7 +460,7 @@ type APIClient interface {
 	CreateDNSCredential(name string, webhookProviderURL string) (*client.CreateDNSCredentialResponse, error)
 
 	ListAPITokens() ([]client.APIToken, error)
-	CreateAPIToken(name string, expiresAt *string, scopes []string) (*client.CreateAPITokenResponse, error)
+	CreateAPIToken(request client.CreateAPITokenRequest) (*client.CreateAPITokenResponse, error)
 	RevokeAPIToken(tokenID string) (*client.RevokeAPITokenResponse, error)
 	DeleteAPIToken(tokenID string) (*client.DeleteAPITokenResponse, error)
 	RotateAPIToken(tokenID string, overlapHours *int) (*client.RotateTokenResponse, error)

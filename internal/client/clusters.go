@@ -482,6 +482,13 @@ type CreateImportClusterRequest struct {
 	// AllowRepointDestroyingData is the separate acknowledgement the server
 	// requires when the cluster holds PersistentVolumeClaims.
 	AllowRepointDestroyingData bool `json:"allow_repoint_destroying_data,omitempty"`
+	// Prune and ConfirmedMemberRemovals declare the removals the apply may
+	// make: a member of a stack the file names that the file no longer lists
+	// is removed only when one of them covers it. Without them the platform
+	// refuses such an apply with *MemberRemovalUnconfirmedError and changes
+	// nothing - a file saved before those members were added looks the same.
+	Prune                   bool     `json:"prune,omitempty"`
+	ConfirmedMemberRemovals []string `json:"confirmed_member_removals,omitempty"`
 }
 
 type ImportResponseErrorItem struct {

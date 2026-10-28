@@ -26,8 +26,8 @@ const costBudgetPermission = "billing.manage"
 var costBudgetsCmd = &cobra.Command{
 	Use:   "budgets",
 	Short: "Monthly cost budgets: each budget's month so far and where it lands, and adding, changing or removing one",
-	Long: `Monthly cost budgets for the organisation, one cluster, one environment label
-or one application - the budgets the portal shows under Cost.
+	Long: `Monthly cost budgets for the organisation, one project, one cluster, one
+environment label or one application - the budgets the portal shows under Cost.
 
 Each budget carries its month as of the read: spent so far, the projected
 month end at the current pace, the hour it crosses the budget, and where the
@@ -47,6 +47,7 @@ var costBudgetsListCmd = &cobra.Command{
 	Example: `  ankra cost budgets list
   ankra cost budgets list -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		applyCostProjectScope(cmd)
 		budgets, err := apiClient.ListCostBudgets()
 		if err != nil {
 			return costBudgetsError(err, "reading the cost budgets", http.MethodGet, false)
@@ -73,11 +74,13 @@ Only the flags you pass are sent; every other field keeps its value.
 add one on the other scope instead.
 
 --amount is the budget per month in the currency's major unit (1500 or
-1500.50). --scope-id names the cluster (name or id), the application (name or
-id) or the environment label; an organisation budget takes none.`,
+1500.50). --scope-id names the project (slug, name or id), the cluster (name
+or id), the application (name or id) or the environment label; an
+organisation budget takes none.`,
 	Args: cobra.MaximumNArgs(1),
 	Example: `  ankra cost budgets set --scope organisation --name "Fleet" --amount 20000 --currency eur
   ankra cost budgets set --scope cluster --scope-id prod-eu --name "prod-eu" --amount 1500 --currency eur --notify-at 90
+  ankra cost budgets set --scope project --scope-id platform-team --name "Platform team" --amount 5000 --currency eur
   ankra cost budgets set --scope environment --scope-id production --name "Production" --amount 8000 --currency usd
   ankra cost budgets set 0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e --amount 1800
   ankra cost budgets set 0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e --clear-owner`,
@@ -114,8 +117,8 @@ var costBudgetsDeleteCmd = &cobra.Command{
 }
 
 func init() {
-	costBudgetsSetCmd.Flags().String("scope", "", "What the new budget covers: organisation, cluster, environment or application")
-	costBudgetsSetCmd.Flags().String("scope-id", "", "The cluster (name or id), the application (name or id) or the environment label the new budget covers")
+	costBudgetsSetCmd.Flags().String("scope", "", "What the new budget covers: organisation, project, cluster, environment or application")
+	costBudgetsSetCmd.Flags().String("scope-id", "", "The project (slug, name or id), the cluster (name or id), the application (name or id) or the environment label the new budget covers")
 	costBudgetsSetCmd.Flags().String("name", "", "The budget's name (1 to 120 characters)")
 	costBudgetsSetCmd.Flags().String("amount", "", "The budget per month in the currency's major unit, e.g. 1500 or 1500.50")
 	costBudgetsSetCmd.Flags().String("currency", "", "The budget's currency, e.g. usd, eur or gbp")
@@ -124,6 +127,7 @@ func init() {
 	costBudgetsSetCmd.Flags().Bool("clear-owner", false, "Remove the budget's owner (changing a budget only)")
 	costBudgetsSetCmd.MarkFlagsMutuallyExclusive("owner", "clear-owner")
 	costBudgetsDeleteCmd.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
+	registerCostProjectScopeFlag(costBudgetsListCmd)
 	registerStructuredOutputFlags(costBudgetsListCmd, costBudgetsSetCmd)
 	costBudgetsCmd.AddCommand(costBudgetsListCmd)
 	costBudgetsCmd.AddCommand(costBudgetsSetCmd)
@@ -257,6 +261,8 @@ func costBudgetFieldsFromFlags(cmd *cobra.Command) (client.CostBudgetWrite, erro
 // deadline stops its listing requests.
 func costBudgetScopeID(requestContext context.Context, scopeKind string, reference string) (string, error) {
 	switch scopeKind {
+	case "project":
+		return resolveProjectReferenceToID(reference)
 	case "cluster":
 		return resolveClusterID(reference)
 	case "application":
@@ -293,10 +299,10 @@ func runCostBudgetCreate(cmd *cobra.Command) error {
 		if scopeReference != "" {
 			return withExitCode(exitUsage, errors.New("an organisation budget names no --scope-id"))
 		}
-	case "cluster", "environment", "application":
+	case "project", "cluster", "environment", "application":
 		if scopeReference == "" {
 			article := "a"
-			if scopeKind != "cluster" {
+			if scopeKind == "environment" || scopeKind == "application" {
 				article = "an"
 			}
 			return withExitCode(exitUsage, fmt.Errorf("%s %s budget needs --scope-id", article, scopeKind))
@@ -307,7 +313,7 @@ func runCostBudgetCreate(cmd *cobra.Command) error {
 		}
 		write.ScopeID = &scopeID
 	default:
-		return withExitCode(exitUsage, fmt.Errorf("--scope must be organisation, cluster, environment or application, not %q", scopeKind))
+		return withExitCode(exitUsage, fmt.Errorf("--scope must be organisation, project, cluster, environment or application, not %q", scopeKind))
 	}
 	write.ScopeKind = &scopeKind
 	budget, err := apiClient.CreateCostBudget(write)

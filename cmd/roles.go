@@ -7,8 +7,16 @@ package cmd
 
 import "strings"
 
+// membershipRoleProject is the project-only membership: the member reaches
+// one project of the organisation, with a project role, and nothing else.
+const membershipRoleProject = "project"
+
 // assignableRoles are the role names `ankra org invite --role` accepts.
-var assignableRoles = []string{"owner", "admin", "operator", "member", "viewer", "read-only"}
+var assignableRoles = []string{"owner", "admin", "operator", "member", "viewer", "read-only", membershipRoleProject}
+
+// projectRoleSlugs are the roles a project-only member can hold inside
+// their project.
+var projectRoleSlugs = []string{"admin", "operator", "member", "viewer"}
 
 // roleDescriptions documents each assignable role for `ankra org roles`.
 var roleDescriptions = map[string]string{
@@ -18,6 +26,7 @@ var roleDescriptions = map[string]string{
 	"member":    "Build and deploy stacks, variables, and applications",
 	"viewer":    "Read-only access plus ask-mode AI",
 	"read-only": "Legacy alias of viewer",
+	"project":   "Project-only member: reaches one project (--project) with a project role (--project-role), nothing else",
 }
 
 // isValidAssignableRole reports whether the value names a role the CLI
@@ -35,6 +44,8 @@ func isValidAssignableRole(role string) bool {
 // endpoints accept (member/admin/read-only), aliasing the new slugs.
 func toLegacyWireRole(role string) string {
 	switch strings.ToLower(strings.TrimSpace(role)) {
+	case membershipRoleProject:
+		return membershipRoleProject
 	case "owner", "admin":
 		return "admin"
 	case "viewer", "read-only":

@@ -194,12 +194,14 @@ SeaweedFS S3, VictoriaLogs, VictoriaMetrics) answer only inside their cluster, a
 (`postgresql-app` with `fqdn-uri` for PostgreSQL). `ankra services list|get <service>` shows them,
 `ankra services consumers bind --application <app> --cluster <cluster> --namespace <ns>` records
 the consumer (it deploys nothing). An application on the **service's own cluster** receives the
-connection on its next deploy after the service is running: a `<service>-connection` Secret in its
+connection once the service is running, without a redeploy while none of its running pods reads it
+(otherwise Ankra leaves it to its next deploy, which rolls those pods together): a `<service>-connection` Secret in its
 namespace, read through `envFrom` as `DATABASE_URL`/`PG*`, `REDIS_URL`, `NATS_URL`, `OPENSEARCH_*`,
 `S3_ENDPOINT`/`AWS_*` or `VICTORIA_*_URL` (the first service of a kind gets these names, every
 service also `<SERVICE_NAME>_`-prefixed ones). Do not also set those names as env-secrets: two
 sources for one variable is a bug. `ankra services get <service>` shows each consumer's delivery
-(delivered, pending until the next deploy, unsupported, unknown). Only an application on **another
+(delivered, pending, unsupported, unknown) and its pickup (`waiting_for_service`, `delivering`,
+`holder_gone`, `redeploy_needed`, `restart_needed`, `in_use`), which says what is left to do. Only an application on **another
 cluster** is wired by hand: read the value with `--reveal` above, set it as an env-secret, `apply`,
 and give it an address your own network path exposes. Wait for **Readiness: Ready** before relying
 on the service.

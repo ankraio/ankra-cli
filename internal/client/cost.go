@@ -32,16 +32,44 @@ type FleetClusterCost struct {
 	ConfidenceLevel          string `json:"confidence_level" yaml:"confidence_level"`
 }
 
+// FleetProjectCost is one project's slice of the cost rollup. A nil project
+// id with a nil name is the spend of clusters outside any project, which a
+// platform with projects off reports as one unnamed bucket.
+type FleetProjectCost struct {
+	ProjectID                *string `json:"project_id" yaml:"project_id"`
+	ProjectName              *string `json:"project_name" yaml:"project_name"`
+	ClusterCount             int     `json:"cluster_count" yaml:"cluster_count"`
+	MonthlyCostEstimateCents int64   `json:"monthly_cost_estimate_cents" yaml:"monthly_cost_estimate_cents"`
+	MonthToDateCents         int64   `json:"month_to_date_cents" yaml:"month_to_date_cents"`
+	ProjectedMonthEndCents   int64   `json:"projected_month_end_cents" yaml:"projected_month_end_cents"`
+}
+
+// FleetCostScope says which project a fleet cost read covered: one project
+// (named), or the whole organisation (AllProjects). Partial is true when the
+// caller's cluster permissions narrowed the read, so every figure is a floor.
+type FleetCostScope struct {
+	ProjectID   *string `json:"project_id" yaml:"project_id"`
+	ProjectName *string `json:"project_name" yaml:"project_name"`
+	AllProjects bool    `json:"all_projects" yaml:"all_projects"`
+	Partial     bool    `json:"partial" yaml:"partial"`
+}
+
 // FleetCloudCost is the organisation-wide cost rollup: every cluster whose
-// latest snapshot is younger than a day, in the display currency.
+// latest snapshot is younger than a day, in the display currency. ByProject
+// and Scope arrive from a platform with projects; an older platform leaves
+// them empty.
 type FleetCloudCost struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	Currency                 string              `json:"currency" yaml:"currency"`
 	ClusterCount             int                 `json:"cluster_count" yaml:"cluster_count"`
 	MonthlyCostEstimateCents int64               `json:"monthly_cost_estimate_cents" yaml:"monthly_cost_estimate_cents"`
 	MonthToDateCents         int64               `json:"month_to_date_cents" yaml:"month_to_date_cents"`
 	ProjectedMonthEndCents   int64               `json:"projected_month_end_cents" yaml:"projected_month_end_cents"`
 	ByProvider               []FleetProviderCost `json:"by_provider" yaml:"by_provider"`
+	ByProject                []FleetProjectCost  `json:"by_project,omitempty" yaml:"by_project,omitempty"`
 	TopClusters              []FleetClusterCost  `json:"top_clusters" yaml:"top_clusters"`
+	Scope                    *FleetCostScope     `json:"scope,omitempty" yaml:"scope,omitempty"`
 }
 
 // CostReadiness explains why a cluster has no estimate yet (or that it is
@@ -110,6 +138,8 @@ type NamespaceCost struct {
 // ClusterCost is GET /org/clusters/{cluster_id}/cost. HasData false means no
 // snapshot exists yet; Readiness then says why.
 type ClusterCost struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	HasData    bool                `json:"has_data" yaml:"has_data"`
 	Summary    *ClusterCostSummary `json:"summary" yaml:"summary"`
 	Trend      []CostTrendPoint    `json:"trend" yaml:"trend"`
@@ -129,6 +159,8 @@ type ClusterCost struct {
 // organisation's own limit. AnalysedClusterLimitChange is how an update
 // changes it, and is never serialised.
 type CostSettings struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	EffectiveDiscountPct         float64                     `json:"effective_discount_pct" yaml:"effective_discount_pct"`
 	Currency                     string                      `json:"currency" yaml:"currency"`
 	IncludeNetworkEgressEstimate bool                        `json:"include_network_egress_estimate" yaml:"include_network_egress_estimate"`
@@ -149,7 +181,7 @@ type AnalysedClusterLimitChange struct {
 // GET /api/v1/org/cloud-cost/summary
 func (c *Client) GetFleetCloudCost() (*FleetCloudCost, error) {
 	var result FleetCloudCost
-	if err := c.sendJSON(http.MethodGet, c.BaseURL+"/api/v1/org/cloud-cost/summary", nil, &result); err != nil {
+	if err := c.sendJSON(http.MethodGet, c.costScopedURL(c.BaseURL+"/api/v1/org/cloud-cost/summary"), nil, &result); err != nil {
 		return nil, err
 	}
 	if result.ByProvider == nil {
@@ -329,6 +361,8 @@ type CloudSavingsThresholds struct {
 // budget); the unanalysed, unpriced, stale and unreadable ones are named
 // so an unknown never reads as nothing to save.
 type CloudSavings struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	Currency                 string `json:"currency" yaml:"currency"`
 	GeneratedAt              string `json:"generated_at" yaml:"generated_at"`
 	TotalMonthlySavingsCents int64  `json:"total_monthly_savings_cents" yaml:"total_monthly_savings_cents"`
@@ -363,7 +397,7 @@ type CloudSavings struct {
 // GET /api/v1/org/cloud-cost/savings
 func (c *Client) GetCloudSavings() (*CloudSavings, error) {
 	var result CloudSavings
-	if err := c.sendJSON(http.MethodGet, c.BaseURL+"/api/v1/org/cloud-cost/savings", nil, &result); err != nil {
+	if err := c.sendJSON(http.MethodGet, c.costScopedURL(c.BaseURL+"/api/v1/org/cloud-cost/savings"), nil, &result); err != nil {
 		return nil, err
 	}
 	if result.Recommendations == nil {
@@ -459,6 +493,8 @@ type CloudLedgerRow struct {
 // totals and counts cover every row even when Truncated says the row list
 // stopped at the newest ones.
 type CloudLedger struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	Currency               string            `json:"currency" yaml:"currency"`
 	GeneratedAt            string            `json:"generated_at" yaml:"generated_at"`
 	MeasuredTotalCents     int64             `json:"measured_total_cents" yaml:"measured_total_cents"`
@@ -475,7 +511,7 @@ type CloudLedger struct {
 // GET /api/v1/org/cloud-cost/ledger
 func (c *Client) GetCloudLedger() (*CloudLedger, error) {
 	var result CloudLedger
-	if err := c.sendJSON(http.MethodGet, c.BaseURL+"/api/v1/org/cloud-cost/ledger", nil, &result); err != nil {
+	if err := c.sendJSON(http.MethodGet, c.costScopedURL(c.BaseURL+"/api/v1/org/cloud-cost/ledger"), nil, &result); err != nil {
 		return nil, err
 	}
 	if result.Rows == nil {

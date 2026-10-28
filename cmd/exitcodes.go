@@ -10,10 +10,10 @@ import (
 )
 
 // Exit codes are part of the CLI's scripting contract. 0 and 1 match the
-// historical behavior; 2-6 let scripts and CI distinguish failures they can
+// historical behavior; 2-7 let scripts and CI distinguish failures they can
 // act on (re-run usage errors after fixing the invocation, treat not-found
 // as idempotent success, re-authenticate on auth failures, retry on wait
-// expiry) without parsing error text.
+// expiry, ask for a role on a permission refusal) without parsing error text.
 const (
 	exitOK          = 0
 	exitError       = 1 // API or runtime failure
@@ -49,9 +49,9 @@ func withExitCode(code int, err error) error {
 var errCancelled = withExitCode(exitCancelled, errors.New("cancelled"))
 
 // exitCodeFor classifies an error returned by ExecuteC into an exit code.
-// Explicit withExitCode wrapping wins; otherwise auth and not-found API
-// responses map to their codes, and anything unclassified is a generic
-// failure. exitWaitTimeout is never inferred here — internal fixed request
+// Explicit withExitCode wrapping wins; otherwise auth (401), permission
+// (403) and not-found API responses map to their codes, and anything
+// unclassified is a generic failure. exitWaitTimeout is never inferred here — internal fixed request
 // deadlines also surface as context.DeadlineExceeded, so only call sites
 // that know --wait was set tag it (see asyncWriteError).
 func exitCodeFor(err error) int {
@@ -106,11 +106,18 @@ func exitCodeFor(err error) int {
 	if errors.As(err, &permissionDenied) {
 		return exitForbidden
 	}
+	// Every other 403 is a refusal too, whatever its body: the platform
+	// answers a missing, expired or rejected credential with 401, and keeps
+	// 403 for an authenticated caller it will not let do this (an admin-only
+	// route's bare {"detail": "..."}, an organisation the token may not act
+	// in). Logging in again changes neither, so only 401 is exitAuth.
 	var unexpected *client.UnexpectedResponseError
 	if errors.As(err, &unexpected) {
 		switch unexpected.StatusCode {
-		case 401, 403:
+		case 401:
 			return exitAuth
+		case 403:
+			return exitForbidden
 		case 404:
 			return exitNotFound
 		}
