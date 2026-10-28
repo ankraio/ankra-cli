@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v0.49.0 - 2026-10-28
+
+This release brings projects to the CLI (`ankra project`, the global
+`--project` flag, project-scoped invites, tokens, cost and usage), a Kubernetes
+upgrade preflight, etcd backup retention, Ankra Cloud CPU pools, per-environment
+branch rules, and `--accept-api-downtime` for resizing the only control plane
+of a running cluster. Most of these require the matching platform API.
+Installing this release changes nothing on any cluster or workload.
+
 ### Added
 
 - **`ankra cluster <provider> control-plane set-instance-type` can resize the only controller of a running cluster with `--accept-api-downtime`.** With one controller the resize takes the Kubernetes API down for a few minutes while the server reboots on the new type: workloads on the workers keep running, but kubectl, deploys, the Ankra agent and controllers pause until it is back. Where the platform offers that lane (Hetzner first), `control-plane get` shows `Change type: yes - live with a few minutes of API downtime (single controller)` with the platform's reason underneath, and `set-instance-type` without the flag refuses before sending anything (exit 2), explaining the downtime and that scaling to three controllers resizes without it. With the flag the request accepts the downtime and the command prints the operation to follow. If the CLI cannot read the control plane first, the request goes out as given and the platform's own refusal explains. This requires the matching platform API.
