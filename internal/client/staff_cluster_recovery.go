@@ -109,7 +109,7 @@ type K8sVersionRecordRepair struct {
 	ClusterID             string            `json:"cluster_id"`
 	Version               string            `json:"version"`
 	RepairedAt            time.Time         `json:"repaired_at"`
-	BlockedUntil          time.Time         `json:"blocked_until"`
+	BlockedUntil          *time.Time        `json:"blocked_until"`
 	KubernetesRowRepaired bool              `json:"kubernetes_row_repaired"`
 	Nodes                 []RecordedK8sNode `json:"nodes"`
 }

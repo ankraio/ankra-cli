@@ -205,8 +205,9 @@ func TestOperationsHoldLiftForceAsksFirstAndPassesForce(t *testing.T) {
 
 func TestUpgradeRollbackRecordPrintsWhatWasWrittenAndMapsRefusals(t *testing.T) {
 	observedAt := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+	blockedUntil := observedAt.Add(4 * time.Hour)
 	fake := &fakeStaffRecoveryClient{repair: &client.K8sVersionRecordRepair{
-		ClusterID: staffRecoveryTestCluster, Version: "v1.34.5+k3s1", RepairedAt: observedAt, BlockedUntil: observedAt.Add(4 * time.Hour),
+		ClusterID: staffRecoveryTestCluster, Version: "v1.34.5+k3s1", RepairedAt: observedAt, BlockedUntil: &blockedUntil,
 		KubernetesRowRepaired: true,
 		Nodes: []client.RecordedK8sNode{{Name: "cp-0", Role: "control_plane", PreviousState: "updating",
 			PreviousVersion: "v1.35.2+k3s1", Version: "v1.34.5+k3s1", ObservedVersion: "v1.34.5+k3s1",

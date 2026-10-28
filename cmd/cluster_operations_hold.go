@@ -361,7 +361,7 @@ Examples:
 				stringOrDash(node.ObservedVersion), freshness, formatInstant(node.ObservedAt))
 		}
 		_, _ = fmt.Fprintf(out, "The hold stands until %s. Wait for 'ankra cluster operations hold get %s' to show the record confirmed, then lift it.\n",
-			repair.BlockedUntil.UTC().Format(time.RFC3339), repair.ClusterID)
+			formatInstant(repair.BlockedUntil), repair.ClusterID)
 		return nil
 	},
 }
