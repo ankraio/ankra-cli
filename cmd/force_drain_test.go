@@ -182,8 +182,8 @@ func TestForceDrainFlagIsOffByDefaultAndNamesPodDisruptionBudgets(t *testing.T) 
 // controlPlaneResizeCall is one control-plane instance-type change the
 // command made: which provider's client method it reached, and with what.
 type controlPlaneResizeCall struct {
-	provider     string
-	drainOptions client.DrainOptions
+	provider string
+	options  client.ControlPlaneInstanceTypeOptions
 }
 
 // forceDrainControlPlaneMock records every provider's control-plane
@@ -194,47 +194,47 @@ type forceDrainControlPlaneMock struct {
 	calls []controlPlaneResizeCall
 }
 
-func (m *forceDrainControlPlaneMock) record(provider, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
-	m.calls = append(m.calls, controlPlaneResizeCall{provider: provider, drainOptions: drainOptions})
+func (m *forceDrainControlPlaneMock) record(provider, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	m.calls = append(m.calls, controlPlaneResizeCall{provider: provider, options: options})
 	return &client.ChangeControlPlaneInstanceTypeResult{
 		PreviousInstanceType: "small", NewInstanceType: instanceType, Updated: 3, Mode: client.ControlPlaneChangeModeRolling,
 	}, nil
 }
 
-func (m *forceDrainControlPlaneMock) ChangeHetznerControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
-	return m.record("hetzner", instanceType, drainOptions)
+func (m *forceDrainControlPlaneMock) ChangeHetznerControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return m.record("hetzner", instanceType, options)
 }
 
-func (m *forceDrainControlPlaneMock) ChangeOvhControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
-	return m.record("ovh", instanceType, drainOptions)
+func (m *forceDrainControlPlaneMock) ChangeOvhControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return m.record("ovh", instanceType, options)
 }
 
-func (m *forceDrainControlPlaneMock) ChangeUpcloudControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
-	return m.record("upcloud", instanceType, drainOptions)
+func (m *forceDrainControlPlaneMock) ChangeUpcloudControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return m.record("upcloud", instanceType, options)
 }
 
-func (m *forceDrainControlPlaneMock) ChangeDigitaloceanControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
-	return m.record("digitalocean", instanceType, drainOptions)
+func (m *forceDrainControlPlaneMock) ChangeDigitaloceanControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return m.record("digitalocean", instanceType, options)
 }
 
-func (m *forceDrainControlPlaneMock) ChangeScalewayControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
-	return m.record("scaleway", instanceType, drainOptions)
+func (m *forceDrainControlPlaneMock) ChangeScalewayControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return m.record("scaleway", instanceType, options)
 }
 
-func (m *forceDrainControlPlaneMock) ChangeAnkraCloudControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
-	return m.record("ankracloud", instanceType, drainOptions)
+func (m *forceDrainControlPlaneMock) ChangeAnkraCloudControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return m.record("ankracloud", instanceType, options)
 }
 
-func (m *forceDrainControlPlaneMock) ChangeAwsControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
-	return m.record("aws", instanceType, drainOptions)
+func (m *forceDrainControlPlaneMock) ChangeAwsControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return m.record("aws", instanceType, options)
 }
 
-func (m *forceDrainControlPlaneMock) ChangeProxmoxControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
-	return m.record("proxmox", instanceType, drainOptions)
+func (m *forceDrainControlPlaneMock) ChangeProxmoxControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return m.record("proxmox", instanceType, options)
 }
 
-func (m *forceDrainControlPlaneMock) ChangeMorpheusControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
-	return m.record("morpheus", instanceType, drainOptions)
+func (m *forceDrainControlPlaneMock) ChangeMorpheusControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+	return m.record("morpheus", instanceType, options)
 }
 
 // controlPlaneProviderCommands are the provider command names that carry a
@@ -283,7 +283,7 @@ func TestControlPlaneSetInstanceTypePassesForceDrainThrough(t *testing.T) {
 				if mock.calls[0].provider != provider {
 					t.Errorf("provider = %s, want %s", mock.calls[0].provider, provider)
 				}
-				if got := mock.calls[0].drainOptions.ForceDrain; got != isForced {
+				if got := mock.calls[0].options.ForceDrain; got != isForced {
 					t.Errorf("ForceDrain = %v, want %v", got, isForced)
 				}
 			})

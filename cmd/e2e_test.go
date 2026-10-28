@@ -1982,7 +1982,7 @@ func (m baseMock) ChangeHetznerControlPlaneCount(clusterID string, count int) (*
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ChangeHetznerControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+func (m baseMock) ChangeHetznerControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2250,7 +2250,7 @@ func (m baseMock) ChangeOvhControlPlaneCount(clusterID string, count int) (*clie
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ChangeOvhControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+func (m baseMock) ChangeOvhControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2358,7 +2358,7 @@ func (m baseMock) ChangeUpcloudControlPlaneCount(clusterID string, count int) (*
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ChangeUpcloudControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+func (m baseMock) ChangeUpcloudControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2474,7 +2474,7 @@ func (m baseMock) ChangeDigitaloceanControlPlaneCount(clusterID string, count in
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ChangeDigitaloceanControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+func (m baseMock) ChangeDigitaloceanControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2634,7 +2634,7 @@ func (m baseMock) ChangeScalewayControlPlaneCount(clusterID string, count int) (
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ChangeScalewayControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+func (m baseMock) ChangeScalewayControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2766,7 +2766,7 @@ func (m baseMock) ChangeAnkraCloudControlPlaneCount(clusterID string, count int)
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ChangeAnkraCloudControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+func (m baseMock) ChangeAnkraCloudControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2930,7 +2930,7 @@ func (m baseMock) ChangeAwsControlPlaneCount(clusterID string, count int) (*clie
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ChangeAwsControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+func (m baseMock) ChangeAwsControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -3090,7 +3090,7 @@ func (m baseMock) ChangeProxmoxControlPlaneCount(clusterID string, count int) (*
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ChangeProxmoxControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+func (m baseMock) ChangeProxmoxControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -3234,7 +3234,7 @@ func (m baseMock) ChangeMorpheusControlPlaneCount(clusterID string, count int) (
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ChangeMorpheusControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+func (m baseMock) ChangeMorpheusControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
 	return nil, errors.New("not implemented")
 }
 

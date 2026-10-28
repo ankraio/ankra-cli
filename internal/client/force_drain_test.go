@@ -160,7 +160,7 @@ func assertNoForceDrainQuery(t *testing.T, recorded *recordedRequest) {
 // and not only the shared request behind it (ankra-6w1gt).
 var controlPlaneResizeProviders = []struct {
 	kind         string
-	changeMethod func(*Client, string, string, DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error)
+	changeMethod func(*Client, string, string, ControlPlaneInstanceTypeOptions) (*ChangeControlPlaneInstanceTypeResult, error)
 }{
 	{"hetzner", (*Client).ChangeHetznerControlPlaneInstanceType},
 	{"ovh", (*Client).ChangeOvhControlPlaneInstanceType},
@@ -182,12 +182,14 @@ func TestControlPlaneInstanceTypeCarriesForceDrainOnlyWhenAsked(t *testing.T) {
 	const clusterID = "cluster-123"
 
 	drainCases := []struct {
-		name         string
-		drainOptions DrainOptions
-		wantBody     string
+		name     string
+		options  ControlPlaneInstanceTypeOptions
+		wantBody string
 	}{
-		{name: "unset", drainOptions: DrainOptions{}, wantBody: `{"instance_type":"large"}`},
-		{name: "force", drainOptions: DrainOptions{ForceDrain: true}, wantBody: `{"instance_type":"large","force_drain":true}`},
+		{name: "unset", options: ControlPlaneInstanceTypeOptions{}, wantBody: `{"instance_type":"large"}`},
+		{name: "force", options: ControlPlaneInstanceTypeOptions{ForceDrain: true}, wantBody: `{"instance_type":"large","force_drain":true}`},
+		{name: "accept-api-downtime", options: ControlPlaneInstanceTypeOptions{AcceptAPIDowntime: true}, wantBody: `{"instance_type":"large","accept_api_downtime":true}`},
+		{name: "both", options: ControlPlaneInstanceTypeOptions{ForceDrain: true, AcceptAPIDowntime: true}, wantBody: `{"instance_type":"large","force_drain":true,"accept_api_downtime":true}`},
 	}
 
 	for _, provider := range controlPlaneResizeProviders {
@@ -196,7 +198,7 @@ func TestControlPlaneInstanceTypeCarriesForceDrainOnlyWhenAsked(t *testing.T) {
 				testClient, recorded := recordingClient(t, ChangeControlPlaneInstanceTypeResult{
 					PreviousInstanceType: "small", NewInstanceType: "large", Updated: 3, Mode: ControlPlaneChangeModeRolling,
 				})
-				if _, changeError := provider.changeMethod(testClient, clusterID, "large", drainCase.drainOptions); changeError != nil {
+				if _, changeError := provider.changeMethod(testClient, clusterID, "large", drainCase.options); changeError != nil {
 					t.Fatalf("change control plane instance type: %v", changeError)
 				}
 				assertRecordedRequest(t, recorded, http.MethodPut,
