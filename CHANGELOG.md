@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **The bundled agent skills no longer steer Hetzner clusters onto server types the location cannot provision.** `ankra-cloud-clusters`, `ankra-getting-started` and `ankra-terraform` used `cx33`/`cx42`/`cx43` in their examples, and the `cx` line is often unavailable in `fsn1` and other locations. The examples now use `cpx12` and `cpx22` and tell the assistant to pick types from `ankra cluster hetzner server-types --credential-id <id> --location <loc>` rows marked available. The skills also say up front that creating a Hetzner cluster needs a payment method on the organisation and an SSH key credential, and point at the new portal's Hetzner wizard. Run `ankra skills install --force` to refresh an installed copy.
+
 ## v0.49.0 - 2026-10-28
 
 This release brings projects to the CLI (`ankra project`, the global
