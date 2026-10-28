@@ -14,7 +14,9 @@ import (
 // "imported" segment however it was created, clusters are addressed by id,
 // and stacks, manifests and add-ons by name. The owning organisation rides
 // along as ?org= so the portal offers to switch organisation instead of
-// answering "not found" to a member whose active organisation is another one.
+// answering "not found" to a member whose active organisation is another one,
+// and the project this invocation acts in rides along as ?project= for the
+// same reason (ADR 0022).
 
 const (
 	portalStackMemberManifest = "manifest"
@@ -49,6 +51,9 @@ func portalURL(organisationID string, query url.Values, segments ...string) stri
 	}
 	if organisationID != "" {
 		linkQuery.Set("org", organisationID)
+	}
+	if projectID := selectedProjectIDForLinks(); projectID != "" {
+		linkQuery.Set("project", projectID)
 	}
 	if encoded := linkQuery.Encode(); encoded != "" {
 		link += "?" + encoded

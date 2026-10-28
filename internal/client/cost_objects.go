@@ -16,6 +16,7 @@ const (
 	ObjectCostKindStack       = "stack"
 	ObjectCostKindApplication = "application"
 	ObjectCostKindCredential  = "credential"
+	ObjectCostKindProject     = "project"
 )
 
 // ObjectCostProjection is what one cluster, namespace, stack, application or
@@ -158,11 +159,13 @@ var objectCostPaths = map[string]string{
 	ObjectCostKindStack:       "/api/v1/org/cloud-cost/objects/stack/%s/%s",
 	ObjectCostKindApplication: "/api/v1/org/cloud-cost/objects/application/%s",
 	ObjectCostKindCredential:  "/api/v1/org/cloud-cost/objects/credential/%s",
+	ObjectCostKindProject:     "/api/v1/org/cloud-cost/objects/project/%s",
 }
 
 // GetObjectCost reads one object's cost projection: the cluster id for a
 // cluster; the cluster id and the namespace for a namespace; the cluster id
-// and the stack name for a stack; the application id; or the credential id.
+// and the stack name for a stack; the application id; the credential id; or
+// the project id.
 // Each segment is path-escaped, so a name carrying a space or a slash stays
 // one segment. A kind this client does not know, or the wrong number of
 // segments for it, is refused before any request.

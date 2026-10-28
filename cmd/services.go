@@ -11,6 +11,20 @@ import (
 type APIClient interface {
 	SetOrganisationOverride(orgID string)
 	OrganisationOverride() string
+	SetProjectOverride(projectID string)
+	ProjectOverride() string
+	SetCostProjectScope(scope string)
+
+	ListProjects() ([]client.ProjectSummary, error)
+	GetCurrentProject() (*client.ProjectSummary, error)
+	GetProject(projectID string) (*client.ProjectSummary, error)
+	CreateProject(request client.CreateProjectRequest) (*client.ProjectSummary, error)
+	UpdateProject(projectID string, request client.UpdateProjectRequest) (*client.ProjectSummary, error)
+	DeleteProject(projectID string) (*client.DeleteProjectResponse, error)
+	SwitchProject(projectID string) (*client.SwitchProjectResponse, error)
+	ListProjectMembers(projectID string) ([]client.ProjectMember, error)
+	MoveResourceToProject(request client.ProjectMoveRequest) (*client.ProjectMoveResponse, error)
+	GetProjectShowback(hours int) (*client.ProjectShowback, error)
 
 	ListClusters(page int, pageSize int) (*client.ClusterListResponse, error)
 	GetCluster(name string) (client.ClusterListItem, error)
@@ -446,7 +460,7 @@ type APIClient interface {
 	CreateDNSCredential(name string, webhookProviderURL string) (*client.CreateDNSCredentialResponse, error)
 
 	ListAPITokens() ([]client.APIToken, error)
-	CreateAPIToken(name string, expiresAt *string, scopes []string) (*client.CreateAPITokenResponse, error)
+	CreateAPIToken(request client.CreateAPITokenRequest) (*client.CreateAPITokenResponse, error)
 	RevokeAPIToken(tokenID string) (*client.RevokeAPITokenResponse, error)
 	DeleteAPIToken(tokenID string) (*client.DeleteAPITokenResponse, error)
 	RotateAPIToken(tokenID string, overlapHours *int) (*client.RotateTokenResponse, error)
@@ -835,6 +849,8 @@ type APIClient interface {
 	ListAnkraCloudNetworks(credentialID, zone string) (*client.AnkraCloudCatalogResult, error)
 	ListAnkraCloudPricing(credentialID string) (*client.AnkraCloudCatalogResult, error)
 	ListAnkraCloudClusterPlans(clusterID string) (*client.AnkraCloudCatalogResult, error)
+	ListAnkraCloudCPUPools(credentialID, zone string) (*client.AnkraCloudCatalogResult, error)
+	ListAnkraCloudClusterCPUPools(clusterID string) (*client.AnkraCloudCatalogResult, error)
 	AnkraCloudNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error)
 	UpdateAnkraCloudBastionInstanceType(ctx context.Context, clusterID, plan string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error)
 	GetAnkraCloudBastionHealth(clusterID string) (*client.BastionHealthResult, error)
