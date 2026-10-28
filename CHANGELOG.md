@@ -4,6 +4,8 @@
 
 ### Added
 
+- **Ankra staff can hold a cluster still and put its Kubernetes version record back after a failed upgrade hop.** `ankra cluster operations hold set <cluster-id> --for 4h --reason "..."` stops the platform from starting any new write on the cluster for 1 minute to 24 hours, `hold get` shows until when, who set it and why, and `hold lift` lets the platform act again. `ankra cluster upgrade rollback-record <cluster-id> <version> --reason "..."` records the version the nodes were rolled back to, so the platform no longer re-runs the hop the moment the hold lifts; it is refused without a hold, while a write is running, or when the platform's last read of the control planes shows another version, and the lift is refused until the platform has read every node at the recorded version (`--force` overrides). These are staff-only commands: they use a staff session from `ANKRA_STAFF_SESSION`, never the saved login, and take the cluster by id. Every change is audited.
+
 - **`ankra cluster state-snapshots retention` shows and sets how many days of etcd backups Ankra keeps for a cluster.** Ankra backs up a running cluster's etcd state every six hours and keeps the four newest backups plus the newest of each day for the retention window, 7 days unless you set another. `--days N` sets it to anything from 1 to 90 days and needs `clusters.write`; the next retention pass applies it. A longer window keeps backups from then on and cannot bring back ones already deleted. A shorter window deletes the daily backups outside it, so it asks for confirmation first (`--yes` skips it). `-o json` prints the platform's answer as it is. This requires the matching platform API.
 
 - **`ankra cluster ankracloud cpu-pools` lists the CPU pools of an Ankra Cloud
