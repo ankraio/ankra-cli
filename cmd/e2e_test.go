@@ -1854,6 +1854,14 @@ func (m baseMock) SetControlPlaneHeal(context.Context, string, bool) (*client.Co
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetStateSnapshotRetention(context.Context, string) (*client.StateSnapshotRetention, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetStateSnapshotRetention(context.Context, string, int) (*client.StateSnapshotRetention, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetOrganisationProvenancePolicy(context.Context) (*client.OrganisationProvenancePolicy, error) {
 	return nil, errors.New("not implemented")
 }
