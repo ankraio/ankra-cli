@@ -373,7 +373,16 @@ func loadSelectedOrganisation() (SelectedOrganisation, error) {
 	return org, err
 }
 
+// resolveOrganisationID returns the organisation this invocation acts on: the
+// --org/ANKRA_ORG override applied by the root command when there is one, then
+// the saved local selection, then the server-side current organisation.
 func resolveOrganisationID() (string, error) {
+	if apiClient != nil {
+		if override := strings.TrimSpace(apiClient.OrganisationOverride()); override != "" {
+			return override, nil
+		}
+	}
+
 	local, err := loadSelectedOrganisation()
 	if err == nil && local.OrganisationID != "" {
 		return local.OrganisationID, nil
