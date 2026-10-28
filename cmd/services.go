@@ -848,6 +848,8 @@ type APIClient interface {
 	ListAnkraCloudNetworks(credentialID, zone string) (*client.AnkraCloudCatalogResult, error)
 	ListAnkraCloudPricing(credentialID string) (*client.AnkraCloudCatalogResult, error)
 	ListAnkraCloudClusterPlans(clusterID string) (*client.AnkraCloudCatalogResult, error)
+	ListAnkraCloudCPUPools(credentialID, zone string) (*client.AnkraCloudCatalogResult, error)
+	ListAnkraCloudClusterCPUPools(clusterID string) (*client.AnkraCloudCatalogResult, error)
 	AnkraCloudNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error)
 	UpdateAnkraCloudBastionInstanceType(ctx context.Context, clusterID, plan string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error)
 	GetAnkraCloudBastionHealth(clusterID string) (*client.BastionHealthResult, error)
