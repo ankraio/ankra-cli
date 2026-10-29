@@ -64,7 +64,11 @@ func (mock *pipelineTrainMock) SetPipelineMergeTrainSettings(_ context.Context, 
 	if request.MaxCars != nil {
 		maxCars = *request.MaxCars
 	}
-	return &client.PipelineMergeTrainSettings{Enabled: request.Enabled, MaxCars: maxCars}, nil
+	autoAdmit := "off"
+	if request.AutoAdmit != nil {
+		autoAdmit = *request.AutoAdmit
+	}
+	return &client.PipelineMergeTrainSettings{Enabled: request.Enabled, MaxCars: maxCars, AutoAdmit: autoAdmit}, nil
 }
 
 func (mock *pipelineTrainMock) EnqueuePipelineMergeTrain(_ context.Context, selector client.PipelineSelector,
@@ -375,5 +379,93 @@ func TestPipelineTrainFrontRefusesAPullRequestNumberBelowOne(t *testing.T) {
 	if _, runError := runPipelineTrainCommand(t, mock, "front", "0", "--repository",
 		testPipelineRepositoryID); runError == nil || exitCodeFor(runError) != exitUsage {
 		t.Fatalf("expected a usage error, got %v", runError)
+	}
+}
+
+func TestPipelineTrainEnableSendsAutoAdmitOnlyWhenGiven(t *testing.T) {
+	mock := &pipelineTrainMock{}
+	if _, runError := runPipelineTrainCommand(t, mock, "enable", "--repository", testPipelineRepositoryID); runError != nil {
+		t.Fatalf("enable: %v", runError)
+	}
+	if mock.settingsRequest.AutoAdmit != nil {
+		t.Fatalf("an enable without --auto-admit keeps the current mode, got %q", *mock.settingsRequest.AutoAdmit)
+	}
+	output, runError := runPipelineTrainCommand(t, mock, "enable", "--auto-admit", " Shadow ", "--repository",
+		testPipelineRepositoryID)
+	if runError != nil {
+		t.Fatalf("enable --auto-admit shadow: %v", runError)
+	}
+	if mock.settingsRequest.AutoAdmit == nil || *mock.settingsRequest.AutoAdmit != "shadow" {
+		t.Fatalf("settings request = %+v", mock.settingsRequest)
+	}
+	if !strings.Contains(output, "Auto-admit: shadow") {
+		t.Fatalf("output does not say the mode:\n%s", output)
+	}
+	if _, runError := runPipelineTrainCommand(t, mock, "enable", "--auto-admit", "always", "--repository",
+		testPipelineRepositoryID); runError == nil || exitCodeFor(runError) != exitUsage {
+		t.Fatalf("an unknown mode is a usage error, got %v", runError)
+	}
+	if command := newPipelineTrainSettingsCommand("disable", "off", false); command.Flags().Lookup("auto-admit") != nil {
+		t.Fatal("disable takes no --auto-admit: switching the train off stops admission anyway")
+	}
+}
+
+func TestPipelineTrainListShowsAStackedEntrysParentAndAutoAdmit(t *testing.T) {
+	parentNumber := int64(41)
+	parentID := "entry-41"
+	headBranch := "feature/child"
+	by := "user:auth0|abc"
+	since := "2026-10-29T07:01:00Z"
+	detail := "run #12 passed 30h0m0s ago, more than 24h0m0s"
+	mock := &pipelineTrainMock{train: &client.PipelineMergeTrain{
+		Settings: client.PipelineMergeTrainSettings{Enabled: true, MaxCars: 4, AutoAdmit: "on",
+			AutoAdmitBy: &by, AutoAdmitSince: &since},
+		Entries: []client.PipelineMergeTrainEntry{
+			{ID: parentID, PullRequestNumber: 41, PullRequestTitle: "Parent", Status: "testing"},
+			{ID: "entry-42", PullRequestNumber: 42, PullRequestTitle: "Child", Status: "testing",
+				PullRequestHeadBranch: &headBranch, ParentEntryID: &parentID, ParentPullRequestNumber: &parentNumber},
+		},
+		AutoAdmitDecisions: []client.PipelineMergeTrainAdmissionDecision{
+			{PullRequestNumber: 50, HeadSHA: strings.Repeat("a", 40), Mode: "on", Outcome: "stale_green",
+				Detail: &detail, DecidedAt: "2026-10-29T07:02:25Z"},
+		},
+	}}
+	output, runError := runPipelineTrainCommand(t, mock, "list", "--repository", testPipelineRepositoryID)
+	if runError != nil {
+		t.Fatalf("list: %v", runError)
+	}
+	for _, want := range []string{"Auto-admit: on", "Set by user:auth0|abc", "#42 Child (on #41)",
+		"Auto-admit's latest decisions", "#50", "aaaaaaa", "stale_green"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output lacks %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "#41 Parent (on") {
+		t.Fatalf("an entry based on the default branch rides on nothing:\n%s", output)
+	}
+
+	jsonOutput, jsonError := runPipelineTrainCommand(t, mock, "list", "--repository", testPipelineRepositoryID,
+		"-o", "json")
+	if jsonError != nil {
+		t.Fatalf("list -o json: %v", jsonError)
+	}
+	for _, want := range []string{`"parent_entry_id": "entry-41"`, `"parent_pull_request_number": 41`,
+		`"pull_request_head_branch": "feature/child"`, `"auto_admit": "on"`, `"auto_admit_decisions"`} {
+		if !strings.Contains(jsonOutput, want) {
+			t.Fatalf("json output lacks %s:\n%s", want, jsonOutput)
+		}
+	}
+}
+
+func TestPipelineTrainListSaysNothingAboutAutoAdmitOnAnOlderPlatform(t *testing.T) {
+	mock := &pipelineTrainMock{train: &client.PipelineMergeTrain{
+		Settings: client.PipelineMergeTrainSettings{Enabled: true, MaxCars: 1},
+	}}
+	output, runError := runPipelineTrainCommand(t, mock, "list", "--repository", testPipelineRepositoryID)
+	if runError != nil {
+		t.Fatalf("list: %v", runError)
+	}
+	if strings.Contains(output, "Auto-admit") {
+		t.Fatalf("a platform that sent no mode is not described as off:\n%s", output)
 	}
 }
