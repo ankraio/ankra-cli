@@ -260,6 +260,12 @@ ankra cluster state-snapshots retention                 # the window in effect (
 ankra cluster state-snapshots retention --days 30       # keep 30 days (needs clusters.write)
 ```
 
+Control-plane changes on clusters Ankra provisions are `ankra cluster <provider> control-plane
+get|set-count|set-instance-type` (details in `ankra-cloud-clusters`). Resizing the ONLY controller
+of a running Hetzner cluster takes the Kubernetes API down for a few minutes and needs
+`--accept-api-downtime`; get the user's explicit go-ahead first, or grow to three controllers for a
+resize without downtime. Other providers resize a single controller only on a stopped cluster.
+
 Shipping logs to Ankra's hosted log store is opt-in per cluster and off by default; turning it on
 needs `clusters.write` and sends customer log content out of the cluster, so confirm with the user
 before passing `--yes`. `status` names an agent that does not follow the switch yet (too old: fix
