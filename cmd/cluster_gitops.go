@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"ankra/internal/client"
 
@@ -21,8 +22,11 @@ var clusterGitopsStatusCmd = &cobra.Command{
 	Use:   "status [cluster_name]",
 	Short: "Show which GitOps repository a cluster syncs from",
 	Long: `Show the GitOps sync status of a cluster: the repository, branch, and
-credential it syncs from, the last synced commit, any pending commit or
-sync error, and any open merge conflicts pausing the sync.
+credential it syncs from, the last synced commit, the commit the cluster is
+in step with and Git's head as last checked, any pending commit or sync
+error, any open merge conflicts pausing the sync, and the files Git and the
+platform are divided on (preserved paths), with when each was detected and
+whether it is decided.
 
 If no cluster name is provided, uses the currently selected cluster.`,
 	Args: cobra.MaximumNArgs(1),
@@ -125,6 +129,7 @@ func printClusterGitopsStatus(clusterName string, status *client.ClusterGitopsSt
 		fmt.Printf("  Progress: %s\n", *status.SyncProgressMessage)
 	}
 	printGitopsConflictPause(status)
+	printGitopsPreservedPaths(status)
 	if status.LastCommitSHA != nil {
 		fmt.Printf("  Last Synced Commit: %s\n", *status.LastCommitSHA)
 	}
@@ -135,6 +140,7 @@ func printClusterGitopsStatus(clusterName string, status *client.ClusterGitopsSt
 		}
 		fmt.Printf("  Last Synced: %s\n", syncedLine)
 	}
+	printGitopsCommitPointer(status)
 	if status.PendingCommitSHA != nil && *status.PendingCommitSHA != "" {
 		fmt.Printf("  Pending Commit: %s\n", *status.PendingCommitSHA)
 	}
@@ -176,6 +182,95 @@ func printGitopsConflictPause(status *client.ClusterGitopsStatus) {
 	if status.SyncStatus != nil && *status.SyncStatus == gitopsConflictSyncStatus {
 		fmt.Println("  Note: the last sync stopped on a merge conflict and applied nothing; no conflict awaits a decision now, so the next sync re-evaluates both sides")
 	}
+}
+
+// timeWithAge renders a platform timestamp with how long ago it was.
+func timeWithAge(timestamp string) string {
+	return fmt.Sprintf("%s (%s)", timestamp, formatTimeAgo(timestamp))
+}
+
+// printGitopsCommitPointer renders the commit the platform holds the cluster
+// in step with and Git's head as last read. Last Synced describes the last
+// full sync only: when Git's head moves without touching this cluster's
+// files the platform advances the applied commit without a sync, and on
+// PLA-914 a current cluster read "last synced 2 days ago". A platform that
+// does not report the pointer prints nothing here.
+func printGitopsCommitPointer(status *client.ClusterGitopsStatus) {
+	if status.AppliedCommitSHA != nil && *status.AppliedCommitSHA != "" {
+		appliedLine := *status.AppliedCommitSHA
+		if status.AppliedCommitAt != nil {
+			appliedLine += ", since " + timeWithAge(*status.AppliedCommitAt)
+		}
+		fmt.Printf("  Applied Commit: %s\n", appliedLine)
+	}
+	if status.HeadCheckedSHA == nil || *status.HeadCheckedSHA == "" {
+		return
+	}
+	headLine := *status.HeadCheckedSHA
+	if status.HeadCheckedAt != nil {
+		headLine += ", read " + timeWithAge(*status.HeadCheckedAt)
+	}
+	fmt.Printf("  Git Head Checked: %s\n", headLine)
+	if status.AppliedCommitSHA == nil || *status.AppliedCommitSHA == "" {
+		return
+	}
+	switch {
+	case *status.HeadCheckedSHA != *status.AppliedCommitSHA:
+		fmt.Println("  Note: Git's head is not applied to the cluster yet; the next sync applies it")
+	case status.LastCommitSHA != nil && *status.LastCommitSHA != *status.AppliedCommitSHA:
+		fmt.Println("  Note: the cluster is in step with Git's head; commits since the last full sync did not change this cluster's files, so the platform advanced the applied commit without a new sync")
+	}
+}
+
+// gitopsPreservedDecisionLabels words the two decisions a preserved path can
+// carry.
+var gitopsPreservedDecisionLabels = map[string]string{
+	"git":     "take Git's version",
+	"cluster": "take Ankra's version",
+}
+
+// printGitopsPreservedPaths renders the files Git and the platform are
+// divided on, each with when it was detected and whether it is decided. A
+// platform that does not report preserved_path_count prints nothing rather
+// than claiming there are none.
+func printGitopsPreservedPaths(status *client.ClusterGitopsStatus) {
+	if status.PreservedPathCount == nil || *status.PreservedPathCount == 0 {
+		return
+	}
+	preservedPathCount := *status.PreservedPathCount
+	countLine := fmt.Sprintf("%d", preservedPathCount)
+	if status.PreservedPathUndecidedCount != nil {
+		countLine += fmt.Sprintf(" (%d awaiting a decision)", *status.PreservedPathUndecidedCount)
+	}
+	fmt.Printf("  Preserved Paths: %s\n", countLine)
+	listed := len(status.PreservedPaths)
+	if len(status.PreservedPathDetails) > 0 {
+		listed = len(status.PreservedPathDetails)
+		for _, detail := range status.PreservedPathDetails {
+			var facts []string
+			if detail.DetectedAt != nil {
+				facts = append(facts, "detected "+timeWithAge(*detail.DetectedAt))
+			}
+			switch {
+			case !detail.Decided:
+				facts = append(facts, "awaiting a decision")
+			case detail.ResolutionChoice != nil && gitopsPreservedDecisionLabels[*detail.ResolutionChoice] != "":
+				facts = append(facts, "decided: "+gitopsPreservedDecisionLabels[*detail.ResolutionChoice]+
+					", runs on the next sync")
+			default:
+				facts = append(facts, "decided, runs on the next sync")
+			}
+			fmt.Printf("    - %s (%s)\n", detail.Path, strings.Join(facts, ", "))
+		}
+	} else {
+		for _, preservedPath := range status.PreservedPaths {
+			fmt.Printf("    - %s\n", preservedPath)
+		}
+	}
+	if unlisted := preservedPathCount - listed; unlisted > 0 && listed > 0 {
+		fmt.Printf("    ... and %d more\n", unlisted)
+	}
+	fmt.Println("  Note: each file was edited in Git, so Ankra keeps Git's version and its own later changes to it do not reach Git until a person decides it (in the portal, cluster > GitOps, or the preserved-paths API); nothing is paused")
 }
 
 func init() {

@@ -40,6 +40,47 @@ type ClusterGitopsStatus struct {
 	// OpenConflictKeys names those conflicts' resource keys. The platform caps
 	// the list; OpenConflictCount is always the full total.
 	OpenConflictKeys []string `json:"open_conflict_keys" yaml:"open_conflict_keys"`
+	// PreservedPathCount is the number of files Git and the platform are
+	// divided on: each was edited in Git, so the platform keeps Git's version
+	// and its own later changes to the file do not reach Git until a person
+	// decides it. While it is above zero a successful sync reads "diverged".
+	// Nil when the platform does not report it, which is not the same as zero.
+	PreservedPathCount *int `json:"preserved_path_count" yaml:"preserved_path_count"`
+	// PreservedPaths names those files. The platform caps the list;
+	// PreservedPathCount is always the full total.
+	PreservedPaths []string `json:"preserved_paths" yaml:"preserved_paths"`
+	// PreservedPathUndecidedCount is how many of them still await a decision.
+	// Nil from a platform that does not report it.
+	PreservedPathUndecidedCount *int `json:"preserved_path_undecided_count" yaml:"preserved_path_undecided_count"`
+	// PreservedPathDetails describes the files named by PreservedPaths, in the
+	// same order: when each was detected and whether it is decided.
+	PreservedPathDetails []ClusterGitopsPreservedPath `json:"preserved_path_details" yaml:"preserved_path_details"`
+	// AppliedCommitSHA is the Git commit the platform holds the cluster in
+	// step with, and AppliedCommitAt when it took that value. Unlike
+	// LastCommitSHA and LastSyncedAt (the last full sync), it also moves when
+	// Git's head moved without touching this cluster's files and the platform
+	// advanced it without a sync. Nil when unknown or not reported.
+	AppliedCommitSHA *string `json:"applied_commit_sha" yaml:"applied_commit_sha"`
+	AppliedCommitAt  *string `json:"applied_commit_at" yaml:"applied_commit_at"`
+	// HeadCheckedSHA is Git's head as the platform last read it, and
+	// HeadCheckedAt when. Equal to AppliedCommitSHA, the cluster was in step
+	// with Git's head at that time. Nil when unknown or not reported.
+	HeadCheckedSHA *string `json:"head_checked_sha" yaml:"head_checked_sha"`
+	HeadCheckedAt  *string `json:"head_checked_at" yaml:"head_checked_at"`
+}
+
+// ClusterGitopsPreservedPath is one file Git and the platform are divided
+// on, as the GitOps status reports it.
+type ClusterGitopsPreservedPath struct {
+	Path       string  `json:"path" yaml:"path"`
+	DetectedAt *string `json:"detected_at" yaml:"detected_at"`
+	LastSeenAt *string `json:"last_seen_at" yaml:"last_seen_at"`
+	// Decided says a person recorded a decision the next sync runs;
+	// ResolutionChoice names it ("git" keeps Git's version, "cluster" writes
+	// the platform's into Git).
+	Decided          bool    `json:"decided" yaml:"decided"`
+	ResolutionChoice *string `json:"resolution_choice" yaml:"resolution_choice"`
+	ResolvedAt       *string `json:"resolved_at" yaml:"resolved_at"`
 }
 
 // ClusterGitopsRepo mirrors the git_repo member of the GitOps status payload.
