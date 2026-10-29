@@ -671,18 +671,28 @@ func TestUpgradeHelmRelease(t *testing.T) {
 }
 
 func TestClusterUnavailableError(t *testing.T) {
+	const deprovisioningDetail = "Cannot delete kubernetes resource: the cluster is being deprovisioned, and Ankra " +
+		"sends no commands to a cluster being deprovisioned, even while its agent is still connected."
 	tests := []struct {
+		name      string
 		errorCode string
+		detail    string
 		wantMsg   string
 	}{
-		{"CLUSTER_OFFLINE", "Cluster is offline. Check that the Ankra agent is running."},
-		{"NO_AGENT", "No agent available for this cluster. Install the Ankra agent first."},
-		{"AGENT_TIMEOUT", "Agent is not responding. The cluster may be temporarily unreachable."},
-		{"UNKNOWN_CODE", "some detail"},
+		{"offline with the generic detail", "CLUSTER_OFFLINE", "Cluster must be available to delete kubernetes resource",
+			"Cluster is offline. Check that the Ankra agent is running."},
+		{"offline without a detail", "CLUSTER_OFFLINE", "", "Cluster is offline. Check that the Ankra agent is running."},
+		// ankra-czey4l: a cluster being deprovisioned is refused through the
+		// same envelope while its agent shows connected; the platform's
+		// detail is the true reason and must not be replaced.
+		{"deprovisioning keeps the platform's reason", "CLUSTER_OFFLINE", deprovisioningDetail, deprovisioningDetail},
+		{"NO_AGENT", "NO_AGENT", "some detail", "No agent available for this cluster. Install the Ankra agent first."},
+		{"AGENT_TIMEOUT", "AGENT_TIMEOUT", "some detail", "Agent is not responding. The cluster may be temporarily unreachable."},
+		{"UNKNOWN_CODE", "UNKNOWN_CODE", "some detail", "some detail"},
 	}
 	for _, tt := range tests {
-		t.Run(tt.errorCode, func(t *testing.T) {
-			err := &ClusterUnavailableError{ErrorCode: tt.errorCode, Detail: "some detail"}
+		t.Run(tt.name, func(t *testing.T) {
+			err := &ClusterUnavailableError{ErrorCode: tt.errorCode, Detail: tt.detail}
 			if err.Error() != tt.wantMsg {
 				t.Errorf("Error() = %q, want %q", err.Error(), tt.wantMsg)
 			}

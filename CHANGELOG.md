@@ -7,6 +7,7 @@
 
 ### Fixed
 
+- **A command refused because its cluster is being deprovisioned says so.** The platform refuses commands to a cluster that is being deprovisioned with the same "cluster offline" answer it gives an unreachable one, while that cluster's agent usually still shows connected. The CLI replaced the platform's explanation with "Cluster is offline. Check that the Ankra agent is running.", which sent people looking for an agent fault that was not there. It now prints the platform's reason when the platform gives one, and keeps the agent hint for a plain offline cluster.
 - **`ankra credentials proxmox create` waits for the platform to finish setting up Proxmox VE.** Saving a Proxmox credential prepares the installation in the same request: storage, the `vmbr0` bridge, the `ankra` private network and, on a node without a template, a cloud-init template built from a downloaded Ubuntu image. That can take several minutes. The CLI gave up after 30 seconds with `http2: timeout awaiting response headers`, and the credential was never saved. It now waits up to five minutes, like the other long-running writes.
 
 ## v0.50.1 - 2026-10-29

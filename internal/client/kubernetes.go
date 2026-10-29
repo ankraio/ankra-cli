@@ -814,9 +814,22 @@ type ClusterUnavailableError struct {
 	Detail    string
 }
 
+// genericClusterOfflineDetailPrefix starts the detail the platform sends with
+// CLUSTER_OFFLINE when it has nothing to say beyond "the cluster takes no
+// commands right now" ("Cluster must be available to delete kubernetes
+// resource"). The CLI's own hint says that better.
+const genericClusterOfflineDetailPrefix = "Cluster must be available"
+
 func (e *ClusterUnavailableError) Error() string {
 	switch e.ErrorCode {
 	case "CLUSTER_OFFLINE":
+		// The platform answers CLUSTER_OFFLINE for every cluster whose state
+		// takes no agent command, a cluster being deprovisioned among them -
+		// whose agent is usually still connected. Its detail then says why,
+		// and that is what the person needs, not "the agent is down".
+		if e.Detail != "" && !strings.HasPrefix(e.Detail, genericClusterOfflineDetailPrefix) {
+			return e.Detail
+		}
 		return "Cluster is offline. Check that the Ankra agent is running."
 	case "NO_AGENT":
 		return "No agent available for this cluster. Install the Ankra agent first."
