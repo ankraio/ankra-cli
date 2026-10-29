@@ -671,8 +671,8 @@ func TestUpgradeHelmRelease(t *testing.T) {
 }
 
 func TestClusterUnavailableError(t *testing.T) {
-	const deprovisioningDetail = "Cannot delete kubernetes resource: the cluster is being deprovisioned, and Ankra " +
-		"sends no commands to a cluster being deprovisioned, even while its agent is still connected."
+	const deprovisioningDetail = "Cannot delete kubernetes resource: the cluster takes no new commands while it " +
+		"is being deprovisioned; its teardown is still running."
 	tests := []struct {
 		name      string
 		errorCode string
@@ -682,6 +682,10 @@ func TestClusterUnavailableError(t *testing.T) {
 		{"offline with the generic detail", "CLUSTER_OFFLINE", "Cluster must be available to delete kubernetes resource",
 			"Cluster is offline. Check that the Ankra agent is running."},
 		{"offline without a detail", "CLUSTER_OFFLINE", "", "Cluster is offline. Check that the Ankra agent is running."},
+		// Any other platform detail of a genuinely offline cluster keeps the
+		// agent hint: that is the fault to look for.
+		{"offline with another detail", "CLUSTER_OFFLINE", "Cluster is offline and no cached data is available.",
+			"Cluster is offline. Check that the Ankra agent is running."},
 		// ankra-czey4l: a cluster being deprovisioned is refused through the
 		// same envelope while its agent shows connected; the platform's
 		// detail is the true reason and must not be replaced.
