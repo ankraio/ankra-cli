@@ -51,6 +51,11 @@ func (c *Client) ListProxmoxCredentials() ([]ProxmoxCredentialListItem, error) {
 	return credentials, nil
 }
 
+// CreateProxmoxCredential saves a Proxmox VE credential. The platform
+// bootstraps the installation inside this request - storage, the vmbr0
+// bridge, the SDN private network and, on a node without one, a cloud-init
+// template built from a downloaded cloud image - so it rides the slow-write
+// client instead of the shared 30s response-header deadline.
 func (c *Client) CreateProxmoxCredential(createRequest CreateProxmoxCredentialRequest) (*CreateProxmoxCredentialResponse, error) {
 	url := c.BaseURL + "/api/v1/credentials/proxmox"
 	payload, marshalError := json.Marshal(createRequest)
@@ -65,7 +70,7 @@ func (c *Client) CreateProxmoxCredential(createRequest CreateProxmoxCredentialRe
 	httpRequest.Header.Set("Content-Type", "application/json")
 	httpRequest.Header.Set("Authorization", "Bearer "+c.Token)
 
-	httpResponse, sendError := c.HTTP.Do(httpRequest)
+	httpResponse, sendError := c.httpClientForSlowWrite().Do(httpRequest)
 	if sendError != nil {
 		return nil, fmt.Errorf("request failed: %w", sendError)
 	}

@@ -5,6 +5,10 @@
 - **`ankra pipeline train enable --auto-admit off|shadow|on` switches the merge train's auto-admit from the terminal.** With `on` the train adds green pull requests by itself; `shadow` only records which ones it would add. Leaving the flag out keeps the current mode.
 - **`ankra pipeline train list` shows auto-admit and stacked pull requests.** The header says whether auto-admit is off, in shadow or on and who set it, a table lists its latest decisions with the reason a pull request was left out (`stale_green`, `draft`, `held`, ...), and a pull request stacked on another one in the train reads "(on #N)". `-o json` now carries `auto_admit`, `auto_admit_by`, `auto_admit_since`, `auto_admit_decisions` and each entry's `pull_request_head_branch`, `parent_entry_id` and `parent_pull_request_number`, which it used to drop.
 
+### Fixed
+
+- **`ankra credentials proxmox create` waits for the platform to finish setting up Proxmox VE.** Saving a Proxmox credential prepares the installation in the same request: storage, the `vmbr0` bridge, the `ankra` private network and, on a node without a template, a cloud-init template built from a downloaded Ubuntu image. That can take several minutes. The CLI gave up after 30 seconds with `http2: timeout awaiting response headers`, and the credential was never saved. It now waits up to five minutes, like the other long-running writes.
+
 ## v0.50.1 - 2026-10-29
 
 A patch release that changes only the bundled agent skills. They now explain
