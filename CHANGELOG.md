@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ankra credentials proxmox create` waits for the platform to finish setting up Proxmox VE.** Saving a Proxmox credential prepares the installation in the same request: storage, the `vmbr0` bridge, the `ankra` private network and, on a node without a template, a cloud-init template built from a downloaded Ubuntu image. That can take several minutes. The CLI gave up after 30 seconds with `http2: timeout awaiting response headers`, and the credential was never saved. It now waits up to five minutes, like the other long-running writes.
+
+### Fixed
+
+- **`ankra credentials proxmox create` waits for the platform to finish setting up the Proxmox installation.** Saving the credential prepares the host in the same request: storage, the `vmbr0` bridge, the `ankra` private network and, on a node without one, a cloud-init template built from a downloaded Ubuntu image. That takes minutes, and the command used to give up after 30 seconds with `http2: timeout awaiting response headers` while the platform was still working, so the credential was never saved. The command now waits up to five minutes.
+
 ## v0.50.1 - 2026-10-29
 
 A patch release that changes only the bundled agent skills. They now explain

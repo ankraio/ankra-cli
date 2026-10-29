@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"testing"
+	"time"
 )
 
 func TestListProxmoxCredentials_Success(t *testing.T) {
@@ -134,6 +135,29 @@ func TestCreateProxmoxSSHKeyCredential_Success(t *testing.T) {
 	result, createError := testClient.CreateProxmoxSSHKeyCredential(CreateSSHKeyCredentialRequest{Name: "proxmox-ssh", Generate: true})
 	if createError != nil {
 		t.Fatalf("CreateProxmoxSSHKeyCredential: %v", createError)
+	}
+	if !result.Success {
+		t.Error("Success = false, want true")
+	}
+}
+
+// TestCreateProxmoxCredentialOutlivesTheSharedResponseHeaderDeadline pins the
+// slow lane: saving the credential runs the platform's whole Proxmox
+// bootstrap, including a cloud-image download, before the response headers
+// arrive. A shared client whose header deadline is shorter than that answer
+// must not cut the request off.
+func TestCreateProxmoxCredentialOutlivesTheSharedResponseHeaderDeadline(t *testing.T) {
+	server := slowHeaderServer(t, 300*time.Millisecond, `{"success":true}`)
+	apiClient := New("token", server.URL)
+	apiClient.HTTP = &http.Client{Transport: &http.Transport{ResponseHeaderTimeout: 50 * time.Millisecond}}
+
+	result, createError := apiClient.CreateProxmoxCredential(CreateProxmoxCredentialRequest{
+		Name:    "proxmox-cred",
+		APIURL:  "https://proxmox.example:8006",
+		TokenID: "root@pam!ankra",
+	})
+	if createError != nil {
+		t.Fatalf("CreateProxmoxCredential was cut off by the shared header deadline: %v", createError)
 	}
 	if !result.Success {
 		t.Error("Success = false, want true")
