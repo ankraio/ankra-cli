@@ -122,6 +122,26 @@ func TestClusterNodesDiagnoseFailedJobExitsNonZero(t *testing.T) {
 	}
 }
 
+// A terminal status other than success is a failure even when the platform
+// sent no excerpt with it.
+func TestClusterNodesDiagnoseNonSuccessWithoutExcerptExitsNonZero(t *testing.T) {
+	for _, status := range []string{"failed", "timeout", "cancelled"} {
+		writeSelectedClusterJSON(t)
+		setMockClient(t, &nodeDiagnoseMock{result: &client.NodeDiagnoseResult{
+			OperationID: "op-10", NodeID: "node-1", JobName: "hetzner_node_diagnose", Status: status, Completed: true}})
+		var commandError error
+		stdoutOutput := captureStdout(t, func() {
+			_, commandError = executeCommand("cluster", "hetzner", "nodes", "diagnose", testClusterID, "node-1")
+		})
+		if code := exitCodeFor(commandError); code != exitError || !strings.Contains(commandError.Error(), status) {
+			t.Errorf("status %s: want exit %d naming the status, got %d (%v)", status, exitError, code, commandError)
+		}
+		if strings.Contains(stdoutOutput, "completed without a report") {
+			t.Errorf("status %s: a failed run must not read as a completed one, got: %s", status, stdoutOutput)
+		}
+	}
+}
+
 func TestClusterNodesDiagnoseClientTimeoutExitsWaitTimeout(t *testing.T) {
 	writeSelectedClusterJSON(t)
 	setMockClient(t, &nodeDiagnoseMock{err: context.DeadlineExceeded})

@@ -281,16 +281,24 @@ func runNodesDiagnose(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterI
 	return nodeDiagnosisFailure(result)
 }
 
-// nodeDiagnosisFailure is the error a diagnose run that finished but failed
-// exits with, after its output: the job ran and produced no report (the node
-// unreachable over SSH, the snapshot failing), so a script must not read it
-// as a diagnosis. -o json|yaml still print the result document first, with
-// error_excerpt in it. A run still in flight is not a failure.
+// nodeDiagnosisFailure is the error a diagnose run that finished but did
+// not succeed exits with, after its output: the job ended failed, timed out
+// or cancelled (the node unreachable over SSH, the snapshot failing), so a
+// script must not read it as a diagnosis. A completed run is a success only
+// when its step status says so; an error excerpt is not guaranteed on every
+// other terminal status. -o json|yaml still print the result document first.
+// A run still in flight is not a failure.
 func nodeDiagnosisFailure(result *client.NodeDiagnoseResult) error {
-	if !result.Completed || result.ErrorExcerpt == "" {
+	if !result.Completed {
 		return nil
 	}
-	return fmt.Errorf("the diagnose job failed (operation %s): %s", result.OperationID, result.ErrorExcerpt)
+	if result.ErrorExcerpt != "" {
+		return fmt.Errorf("the diagnose job failed (operation %s): %s", result.OperationID, result.ErrorExcerpt)
+	}
+	if result.Status != "success" {
+		return fmt.Errorf("the diagnose job ended %s without a report (operation %s)", result.Status, result.OperationID)
+	}
+	return nil
 }
 
 // printNodeDiagnosis renders the dispatched diagnosis: the operation handle
@@ -312,9 +320,9 @@ func printNodeDiagnosis(result *client.NodeDiagnoseResult) error {
 		fmt.Printf("  ankra cluster operations list %s\n", result.OperationID)
 		return nil
 	}
-	if result.ErrorExcerpt != "" {
-		// The failure itself is the command's error, printed on stderr by
-		// nodeDiagnosisFailure's caller.
+	if nodeDiagnosisFailure(result) != nil {
+		// The failure itself is the command's error, printed on stderr once
+		// runNodesDiagnose returns it.
 		return nil
 	}
 	if len(result.Report) == 0 {
