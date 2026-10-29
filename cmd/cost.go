@@ -74,8 +74,15 @@ var costSummaryCmd = &cobra.Command{
 	Args:  cobra.NoArgs,
 	Example: `  ankra cost summary
   ankra cost summary --all-projects
+  ankra cost summary --by credential
+  ankra cost summary --by project --all-projects
   ankra cost summary -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		breakdown, _ := cmd.Flags().GetString("by")
+		breakdown = strings.ToLower(strings.TrimSpace(breakdown))
+		if breakdown != "" && !containsString(fleetCostBreakdowns, breakdown) {
+			return withExitCode(exitUsage, fmt.Errorf("--by must be one of %s, not %q", strings.Join(fleetCostBreakdowns, ", "), breakdown))
+		}
 		applyCostProjectScope(cmd)
 		summary, err := apiClient.GetFleetCloudCost()
 		if err != nil {
@@ -84,10 +91,23 @@ var costSummaryCmd = &cobra.Command{
 		if rendered, err := renderStructured(cmd, summary); rendered || err != nil {
 			return err
 		}
-		renderFleetCloudCost(cmd.OutOrStdout(), summary)
+		if breakdown == "" {
+			renderFleetCloudCost(cmd.OutOrStdout(), summary)
+			return nil
+		}
+		renderFleetCloudCostBreakdown(cmd.OutOrStdout(), summary, breakdown)
 		return nil
 	},
 }
+
+// The groupings `cost summary --by` renders on their own.
+const (
+	fleetCostByProvider   = "provider"
+	fleetCostByCredential = "credential"
+	fleetCostByProject    = "project"
+)
+
+var fleetCostBreakdowns = []string{fleetCostByProvider, fleetCostByCredential, fleetCostByProject}
 
 var costSavingsCmd = &cobra.Command{
 	Use:   "savings",
@@ -312,51 +332,12 @@ func pluralClusters(count int) string {
 }
 
 func renderFleetCloudCost(out io.Writer, summary *client.FleetCloudCost) {
-	if summary.ClusterCount == 0 {
-		_, _ = fmt.Fprintln(out, "No priced clusters yet.")
-		_, _ = fmt.Fprintln(out, "Estimates appear once a cluster on AWS, Google Cloud, Azure, Hetzner, OVHcloud, UpCloud or Scaleway has reported pricing in the last day; AWS, Google Cloud and Azure clusters need a connected cloud credential.")
+	if !renderFleetCloudCostHeader(out, summary) {
 		return
 	}
 	currency := summary.Currency
-	_, _ = fmt.Fprintf(out, "Cloud cost (%s): %s projected month end · %s month to date · %s/mo run rate\n",
-		strings.ToUpper(currency), formatCostCents(summary.ProjectedMonthEndCents, currency),
-		formatCostCents(summary.MonthToDateCents, currency), formatCostCents(summary.MonthlyCostEstimateCents, currency))
-	_, _ = fmt.Fprintf(out, "  %s priced across %d provider(s)\n", pluralClusters(summary.ClusterCount), len(summary.ByProvider))
-	if scopeLine := fleetCostScopeLine(summary.Scope); scopeLine != "" {
-		_, _ = fmt.Fprintf(out, "  %s\n", scopeLine)
-	}
-	if len(summary.ByProvider) > 0 {
-		_, _ = fmt.Fprintln(out)
-		_, _ = fmt.Fprintln(out, "By provider:")
-		writer := newCostTable(out)
-		writer.AppendHeader(table.Row{"Provider", "Clusters", "Run rate/mo", "Month to date", "Projected"})
-		for _, provider := range summary.ByProvider {
-			writer.AppendRow(table.Row{
-				costProviderLabel(provider.Provider),
-				provider.ClusterCount,
-				formatCostCents(provider.MonthlyCostEstimateCents, currency),
-				formatCostCents(provider.MonthToDateCents, currency),
-				formatCostCents(provider.ProjectedMonthEndCents, currency),
-			})
-		}
-		writer.Render()
-	}
-	if len(summary.ByProject) > 0 {
-		_, _ = fmt.Fprintln(out)
-		_, _ = fmt.Fprintln(out, "By project:")
-		writer := newCostTable(out)
-		writer.AppendHeader(table.Row{"Project", "Clusters", "Run rate/mo", "Month to date", "Projected"})
-		for _, project := range summary.ByProject {
-			writer.AppendRow(table.Row{
-				fleetCostProjectLabel(project),
-				project.ClusterCount,
-				formatCostCents(project.MonthlyCostEstimateCents, currency),
-				formatCostCents(project.MonthToDateCents, currency),
-				formatCostCents(project.ProjectedMonthEndCents, currency),
-			})
-		}
-		writer.Render()
-	}
+	renderFleetCostByProvider(out, summary, currency)
+	renderFleetCostByProject(out, summary, currency)
 	if len(summary.TopClusters) > 0 {
 		_, _ = fmt.Fprintln(out)
 		_, _ = fmt.Fprintln(out, "Costliest clusters:")
@@ -375,6 +356,124 @@ func renderFleetCloudCost(out io.Writer, summary *client.FleetCloudCost) {
 		}
 		writer.Render()
 	}
+}
+
+// renderFleetCloudCostHeader prints the totals and the scope line, and
+// reports false (after saying so) when nothing is priced yet.
+func renderFleetCloudCostHeader(out io.Writer, summary *client.FleetCloudCost) bool {
+	if summary.ClusterCount == 0 {
+		_, _ = fmt.Fprintln(out, "No priced clusters yet.")
+		_, _ = fmt.Fprintln(out, "Estimates appear once a cluster on AWS, Google Cloud, Azure, Hetzner, OVHcloud, UpCloud or Scaleway has reported pricing in the last day; AWS, Google Cloud and Azure clusters need a connected cloud credential.")
+		return false
+	}
+	currency := summary.Currency
+	_, _ = fmt.Fprintf(out, "Cloud cost (%s): %s projected month end · %s month to date · %s/mo run rate\n",
+		strings.ToUpper(currency), formatCostCents(summary.ProjectedMonthEndCents, currency),
+		formatCostCents(summary.MonthToDateCents, currency), formatCostCents(summary.MonthlyCostEstimateCents, currency))
+	_, _ = fmt.Fprintf(out, "  %s priced across %d provider(s)\n", pluralClusters(summary.ClusterCount), len(summary.ByProvider))
+	if scopeLine := fleetCostScopeLine(summary.Scope); scopeLine != "" {
+		_, _ = fmt.Fprintf(out, "  %s\n", scopeLine)
+	}
+	return true
+}
+
+// renderFleetCloudCostBreakdown is `cost summary --by`: the totals and the
+// one grouping asked for. A grouping the platform did not serve says so
+// rather than printing an empty table.
+func renderFleetCloudCostBreakdown(out io.Writer, summary *client.FleetCloudCost, breakdown string) {
+	if !renderFleetCloudCostHeader(out, summary) {
+		return
+	}
+	currency := summary.Currency
+	rendered := false
+	switch breakdown {
+	case fleetCostByProvider:
+		rendered = renderFleetCostByProvider(out, summary, currency)
+	case fleetCostByCredential:
+		rendered = renderFleetCostByCredential(out, summary, currency)
+	case fleetCostByProject:
+		rendered = renderFleetCostByProject(out, summary, currency)
+	}
+	if !rendered {
+		_, _ = fmt.Fprintln(out)
+		_, _ = fmt.Fprintf(out, "No by-%s breakdown in this rollup.\n", breakdown)
+	}
+}
+
+func renderFleetCostByProvider(out io.Writer, summary *client.FleetCloudCost, currency string) bool {
+	if len(summary.ByProvider) == 0 {
+		return false
+	}
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, "By provider:")
+	writer := newCostTable(out)
+	writer.AppendHeader(table.Row{"Provider", "Clusters", "Run rate/mo", "Month to date", "Projected"})
+	for _, provider := range summary.ByProvider {
+		writer.AppendRow(table.Row{
+			costProviderLabel(provider.Provider),
+			provider.ClusterCount,
+			formatCostCents(provider.MonthlyCostEstimateCents, currency),
+			formatCostCents(provider.MonthToDateCents, currency),
+			formatCostCents(provider.ProjectedMonthEndCents, currency),
+		})
+	}
+	writer.Render()
+	return true
+}
+
+func renderFleetCostByCredential(out io.Writer, summary *client.FleetCloudCost, currency string) bool {
+	if len(summary.ByCredential) == 0 {
+		return false
+	}
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, "By credential:")
+	writer := newCostTable(out)
+	writer.AppendHeader(table.Row{"Credential", "Provider", "Clusters", "Run rate/mo", "Month to date", "Projected"})
+	for _, credential := range summary.ByCredential {
+		writer.AppendRow(table.Row{
+			fleetCostCredentialLabel(credential),
+			costProviderLabel(credential.Provider),
+			credential.ClusterCount,
+			formatCostCents(credential.MonthlyCostEstimateCents, currency),
+			formatCostCents(credential.MonthToDateCents, currency),
+			formatCostCents(credential.ProjectedMonthEndCents, currency),
+		})
+	}
+	writer.Render()
+	return true
+}
+
+func renderFleetCostByProject(out io.Writer, summary *client.FleetCloudCost, currency string) bool {
+	if len(summary.ByProject) == 0 {
+		return false
+	}
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, "By project:")
+	writer := newCostTable(out)
+	writer.AppendHeader(table.Row{"Project", "Clusters", "Run rate/mo", "Month to date", "Projected"})
+	for _, project := range summary.ByProject {
+		writer.AppendRow(table.Row{
+			fleetCostProjectLabel(project),
+			project.ClusterCount,
+			formatCostCents(project.MonthlyCostEstimateCents, currency),
+			formatCostCents(project.MonthToDateCents, currency),
+			formatCostCents(project.ProjectedMonthEndCents, currency),
+		})
+	}
+	writer.Render()
+	return true
+}
+
+// fleetCostCredentialLabel names a by-credential row; clusters no
+// credential provisioned are one unnamed bucket.
+func fleetCostCredentialLabel(credential client.FleetCredentialCost) string {
+	if credential.CredentialName != nil && *credential.CredentialName != "" {
+		return *credential.CredentialName
+	}
+	if credential.CredentialID != nil && *credential.CredentialID != "" {
+		return *credential.CredentialID
+	}
+	return "(no credential)"
 }
 
 // fleetCostScopeLine says which project the rollup covered, or "" for a
@@ -793,6 +892,7 @@ func init() {
 	costSettingsSetCmd.Flags().Float64("discount", 0, "Effective discount in percent (0-100), applied on top of list prices; 10 means 10%")
 	costSettingsSetCmd.Flags().Bool("include-egress", false, "Include an estimated network egress charge (pass --include-egress=false to drop it)")
 	costSettingsSetCmd.Flags().String("analysed-cluster-limit", "", "How many of the costliest priced clusters the savings model analyses (1-50), or default for the platform's 8")
+	costSummaryCmd.Flags().String("by", "", "Show only one breakdown: provider, credential or project (default: the full rollup)")
 	registerStructuredOutputFlags(costSummaryCmd, costSavingsCmd, costClusterCmd, costSettingsGetCmd, costSettingsSetCmd)
 	registerCostProjectScopeFlag(costSummaryCmd, costSavingsCmd)
 	costSettingsCmd.AddCommand(costSettingsGetCmd)

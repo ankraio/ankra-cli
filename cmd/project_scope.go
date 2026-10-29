@@ -23,6 +23,12 @@ import (
 // projects off, so a saved selection never breaks an organisation that
 // turned them off again.
 
+// projectPinnedExplicitly is true when this invocation's project came from
+// --project or ANKRA_PROJECT. An explicit pin is a statement about which
+// project to use, so the gateway commands never retry a cluster in another
+// project behind its back.
+var projectPinnedExplicitly bool
+
 // envAnkraProject is the environment twin of the global --project flag.
 const envAnkraProject = "ANKRA_PROJECT"
 
@@ -151,12 +157,14 @@ func projectOverrideValue(cmd *cobra.Command) string {
 // alongside the saved `ankra login` token and only when it was made in the
 // organisation this invocation runs in.
 func applyProjectOverride(cmd *cobra.Command, tokenSource credentialSource) error {
+	projectPinnedExplicitly = false
 	if override := projectOverrideValue(cmd); override != "" {
 		projectID, err := resolveProjectReferenceToID(override)
 		if err != nil {
 			return err
 		}
 		apiClient.SetProjectOverride(projectID)
+		projectPinnedExplicitly = true
 		return nil
 	}
 	if tokenSource != sourceConfigFile || cmd.Annotations[annotationIgnoresLocalProject] == "true" {

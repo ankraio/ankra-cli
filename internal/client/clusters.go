@@ -21,12 +21,15 @@ var ErrClusterNotFound = errors.New("cluster not found")
 // currently render (operation, agent_*, resources, *_count, etc.) are
 // silently ignored by Go's JSON decoder.
 type ClusterListItem struct {
-	ID                string          `json:"id"`
-	Name              string          `json:"name"`
-	State             string          `json:"state"`
-	Description       string          `json:"description"`
-	Environment       string          `json:"environment"`
-	OrganisationID    string          `json:"organisation_id"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	State          string `json:"state"`
+	Description    string `json:"description"`
+	Environment    string `json:"environment"`
+	OrganisationID string `json:"organisation_id"`
+	// ProjectID is the project the cluster belongs to (ADR 0022), when the
+	// platform serves it; nil on platforms whose cluster list predates it.
+	ProjectID         *string         `json:"project_id,omitempty" yaml:"project_id,omitempty"`
 	KubeVersion       string          `json:"kube_version"`
 	ControlPlanes     int             `json:"control_planes"`
 	Nodes             int             `json:"nodes"`

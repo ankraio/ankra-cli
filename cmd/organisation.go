@@ -400,6 +400,22 @@ func resolveOrganisationID() (string, error) {
 	return "", fmt.Errorf("no organisation selected")
 }
 
+// resolveActingOrganisationID returns the organisation a membership write acts
+// in and makes the client send it as X-Ankra-Organisation-Id, so the body's
+// organisation_id and the header always name the same organisation. The
+// platform refuses a mismatch with 403, and before it did, a mismatch acted in
+// the body's organisation rather than the one --org named.
+func resolveActingOrganisationID() (string, error) {
+	organisationID, resolveError := resolveOrganisationID()
+	if resolveError != nil {
+		return "", resolveError
+	}
+	if strings.TrimSpace(apiClient.OrganisationOverride()) == "" {
+		apiClient.SetOrganisationOverride(organisationID)
+	}
+	return organisationID, nil
+}
+
 // organisationOverrideValue returns the explicit organisation requested via
 // the global `--org` flag, falling back to the ANKRA_ORG environment variable.
 // An empty string means no override was supplied.
@@ -554,8 +570,9 @@ var orgInviteCmd = &cobra.Command{
 	Long: `Invite a user by email to the current organisation.
 
 Valid roles: owner, admin, operator, member (default), viewer, read-only,
-project. owner/operator alias onto admin/member on the invite until the RBAC
-assignments API ships; run 'ankra org roles' for the full list.
+project. owner/operator alias onto admin/member on the invite; once the member
+has joined, grant the exact role at any scope with 'ankra org assign'. Run
+'ankra org roles' for the full list.
 
 --role project invites a project-only member: they reach the one project
 named with the global --project (slug, name or id) and nothing else of the
@@ -581,7 +598,7 @@ Examples:
 			return grantError
 		}
 
-		orgID, err := resolveOrganisationID()
+		orgID, err := resolveActingOrganisationID()
 		if err != nil {
 			return fmt.Errorf("%w\nSelect an organisation first with 'ankra org switch <org_id>'", err)
 		}
@@ -664,7 +681,7 @@ var orgRemoveCmd = &cobra.Command{
 		userID := args[0]
 		force, _ := cmd.Flags().GetBool("force")
 
-		orgID, err := resolveOrganisationID()
+		orgID, err := resolveActingOrganisationID()
 		if err != nil {
 			return fmt.Errorf("%w\nSelect an organisation first with 'ankra org switch <org_id>'", err)
 		}
