@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## v0.50.1 - 2026-10-29
+
+A patch release that changes only the bundled agent skills. They now explain
+the three ways a control plane's instance type changes, including resizing the
+only controller of a running Hetzner cluster with a few minutes of Kubernetes
+API downtime. Installing this release changes nothing on any cluster or
+workload.
+
+### Fixed
+
+- **The bundled agent skills describe resizing the only control plane of a running Hetzner cluster.** `ankra-cloud-clusters` lists the `rolling`, `live_with_api_downtime` and `offline` modes and when each applies, says the in-place single-controller resize is Hetzner only, and names the acceptance on every surface: `--accept-api-downtime` on the CLI, `accept_api_downtime` on the API and the MCP `change_control_plane` tool, and **Resize with API downtime** in the portal. The assistant is told to get the user's go-ahead before accepting the downtime. `ankra-cli` points at the control-plane commands. Run `ankra skills install --force` to refresh an installed copy.
+
 ## v0.50.0 - 2026-10-29
 
 This release rounds off projects in the CLI: `ankra org assign` grants a role at
