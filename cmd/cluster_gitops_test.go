@@ -236,6 +236,7 @@ func TestClusterGitopsStatusNotConfigured(t *testing.T) {
 func TestClusterGitopsStatusJSONOutput(t *testing.T) {
 	mock := &gitopsStatusMock{status: syncedGitopsStatus()}
 	setMockClient(t, mock)
+	resetGitopsStatusOutputFlag(t)
 
 	output, err := executeCommand("cluster", "gitops", "status", "my-cluster", "-o", "json")
 	if err != nil {
@@ -348,6 +349,7 @@ func TestGitopsErrorSummaryShapes(t *testing.T) {
 // "last synced 2 days ago" for a current cluster (ankra-xx7u1l). The applied
 // commit and the head check are printed beside the last full sync.
 func TestClusterGitopsStatusShowsTheCommitPointer(t *testing.T) {
+	resetGitopsStatusOutputFlag(t)
 	status := syncedGitopsStatus()
 	status.AppliedCommitSHA = strPtrCmd("def456")
 	status.AppliedCommitAt = strPtrCmd("2026-10-27T10:00:00Z")
@@ -396,6 +398,7 @@ func TestClusterGitopsStatusShowsTheCommitPointer(t *testing.T) {
 // ankra-u5m2k6: a diverged status names each preserved file, when it was
 // detected and whether it is decided, instead of only "diverged".
 func TestClusterGitopsStatusListsPreservedPaths(t *testing.T) {
+	resetGitopsStatusOutputFlag(t)
 	status := syncedGitopsStatus()
 	status.SyncStatus = strPtrCmd("diverged")
 	status.PreservedPathCount = intPtrCmd(3)
@@ -461,7 +464,7 @@ func TestClusterGitopsStatusJSONOutputCarriesPreservedPathsAndPointer(t *testing
 	status.AppliedCommitSHA = strPtrCmd("def456")
 	status.HeadCheckedAt = strPtrCmd("2026-10-29T10:00:00Z")
 	setMockClient(t, &gitopsStatusMock{status: status})
-	t.Cleanup(func() { _ = clusterGitopsStatusCmd.Flags().Set("output", "") })
+	resetGitopsStatusOutputFlag(t)
 
 	output, err := executeCommand("cluster", "gitops", "status", "my-cluster", "-o", "json")
 	if err != nil {
@@ -502,4 +505,13 @@ func TestClusterGitopsStatusDecodesThePlatformFields(t *testing.T) {
 		*status.HeadCheckedAt != "2026-10-29T10:00:00Z" {
 		t.Fatalf("decoded = %+v", status)
 	}
+}
+
+// resetGitopsStatusOutputFlag clears -o on the shared status command now and
+// when the test ends: cobra keeps a flag's value between executions, so a JSON
+// test left it set and every human-output test after it printed nothing.
+func resetGitopsStatusOutputFlag(t *testing.T) {
+	t.Helper()
+	_ = clusterGitopsStatusCmd.Flags().Set("output", "")
+	t.Cleanup(func() { _ = clusterGitopsStatusCmd.Flags().Set("output", "") })
 }
