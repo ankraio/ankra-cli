@@ -167,15 +167,17 @@ func TestGetPodsTableAnnouncesTheCacheAndAPendingResync(t *testing.T) {
 	}})
 	t.Cleanup(func() { _ = clusterPodsCmd.Flags().Set("output", "table") })
 
-	stdoutOutput, stderrOutput := runCaptured(t, "cluster", "get", "pods")
-
 	want := "Served from the agent's cache, 7s old: it is resyncing after an agent restart, " +
 		"so resources deleted in the meantime may still be listed."
-	if !strings.Contains(stderrOutput, want) {
-		t.Errorf("stderr must carry %q, got: %q", want, stderrOutput)
-	}
-	if !strings.Contains(stdoutOutput, "web-1") || strings.Contains(stdoutOutput, "agent's cache") {
-		t.Errorf("stdout must be the pod rows alone, got: %s", stdoutOutput)
+	for _, args := range [][]string{{"cluster", "get", "pods"}, {"cluster", "get", "pods", "-A"}} {
+		stdoutOutput, stderrOutput := runCaptured(t, args...)
+		_ = clusterPodsCmd.Flags().Set("all-namespaces", "false")
+		if !strings.Contains(stderrOutput, want) {
+			t.Errorf("%v: stderr must carry %q, got: %q", args, want, stderrOutput)
+		}
+		if !strings.Contains(stdoutOutput, "web-1") || strings.Contains(stdoutOutput, "agent's cache") {
+			t.Errorf("%v: stdout must be the pod rows alone, got: %s", args, stdoutOutput)
+		}
 	}
 }
 

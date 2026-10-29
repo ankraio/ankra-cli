@@ -94,6 +94,34 @@ func TestClusterNodesDiagnoseJSONIsTheResult(t *testing.T) {
 	}
 }
 
+// A job that finished without a report (the node unreachable over SSH)
+// must not exit 0: a script would read it as a diagnosis.
+func TestClusterNodesDiagnoseFailedJobExitsNonZero(t *testing.T) {
+	failed := &client.NodeDiagnoseResult{OperationID: "op-9", NodeID: "node-1", JobName: "hetzner_node_diagnose",
+		Status: "failed", Completed: true, ErrorExcerpt: "ssh: connect to host 10.0.1.4 port 22: connection timed out"}
+	for _, args := range [][]string{
+		{"cluster", "hetzner", "nodes", "diagnose", testClusterID, "node-1"},
+		{"cluster", "hetzner", "nodes", "diagnose", testClusterID, "node-1", "-o", "json"},
+	} {
+		writeSelectedClusterJSON(t)
+		setMockClient(t, &nodeDiagnoseMock{result: failed})
+		var commandError error
+		stdoutOutput := captureStdout(t, func() {
+			_, commandError = executeCommand(args...)
+		})
+		if code := exitCodeFor(commandError); code != exitError {
+			t.Errorf("%v: a failed diagnosis must exit %d, got %d (%v)", args, exitError, code, commandError)
+		}
+		if commandError == nil || !strings.Contains(commandError.Error(), "connection timed out") ||
+			!strings.Contains(commandError.Error(), "op-9") {
+			t.Errorf("%v: the error must carry the excerpt and the operation, got %v", args, commandError)
+		}
+		if !strings.Contains(stdoutOutput, "op-9") {
+			t.Errorf("%v: the operation handle must still be printed, got: %s", args, stdoutOutput)
+		}
+	}
+}
+
 func TestClusterNodesDiagnoseClientTimeoutExitsWaitTimeout(t *testing.T) {
 	writeSelectedClusterJSON(t)
 	setMockClient(t, &nodeDiagnoseMock{err: context.DeadlineExceeded})

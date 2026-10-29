@@ -78,6 +78,17 @@ func TestFromResourceNeverPassesTheAgentCheckInOffAsTheAge(t *testing.T) {
 		t.Errorf("a stale hit's staleness_seconds is the agent's check-in, not the rows' age; got age %d",
 			staleOldPlatform.AgeSeconds)
 	}
+	// A platform that predates the stale flag still names its stale fallback
+	// in sync_status; that is enough to keep the check-in out of the age.
+	preStaleFlag := FromResource(&client.ResourceCacheMetadata{
+		ServedFromCache: true, StalenessSeconds: 3, SyncStatus: "agent_timeout"})
+	if !preStaleFlag.Stale || preStaleFlag.AgeSeconds >= 0 {
+		t.Errorf("a stale-fallback sync_status without the stale flag must read stale with an unknown age, got %+v",
+			preStaleFlag)
+	}
+	if got := Notice(preStaleFlag); got != "Served from the agent's cache (age unknown): the cluster's agent did not respond." {
+		t.Errorf("notice for a pre-flag stale item = %q", got)
+	}
 	stale := FromResource(&client.ResourceCacheMetadata{
 		ServedFromCache: true, Stale: true, StalenessSeconds: 4, CacheAgeSeconds: intPointer(95),
 		SyncStatus: "agent_timeout", ReconcilePending: true})

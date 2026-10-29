@@ -41,26 +41,39 @@ type Answer struct {
 	ReconcilePending bool
 }
 
+// staleFallbackSyncStatuses are the sync_status values only the platform's
+// stale-cache fallback writes. None of them is a watch state, so an item
+// carrying one is stale even from a platform that predates the stale flag.
+var staleFallbackSyncStatuses = map[string]bool{
+	"cluster_offline":   true,
+	"no_agent":          true,
+	"agent_timeout":     true,
+	"agent_read_failed": true,
+}
+
 // FromResource reads a resources/get item's cache metadata. A nil metadata
-// is a live answer. The age is cache_age_seconds when the platform sends it.
-// Without it, staleness_seconds is the cache's age only on a fresh hit: on
-// a stale one it is the agent's last check-in, which can be seconds old
-// while the rows are minutes old, so the age is reported unknown rather
-// than borrowed from it.
+// is a live answer. The item is stale when the platform says so or, on a
+// platform that predates the stale flag, when its sync_status is one only
+// the stale fallback writes. The age is cache_age_seconds when the platform
+// sends it. Without it, staleness_seconds is the cache's age only on a
+// fresh hit: on a stale one it is the agent's last check-in, which can be
+// seconds old while the rows are minutes old, so the age is reported
+// unknown rather than borrowed from it.
 func FromResource(metadata *client.ResourceCacheMetadata) Answer {
 	if metadata == nil {
 		return Answer{}
 	}
+	stale := metadata.Stale || staleFallbackSyncStatuses[metadata.SyncStatus]
 	age := -1
 	switch {
 	case metadata.CacheAgeSeconds != nil:
 		age = *metadata.CacheAgeSeconds
-	case !metadata.Stale:
+	case !stale:
 		age = metadata.StalenessSeconds
 	}
 	return Answer{
 		ServedFromCache:  metadata.ServedFromCache,
-		Stale:            metadata.Stale,
+		Stale:            stale,
 		AgeSeconds:       age,
 		SyncStatus:       metadata.SyncStatus,
 		ReconcilePending: metadata.ReconcilePending,

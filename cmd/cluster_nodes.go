@@ -273,10 +273,24 @@ func runNodesDiagnose(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterI
 
 	if handled, err := renderStructured(cmd, result); err != nil {
 		return err
-	} else if handled {
+	} else if !handled {
+		if printError := printNodeDiagnosis(result); printError != nil {
+			return printError
+		}
+	}
+	return nodeDiagnosisFailure(result)
+}
+
+// nodeDiagnosisFailure is the error a diagnose run that finished but failed
+// exits with, after its output: the job ran and produced no report (the node
+// unreachable over SSH, the snapshot failing), so a script must not read it
+// as a diagnosis. -o json|yaml still print the result document first, with
+// error_excerpt in it. A run still in flight is not a failure.
+func nodeDiagnosisFailure(result *client.NodeDiagnoseResult) error {
+	if !result.Completed || result.ErrorExcerpt == "" {
 		return nil
 	}
-	return printNodeDiagnosis(result)
+	return fmt.Errorf("the diagnose job failed (operation %s): %s", result.OperationID, result.ErrorExcerpt)
 }
 
 // printNodeDiagnosis renders the dispatched diagnosis: the operation handle
@@ -299,8 +313,8 @@ func printNodeDiagnosis(result *client.NodeDiagnoseResult) error {
 		return nil
 	}
 	if result.ErrorExcerpt != "" {
-		fmt.Println()
-		fmt.Printf("The diagnose job failed: %s\n", result.ErrorExcerpt)
+		// The failure itself is the command's error, printed on stderr by
+		// nodeDiagnosisFailure's caller.
 		return nil
 	}
 	if len(result.Report) == 0 {
