@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## v0.52.0 - 2026-10-29
+
+This release makes cached answers visible and adds a node diagnosis to the
+terminal. `ankra cluster get`, `cluster events` and `cluster describe` now say
+on stderr when an answer came from the agent's cache, how old it is and, when
+the platform knows, why the cluster did not answer live; stdout and `-o json`
+are unchanged apart from the cache fields the envelope now keeps.
+`ankra cluster <provider> nodes diagnose` runs the read-only SSH diagnosis the
+Ankra assistant has as `ssh_diagnose_node`, and `ankra cluster info` accepts a
+cluster id. Installing this release changes nothing on any cluster or workload.
+
 ### Added
 
 - **`ankra cluster <provider> nodes diagnose <cluster> <node_id>` runs a read-only SSH diagnosis of one node from the terminal.** It is the same diagnosis the Ankra assistant runs as `ssh_diagnose_node`: over the platform's bastion lane it snapshots the node's Kubernetes service unit and journal, disk, memory, uptime, kernel log and firewall path to the API server, names the symptoms it finds and changes nothing on the node. Like `bastion diagnose` it waits for the report (up to two minutes on the platform side, `--timeout` on yours, exit code 5 when yours runs out) and hands back the operation to poll when the job runs longer. A job that finished without a report (the node unreachable over SSH) exits 1 with the job's error, after printing the operation. Offered on the providers with `nodes cloud-init-log`; it needs the `clusters.operate` permission and a platform that serves the new route.
