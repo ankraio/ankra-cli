@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"ankra/internal/cachenotice"
 	"ankra/internal/client"
 
 	"github.com/jedib0t/go-pretty/v6/table"
@@ -69,7 +70,7 @@ Examples:
 			return clusterError
 		}
 
-		object, objectError := fetchSingleResource(cluster.ID, resolvedKind, namespace, name)
+		object, objectAnswer, objectError := fetchSingleResource(cluster.ID, resolvedKind, namespace, name)
 		if objectError != nil {
 			return objectError
 		}
@@ -96,6 +97,7 @@ Examples:
 			fmt.Print(string(encoded))
 			return nil
 		}
+		announceCachedAnswer(objectAnswer)
 		renderDescribe(resolvedKind.kind, object, events)
 		return nil
 	},
@@ -198,8 +200,9 @@ func redactSecretAnnotations(object map[string]interface{}, secretValues []strin
 
 // fetchSingleResource reads exactly one named object. A missing or deleted
 // object exits with the not-found code and a failed read is an error
-// (namedReadItems), rather than either rendering as a description.
-func fetchSingleResource(clusterID string, resolvedKind k8sKind, namespace string, name string) (map[string]interface{}, error) {
+// (namedReadItems), rather than either rendering as a description. The
+// answer says whether the platform served it from the agent's cache.
+func fetchSingleResource(clusterID string, resolvedKind k8sKind, namespace string, name string) (map[string]interface{}, cachenotice.Answer, error) {
 	request := client.ResourceRequestItem{
 		Kind:     resolvedKind.kind,
 		Group:    resolvedKind.group,
@@ -214,17 +217,17 @@ func fetchSingleResource(clusterID string, resolvedKind k8sKind, namespace strin
 		ResourceRequests: []client.ResourceRequestItem{request},
 	})
 	if requestError != nil {
-		return nil, requestError
+		return nil, cachenotice.Answer{}, requestError
 	}
 	items, namedReadError := namedReadItems(response, resolvedKind.kind, name, namespace)
 	if namedReadError != nil {
-		return nil, namedReadError
+		return nil, cachenotice.Answer{}, namedReadError
 	}
 	object, isObject := items[0].(map[string]interface{})
 	if !isObject {
-		return nil, fmt.Errorf("unexpected %s payload for %q", resolvedKind.kind, name)
+		return nil, cachenotice.Answer{}, fmt.Errorf("unexpected %s payload for %q", resolvedKind.kind, name)
 	}
-	return object, nil
+	return object, cachenotice.FromResource(response.ResourceResponses[0].CacheMetadata), nil
 }
 
 func namespaceSuffix(namespace string) string {

@@ -28,11 +28,18 @@ type PodSummary struct {
 	ReadinessGates  *string `json:"readiness_gates"`
 }
 
+// CacheInfo is the pods route's cache envelope. That route always answers
+// from the platform's cache, and StalenessSeconds is the cache's own age
+// there (-1 when the type never synced).
 type CacheInfo struct {
 	ServedFromCache  bool    `json:"served_from_cache"`
 	StalenessSeconds int     `json:"staleness_seconds"`
 	SyncStatus       string  `json:"sync_status"`
 	Warning          *string `json:"warning"`
+	// ReconcilePending marks a listing no full sync has reconciled since the
+	// agent last restarted: it may list pods that no longer exist. The
+	// platform omits it when false.
+	ReconcilePending bool `json:"reconcile_pending,omitempty"`
 }
 
 type ListPodsResponse struct {
@@ -140,12 +147,26 @@ const (
 // live - the aggregated metrics API above all - must refuse a cached answer
 // rather than render yesterday's objects as today's measurements.
 type ResourceCacheMetadata struct {
-	ServedFromCache  bool    `json:"served_from_cache"`
-	StalenessSeconds int     `json:"staleness_seconds"`
-	SyncStatus       string  `json:"sync_status"`
-	Warning          *string `json:"warning"`
-	IsDeleted        bool    `json:"is_deleted"`
-	DeletedAt        *string `json:"deleted_at"`
+	ServedFromCache bool `json:"served_from_cache"`
+	// Stale is true when no live read answered for the item - the cluster is
+	// offline, has no agent, the agent did not respond or could not read it -
+	// and the rows are the last cached copy; SyncStatus names which. False on
+	// a fresh cache hit, a healthy read that skipped a round trip.
+	Stale bool `json:"stale"`
+	// StalenessSeconds is the cache's age on a fresh hit, but the agent's last
+	// check-in on a stale one, which can be recent (or -1) while the rows are
+	// old. CacheAgeSeconds is the rows' age on both; prefer it.
+	StalenessSeconds int `json:"staleness_seconds"`
+	// CacheAgeSeconds is how old the cached rows are. Nil when the platform
+	// predates the field or the type never synced.
+	CacheAgeSeconds *int    `json:"cache_age_seconds,omitempty"`
+	SyncStatus      string  `json:"sync_status"`
+	Warning         *string `json:"warning"`
+	IsDeleted       bool    `json:"is_deleted"`
+	DeletedAt       *string `json:"deleted_at"`
+	// ReconcilePending marks rows no full listing has reconciled since the
+	// agent last restarted: a listing may include deleted resources.
+	ReconcilePending bool `json:"reconcile_pending,omitempty"`
 }
 
 type ResourceResponseItem struct {

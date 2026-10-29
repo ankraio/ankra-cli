@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -20,6 +23,22 @@ type clusterNodesOps struct {
 	// not wired (Proxmox, Morpheus); the subcommand is only registered when
 	// it is set.
 	cloudInitLog func(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error)
+	// diagnose rides the same node SSH lane as cloudInitLog, so it is set
+	// for exactly the same providers.
+	diagnose func(ctx context.Context, clusterID, nodeID string) (*client.NodeDiagnoseResult, error)
+}
+
+// defaultNodeDiagnoseTimeout bounds the client's wait for a node diagnosis.
+// The platform waits up to two minutes for the job before handing back the
+// operation to poll, so the client budget sits past that.
+const defaultNodeDiagnoseTimeout = 3 * time.Minute
+
+// nodeDiagnoser binds the provider-generic client call to one provider's
+// route segment.
+func nodeDiagnoser(provider string) func(ctx context.Context, clusterID, nodeID string) (*client.NodeDiagnoseResult, error) {
+	return func(ctx context.Context, clusterID, nodeID string) (*client.NodeDiagnoseResult, error) {
+		return apiClient.DiagnoseClusterNode(ctx, provider, clusterID, nodeID)
+	}
 }
 
 func hetznerNodesOps() clusterNodesOps {
@@ -29,6 +48,7 @@ func hetznerNodesOps() clusterNodesOps {
 		get:          apiClient.GetHetznerClusterNode,
 		restart:      apiClient.RestartHetznerClusterNode,
 		cloudInitLog: apiClient.HetznerNodeCloudInitLog,
+		diagnose:     nodeDiagnoser("hetzner"),
 	}
 }
 
@@ -39,6 +59,7 @@ func ovhNodesOps() clusterNodesOps {
 		get:          apiClient.GetOvhClusterNode,
 		restart:      apiClient.RestartOvhClusterNode,
 		cloudInitLog: apiClient.OvhNodeCloudInitLog,
+		diagnose:     nodeDiagnoser("ovh"),
 	}
 }
 
@@ -49,6 +70,7 @@ func upcloudNodesOps() clusterNodesOps {
 		get:          apiClient.GetUpcloudClusterNode,
 		restart:      apiClient.RestartUpcloudClusterNode,
 		cloudInitLog: apiClient.UpcloudNodeCloudInitLog,
+		diagnose:     nodeDiagnoser("upcloud"),
 	}
 }
 
@@ -59,6 +81,7 @@ func digitaloceanNodesOps() clusterNodesOps {
 		get:          apiClient.GetDigitaloceanClusterNode,
 		restart:      apiClient.RestartDigitaloceanClusterNode,
 		cloudInitLog: apiClient.DigitaloceanNodeCloudInitLog,
+		diagnose:     nodeDiagnoser("digitalocean"),
 	}
 }
 
@@ -69,6 +92,7 @@ func scalewayNodesOps() clusterNodesOps {
 		get:          apiClient.GetScalewayClusterNode,
 		restart:      apiClient.RestartScalewayClusterNode,
 		cloudInitLog: apiClient.ScalewayNodeCloudInitLog,
+		diagnose:     nodeDiagnoser("scaleway"),
 	}
 }
 
@@ -79,6 +103,7 @@ func ankraCloudNodesOps() clusterNodesOps {
 		get:          apiClient.GetAnkraCloudClusterNode,
 		restart:      apiClient.RestartAnkraCloudClusterNode,
 		cloudInitLog: apiClient.AnkraCloudNodeCloudInitLog,
+		diagnose:     nodeDiagnoser("ankracloud"),
 	}
 }
 
@@ -89,6 +114,7 @@ func awsNodesOps() clusterNodesOps {
 		get:          apiClient.GetAwsClusterNode,
 		restart:      apiClient.RestartAwsClusterNode,
 		cloudInitLog: apiClient.AwsNodeCloudInitLog,
+		diagnose:     nodeDiagnoser("aws"),
 	}
 }
 
@@ -222,6 +248,71 @@ func runNodesCloudInitLog(cmd *cobra.Command, opsFn func() clusterNodesOps, clus
 	return nil
 }
 
+// runNodesDiagnose dispatches the read-only node diagnosis and blocks for its
+// report, like `bastion diagnose`: the endpoint has no submit-and-return
+// half, so the command carries --timeout without a --wait twin, and a client
+// budget that expires exits with exitWaitTimeout because the job itself keeps
+// running.
+func runNodesDiagnose(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID, nodeID string) error {
+	ops := opsFn()
+	timeout, timeoutFlagError := cmd.Flags().GetDuration("timeout")
+	if timeoutFlagError != nil {
+		return fmt.Errorf("reading --timeout: %w", timeoutFlagError)
+	}
+	requestContext, cancelRequestContext := context.WithTimeout(context.Background(), timeout)
+	defer cancelRequestContext()
+
+	result, diagnoseError := ops.diagnose(requestContext, clusterID, nodeID)
+	if diagnoseError != nil {
+		wrapped := fmt.Errorf("diagnosing node: %w", diagnoseError)
+		if errors.Is(diagnoseError, context.DeadlineExceeded) {
+			return withExitCode(exitWaitTimeout, wrapped)
+		}
+		return wrapped
+	}
+
+	if handled, err := renderStructured(cmd, result); err != nil {
+		return err
+	} else if handled {
+		return nil
+	}
+	return printNodeDiagnosis(result)
+}
+
+// printNodeDiagnosis renders the dispatched diagnosis: the operation handle
+// always, then the report when the job finished inside the platform's wait
+// budget and the poll hint when it did not.
+func printNodeDiagnosis(result *client.NodeDiagnoseResult) error {
+	verb := "dispatched"
+	if result.Attached {
+		verb = "attached to the run already in flight"
+	}
+	fmt.Printf("Node diagnosis %s (%s).\n", verb, result.JobName)
+	fmt.Printf("  Operation ID: %s\n", result.OperationID)
+	fmt.Printf("  Node ID:      %s\n", result.NodeID)
+	fmt.Printf("  Status:       %s\n", result.Status)
+
+	if !result.Completed {
+		fmt.Println()
+		fmt.Println("The diagnosis is still running. Poll it with:")
+		fmt.Printf("  ankra cluster operations list %s\n", result.OperationID)
+		return nil
+	}
+	if result.ErrorExcerpt != "" {
+		fmt.Println()
+		fmt.Printf("The diagnose job failed: %s\n", result.ErrorExcerpt)
+		return nil
+	}
+	if len(result.Report) == 0 {
+		fmt.Println()
+		fmt.Println("The diagnose job completed without a report.")
+		return nil
+	}
+	fmt.Println()
+	fmt.Println("Report:")
+	return printJSONBlock(result.Report)
+}
+
 func runNodesGet(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID, nodeID string) error {
 	ops := opsFn()
 	detail, err := ops.get(clusterID, nodeID)
@@ -322,7 +413,10 @@ func printEdges(title string, edges map[string][]string) {
 	}
 }
 
-func newNodesCmd(opsFn func() clusterNodesOps, provider string, supportsRestart bool, supportsCloudInitLog bool) *cobra.Command {
+// newNodesCmd builds a provider's nodes group. supportsNodeSSH says the
+// platform reaches this provider's nodes over its bastion SSH lane, which
+// both cloud-init-log and diagnose ride.
+func newNodesCmd(opsFn func() clusterNodesOps, provider string, supportsRestart bool, supportsNodeSSH bool) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "nodes",
 		Short: fmt.Sprintf("List and inspect %s cluster nodes", provider),
@@ -382,7 +476,7 @@ bastion/gateway.`,
 		cmd.AddCommand(restartCmd)
 	}
 
-	if supportsCloudInitLog {
+	if supportsNodeSSH {
 		cloudInitLogCmd := &cobra.Command{
 			Use:   "cloud-init-log <cluster_id|name> <node_id>",
 			Short: "Read the node's cloud-init status and output-log tail",
@@ -404,6 +498,35 @@ an in-flight fetch instead of dispatching duplicates. Find node ids with
 		}
 		registerStructuredOutputFlags(cloudInitLogCmd)
 		cmd.AddCommand(cloudInitLogCmd)
+
+		diagnoseCmd := &cobra.Command{
+			Use:   "diagnose <cluster_id|name> <node_id>",
+			Short: "Run a read-only SSH diagnosis of a node",
+			Long: `Dispatch the platform's read-only node diagnose job and wait for its report:
+over the bastion SSH lane it snapshots the node's OS-level state - the
+Kubernetes service unit and its journal, disk, memory, uptime, the kernel log
+and the firewall path to the API server - and names the symptoms it finds.
+Nothing on the node is changed. This is what to reach for when a node is
+NotReady or its kubelet stopped posting status, below what 'cluster get' can
+see. The same diagnosis the Ankra assistant runs as ssh_diagnose_node.
+
+The platform waits up to two minutes for the job; a slower run hands back the
+operation id to poll with 'cluster operations list', and repeated calls attach
+to the run already in flight. Find node ids with 'nodes list'. Needs the
+clusters.operate permission on the cluster.`,
+			Args: cobra.ExactArgs(2),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				clusterID, resolveError := resolveClusterArg(args[0])
+				if resolveError != nil {
+					return resolveError
+				}
+				return runNodesDiagnose(cmd, opsFn, clusterID, args[1])
+			},
+		}
+		diagnoseCmd.Flags().Duration("timeout", defaultNodeDiagnoseTimeout,
+			"Maximum time to wait for the diagnosis report")
+		registerStructuredOutputFlags(diagnoseCmd)
+		cmd.AddCommand(diagnoseCmd)
 	}
 	return cmd
 }
