@@ -31,6 +31,14 @@ func (m *nodeDiagnoseMock) DiagnoseClusterNode(ctx context.Context, provider, cl
 	return m.result, nil
 }
 
+// resetNodesDiagnoseOutput puts -o back to human output after a test: the
+// command tree is global, so a flag one test sets carries into the next.
+func resetNodesDiagnoseOutput(t *testing.T) {
+	t.Helper()
+	diagnoseCmd := findSubcommandPath(t, "cluster", "hetzner", "nodes", "diagnose")
+	t.Cleanup(func() { _ = diagnoseCmd.Flags().Set("output", "") })
+}
+
 func completedNodeDiagnosis() *client.NodeDiagnoseResult {
 	return &client.NodeDiagnoseResult{
 		OperationID: "op-7", StepID: "step-7", NodeID: "node-1", JobName: "hetzner_node_diagnose",
@@ -80,14 +88,18 @@ func TestClusterNodesDiagnoseStillRunningPointsAtThePoller(t *testing.T) {
 func TestClusterNodesDiagnoseJSONIsTheResult(t *testing.T) {
 	writeSelectedClusterJSON(t)
 	setMockClient(t, &nodeDiagnoseMock{result: completedNodeDiagnosis()})
+	resetNodesDiagnoseOutput(t)
 
-	stdoutOutput := captureStdout(t, func() {
-		_, _ = executeCommand("cluster", "hetzner", "nodes", "diagnose", testClusterID, "node-1", "-o", "json")
-	})
+	// Structured output goes to the command's own writer, which
+	// executeCommand captures.
+	commandOutput, commandError := executeCommand("cluster", "hetzner", "nodes", "diagnose", testClusterID, "node-1", "-o", "json")
+	if commandError != nil {
+		t.Fatalf("nodes diagnose -o json: %v", commandError)
+	}
 
 	var decoded client.NodeDiagnoseResult
-	if err := json.Unmarshal([]byte(stdoutOutput), &decoded); err != nil {
-		t.Fatalf("-o json must be the result document: %v: %s", err, stdoutOutput)
+	if err := json.Unmarshal([]byte(commandOutput), &decoded); err != nil {
+		t.Fatalf("-o json must be the result document: %v: %s", err, commandOutput)
 	}
 	if decoded.OperationID != "op-7" || !decoded.Completed || decoded.Report["action"] != "diagnose" {
 		t.Errorf("decoded = %+v", decoded)
@@ -99,6 +111,7 @@ func TestClusterNodesDiagnoseJSONIsTheResult(t *testing.T) {
 func TestClusterNodesDiagnoseFailedJobExitsNonZero(t *testing.T) {
 	failed := &client.NodeDiagnoseResult{OperationID: "op-9", NodeID: "node-1", JobName: "hetzner_node_diagnose",
 		Status: "failed", Completed: true, ErrorExcerpt: "ssh: connect to host 10.0.1.4 port 22: connection timed out"}
+	resetNodesDiagnoseOutput(t)
 	for _, args := range [][]string{
 		{"cluster", "hetzner", "nodes", "diagnose", testClusterID, "node-1"},
 		{"cluster", "hetzner", "nodes", "diagnose", testClusterID, "node-1", "-o", "json"},
@@ -106,9 +119,12 @@ func TestClusterNodesDiagnoseFailedJobExitsNonZero(t *testing.T) {
 		writeSelectedClusterJSON(t)
 		setMockClient(t, &nodeDiagnoseMock{result: failed})
 		var commandError error
+		var commandOutput string
 		stdoutOutput := captureStdout(t, func() {
-			_, commandError = executeCommand(args...)
+			commandOutput, commandError = executeCommand(args...)
 		})
+		// The table prints on stdout, -o json on the command's writer.
+		stdoutOutput += commandOutput
 		if code := exitCodeFor(commandError); code != exitError {
 			t.Errorf("%v: a failed diagnosis must exit %d, got %d (%v)", args, exitError, code, commandError)
 		}
