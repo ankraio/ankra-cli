@@ -215,11 +215,20 @@ func printGitopsCommitPointer(status *client.ClusterGitopsStatus) {
 		return
 	}
 	switch {
+	case *status.HeadCheckedSHA != *status.AppliedCommitSHA && gitopsSyncPausedOnConflicts(status):
+		fmt.Println("  Note: Git's head is not applied to the cluster yet, and nothing from Git is applied until the open conflicts are resolved")
 	case *status.HeadCheckedSHA != *status.AppliedCommitSHA:
 		fmt.Println("  Note: Git's head is not applied to the cluster yet; the next sync applies it")
 	case status.LastCommitSHA != nil && *status.LastCommitSHA != *status.AppliedCommitSHA:
-		fmt.Println("  Note: the cluster is in step with Git's head; commits since the last full sync did not change this cluster's files, so the platform advanced the applied commit without a new sync")
+		fmt.Println("  Note: the cluster is in step with Git's head; the applied commit moved since the last full sync without a new sync (the platform does that over commits that did not change this cluster's files, and when it pushes)")
 	}
+}
+
+// gitopsSyncPausedOnConflicts reports a reported, positive open-conflict
+// count: while it holds, nothing from Git is applied, so no line may promise
+// that the next sync applies a commit.
+func gitopsSyncPausedOnConflicts(status *client.ClusterGitopsStatus) bool {
+	return status.OpenConflictCount != nil && *status.OpenConflictCount > 0
 }
 
 // gitopsPreservedDecisionLabels words the two decisions a preserved path can
@@ -278,7 +287,8 @@ func printGitopsPreservedPaths(status *client.ClusterGitopsStatus) {
 	case unlisted > 0:
 		fmt.Printf("    ... and %d more\n", unlisted)
 	}
-	fmt.Println("  Note: each file was edited in Git, so Ankra keeps Git's version and its own later changes to it do not reach Git until a person decides it (in the portal, cluster > GitOps, or the preserved-paths API); nothing is paused")
+	fmt.Println("  Note: each file was edited in Git, so Ankra keeps Git's version and its own later changes to it do not reach Git until a person decides it; nothing is paused")
+	fmt.Println("  Decide a file through the API: POST /api/v1/org/clusters/{cluster_id}/gitops/preserved-paths/resolve (the portal lists these files but cannot decide them yet)")
 }
 
 func init() {

@@ -364,7 +364,7 @@ func TestClusterGitopsStatusShowsTheCommitPointer(t *testing.T) {
 		"Last Synced Commit: abc123",
 		"Applied Commit: def456, since 2026-10-27T10:00:00Z (",
 		"Git Head Checked: def456, read 2026-10-29T10:00:00Z (",
-		"Note: the cluster is in step with Git's head; commits since the last full sync did not change this cluster's files",
+		"Note: the cluster is in step with Git's head; the applied commit moved since the last full sync without a new sync",
 	} {
 		if !strings.Contains(stdoutOutput, fragment) {
 			t.Errorf("expected output to contain %q, got: %s", fragment, stdoutOutput)
@@ -379,8 +379,25 @@ func TestClusterGitopsStatusShowsTheCommitPointer(t *testing.T) {
 		_, _ = executeCommand("cluster", "gitops", "status", "my-cluster")
 	})
 	if !strings.Contains(behindOutput, "Git Head Checked: fff999\n") ||
-		!strings.Contains(behindOutput, "Note: Git's head is not applied to the cluster yet") {
+		!strings.Contains(behindOutput, "Note: Git's head is not applied to the cluster yet; the next sync applies it") {
 		t.Errorf("expected the unapplied head named, got: %s", behindOutput)
+	}
+
+	// While conflicts pause the sync, no line promises the next sync applies
+	// the head.
+	paused := syncedGitopsStatus()
+	paused.SyncStatus = strPtrCmd("conflict")
+	paused.OpenConflictCount = intPtrCmd(1)
+	paused.OpenConflictKeys = []string{"stack:web/addon:redis"}
+	paused.AppliedCommitSHA = strPtrCmd("abc123")
+	paused.HeadCheckedSHA = strPtrCmd("fff999")
+	setMockClient(t, &gitopsStatusMock{status: paused})
+	pausedOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "gitops", "status", "my-cluster")
+	})
+	if strings.Contains(pausedOutput, "the next sync applies it") ||
+		!strings.Contains(pausedOutput, "nothing from Git is applied until the open conflicts are resolved") {
+		t.Errorf("expected no next-sync promise under a conflict pause, got: %s", pausedOutput)
 	}
 
 	// A platform that reports no pointer prints no pointer lines.
@@ -414,6 +431,9 @@ func TestClusterGitopsStatusListsPreservedPaths(t *testing.T) {
 	stdoutOutput := captureStdout(t, func() {
 		_, _ = executeCommand("cluster", "gitops", "status", "my-cluster")
 	})
+	if strings.Contains(stdoutOutput, "cluster > GitOps") {
+		t.Errorf("expected no pointer to a portal decide action that does not exist, got: %s", stdoutOutput)
+	}
 	for _, fragment := range []string{
 		"Sync Status: diverged",
 		"Preserved Paths: 3 (2 awaiting a decision)",
@@ -423,6 +443,7 @@ func TestClusterGitopsStatusListsPreservedPaths(t *testing.T) {
 		"decided: take Git's version, runs on the next sync)",
 		"    ... and 1 more",
 		"Ankra keeps Git's version",
+		"POST /api/v1/org/clusters/{cluster_id}/gitops/preserved-paths/resolve",
 	} {
 		if !strings.Contains(stdoutOutput, fragment) {
 			t.Errorf("expected output to contain %q, got: %s", fragment, stdoutOutput)
