@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v0.50.0 - 2026-10-29
+
+This release rounds off projects in the CLI: `ankra org assign` grants a role at
+any scope, `ankra org member role` makes a member project-only from the
+terminal, `ankra cluster kube-token` finds a cluster in any project of your
+organisation, and membership commands always act in the organisation they name.
+`ankra org member role` needs the matching platform API and says so until it is
+live. Installing this release changes nothing on any cluster or workload.
+
 ### Added
 
 - **`ankra org assign <member> --role <role> --scope organisation|cluster|cluster_group|project` grants a member a role at one scope from the terminal.** The member is named by email or user id; `--scope-id` takes a cluster name or id, a cluster group id, or a project slug, name or id (the global `--project` also works for the project scope), and `--role` takes a built-in role or a custom role id. A grant the platform refuses, such as a duplicate or one above your own role, is shown with the platform's reason. `-o json` prints the assignment.
