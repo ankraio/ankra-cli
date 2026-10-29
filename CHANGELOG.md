@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **`ankra pipeline train enable --auto-admit off|shadow|on` switches the merge train's auto-admit from the terminal.** With `on` the train adds green pull requests by itself; `shadow` only records which ones it would add. Leaving the flag out keeps the current mode.
+- **`ankra org access-policy get`, `set`, `proposals` and `proposal` say which organisation they read or proposed for.** Each prints an `Organisation:` line with the organisation's name and id, and `-o json` and `-o yaml` carry `organisation_id` and `organisation_name`. They act on the selected organisation unless `--org` (or `ANKRA_ORG`) names another, and nothing used to show which one answered, so a read made in the wrong organisation looked just like the right one. A proposal id that is not in the organisation read still exits 3, and the message now names the organisation that was searched and points at `--org`. Needs a platform that names the organisation; with an older one the line is left out.
 - **`ankra pipeline train list` shows auto-admit and stacked pull requests.** The header says whether auto-admit is off, in shadow or on and who set it, a table lists its latest decisions with the reason a pull request was left out (`stale_green`, `draft`, `held`, ...), and a pull request stacked on another one in the train reads "(on #N)". `-o json` now carries `auto_admit`, `auto_admit_by`, `auto_admit_since`, `auto_admit_decisions` and each entry's `pull_request_head_branch`, `parent_entry_id` and `parent_pull_request_number`, which it used to drop.
 
 ### Fixed

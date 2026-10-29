@@ -28,11 +28,13 @@ type accessPolicyProposalMock struct {
 	listing   []client.ClusterAccessPolicyProposal
 	listError error
 	readError error
+	// organisation is the organisation every response names; empty plays
+	// a platform that predates the field.
+	organisation client.ClusterAccessPolicyOrganisation
 }
 
-func (m *accessPolicyProposalMock) GetClusterAccessPolicy(ctx context.Context) (*client.ClusterAccessPolicy, error) {
-	policy := m.policy
-	return &policy, nil
+func (m *accessPolicyProposalMock) GetClusterAccessPolicy(ctx context.Context) (*client.ClusterAccessPolicyRead, error) {
+	return &client.ClusterAccessPolicyRead{Policy: m.policy, ClusterAccessPolicyOrganisation: m.organisation}, nil
 }
 
 func (m *accessPolicyProposalMock) ProposeClusterAccessPolicy(ctx context.Context, request client.ProposeClusterAccessPolicyRequest) (*client.ClusterAccessPolicyProposal, error) {
@@ -68,6 +70,7 @@ func (m *accessPolicyProposalMock) ProposeClusterAccessPolicy(ctx context.Contex
 	}
 	m.proposed = proposalFixture(client.ProposalStatusPending, m.policy, proposed)
 	m.proposed.Reason = request.Reason
+	m.proposed.ClusterAccessPolicyOrganisation = m.organisation
 	copied := *m.proposed
 	return &copied, nil
 }
@@ -79,8 +82,12 @@ func (m *accessPolicyProposalMock) GetClusterAccessPolicyProposal(ctx context.Co
 		return nil, m.readError
 	}
 	if m.proposed == nil || proposalID != m.proposed.ID {
-		return nil, client.ClusterAccessPolicyProposalResponseError("read", 404,
-			[]byte(`{"detail":"Cluster access policy proposal not found"}`))
+		notFound := `{"detail":"Cluster access policy proposal not found"}`
+		if m.organisation.OrganisationID != "" {
+			encoded, _ := json.Marshal(m.organisation)
+			notFound = `{"detail":"Cluster access policy proposal not found",` + strings.TrimPrefix(string(encoded), "{")
+		}
+		return nil, client.ClusterAccessPolicyProposalResponseError("read", 404, []byte(notFound))
 	}
 	copied := *m.proposed
 	if m.reads < len(m.statuses) {
@@ -106,7 +113,7 @@ func (m *accessPolicyProposalMock) ListClusterAccessPolicyProposals(ctx context.
 	if m.listError != nil {
 		return nil, m.listError
 	}
-	return &client.ClusterAccessPolicyProposalList{Proposals: m.listing}, nil
+	return &client.ClusterAccessPolicyProposalList{Proposals: m.listing, ClusterAccessPolicyOrganisation: m.organisation}, nil
 }
 
 func proposalFixture(status string, live client.ClusterAccessPolicy, proposed client.ProposedClusterAccessPolicy) *client.ClusterAccessPolicyProposal {
@@ -465,5 +472,78 @@ func TestOrgAccessPolicyGetWarnsWhenItCannotCheckForAProposal(t *testing.T) {
 				t.Fatalf("warned=%v, want %v; stderr: %s", warned, testCase.wantWarn, stderr.String())
 			}
 		})
+	}
+}
+
+// TestOrgAccessPolicyCommandsNameTheOrganisation pins ankra-gsjnfb.5: get,
+// set, proposals and proposal each print the organisation they read or
+// proposed for, -o json carries it, and a proposal id that is not in the
+// organisation read names that organisation and still exits 3. On
+// 2026-10-19 a support read in the wrong organisation looked exactly like
+// the customer's, and the customer was told their applied policy was not
+// applied.
+func TestOrgAccessPolicyCommandsNameTheOrganisation(t *testing.T) {
+	depictName := "Depict"
+	depict := client.ClusterAccessPolicyOrganisation{OrganisationID: "2f853b14-78b0-471a-937c-1ee13a08ddff", OrganisationName: &depictName}
+	const depictLine = "Depict (2f853b14-78b0-471a-937c-1ee13a08ddff)"
+	live := defaultLivePolicy()
+	pending := proposalFixture(client.ProposalStatusPending, live,
+		client.ProposedClusterAccessPolicy{CreatorGrantRole: "view", MaxGrantRole: "edit"})
+	pending.ClusterAccessPolicyOrganisation = depict
+	mock := &accessPolicyProposalMock{policy: live, listing: []client.ClusterAccessPolicyProposal{*pending}, organisation: depict}
+	setMockClient(t, mock)
+
+	resetAccessPolicyFlags(t)
+	output, err := executeCommand("org", "access-policy", "get")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !strings.HasPrefix(output, "Organisation:       "+depictLine+"\n") {
+		t.Fatalf("get must open with the organisation it read, got:\n%s", output)
+	}
+
+	resetAccessPolicyFlags(t)
+	jsonOutput, err := executeCommand("org", "access-policy", "get", "-o", "json")
+	if err != nil {
+		t.Fatalf("get -o json: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(jsonOutput), &decoded); err != nil {
+		t.Fatalf("get -o json: %v\n%s", err, jsonOutput)
+	}
+	if decoded["organisation_id"] != depict.OrganisationID || decoded["organisation_name"] != "Depict" ||
+		decoded["max_grant_role"] != "cluster-admin" || decoded["is_configured"] != false {
+		t.Fatalf("get -o json must add the organisation and keep the policy keys, got: %v", decoded)
+	}
+
+	resetAccessPolicyFlags(t)
+	output, err = executeCommand("org", "access-policy", "proposals")
+	if err != nil || !strings.HasPrefix(output, "Organisation: "+depictLine+"\n") {
+		t.Fatalf("proposals must name the organisation it listed, got %v:\n%s", err, output)
+	}
+	resetAccessPolicyFlags(t)
+	jsonOutput, err = executeCommand("org", "access-policy", "proposals", "-o", "json")
+	if err != nil || !strings.Contains(jsonOutput, `"organisation_name": "Depict"`) {
+		t.Fatalf("proposals -o json must carry the organisation, got %v:\n%s", err, jsonOutput)
+	}
+
+	resetAccessPolicyFlags(t)
+	output, err = executeCommand("org", "access-policy", "set", "--max-role", "edit", "--reason", "tighten")
+	if err != nil || !strings.Contains(output, "Organisation: "+depictLine+"\n") {
+		t.Fatalf("set must name the organisation it proposed for, got %v:\n%s", err, output)
+	}
+	resetAccessPolicyFlags(t)
+	output, err = executeCommand("org", "access-policy", "proposal", testProposalID)
+	if err != nil || !strings.Contains(output, "Organisation: "+depictLine+"\n") {
+		t.Fatalf("proposal must name its organisation, got %v:\n%s", err, output)
+	}
+
+	resetAccessPolicyFlags(t)
+	_, err = executeCommand("org", "access-policy", "proposal", "a7aad9f0-0000-4000-8000-000000000000")
+	if exitCodeFor(err) != exitNotFound {
+		t.Fatalf("a proposal not in the organisation read must still exit 3, got %v (exit %d)", err, exitCodeFor(err))
+	}
+	if !strings.Contains(err.Error(), "not found in organisation "+depictLine) || !strings.Contains(err.Error(), "--org") {
+		t.Fatalf("a proposal 404 must name the organisation searched and point at --org, got %q", err.Error())
 	}
 }

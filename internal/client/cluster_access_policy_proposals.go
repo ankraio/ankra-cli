@@ -90,7 +90,7 @@ type ClusterAccessPolicyProposer struct {
 // was made against, Current the live policy when it was read; when
 // BaseMatchesCurrent is false the policy moved since, and applying it is
 // refused (propose again). ApplyURL is the page an owner or admin applies
-// it from, signed in.
+// it from, signed in. The organisation is the one the proposal belongs to.
 type ClusterAccessPolicyProposal struct {
 	ID                 string                      `json:"id" yaml:"id"`
 	Status             string                      `json:"status" yaml:"status"`
@@ -106,6 +106,8 @@ type ClusterAccessPolicyProposal struct {
 	DecidedAt          *string                     `json:"decided_at" yaml:"decided_at"`
 	DecisionNote       *string                     `json:"decision_note" yaml:"decision_note"`
 	ApplyURL           string                      `json:"apply_url" yaml:"apply_url"`
+
+	ClusterAccessPolicyOrganisation `yaml:",inline"`
 }
 
 // IsFinal reports whether the proposal can no longer change status.
@@ -114,10 +116,13 @@ func (proposal ClusterAccessPolicyProposal) IsFinal() bool {
 }
 
 // ClusterAccessPolicyProposalList is a proposal listing, newest first.
-// IsCapped reports that more proposals matched than were returned.
+// IsCapped reports that more proposals matched than were returned. The
+// organisation is the one that was listed.
 type ClusterAccessPolicyProposalList struct {
 	Proposals []ClusterAccessPolicyProposal `json:"proposals" yaml:"proposals"`
 	IsCapped  bool                          `json:"is_capped" yaml:"is_capped"`
+
+	ClusterAccessPolicyOrganisation `yaml:",inline"`
 }
 
 // ClusterAccessPolicyProposalRejectedError is a proposal the platform
@@ -221,11 +226,38 @@ func (c *Client) doClusterAccessPolicyProposalRequest(ctx context.Context, metho
 	return body, resp.StatusCode, nil
 }
 
+// proposalNotFoundError reads a proposal 404 that names the organisation
+// searched, and says it: a proposal lives in the organisation it was
+// created in, so an id someone created answers not found from any other.
+// It is nil for a 404 that names no organisation (an older platform, or a
+// route that does not exist), which the generic mapping handles.
+func proposalNotFoundError(body []byte) error {
+	var notFound struct {
+		Detail string `json:"detail"`
+		ClusterAccessPolicyOrganisation
+	}
+	if json.Unmarshal(body, &notFound) != nil || notFound.Detail == "" || notFound.OrganisationID == "" {
+		return nil
+	}
+	return &UnexpectedResponseError{
+		StatusCode: http.StatusNotFound,
+		Detail:     notFound.Detail,
+		message: fmt.Sprintf("%s in organisation %s. A proposal belongs to the organisation it was created in: "+
+			"if you know it exists, check that --org names that organisation", notFound.Detail, notFound.Describe()),
+	}
+}
+
 // proposalResponseError maps a refused proposal call: a 422 becomes a
 // ClusterAccessPolicyProposalRejectedError naming the platform's reasons,
-// anything else goes through the cluster access refusal mapping (a 403
-// admin sentence is an RBAC denial, a 404 is not-found).
+// a 404 naming the organisation searched says which one, and anything else
+// goes through the cluster access refusal mapping (a 403 admin sentence is
+// an RBAC denial, a 404 is not-found).
 func proposalResponseError(operation string, statusCode int, body []byte) error {
+	if statusCode == http.StatusNotFound {
+		if notFound := proposalNotFoundError(body); notFound != nil {
+			return notFound
+		}
+	}
 	if statusCode == http.StatusUnprocessableEntity {
 		if message := validationMessages(body); message != "" {
 			return &ClusterAccessPolicyProposalRejectedError{response: newBackendDetailError(statusCode, message)}

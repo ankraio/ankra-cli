@@ -153,12 +153,39 @@ func TestGetClusterAccessPolicyReadsThePolicy(t *testing.T) {
 	}))
 	defer server.Close()
 	apiClient := &Client{BaseURL: server.URL, Token: "t", HTTP: server.Client()}
-	policy, err := apiClient.GetClusterAccessPolicy(context.Background())
+	read, err := apiClient.GetClusterAccessPolicy(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
+	policy := read.Policy
 	if policy.MaxGrantRole != "edit" || policy.ElevatedMaxTTLSeconds == nil || *policy.ElevatedMaxTTLSeconds != 14400 ||
 		policy.RequireReasonFromRole != nil || !policy.IsConfigured {
 		t.Fatalf("policy = %+v", policy)
+	}
+	if read.Describe() != "" {
+		t.Fatalf("a platform that names no organisation must describe none, got %q", read.Describe())
+	}
+}
+
+// TestGetClusterAccessPolicyReadsTheOrganisation pins ankra-gsjnfb.5: the
+// read carries the organisation the platform read the policy in, so a read
+// made in the wrong organisation can be told from the right one.
+func TestGetClusterAccessPolicyReadsTheOrganisation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write([]byte(`{"policy":{"creator_grant_role":"view","max_grant_role":"edit","elevated_max_ttl_seconds":null,"require_reason_from_role":null,"is_configured":true},"organisation_id":"2f853b14-78b0-471a-937c-1ee13a08ddff","organisation_name":"Depict"}`))
+	}))
+	defer server.Close()
+	apiClient := &Client{BaseURL: server.URL, Token: "t", HTTP: server.Client()}
+	read, err := apiClient.GetClusterAccessPolicy(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.OrganisationID != "2f853b14-78b0-471a-937c-1ee13a08ddff" || read.Describe() != "Depict (2f853b14-78b0-471a-937c-1ee13a08ddff)" ||
+		read.Policy.MaxGrantRole != "edit" {
+		t.Fatalf("read = %+v (%q)", read, read.Describe())
+	}
+	unnamed := ClusterAccessPolicyOrganisation{OrganisationID: "o-1"}
+	if unnamed.Describe() != "o-1" {
+		t.Fatalf("an organisation without a name is described by its id, got %q", unnamed.Describe())
 	}
 }
