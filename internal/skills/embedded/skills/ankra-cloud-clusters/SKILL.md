@@ -332,14 +332,32 @@ stopped cluster's offline resize drains nothing and ignores it, and so does a ru
 fewer than three controllers (the rolling resize refuses it) or one already on that type. Same rule
 as for workers: say so before using it, never add it by reflex.
 
-With a single controller, resizing it on a running cluster takes the Kubernetes API down for a few
-minutes while that server reboots on the new type (Hetzner first; other providers still need a
-stopped cluster). `control-plane get` shows it as `Change type: yes - live with a few minutes of API
-downtime (single controller)` with the platform's reason underneath. Workloads on the workers keep
-running, but kubectl, deploys, the Ankra agent and controllers pause. `set-instance-type` refuses
-it before sending anything unless `--accept-api-downtime` is given; tell the user about the downtime
-and get their go-ahead before adding the flag, or scale to three controllers first for a resize
-without downtime.
+The instance type changes in one of three modes, and `control-plane get` says which one applies now:
+
+| Mode | When | Effect |
+|---|---|---|
+| `rolling` | Running, three or more controllers, any provider | One controller at a time; the API stays up |
+| `live_with_api_downtime` | Running, ONE controller, **Hetzner only** | That server is resized in place (disk and IP kept); the Kubernetes API is down a few minutes |
+| `offline` | Stopped cluster, any provider | Applied at the next start, which creates the servers again |
+
+A running single-controller cluster on any other provider (or with two controllers) cannot resize
+live: grow it to three controllers first, or stop it. For the Hetzner single-controller lane,
+`control-plane get` shows `Change type: yes - live with a few minutes of API downtime (single
+controller)` with the platform's reason underneath. Workloads on the workers keep running, but
+kubectl, deploys, the Ankra agent and controllers pause until the server is back (a test run took
+about 2.5 minutes for the whole step; say "a few minutes"). Ankra snapshots etcd on the node, drains
+it, changes the type and waits for Ready. `set-instance-type` refuses it before sending anything
+unless `--accept-api-downtime` is given (CLI v0.49.0+); the API answers 409 without
+`"accept_api_downtime": true`, and the MCP tool `change_control_plane` takes the same
+`accept_api_downtime` argument. Tell the user about the downtime and get their explicit go-ahead
+before setting it, and offer scaling to three controllers first as the no-downtime alternative. The
+portal asks for the same acceptance with **Resize with API downtime**. The resize refuses to start
+while another cluster operation runs (a scheduled etcd snapshot, an upgrade); retry once it ends.
+
+```bash
+ankra cluster hetzner control-plane get <cluster>
+ankra cluster hetzner control-plane set-instance-type <cluster> cpx32 --accept-api-downtime
+```
 
 ## 5. Teardown - power is not deletion
 
