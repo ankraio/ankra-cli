@@ -2,15 +2,34 @@
 
 ## Unreleased
 
-- **`ankra support list` and `ankra support get` show who replied last and when.** The list gains `UPDATED` and `LAST REPLY` columns (`team 2026-10-29T12:54:07Z`, or `-` when nobody has replied), and `get` prints `Updated:` and `Last reply:` lines. `-o json` carries the platform's new `last_comment_at` and `last_comment_by` (`customer` or `team`) fields. The platform now also moves a ticket's `updated_at` on every reply, not only on a status change, so sorting your tickets by it finds the ones with new answers.
+### Added
+
 - **`ankra cluster <provider> nodes diagnose <cluster> <node_id>` runs a read-only SSH diagnosis of one node from the terminal.** It is the same diagnosis the Ankra assistant runs as `ssh_diagnose_node`: over the platform's bastion lane it snapshots the node's Kubernetes service unit and journal, disk, memory, uptime, kernel log and firewall path to the API server, names the symptoms it finds and changes nothing on the node. Like `bastion diagnose` it waits for the report (up to two minutes on the platform side, `--timeout` on yours, exit code 5 when yours runs out) and hands back the operation to poll when the job runs longer. A job that finished without a report (the node unreachable over SSH) exits 1 with the job's error, after printing the operation. Offered on the providers with `nodes cloud-init-log`; it needs the `clusters.operate` permission and a platform that serves the new route.
-- **`ankra pipeline train enable --auto-admit off|shadow|on` switches the merge train's auto-admit from the terminal.** With `on` the train adds green pull requests by itself; `shadow` only records which ones it would add. Leaving the flag out keeps the current mode.
-- **`ankra pipeline train list` shows auto-admit and stacked pull requests.** The header says whether auto-admit is off, in shadow or on and who set it, a table lists its latest decisions with the reason a pull request was left out (`stale_green`, `draft`, `held`, ...), and a pull request stacked on another one in the train reads "(on #N)". `-o json` now carries `auto_admit`, `auto_admit_by`, `auto_admit_since`, `auto_admit_decisions` and each entry's `pull_request_head_branch`, `parent_entry_id` and `parent_pull_request_number`, which it used to drop.
 
 ### Fixed
 
 - **`ankra cluster get`, `cluster events` and `cluster describe` say when the answer came from the agent's cache, and how old it is.** These reads are served from a cache the cluster's agent keeps in step with Kubernetes, and when the cluster cannot answer the platform keeps serving the last copy it has. During a control-plane resize the Kubernetes API was down for about 90 seconds while `get nodes` kept succeeding with a node Ready on an instance type it had already left, and only `-o json` showed `served_from_cache`. The table output now prints one line on stderr above the rows, for example `Served from the agent's cache, 1m35s old: the cluster's agent did not respond.`, naming the reason when the platform knows it (the cluster is offline, no agent, the agent did not respond, the live read failed, the watch has reported nothing for two minutes, or the inventory is resyncing after an agent restart and may still list deleted pods). A healthy cached answer prints only its age. stdout is unchanged, and `-o json|yaml` print no notice; their `cache_metadata` now also carries `stale`, `reconcile_pending` and, from platforms that send it, `cache_age_seconds`.
 - **`ankra cluster info` takes a cluster id as well as a name.** `ankra cluster info <id>` answered `no cluster found for name`; it now resolves an id the way `--cluster` and the other cluster commands do, and an unknown cluster exits with the not-found code 3.
+
+## v0.51.0 - 2026-10-29
+
+This release shows who replied last on a support request and when, and it
+brings the merge train's auto-admit to the terminal. `ankra support list` and
+`ankra support get` now show the last reply and the time the ticket last
+changed. `ankra pipeline train enable --auto-admit` switches auto-admit, and
+`ankra pipeline train list` shows its decisions and stacked pull requests.
+`ankra credentials proxmox create` now waits for the platform to finish setting
+up Proxmox VE. Installing this release changes nothing on any cluster or
+workload.
+
+### Added
+
+- **`ankra support list` and `ankra support get` show who replied last and when.** The list gains `UPDATED` and `LAST REPLY` columns (`team 2026-10-29T12:54:07Z`, or `-` when nobody has replied), and `get` prints `Updated:` and `Last reply:` lines. `-o json` carries the platform's new `last_comment_at` and `last_comment_by` (`customer` or `team`) fields. The platform now also moves a ticket's `updated_at` on every reply, not only on a status change, so sorting your tickets by it finds the ones with new answers.
+- **`ankra pipeline train enable --auto-admit off|shadow|on` switches the merge train's auto-admit from the terminal.** With `on` the train adds green pull requests by itself; `shadow` only records which ones it would add. Leaving the flag out keeps the current mode.
+- **`ankra pipeline train list` shows auto-admit and stacked pull requests.** The header says whether auto-admit is off, in shadow or on and who set it, a table lists its latest decisions with the reason a pull request was left out (`stale_green`, `draft`, `held`, ...), and a pull request stacked on another one in the train reads "(on #N)". `-o json` now carries `auto_admit`, `auto_admit_by`, `auto_admit_since`, `auto_admit_decisions` and each entry's `pull_request_head_branch`, `parent_entry_id` and `parent_pull_request_number`, which it used to drop.
+
+### Fixed
+
 - **`ankra credentials proxmox create` waits for the platform to finish setting up Proxmox VE.** Saving a Proxmox credential prepares the installation in the same request: storage, the `vmbr0` bridge, the `ankra` private network and, on a node without a template, a cloud-init template built from a downloaded Ubuntu image. That can take several minutes. The CLI gave up after 30 seconds with `http2: timeout awaiting response headers`, and the credential was never saved. It now waits up to five minutes, like the other long-running writes.
 
 ## v0.50.1 - 2026-10-29
