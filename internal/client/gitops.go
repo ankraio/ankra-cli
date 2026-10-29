@@ -77,8 +77,9 @@ type ClusterGitopsPreservedPath struct {
 	LastSeenAt *string `json:"last_seen_at" yaml:"last_seen_at"`
 	// Decided says a person recorded a decision the next sync runs;
 	// ResolutionChoice names it ("git" keeps Git's version, "cluster" writes
-	// the platform's into Git).
-	Decided          bool    `json:"decided" yaml:"decided"`
+	// the platform's into Git). Nil when the platform does not report it,
+	// which is not the same as undecided.
+	Decided          *bool   `json:"decided" yaml:"decided"`
 	ResolutionChoice *string `json:"resolution_choice" yaml:"resolution_choice"`
 	ResolvedAt       *string `json:"resolved_at" yaml:"resolved_at"`
 }

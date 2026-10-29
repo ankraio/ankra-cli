@@ -252,13 +252,18 @@ func printGitopsPreservedPaths(status *client.ClusterGitopsStatus) {
 				facts = append(facts, "detected "+timeWithAge(*detail.DetectedAt))
 			}
 			switch {
-			case !detail.Decided:
+			case detail.Decided == nil:
+			case !*detail.Decided:
 				facts = append(facts, "awaiting a decision")
 			case detail.ResolutionChoice != nil && gitopsPreservedDecisionLabels[*detail.ResolutionChoice] != "":
 				facts = append(facts, "decided: "+gitopsPreservedDecisionLabels[*detail.ResolutionChoice]+
 					", runs on the next sync")
 			default:
 				facts = append(facts, "decided, runs on the next sync")
+			}
+			if len(facts) == 0 {
+				fmt.Printf("    - %s\n", detail.Path)
+				continue
 			}
 			fmt.Printf("    - %s (%s)\n", detail.Path, strings.Join(facts, ", "))
 		}
@@ -267,7 +272,10 @@ func printGitopsPreservedPaths(status *client.ClusterGitopsStatus) {
 			fmt.Printf("    - %s\n", preservedPath)
 		}
 	}
-	if unlisted := preservedPathCount - listed; unlisted > 0 && listed > 0 {
+	switch unlisted := preservedPathCount - listed; {
+	case listed == 0:
+		fmt.Println("    (the platform did not list the files)")
+	case unlisted > 0:
 		fmt.Printf("    ... and %d more\n", unlisted)
 	}
 	fmt.Println("  Note: each file was edited in Git, so Ankra keeps Git's version and its own later changes to it do not reach Git until a person decides it (in the portal, cluster > GitOps, or the preserved-paths API); nothing is paused")

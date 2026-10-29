@@ -405,9 +405,9 @@ func TestClusterGitopsStatusListsPreservedPaths(t *testing.T) {
 	status.PreservedPathUndecidedCount = intPtrCmd(2)
 	status.PreservedPaths = []string{"clusters/staging/staging.yaml", "clusters/staging/stacks/a/values.yaml"}
 	status.PreservedPathDetails = []client.ClusterGitopsPreservedPath{
-		{Path: "clusters/staging/staging.yaml", DetectedAt: strPtrCmd("2026-10-23T08:00:00Z")},
+		{Path: "clusters/staging/staging.yaml", DetectedAt: strPtrCmd("2026-10-23T08:00:00Z"), Decided: boolPtrCmd(false)},
 		{Path: "clusters/staging/stacks/a/values.yaml", DetectedAt: strPtrCmd("2026-10-24T08:00:00Z"),
-			Decided: true, ResolutionChoice: strPtrCmd("git"), ResolvedAt: strPtrCmd("2026-10-25T08:00:00Z")},
+			Decided: boolPtrCmd(true), ResolutionChoice: strPtrCmd("git"), ResolvedAt: strPtrCmd("2026-10-25T08:00:00Z")},
 	}
 	setMockClient(t, &gitopsStatusMock{status: status})
 
@@ -441,6 +441,30 @@ func TestClusterGitopsStatusListsPreservedPaths(t *testing.T) {
 		t.Errorf("expected the names listed, got: %s", namesOutput)
 	}
 
+	// An unreported decision is unknown, not undecided; a count with no
+	// names says the names were not sent rather than implying none exist.
+	unreported := syncedGitopsStatus()
+	unreported.PreservedPathCount = intPtrCmd(2)
+	unreported.PreservedPathDetails = []client.ClusterGitopsPreservedPath{{Path: "clusters/staging/staging.yaml"}}
+	setMockClient(t, &gitopsStatusMock{status: unreported})
+	unreportedOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "gitops", "status", "my-cluster")
+	})
+	if !strings.Contains(unreportedOutput, "    - clusters/staging/staging.yaml\n") ||
+		strings.Contains(unreportedOutput, "awaiting a decision") || !strings.Contains(unreportedOutput, "    ... and 1 more") {
+		t.Errorf("expected the path without a decision claim, got: %s", unreportedOutput)
+	}
+	countOnly := syncedGitopsStatus()
+	countOnly.PreservedPathCount = intPtrCmd(4)
+	setMockClient(t, &gitopsStatusMock{status: countOnly})
+	countOnlyOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "gitops", "status", "my-cluster")
+	})
+	if !strings.Contains(countOnlyOutput, "Preserved Paths: 4\n") ||
+		!strings.Contains(countOnlyOutput, "(the platform did not list the files)") {
+		t.Errorf("expected the unlisted files named as unlisted, got: %s", countOnlyOutput)
+	}
+
 	// An unreported count is unknown, not zero: nothing prints.
 	setMockClient(t, &gitopsStatusMock{status: syncedGitopsStatus()})
 	bareOutput := captureStdout(t, func() {
@@ -459,7 +483,7 @@ func TestClusterGitopsStatusJSONOutputCarriesPreservedPathsAndPointer(t *testing
 	status.PreservedPathUndecidedCount = intPtrCmd(1)
 	status.PreservedPaths = []string{"clusters/staging/staging.yaml"}
 	status.PreservedPathDetails = []client.ClusterGitopsPreservedPath{
-		{Path: "clusters/staging/staging.yaml", DetectedAt: strPtrCmd("2026-10-23T08:00:00Z")},
+		{Path: "clusters/staging/staging.yaml", DetectedAt: strPtrCmd("2026-10-23T08:00:00Z"), Decided: boolPtrCmd(false)},
 	}
 	status.AppliedCommitSHA = strPtrCmd("def456")
 	status.HeadCheckedAt = strPtrCmd("2026-10-29T10:00:00Z")
@@ -499,7 +523,8 @@ func TestClusterGitopsStatusDecodesThePlatformFields(t *testing.T) {
 		t.Fatal(decodeErr)
 	}
 	if *status.PreservedPathCount != 2 || *status.PreservedPathUndecidedCount != 1 || len(status.PreservedPaths) != 2 ||
-		len(status.PreservedPathDetails) != 1 || !status.PreservedPathDetails[0].Decided ||
+		len(status.PreservedPathDetails) != 1 || status.PreservedPathDetails[0].Decided == nil ||
+		!*status.PreservedPathDetails[0].Decided ||
 		*status.PreservedPathDetails[0].ResolutionChoice != "cluster" || *status.AppliedCommitSHA != "def456" ||
 		*status.AppliedCommitAt != "2026-10-27T10:00:00Z" || *status.HeadCheckedSHA != "def456" ||
 		*status.HeadCheckedAt != "2026-10-29T10:00:00Z" {
@@ -514,4 +539,8 @@ func resetGitopsStatusOutputFlag(t *testing.T) {
 	t.Helper()
 	_ = clusterGitopsStatusCmd.Flags().Set("output", "")
 	t.Cleanup(func() { _ = clusterGitopsStatusCmd.Flags().Set("output", "") })
+}
+
+func boolPtrCmd(value bool) *bool {
+	return &value
 }
