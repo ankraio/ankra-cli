@@ -39,6 +39,11 @@ request at the end of it, 'list' shows it in order and 'remove' takes one out.
 An organisation administrator can move a pull request to the front with
 'front'. GitHub repositories only.
 
+'ankra pipeline train enable --auto-admit on' lets the train add green pull
+requests by itself; 'shadow' only records which ones it would add, and 'list'
+shows its latest decisions. A pull request based on another pull request's
+branch rides on that pull request's entry, shown as "(on #N)".
+
 The train merges under the Ankra GitHub App's identity, so adding or removing
 a pull request needs pipelines.operate and, on top of it, one of: you are an
 organisation administrator, you opened the pull request, or you have write
@@ -199,6 +204,9 @@ func runPipelineTrainList(command *cobra.Command, selector client.PipelineSelect
 		state = "on"
 	}
 	_, _ = fmt.Fprintf(output, "Merge train: %s, %d car(s) tested at once.\n", state, train.Settings.MaxCars)
+	if sentence := pipelineTrainAutoAdmitSentence(train.Settings); sentence != "" {
+		_, _ = fmt.Fprintln(output, sentence)
+	}
 	if len(train.Entries) == 0 {
 		_, _ = fmt.Fprintln(output, "No pull requests in the train.")
 	} else {
@@ -236,7 +244,70 @@ func runPipelineTrainList(command *cobra.Command, selector client.PipelineSelect
 		}
 		writer.Render()
 	}
+	if len(train.AutoAdmitDecisions) > 0 {
+		_, _ = fmt.Fprintln(output, "\nAuto-admit's latest decisions:")
+		writer := table.NewWriter()
+		writer.SetOutputMirror(output)
+		writer.SetStyle(table.StyleRounded)
+		writer.AppendHeader(table.Row{"PULL REQUEST", "HEAD", "MODE", "OUTCOME", "WHY", "DECIDED AT"})
+		for index, decision := range train.AutoAdmitDecisions {
+			if index == maxPipelineTrainDecisionsShown {
+				break
+			}
+			head := decision.HeadSHA
+			writer.AppendRow(table.Row{
+				fmt.Sprintf("#%d", decision.PullRequestNumber),
+				pipelineTrainShortSHA(&head),
+				decision.Mode,
+				decision.Outcome,
+				pipelineTrainOptional(decision.Detail),
+				decision.DecidedAt,
+			})
+		}
+		writer.Render()
+		if len(train.AutoAdmitDecisions) > maxPipelineTrainDecisionsShown {
+			_, _ = fmt.Fprintf(output, "%d more; -o json lists them all.\n",
+				len(train.AutoAdmitDecisions)-maxPipelineTrainDecisionsShown)
+		}
+	}
 	return nil
+}
+
+// maxPipelineTrainDecisionsShown bounds the auto-admit decisions the table
+// view prints; -o json carries every one the platform answered.
+const maxPipelineTrainDecisionsShown = 10
+
+// isPipelineTrainAutoAdmitMode reports whether mode is one the platform
+// accepts for auto_admit.
+func isPipelineTrainAutoAdmitMode(mode string) bool {
+	return mode == "off" || mode == "shadow" || mode == "on"
+}
+
+// pipelineTrainAutoAdmitSentence says what auto-admit does in settings, and
+// who set it. It is empty for a platform that sent no mode, which predates
+// auto-admit, so nothing is claimed about it.
+func pipelineTrainAutoAdmitSentence(settings client.PipelineMergeTrainSettings) string {
+	var sentence string
+	switch settings.AutoAdmit {
+	case "":
+		return ""
+	case "off":
+		sentence = "Auto-admit: off; pull requests enter only when someone adds them."
+	case "shadow":
+		sentence = "Auto-admit: shadow; the train records which green pull requests it would add, and adds none."
+	case "on":
+		sentence = "Auto-admit: on; the train adds green pull requests by itself."
+	default:
+		sentence = "Auto-admit: " + settings.AutoAdmit + "."
+	}
+	if settings.AutoAdmitBy != nil && *settings.AutoAdmitBy != "" {
+		sentence += " Set by " + *settings.AutoAdmitBy
+		if settings.AutoAdmitSince != nil && *settings.AutoAdmitSince != "" {
+			sentence += " at " + *settings.AutoAdmitSince
+		}
+		sentence += "."
+	}
+	return sentence
 }
 
 func newPipelineTrainAddCommand() *cobra.Command {
@@ -413,6 +484,14 @@ func newPipelineTrainSettingsCommand(use string, short string, isEnabled bool) *
 				}
 				request.MaxCars = &maxCars
 			}
+			if command.Flags().Lookup("auto-admit") != nil && command.Flags().Changed("auto-admit") {
+				autoAdmit, _ := command.Flags().GetString("auto-admit")
+				autoAdmit = strings.ToLower(strings.TrimSpace(autoAdmit))
+				if !isPipelineTrainAutoAdmitMode(autoAdmit) {
+					return withExitCode(exitUsage, fmt.Errorf("--auto-admit must be off, shadow or on"))
+				}
+				request.AutoAdmit = &autoAdmit
+			}
 			settings, setError := apiClient.SetPipelineMergeTrainSettings(command.Context(), selector, request)
 			if setError != nil {
 				return setError
@@ -423,6 +502,9 @@ func newPipelineTrainSettingsCommand(use string, short string, isEnabled bool) *
 			if settings.Enabled {
 				_, _ = fmt.Fprintf(command.OutOrStdout(), "The merge train is on, testing %d car(s) at once.\n",
 					settings.MaxCars)
+				if sentence := pipelineTrainAutoAdmitSentence(*settings); sentence != "" {
+					_, _ = fmt.Fprintln(command.OutOrStdout(), sentence)
+				}
 				return nil
 			}
 			_, _ = fmt.Fprintln(command.OutOrStdout(),
@@ -434,6 +516,9 @@ func newPipelineTrainSettingsCommand(use string, short string, isEnabled bool) *
 	if isEnabled {
 		settingsCommand.Flags().Int("max-cars", 1,
 			"How many pull requests are tested at once (1-8), each stacked on the ones ahead of it")
+		settingsCommand.Flags().String("auto-admit", "",
+			"Whether the train puts green pull requests in by itself: off, shadow (only records what it "+
+				"would admit) or on; omitted keeps the current mode")
 	}
 	registerStructuredOutputFlags(settingsCommand)
 	return settingsCommand
@@ -446,6 +531,9 @@ func pipelineTrainPullRequestLabel(entry client.PipelineMergeTrainEntry) string 
 			title = string([]rune(title)[:47]) + "…"
 		}
 		label += " " + title
+	}
+	if entry.ParentPullRequestNumber != nil && *entry.ParentPullRequestNumber > 0 {
+		label += fmt.Sprintf(" (on #%d)", *entry.ParentPullRequestNumber)
 	}
 	return label
 }

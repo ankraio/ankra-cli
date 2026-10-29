@@ -12,9 +12,16 @@ import (
 )
 
 // PipelineMergeTrainSettings is a repository's train configuration.
+// AutoAdmit is "off", "shadow" or "on" (cluster ankra-ld8mcv.1): whether the
+// train puts green pull requests in by itself, and AutoAdmitBy and
+// AutoAdmitSince name who switched it to that mode and when. A platform older
+// than auto-admit sends none of the three, and AutoAdmit is then empty.
 type PipelineMergeTrainSettings struct {
-	Enabled bool `json:"enabled"`
-	MaxCars int  `json:"max_cars"`
+	Enabled        bool    `json:"enabled"`
+	MaxCars        int     `json:"max_cars"`
+	AutoAdmit      string  `json:"auto_admit,omitempty"`
+	AutoAdmitBy    *string `json:"auto_admit_by,omitempty"`
+	AutoAdmitSince *string `json:"auto_admit_since,omitempty"`
 }
 
 // PipelineMergeTrainEntry is one pull request in, or recently out of, a
@@ -24,7 +31,16 @@ type PipelineMergeTrainEntry struct {
 	PullRequestNumber  int64   `json:"pull_request_number"`
 	PullRequestHeadSHA string  `json:"pull_request_head_sha"`
 	PullRequestTitle   string  `json:"pull_request_title"`
-	BaseBranch         string  `json:"base_branch"`
+	// PullRequestHeadBranch is the branch the pull request lives on, null
+	// until the train read it.
+	PullRequestHeadBranch *string `json:"pull_request_head_branch"`
+	BaseBranch            string  `json:"base_branch"`
+	// ParentEntryID and ParentPullRequestNumber name the entry a stacked pull
+	// request rides on (cluster ankra-8tb4gu): it is based on that pull
+	// request's branch and merges right after it. Both are null for a pull
+	// request based on the default branch.
+	ParentEntryID           *string `json:"parent_entry_id"`
+	ParentPullRequestNumber *int64  `json:"parent_pull_request_number"`
 	Status             string  `json:"status"`
 	Position           int64   `json:"position"`
 	Attempt            int     `json:"attempt"`
@@ -47,20 +63,34 @@ type PipelineMergeTrainEntry struct {
 	UpdatedAt          string  `json:"updated_at"`
 }
 
-// PipelineMergeTrain is GET …/merge-train: the settings, the train in order
-// and the most recently settled entries.
+// PipelineMergeTrainAdmissionDecision is one auto-admit decision about a
+// green pull request: admitted, or the outcome that says why not.
+type PipelineMergeTrainAdmissionDecision struct {
+	PullRequestNumber int64   `json:"pull_request_number"`
+	HeadSHA           string  `json:"head_sha"`
+	PipelineRunID     *string `json:"pipeline_run_id"`
+	Mode              string  `json:"mode"`
+	Outcome           string  `json:"outcome"`
+	Detail            *string `json:"detail"`
+	DecidedAt         string  `json:"decided_at"`
+}
+
+// PipelineMergeTrain is GET …/merge-train: the settings, the train in order,
+// the most recently settled entries and auto-admit's latest decisions.
 type PipelineMergeTrain struct {
-	RepositoryID string                     `json:"repository_id"`
-	Settings     PipelineMergeTrainSettings `json:"settings"`
-	Entries      []PipelineMergeTrainEntry  `json:"entries"`
-	Recent       []PipelineMergeTrainEntry  `json:"recent"`
+	RepositoryID       string                                `json:"repository_id"`
+	Settings           PipelineMergeTrainSettings            `json:"settings"`
+	Entries            []PipelineMergeTrainEntry             `json:"entries"`
+	Recent             []PipelineMergeTrainEntry             `json:"recent"`
+	AutoAdmitDecisions []PipelineMergeTrainAdmissionDecision `json:"auto_admit_decisions,omitempty"`
 }
 
 // SetPipelineMergeTrainSettingsRequest is the PUT …/merge-train/settings
-// body; a nil MaxCars keeps the current value.
+// body; a nil MaxCars or AutoAdmit keeps the current value.
 type SetPipelineMergeTrainSettingsRequest struct {
-	Enabled bool `json:"enabled"`
-	MaxCars *int `json:"max_cars,omitempty"`
+	Enabled   bool    `json:"enabled"`
+	MaxCars   *int    `json:"max_cars,omitempty"`
+	AutoAdmit *string `json:"auto_admit,omitempty"`
 }
 
 // EnqueuePipelineMergeTrainRequest is the POST …/merge-train/entries body.
