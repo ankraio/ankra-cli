@@ -57,7 +57,7 @@ Examples:
 			return scopeError
 		}
 
-		organisationID, organisationError := resolveOrganisationID()
+		organisationID, organisationError := resolveActingOrganisationID()
 		if organisationError != nil {
 			return fmt.Errorf("%w\nSelect an organisation first with 'ankra org switch <org_id>'", organisationError)
 		}
@@ -195,7 +195,7 @@ Examples:
 		if grantError != nil {
 			return grantError
 		}
-		organisationID, organisationError := resolveOrganisationID()
+		organisationID, organisationError := resolveActingOrganisationID()
 		if organisationError != nil {
 			return fmt.Errorf("%w\nSelect an organisation first with 'ankra org switch <org_id>'", organisationError)
 		}
