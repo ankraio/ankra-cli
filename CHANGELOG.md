@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra cluster <provider> nodes diagnose <cluster> <node_id>` runs a read-only SSH diagnosis of one node from the terminal.** It is the same diagnosis the Ankra assistant runs as `ssh_diagnose_node`: over the platform's bastion lane it snapshots the node's Kubernetes service unit and journal, disk, memory, uptime, kernel log and firewall path to the API server, names the symptoms it finds and changes nothing on the node. Like `bastion diagnose` it waits for the report (up to two minutes on the platform side, `--timeout` on yours, exit code 5 when yours runs out) and hands back the operation to poll when the job runs longer. A job that finished without a report (the node unreachable over SSH) exits 1 with the job's error, after printing the operation. Offered on the providers with `nodes cloud-init-log`; it needs the `clusters.operate` permission and a platform that serves the new route.
+
+### Fixed
+
+- **`ankra cluster get`, `cluster events` and `cluster describe` say when the answer came from the agent's cache, and how old it is.** These reads are served from a cache the cluster's agent keeps in step with Kubernetes, and when the cluster cannot answer the platform keeps serving the last copy it has. During a control-plane resize the Kubernetes API was down for about 90 seconds while `get nodes` kept succeeding with a node Ready on an instance type it had already left, and only `-o json` showed `served_from_cache`. The table output now prints one line on stderr above the rows, for example `Served from the agent's cache, 1m35s old: the cluster's agent did not respond.`, naming the reason when the platform knows it (the cluster is offline, no agent, the agent did not respond, the live read failed, the watch has reported nothing for two minutes, or the inventory is resyncing after an agent restart and may still list deleted pods). A healthy cached answer prints only its age. stdout is unchanged, and `-o json|yaml` print no notice; their `cache_metadata` now also carries `stale`, `reconcile_pending` and, from platforms that send it, `cache_age_seconds`.
+- **`ankra cluster info` takes a cluster id as well as a name.** `ankra cluster info <id>` answered `no cluster found for name`; it now resolves an id the way `--cluster` and the other cluster commands do, and an unknown cluster exits with the not-found code 3.
+
 ## v0.51.0 - 2026-10-29
 
 This release shows who replied last on a support request and when, and it

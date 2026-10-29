@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"ankra/internal/cachenotice"
 	"ankra/internal/client"
 
 	"github.com/jedib0t/go-pretty/v6/table"
@@ -578,6 +579,22 @@ type resourceQuery struct {
 	// (--reveal). Callers validate that the read is a named, namespaced one
 	// before setting it.
 	revealSecretValues bool
+	// humanOutput is set when the caller's -o was table. A named read then
+	// renders YAML, but a person still reads it, so a cached answer is
+	// announced the same way a cached table is (announceCachedAnswer).
+	humanOutput bool
+}
+
+// announceCachedAnswer prints the cache notice for a human-facing read on
+// stderr, above the rows: stdout stays the rows alone, so a table or YAML
+// piped into another tool is unchanged, while the person at the terminal
+// sees that the answer came from the agent's cache and how old it is
+// (ankra-306z5f). -o json|yaml print nothing; their envelope carries the
+// cache metadata itself.
+func announceCachedAnswer(answer cachenotice.Answer) {
+	if notice := cachenotice.Notice(answer); notice != "" {
+		fmt.Fprintln(os.Stderr, notice)
+	}
 }
 
 func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, outputFormat string, cfg kindConfig, query resourceQuery) error {
@@ -627,11 +644,16 @@ func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, ou
 	}
 
 	var items []interface{}
+	var cacheMetadata *client.ResourceCacheMetadata
 	if len(response.ResourceResponses) > 0 {
 		items = response.ResourceResponses[0].Items
+		cacheMetadata = response.ResourceResponses[0].CacheMetadata
 	}
 	if err := checkSecretValues(response, items, namespace, nameFilter, outputFormat, query.revealSecretValues); err != nil {
 		return err
+	}
+	if outputFormat == "table" || query.humanOutput {
+		announceCachedAnswer(cachenotice.FromResource(cacheMetadata))
 	}
 	if query.postFilter != nil {
 		items = query.postFilter(items)
@@ -711,6 +733,7 @@ func registerKindCommand(cfg kindConfig) *cobra.Command {
 				return err
 			}
 
+			query := resourceQuery{humanOutput: outputFormat == "table"}
 			if len(args) == 1 {
 				nameFilter = args[0]
 				if outputFormat == "table" {
@@ -722,7 +745,6 @@ func registerKindCommand(cfg kindConfig) *cobra.Command {
 				namespace = ""
 			}
 
-			query := resourceQuery{}
 			if cfg.revealable {
 				reveal, _ := cmd.Flags().GetBool("reveal")
 				if reveal {
@@ -792,6 +814,7 @@ var clusterPodsCmd = &cobra.Command{
 
 		if len(args) == 1 {
 			podName := args[0]
+			query := resourceQuery{humanOutput: outputFormat == "table"}
 			if outputFormat == "table" {
 				outputFormat = "yaml"
 			}
@@ -800,7 +823,7 @@ var clusterPodsCmd = &cobra.Command{
 				kind:        "Pod",
 				version:     "v1",
 			}
-			return fetchAndRenderResources(cluster.ID, namespace, podName, "", outputFormat, podCfg, resourceQuery{})
+			return fetchAndRenderResources(cluster.ID, namespace, podName, "", outputFormat, podCfg, query)
 		}
 
 		if allNamespaces {
@@ -863,6 +886,7 @@ var clusterPodsCmd = &cobra.Command{
 			return nil
 		}
 
+		announceCachedAnswer(cachenotice.FromPods(firstResponse.CacheInfo))
 		if len(allPods) == 0 {
 			fmt.Println("No pods found.")
 			return nil

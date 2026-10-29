@@ -628,6 +628,8 @@ type APIClient interface {
 	GetHetznerClusterNode(clusterID, nodeID string) (*client.NodeDetail, error)
 	RestartHetznerClusterNode(clusterID, nodeID string) (*client.RestartNodeResult, error)
 	HetznerNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error)
+	// DiagnoseClusterNode is provider-generic: provider is the route segment.
+	DiagnoseClusterNode(ctx context.Context, provider, clusterID, nodeID string) (*client.NodeDiagnoseResult, error)
 	UpdateHetznerBastionInstanceType(ctx context.Context, clusterID, instanceType string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error)
 	UpdateHetznerBastionAllowedIPs(ctx context.Context, clusterID string, allowedIPs []string) (*client.UpdateBastionAllowedIPsResult, error)
 	GetHetznerBastionHealth(clusterID string) (*client.BastionHealthResult, error)

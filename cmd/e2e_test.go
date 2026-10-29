@@ -2006,6 +2006,10 @@ func (m baseMock) HetznerNodeCloudInitLog(clusterID, nodeID string) (*client.Nod
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) DiagnoseClusterNode(ctx context.Context, provider, clusterID, nodeID string) (*client.NodeDiagnoseResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) OvhNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error) {
 	return nil, errors.New("not implemented")
 }

@@ -128,27 +128,17 @@ func listAllClusters() ([]client.ClusterListItem, error) {
 }
 
 var clusterInfoCmd = &cobra.Command{
-	Use:     "info [name]",
+	Use:     "info [name|id]",
 	Aliases: []string{"get-cluster"},
 	Short:   "Show details of a specific cluster",
-	Long: `Show details of a specific cluster.
+	Long: `Show details of a specific cluster, named by its name or its id.
 
-If no name is provided, shows details for the currently selected cluster.`,
+If no cluster is given, shows details for the currently selected cluster.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		var name string
-		if len(args) == 1 {
-			name = args[0]
-		} else {
-			selected, err := resolveActiveCluster(cmd)
-			if err != nil {
-				return err
-			}
-			name = selected.Name
-		}
-		cluster, err := apiClient.GetCluster(name)
+		cluster, err := resolveClusterInfoTarget(cmd, args)
 		if err != nil {
-			return fmt.Errorf("fetching cluster details for %s: %w", name, err)
+			return err
 		}
 		if cluster.PortalURL == "" {
 			cluster.PortalURL = portalClusterURL(cluster)
@@ -189,6 +179,29 @@ If no name is provided, shows details for the currently selected cluster.`,
 		}
 		return nil
 	},
+}
+
+// resolveClusterInfoTarget fetches the cluster `cluster info` describes. An
+// argument resolves as a name or an id, like --cluster does
+// (lookupClusterByNameOrID): the command used to look its argument up by
+// name only, so the id every other cluster command accepts answered "no
+// cluster found for name" (ankra-mz2awi). A missing cluster keeps that
+// lookup's not-found exit code. With no argument the selected cluster is
+// fetched again by name, so the details are current rather than the copy
+// saved when it was selected.
+func resolveClusterInfoTarget(cmd *cobra.Command, args []string) (client.ClusterListItem, error) {
+	if len(args) == 1 {
+		return lookupClusterByNameOrID(args[0])
+	}
+	selected, err := resolveActiveCluster(cmd)
+	if err != nil {
+		return client.ClusterListItem{}, err
+	}
+	cluster, err := apiClient.GetCluster(selected.Name)
+	if err != nil {
+		return client.ClusterListItem{}, fmt.Errorf("fetching cluster details for %s: %w", selected.Name, err)
+	}
+	return cluster, nil
 }
 
 var clusterReconcileCmd = &cobra.Command{
