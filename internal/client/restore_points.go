@@ -503,7 +503,11 @@ func stackProtectURL(baseURL string, clusterID string, stackName string) string 
 // POST .../stacks/{stack_name}/protect
 func (c *Client) ProtectStack(clusterID string, stackName string,
 	request ProtectStackRequest) (*StackProtection, error) {
-	return c.sendProtectionRequest(http.MethodPost, stackProtectURL(c.BaseURL, clusterID, stackName), request)
+	return c.sendProtectionRequest(http.MethodPost, stackProtectURL(c.BaseURL, clusterID, stackName), request,
+		"saving the backup policy",
+		fmt.Sprintf("ankra cluster backups status --cluster %s   # stack '%s' reads protected with this "+
+			"vault and schedule when it landed%s", clusterID, stackName, protectionReadCaveat),
+		protectRetryConsequence(request.BackupNow))
 }
 
 // UnprotectStack clears the backup block. Every restore point already taken
@@ -512,14 +516,50 @@ func (c *Client) ProtectStack(clusterID string, stackName string,
 // DELETE .../stacks/{stack_name}/protect
 func (c *Client) UnprotectStack(clusterID string, stackName string,
 	request UnprotectStackRequest) (*StackProtection, error) {
-	return c.sendProtectionRequest(http.MethodDelete, stackProtectURL(c.BaseURL, clusterID, stackName), request)
+	return c.sendProtectionRequest(http.MethodDelete, stackProtectURL(c.BaseURL, clusterID, stackName), request,
+		"removing the backup policy",
+		fmt.Sprintf("ankra cluster backups status --cluster %s   # stack '%s' no longer reads protected "+
+			"when it landed", clusterID, stackName),
+		"")
 }
 
-// sendProtectionRequest is sendJSON with one addition: a 422 carrying
-// field-level violations becomes a *BackupPolicyValidationError rather than
-// the bare detail sentence, so the command can print every reason the policy
-// was refused instead of only "The backup policy is not valid."
-func (c *Client) sendProtectionRequest(method string, url string, payload any) (*StackProtection, error) {
+// protectionReadCaveat qualifies a protect's verify hint. The backups reads
+// show the vault and schedule a protect saved, not its retention or volume
+// selection, so they settle whether the write landed but not every field it
+// wrote.
+const protectionReadCaveat = " (retention and volume selection are not shown there)"
+
+// protectRetryConsequence is what repeating a protect does when the first
+// one landed. Protect writes the whole policy, so a repeat that restates
+// less than the first resets the rest to defaults, and with backup_now it
+// starts another capture.
+func protectRetryConsequence(backupNow bool) string {
+	consequence := "write the backup policy a second time (every setting not restated takes its default " +
+		"rather than the saved value)"
+	if backupNow {
+		consequence += " and take a second restore point"
+	}
+	return consequence
+}
+
+// sendProtectionRequest is sendJSON with two additions.
+//
+// A 422 carrying field-level violations becomes a
+// *BackupPolicyValidationError rather than the bare detail sentence, so the
+// command can print every reason the policy was refused instead of only
+// "The backup policy is not valid."
+//
+// And the write rides the slow-write lane. Protect and unprotect commit the
+// stack's definition and push it to the GitOps repository on the request
+// path, then write the materialised policy the same way, so the answer can
+// take longer than the shared client's 30s response-header deadline. On
+// 2026-10-30 an application protect failed with "http2: timeout awaiting
+// response headers" after the policy had been saved (ankra-scr4ef). A
+// timeout is therefore reported as a WriteOutcomeUnknownError naming the
+// read that settles it, never as a failure: the write may have landed, and
+// a repeat replaces the whole policy.
+func (c *Client) sendProtectionRequest(method string, url string, payload any,
+	operation string, verifyCommand string, retryConsequence string) (*StackProtection, error) {
 	encoded, marshalError := json.Marshal(payload)
 	if marshalError != nil {
 		return nil, fmt.Errorf("marshal request: %w", marshalError)
@@ -531,9 +571,10 @@ func (c *Client) sendProtectionRequest(method string, url string, payload any) (
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+c.Token)
 
-	response, doError := c.HTTP.Do(request)
+	response, doError := c.httpClientForSlowWrite().Do(request)
 	if doError != nil {
-		return nil, fmt.Errorf("request failed: %w", doError)
+		return nil, unknownOutcome(fmt.Errorf("request failed: %w", doError),
+			operation, verifyCommand, retryConsequence)
 	}
 	defer closeBody(response)
 

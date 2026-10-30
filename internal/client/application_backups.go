@@ -141,7 +141,11 @@ func (c *Client) GetApplicationBackups(applicationID string) (*ApplicationBackup
 func (c *Client) ProtectApplicationDeployment(applicationID string, deploymentID string,
 	request ProtectApplicationDeploymentRequest) (*StackProtection, error) {
 	return c.sendProtectionRequest(http.MethodPost,
-		applicationProtectURL(c.BaseURL, applicationID, deploymentID), request)
+		applicationProtectURL(c.BaseURL, applicationID, deploymentID), request,
+		"saving the backup policy",
+		fmt.Sprintf("ankra application backups %s   # the deployment reads protected with this vault "+
+			"and schedule when it landed%s", applicationID, protectionReadCaveat),
+		protectRetryConsequence(request.BackupNow))
 }
 
 // CreateApplicationRestorePoint asks for a capture of one deployment now and

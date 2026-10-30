@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -380,6 +382,127 @@ func TestUnprotectStack_SendsTheTypedConfirmation(t *testing.T) {
 	}
 	if protection.Policy.Enabled || len(protection.Warnings) != 1 {
 		t.Fatalf("unexpected protection: %+v", protection)
+	}
+}
+
+// sharedClientForbidden stands in for the shared client's transport, which a
+// protection write must never reach: its 30s response-header deadline is what
+// cut off a protect that had already saved the policy (ankra-scr4ef).
+type sharedClientForbidden struct{ t *testing.T }
+
+func (forbidden sharedClientForbidden) RoundTrip(request *http.Request) (*http.Response, error) {
+	forbidden.t.Errorf("%s %s rode the shared client and its response-header deadline",
+		request.Method, request.URL.Path)
+	return nil, errors.New("the shared client must not carry a protection write")
+}
+
+func TestProtectionWritesRideTheSlowWriteLane(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse(t, w, http.StatusOK, StackProtection{StackName: "shop"})
+	}))
+	t.Cleanup(server.Close)
+	apiClient := New(testToken, server.URL)
+	apiClient.HTTP = &http.Client{Transport: sharedClientForbidden{t: t}}
+
+	if _, protectError := apiClient.ProtectStack(testClusterUUID, "shop",
+		ProtectStackRequest{VaultID: "vault-1"}); protectError != nil {
+		t.Fatalf("ProtectStack: %v", protectError)
+	}
+	if _, protectError := apiClient.ProtectApplicationDeployment("app-1", testClusterUUID,
+		ProtectApplicationDeploymentRequest{}); protectError != nil {
+		t.Fatalf("ProtectApplicationDeployment: %v", protectError)
+	}
+	if _, unprotectError := apiClient.UnprotectStack(testClusterUUID, "shop",
+		UnprotectStackRequest{Confirm: "shop"}); unprotectError != nil {
+		t.Fatalf("UnprotectStack: %v", unprotectError)
+	}
+}
+
+// A protect that times out may already have saved the policy, which is what
+// happened on 2026-10-30: the CLI exited 1 and a read showed the vault and
+// schedule in place. The error must say the outcome is unknown, name the read
+// that settles it, and say what a blind repeat would do - without claiming the
+// write was rolled back or nudging anyone to reset the policy.
+func TestProtectionWriteTimeoutsReportAnUnknownOutcome(t *testing.T) {
+	testCases := []struct {
+		name      string
+		write     func(apiClient *Client) error
+		required  []string
+		forbidden []string
+	}{
+		{
+			name: "stack protect with a first capture",
+			write: func(apiClient *Client) error {
+				_, writeError := apiClient.ProtectStack(testClusterUUID, "shop",
+					ProtectStackRequest{VaultID: "vault-1", BackupNow: true})
+				return writeError
+			},
+			required: []string{
+				"saving the backup policy",
+				"may have completed",
+				"ankra cluster backups status --cluster " + testClusterUUID,
+				"stack 'shop' reads protected",
+				"retention and volume selection are not shown",
+				"every setting not restated takes its default",
+				"take a second restore point",
+			},
+		},
+		{
+			name: "application protect without a capture",
+			write: func(apiClient *Client) error {
+				_, writeError := apiClient.ProtectApplicationDeployment("app-1", testClusterUUID,
+					ProtectApplicationDeploymentRequest{Schedule: "37 3 * * *"})
+				return writeError
+			},
+			required: []string{
+				"saving the backup policy",
+				"ankra application backups app-1",
+				"retention and volume selection are not shown",
+				"every setting not restated takes its default",
+			},
+			forbidden: []string{"second restore point"},
+		},
+		{
+			name: "stack unprotect",
+			write: func(apiClient *Client) error {
+				_, writeError := apiClient.UnprotectStack(testClusterUUID, "shop",
+					UnprotectStackRequest{Confirm: "shop"})
+				return writeError
+			},
+			required: []string{
+				"removing the backup policy",
+				"ankra cluster backups status --cluster " + testClusterUUID,
+				"stack 'shop' no longer reads protected",
+			},
+			forbidden: []string{"Retrying without checking"},
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			server := slowHeaderServer(t, time.Second, `{}`)
+			apiClient := New(testToken, server.URL)
+			// Bound the call far below the server's delay so the timeout is
+			// the deterministic outcome, without sleeping for the real one.
+			apiClient.slowWriteTimeout = 50 * time.Millisecond
+
+			writeError := testCase.write(apiClient)
+
+			var unknownError *WriteOutcomeUnknownError
+			if !errors.As(writeError, &unknownError) {
+				t.Fatalf("timeout = %T (%v), want *WriteOutcomeUnknownError", writeError, writeError)
+			}
+			message := unknownError.Error()
+			for _, required := range testCase.required {
+				if !strings.Contains(message, required) {
+					t.Errorf("timeout message missing %q:\n%s", required, message)
+				}
+			}
+			for _, forbidden := range append(testCase.forbidden, "rolled back", "was not saved") {
+				if strings.Contains(message, forbidden) {
+					t.Errorf("timeout message must not say %q:\n%s", forbidden, message)
+				}
+			}
+		})
 	}
 }
 
