@@ -3038,7 +3038,7 @@ func (m baseMock) CreateProxmoxCluster(request client.CreateProxmoxClusterReques
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionProxmoxCluster(clusterID string, _ bool) (*client.ProviderDeprovisionClusterResponse, error) {
+func (m baseMock) DeprovisionProxmoxCluster(clusterID string, _ client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 

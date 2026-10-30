@@ -86,9 +86,9 @@ func (m *cloudDeprovisionDispatchMock) DeprovisionAwsCluster(clusterID string, _
 	return &client.ProviderDeprovisionClusterResponse{ClusterID: clusterID}, nil
 }
 
-func (m *cloudDeprovisionDispatchMock) DeprovisionProxmoxCluster(clusterID string, force bool) (*client.ProviderDeprovisionClusterResponse, error) {
+func (m *cloudDeprovisionDispatchMock) DeprovisionProxmoxCluster(clusterID string, options client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
 	m.calledProvider = "proxmox"
-	m.proxmoxForce = force
+	m.proxmoxForce = options.Force
 	return &client.ProviderDeprovisionClusterResponse{ClusterID: clusterID}, nil
 }
 

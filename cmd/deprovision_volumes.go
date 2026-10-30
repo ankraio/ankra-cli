@@ -11,9 +11,11 @@ import (
 )
 
 // volumeDeletingKinds are the cloud cluster kinds whose deprovision deletes
-// the persistent volumes the cluster's CSI driver provisioned. Proxmox and
-// Morpheus disks go with their VMs, so they have no volumes to name and never
-// need the acknowledgement.
+// the persistent volumes the cluster's CSI driver provisioned. Proxmox VE's
+// CSI parks its disks on a placeholder VM rather than the cluster's VMs, so
+// the platform deletes them separately and asks too. Morpheus disks go with
+// their instances, so it has no volumes to name and never needs the
+// acknowledgement.
 var volumeDeletingKinds = map[cloudClusterKind]bool{
 	cloudClusterKindHetzner:      true,
 	cloudClusterKindOvh:          true,
@@ -22,6 +24,7 @@ var volumeDeletingKinds = map[cloudClusterKind]bool{
 	cloudClusterKindScaleway:     true,
 	cloudClusterKindAnkraCloud:   true,
 	cloudClusterKindAws:          true,
+	cloudClusterKindProxmox:      true,
 }
 
 // deprovisionVolumeNameLimit is how many volumes the warning spells out.

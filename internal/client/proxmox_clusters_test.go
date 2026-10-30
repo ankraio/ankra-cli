@@ -90,7 +90,7 @@ func TestDeprovisionProxmoxCluster_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	})
-	result, deprovisionError := testClient.DeprovisionProxmoxCluster("pve-cluster-123", false)
+	result, deprovisionError := testClient.DeprovisionProxmoxCluster("pve-cluster-123", DeprovisionOptions{})
 	if deprovisionError != nil {
 		t.Fatalf("DeprovisionProxmoxCluster: %v", deprovisionError)
 	}
@@ -109,7 +109,7 @@ func TestDeprovisionProxmoxClusterSendsForce(t *testing.T) {
 			receivedForce = r.URL.Query().Get("force")
 			jsonResponse(t, w, http.StatusOK, ProviderDeprovisionClusterResponse{Success: true})
 		})
-		if _, deprovisionError := testClient.DeprovisionProxmoxCluster("pve-1", forced); deprovisionError != nil {
+		if _, deprovisionError := testClient.DeprovisionProxmoxCluster("pve-1", DeprovisionOptions{Force: forced}); deprovisionError != nil {
 			t.Fatalf("DeprovisionProxmoxCluster(force=%v): %v", forced, deprovisionError)
 		}
 		want := ""
@@ -248,5 +248,22 @@ func TestStartProxmoxCluster_SendsScope(t *testing.T) {
 	}
 	if result.Scope != "control_plane" {
 		t.Errorf("Scope = %q, want control_plane", result.Scope)
+	}
+}
+
+// A Proxmox VE cluster's CSI disks are deleted with it only when the
+// deprovision carries the acknowledgement; without it the platform answers
+// 409, so the CLI flag has to reach the request.
+func TestDeprovisionProxmoxClusterSendsTheVolumeDataLossAcknowledgement(t *testing.T) {
+	var receivedAcceptance string
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		receivedAcceptance = r.URL.Query().Get("accept_volume_data_loss")
+		jsonResponse(t, w, http.StatusOK, ProviderDeprovisionClusterResponse{Success: true})
+	})
+	if _, deprovisionError := testClient.DeprovisionProxmoxCluster("pve-1", DeprovisionOptions{AcceptVolumeDataLoss: true}); deprovisionError != nil {
+		t.Fatalf("DeprovisionProxmoxCluster: %v", deprovisionError)
+	}
+	if receivedAcceptance != "true" {
+		t.Fatalf("accept_volume_data_loss query = %q, want true", receivedAcceptance)
 	}
 }

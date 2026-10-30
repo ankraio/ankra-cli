@@ -908,7 +908,7 @@ type APIClient interface {
 	CreateAwsRoleCredential(request client.AwsRoleCredentialCreateRequest) (*client.AwsCredentialCreateResponse, error)
 	CreateAwsKeysCredential(request client.AwsKeysCredentialCreateRequest) (*client.AwsCredentialCreateResponse, error)
 	CreateProxmoxCluster(request client.CreateProxmoxClusterRequest) (*client.CreateProxmoxClusterResponse, error)
-	DeprovisionProxmoxCluster(clusterID string, force bool) (*client.ProviderDeprovisionClusterResponse, error)
+	DeprovisionProxmoxCluster(clusterID string, options client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error)
 	StopProxmoxCluster(clusterID string, options client.StopClusterOptions) (*client.ProviderStopClusterResponse, error)
 	StartProxmoxCluster(clusterID string, options client.StartClusterOptions) (*client.ProviderStartClusterResult, error)
 	GetProxmoxWorkerCount(clusterID string) (*client.WorkerCountResult, error)
