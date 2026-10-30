@@ -185,7 +185,7 @@ func (m baseMock) ElevateClusterAccess(ctx context.Context, clusterID string, re
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) GetClusterAccessPolicy(ctx context.Context) (*client.ClusterAccessPolicy, error) {
+func (m baseMock) GetClusterAccessPolicy(ctx context.Context) (*client.ClusterAccessPolicyRead, error) {
 	return nil, errors.New("not implemented")
 }
 
