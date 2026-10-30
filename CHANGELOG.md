@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## v0.52.1 - 2026-10-30
+
+This release fixes a misleading message. A command sent to a cluster that is
+being deprovisioned now prints the platform's reason instead of telling you to
+check the Ankra agent. Installing this release changes nothing on any cluster
+or workload.
+
+### Fixed
+
+- **A command refused because its cluster is being deprovisioned says so.** While a cluster is being deprovisioned, the platform refuses new commands to it - deleting, patching or applying a resource, Helm releases, pod logs, a debug pod, a terminal or a service forward - with the same "cluster offline" answer it gives an unreachable cluster, although that cluster's agent usually still shows connected. The CLI printed "Cluster is offline. Check that the Ankra agent is running." for it, which sent people looking for an agent fault that was not there. It now prints the platform's reason ("the cluster takes no new commands while it is being deprovisioned; its teardown is still running"); every other offline answer keeps the agent hint.
+
+## v0.52.0 - 2026-10-29
+
+This release makes cached answers visible and adds a node diagnosis to the
+terminal. `ankra cluster get`, `cluster events` and `cluster describe` now say
+on stderr when an answer came from the agent's cache, how old it is and, when
+the platform knows, why the cluster did not answer live; stdout and `-o json`
+are unchanged apart from the cache fields the envelope now keeps.
+`ankra cluster <provider> nodes diagnose` runs the read-only SSH diagnosis the
+Ankra assistant has as `ssh_diagnose_node`, and `ankra cluster info` accepts a
+cluster id. Installing this release changes nothing on any cluster or workload.
+
 ### Added
 
 - **`ankra cluster <provider> nodes diagnose <cluster> <node_id>` runs a read-only SSH diagnosis of one node from the terminal.** It is the same diagnosis the Ankra assistant runs as `ssh_diagnose_node`: over the platform's bastion lane it snapshots the node's Kubernetes service unit and journal, disk, memory, uptime, kernel log and firewall path to the API server, names the symptoms it finds and changes nothing on the node. Like `bastion diagnose` it waits for the report (up to two minutes on the platform side, `--timeout` on yours, exit code 5 when yours runs out) and hands back the operation to poll when the job runs longer. A job that finished without a report (the node unreachable over SSH) exits 1 with the job's error, after printing the operation. Offered on the providers with `nodes cloud-init-log`; it needs the `clusters.operate` permission and a platform that serves the new route.

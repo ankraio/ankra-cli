@@ -835,9 +835,24 @@ type ClusterUnavailableError struct {
 	Detail    string
 }
 
+// deprovisioningClusterDetail is the phrase the platform's refusal detail
+// carries when the cluster takes no command because it is being
+// deprovisioned ("Cannot delete kubernetes resource: the cluster takes no
+// new commands while it is being deprovisioned; its teardown is still
+// running."). Only that refusal replaces the agent hint: every other
+// CLUSTER_OFFLINE keeps it.
+const deprovisioningClusterDetail = "while it is being deprovisioned"
+
 func (e *ClusterUnavailableError) Error() string {
 	switch e.ErrorCode {
 	case "CLUSTER_OFFLINE":
+		// The platform answers CLUSTER_OFFLINE for a cluster being
+		// deprovisioned too, whose agent is usually still connected. Its
+		// detail then says why, and that is what the person needs, not
+		// "the agent is down".
+		if strings.Contains(e.Detail, deprovisioningClusterDetail) {
+			return e.Detail
+		}
 		return "Cluster is offline. Check that the Ankra agent is running."
 	case "NO_AGENT":
 		return "No agent available for this cluster. Install the Ankra agent first."
