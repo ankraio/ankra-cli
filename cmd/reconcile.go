@@ -587,7 +587,7 @@ If no cluster name is provided, uses the currently selected cluster.`,
 			}
 			return nil
 		case cloudClusterKindProxmox:
-			result, deprovisionError := apiClient.DeprovisionProxmoxCluster(clusterID, force)
+			result, deprovisionError := apiClient.DeprovisionProxmoxCluster(clusterID, deprovisionOptions)
 			if deprovisionError != nil {
 				return fmt.Errorf("deprovisioning Proxmox VE cluster: %w", deprovisionError)
 			}
