@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## v0.52.1 - 2026-10-30
+
+This release fixes a misleading message. A command sent to a cluster that is
+being deprovisioned now prints the platform's reason instead of telling you to
+check the Ankra agent. Installing this release changes nothing on any cluster
+or workload.
+
+### Fixed
+
+- **A command refused because its cluster is being deprovisioned says so.** While a cluster is being deprovisioned, the platform refuses new commands to it - deleting, patching or applying a resource, Helm releases, pod logs, a debug pod, a terminal or a service forward - with the same "cluster offline" answer it gives an unreachable cluster, although that cluster's agent usually still shows connected. The CLI printed "Cluster is offline. Check that the Ankra agent is running." for it, which sent people looking for an agent fault that was not there. It now prints the platform's reason ("the cluster takes no new commands while it is being deprovisioned; its teardown is still running"); every other offline answer keeps the agent hint.
+
 ## v0.52.0 - 2026-10-29
 
 This release makes cached answers visible and adds a node diagnosis to the
@@ -41,7 +52,6 @@ workload.
 
 ### Fixed
 
-- **A command refused because its cluster is being deprovisioned says so.** While a cluster is being deprovisioned, the platform refuses new commands to it - deleting, patching or applying a resource, Helm releases, pod logs, a debug pod, a terminal or a service forward - with the same "cluster offline" answer it gives an unreachable cluster, although that cluster's agent usually still shows connected. The CLI printed "Cluster is offline. Check that the Ankra agent is running." for it, which sent people looking for an agent fault that was not there. It now prints the platform's reason ("the cluster takes no new commands while it is being deprovisioned; its teardown is still running"); every other offline answer keeps the agent hint.
 - **`ankra credentials proxmox create` waits for the platform to finish setting up Proxmox VE.** Saving a Proxmox credential prepares the installation in the same request: storage, the `vmbr0` bridge, the `ankra` private network and, on a node without a template, a cloud-init template built from a downloaded Ubuntu image. That can take several minutes. The CLI gave up after 30 seconds with `http2: timeout awaiting response headers`, and the credential was never saved. It now waits up to five minutes, like the other long-running writes.
 
 ## v0.50.1 - 2026-10-29
