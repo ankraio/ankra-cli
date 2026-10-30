@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## v0.52.3 - 2026-10-30
+
+This release lets a Proxmox VE cluster with persistent volumes be
+deprovisioned. The platform now deletes the disks the cluster's CSI driver
+provisioned and asks before doing so; the CLI names those volumes and sends
+your acknowledgement. Installing this release changes nothing on any cluster
+or workload.
+
+### Fixed
+
+- **`ankra cluster deprovision` on a Proxmox VE cluster names the persistent volumes it deletes and sends `--accept-volume-data-loss`.** The platform now deletes the disks a Proxmox cluster's CSI driver provisioned when the cluster is deleted, and refuses with 409 until the loss is accepted. The CLI did not pass the flag for Proxmox, so the deprovision could never go through; it now lists the volumes, asks on a terminal, and sends the acknowledgement.
+
 ## v0.52.2 - 2026-10-30
 
 This release makes `ankra cluster gitops status` say where a cluster stands. It
@@ -11,7 +23,6 @@ this release changes nothing on any cluster or workload.
 
 ### Fixed
 
-- **`ankra cluster deprovision` on a Proxmox VE cluster names the persistent volumes it deletes and sends `--accept-volume-data-loss`.** The platform now deletes the disks a Proxmox cluster's CSI driver provisioned when the cluster is deleted, and refuses with 409 until the loss is accepted. The CLI did not pass the flag for Proxmox, so the deprovision could never go through; it now lists the volumes, asks on a terminal, and sends the acknowledgement.
 - **`ankra cluster gitops status` says which commit the cluster is in step with, and when Git's head was last checked.** `Last Synced` only describes the last full sync. When Git's head moves without changing a cluster's files, the platform moves the cluster on to that commit without a new sync, so a cluster that was current read "last synced 2 days ago". The status now also prints `Applied Commit` (the commit the cluster is in step with, and since when) and `Git Head Checked` (the head the platform last read, and when), with a note saying whether the cluster is in step with that head. `-o json` carries `applied_commit_sha`, `applied_commit_at`, `head_checked_sha` and `head_checked_at` from platforms that send them.
 - **`ankra cluster gitops status` lists the files Git and the platform are divided on.** A `diverged` status used to come with no file names, no count and no dates. The status now prints `Preserved Paths` with the count and how many still await a decision, each file with when it was detected and whether it is decided, and what deciding means. `-o json` carries `preserved_path_count`, `preserved_paths`, `preserved_path_undecided_count` and `preserved_path_details`, which the CLI used to drop.
 
