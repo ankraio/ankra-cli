@@ -111,6 +111,12 @@ type SetApplicationRepositoryCredentialRequest struct {
 	CredentialName string `json:"credential_name"`
 }
 
+// SetApplicationTrackedBranchRequest mirrors the tracked-branch body: the
+// branch of the application's repository it should follow.
+type SetApplicationTrackedBranchRequest struct {
+	Branch string `json:"branch"`
+}
+
 // EnsureApplicationRegistryRobotRequest mirrors the registry-robot body:
 // rotate refreshes the secret of a robot that already backs the application.
 type EnsureApplicationRegistryRobotRequest struct {
@@ -406,6 +412,12 @@ func (client *Client) GetApplicationRepositoryCredential(requestContext context.
 
 func (client *Client) SetApplicationRepositoryCredential(requestContext context.Context, applicationID string, credentialRequest SetApplicationRepositoryCredentialRequest) (json.RawMessage, error) {
 	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/repository-credential"), nil, credentialRequest)
+}
+
+// --- tracked branch ---
+
+func (client *Client) SetApplicationTrackedBranch(requestContext context.Context, applicationID string, branchRequest SetApplicationTrackedBranchRequest) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/tracked-branch"), nil, branchRequest)
 }
 
 // --- AI lane configuration ---

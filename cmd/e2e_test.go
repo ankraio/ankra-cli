@@ -5255,6 +5255,10 @@ func (m baseMock) SetApplicationRepositoryCredential(requestContext context.Cont
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) SetApplicationTrackedBranch(requestContext context.Context, applicationID string, branchRequest client.SetApplicationTrackedBranchRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListTickets(filter client.TicketListFilter) (*client.TicketListResponse, error) {
 	return nil, errors.New("not implemented")
 }
