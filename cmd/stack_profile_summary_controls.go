@@ -84,7 +84,7 @@ rejects conflicting reuse. Inspect generation <id> for progress and review separ
 		},
 	}
 	registerStructuredOutputFlags(key)
-	parent.AddCommand(key, newSummaryPolicyCommand())
+	parent.AddCommand(key, newSummaryPolicyCommand(), newProfileRuntimeQualificationCommand())
 }
 
 func runSummaryControl(command *cobra.Command, args []string) error {
