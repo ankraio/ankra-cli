@@ -67,23 +67,53 @@ type FleetCostScope struct {
 	Partial     bool    `json:"partial" yaml:"partial"`
 }
 
-// FleetCloudCost is the organisation-wide cost rollup: every cluster whose
-// latest snapshot is younger than a day, in the display currency. ByProject
-// and Scope arrive from a platform with projects; an older platform leaves
-// them empty.
+// FleetUnmeteredCluster is a cluster that spent money this month but has no
+// cost snapshot from the last day: deleted this month (IsDeleted), moved to
+// another project after spending under the one read (IsMovedOut, project
+// reads only), or otherwise stopped reporting. Its month so far is in the
+// rollup's month to date and month end, never in a provider, credential or
+// top-cluster row. LastSnapshotAt is when it was last metered (RFC 3339);
+// nil when no snapshot of it is left.
+type FleetUnmeteredCluster struct {
+	ClusterID        string  `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName      string  `json:"cluster_name" yaml:"cluster_name"`
+	Provider         *string `json:"provider" yaml:"provider"`
+	MonthToDateCents int64   `json:"month_to_date_cents" yaml:"month_to_date_cents"`
+	IsDeleted        bool    `json:"is_deleted" yaml:"is_deleted"`
+	IsMovedOut       bool    `json:"is_moved_out" yaml:"is_moved_out"`
+	LastSnapshotAt   *string `json:"last_snapshot_at" yaml:"last_snapshot_at"`
+}
+
+// FleetCloudCost is the organisation-wide cost rollup in the display
+// currency. ClusterCount, the run rate and the provider, credential and
+// top-cluster rows cover the clusters metered in the last day; the month to
+// date and the month end also carry what UnmeteredClusters spent this month.
+// ByProject and Scope arrive from a platform with projects; an older
+// platform leaves them empty. The unmetered fields keep "not reported"
+// apart from "none": a platform that predates them leaves
+// UnmeteredClusters and UnmeteredMonthToDateCents nil (an absent or null
+// key), while one that reports them sends a list, empty but not nil when
+// nothing in scope is unmetered, and a total. GetFleetCloudCost never fills
+// in a nil list, so a reader can tell the two apart. The summary says nothing
+// about unmetered spend in either case, never a zero or "none". An older
+// platform also left that spend out of its month to date, so its provider
+// rows add up and there is no gap to name. GeneratedAt is nil when not sent.
 type FleetCloudCost struct {
 	RawDocument `json:"-" yaml:"-"`
 
-	Currency                 string                `json:"currency" yaml:"currency"`
-	ClusterCount             int                   `json:"cluster_count" yaml:"cluster_count"`
-	MonthlyCostEstimateCents int64                 `json:"monthly_cost_estimate_cents" yaml:"monthly_cost_estimate_cents"`
-	MonthToDateCents         int64                 `json:"month_to_date_cents" yaml:"month_to_date_cents"`
-	ProjectedMonthEndCents   int64                 `json:"projected_month_end_cents" yaml:"projected_month_end_cents"`
-	ByProvider               []FleetProviderCost   `json:"by_provider" yaml:"by_provider"`
-	ByProject                []FleetProjectCost    `json:"by_project,omitempty" yaml:"by_project,omitempty"`
-	ByCredential             []FleetCredentialCost `json:"by_credential,omitempty" yaml:"by_credential,omitempty"`
-	TopClusters              []FleetClusterCost    `json:"top_clusters" yaml:"top_clusters"`
-	Scope                    *FleetCostScope       `json:"scope,omitempty" yaml:"scope,omitempty"`
+	Currency                  string                  `json:"currency" yaml:"currency"`
+	ClusterCount              int                     `json:"cluster_count" yaml:"cluster_count"`
+	MonthlyCostEstimateCents  int64                   `json:"monthly_cost_estimate_cents" yaml:"monthly_cost_estimate_cents"`
+	MonthToDateCents          int64                   `json:"month_to_date_cents" yaml:"month_to_date_cents"`
+	ProjectedMonthEndCents    int64                   `json:"projected_month_end_cents" yaml:"projected_month_end_cents"`
+	ByProvider                []FleetProviderCost     `json:"by_provider" yaml:"by_provider"`
+	ByProject                 []FleetProjectCost      `json:"by_project,omitempty" yaml:"by_project,omitempty"`
+	ByCredential              []FleetCredentialCost   `json:"by_credential,omitempty" yaml:"by_credential,omitempty"`
+	TopClusters               []FleetClusterCost      `json:"top_clusters" yaml:"top_clusters"`
+	Scope                     *FleetCostScope         `json:"scope,omitempty" yaml:"scope,omitempty"`
+	UnmeteredClusters         []FleetUnmeteredCluster `json:"unmetered_clusters,omitempty" yaml:"unmetered_clusters,omitempty"`
+	UnmeteredMonthToDateCents *int64                  `json:"unmetered_month_to_date_cents,omitempty" yaml:"unmetered_month_to_date_cents,omitempty"`
+	GeneratedAt               *string                 `json:"generated_at,omitempty" yaml:"generated_at,omitempty"`
 }
 
 // CostReadiness explains why a cluster has no estimate yet (or that it is
