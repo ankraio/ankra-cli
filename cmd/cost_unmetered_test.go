@@ -152,3 +152,26 @@ func TestCostSummaryNamesAMovedOutClusterWithoutCallingTheMonthAFloor(t *testing
 		t.Fatalf("lines = %q", lines)
 	}
 }
+
+// TestCostSummaryListsTheCostliestUnmeteredClustersWhateverThePlatformOrder
+// pins the CLI's own ranking (review finding 4432161782): an older platform
+// makes no ordering promise, so clusters that arrive cheapest first are still
+// listed costliest first, and the row cap hides the cheapest, never the
+// biggest spend.
+func TestCostSummaryListsTheCostliestUnmeteredClustersWhateverThePlatformOrder(t *testing.T) {
+	summary := &client.FleetCloudCost{Currency: "eur", ClusterCount: 1}
+	for index := 0; index < fleetCostUnmeteredRows+2; index++ {
+		summary.UnmeteredClusters = append(summary.UnmeteredClusters, client.FleetUnmeteredCluster{
+			ClusterID: fmt.Sprintf("id-%02d", index), ClusterName: fmt.Sprintf("gone-%02d", index),
+			MonthToDateCents: int64(index+1) * 100, IsDeleted: true})
+		summary.MonthToDateCents += int64(index+1) * 100
+	}
+	var out bytes.Buffer
+	renderFleetCostUnmetered(&out, summary)
+	output := out.String()
+	costliest, runnerUp := strings.Index(output, "gone-11"), strings.Index(output, "gone-10")
+	if costliest < 0 || runnerUp < 0 || costliest > runnerUp || strings.Contains(output, "gone-00") || strings.Contains(output, "gone-01") ||
+		!strings.Contains(output, "… and 2 more (-o json lists every one)") {
+		t.Fatalf("the costliest are listed first and the cheapest are the ones hidden:\n%s", output)
+	}
+}

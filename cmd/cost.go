@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -496,7 +497,10 @@ const fleetCostUnmeteredRows = 10
 
 // renderFleetCostUnmetered lists the clusters whose spend the month to date
 // carries without a fresh snapshot, costliest first, with why and when each
-// was last metered.
+// was last metered. It ranks them itself before the row cap: the platform
+// answers costliest first today, but an older platform makes no such
+// promise, and a cap over an unranked list could hide the biggest spend
+// behind "… and N more".
 func renderFleetCostUnmetered(out io.Writer, summary *client.FleetCloudCost) {
 	if len(summary.UnmeteredClusters) == 0 {
 		return
@@ -506,7 +510,10 @@ func renderFleetCostUnmetered(out io.Writer, summary *client.FleetCloudCost) {
 	_, _ = fmt.Fprintln(out, "Deleted or stopped reporting this month (in the month to date, in no provider row):")
 	writer := newCostTable(out)
 	writer.AppendHeader(table.Row{"Cluster", "Why", "Provider", "Month to date", "Last metered", "Cluster ID"})
-	listed := summary.UnmeteredClusters
+	listed := append([]client.FleetUnmeteredCluster{}, summary.UnmeteredClusters...)
+	sort.SliceStable(listed, func(first int, second int) bool {
+		return listed[first].MonthToDateCents > listed[second].MonthToDateCents
+	})
 	if len(listed) > fleetCostUnmeteredRows {
 		listed = listed[:fleetCostUnmeteredRows]
 	}
