@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- **`ankra cluster info` keeps the selected or explicitly requested cluster's identity.** A recreated cluster with the same name no longer replaces the requested cluster in the output. Saved selections refresh by ID, so renames work and a removed cluster returns not found.
+
 - **`ankra application protect`, `ankra cluster stacks protect` and `ankra cluster stacks unprotect` no longer report a failure for a policy the platform may have saved.** These commands write the stack's definition to its GitOps repository before the platform answers. That can take longer than the 30 seconds the CLI used to wait for a response, and the command then exited with `http2: timeout awaiting response headers` even though the policy had been saved. They now wait as long as the platform's other long writes do. If the answer still never arrives, the CLI says the outcome is unknown, names the read that shows whether the policy is in place (`ankra application backups <app>` or `ankra cluster backups status --cluster <cluster>`), and says what running the command again would do: protect writes the whole policy, so a repeat that restates less resets the rest to defaults, and with `--backup-now` it takes a second restore point. Those reads show the vault and schedule, not the retention or volume selection.
 
 ## v0.52.3 - 2026-10-30
