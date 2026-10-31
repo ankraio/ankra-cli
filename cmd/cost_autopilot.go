@@ -45,10 +45,18 @@ clusters.write (at the cluster, for an override).`,
 var costAutopilotGetCmd = &cobra.Command{
 	Use:   "get",
 	Short: "Show the policy (tier per environment kind, quiet hours, pre-notice route), the tiers and every cluster's tier",
-	Args:  cobra.NoArgs,
+	Long: `Show the organisation's autopilot policy, the tiers, and the tier of every
+live cluster in the project you act in. The policy is the organisation's, so
+it reads the same in every project; only the cluster list follows the
+project. --all-projects lists every project's clusters, and the global
+--project flag picks another project. A cluster list your cluster
+permissions cut short says so.`,
+	Args: cobra.NoArgs,
 	Example: `  ankra cost autopilot get
+  ankra cost autopilot get --all-projects
   ankra cost autopilot get -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		applyCostProjectScope(cmd)
 		policy, err := apiClient.GetCostAutopilot()
 		if err != nil {
 			return costAutopilotError(err, "reading the cost autopilot", http.MethodGet, false)
@@ -182,6 +190,7 @@ func init() {
 	_ = costAutopilotOverrideCmd.MarkFlagRequired("reason")
 	costAutopilotClearCmd.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
 	registerStructuredOutputFlags(costAutopilotGetCmd, costAutopilotSetCmd, costAutopilotOverrideCmd, costAutopilotClearCmd)
+	registerCostProjectScopeFlag(costAutopilotGetCmd)
 	costAutopilotCmd.AddCommand(costAutopilotGetCmd)
 	costAutopilotCmd.AddCommand(costAutopilotSetCmd)
 	costAutopilotCmd.AddCommand(costAutopilotOverrideCmd)
@@ -423,12 +432,30 @@ func renderCostAutopilot(out io.Writer, policy *client.CostAutopilotPolicy) {
 	}
 
 	_, _ = fmt.Fprintln(out)
+	if scopeLine := costAutopilotScopeLine(policy.Scope); scopeLine != "" {
+		_, _ = fmt.Fprintln(out, scopeLine)
+	}
 	if len(policy.Clusters) == 0 {
 		_, _ = fmt.Fprintln(out, "No live cluster yet.")
 		return
 	}
 	_, _ = fmt.Fprintf(out, "Clusters (%d):\n", len(policy.Clusters))
 	renderCostAutopilotClusters(out, policy.Clusters)
+}
+
+// costAutopilotScopeLine says whose clusters the list below it holds, or ""
+// when the platform did not say (one that lists the whole organisation).
+// The policy above it is the organisation's in every scope.
+func costAutopilotScopeLine(scope *client.FleetCostScope) string {
+	label := costScopeLabel(scope)
+	if label == "" {
+		return ""
+	}
+	line := "Clusters of " + label
+	if scope.Partial {
+		line += " (partial: only the clusters you may read are listed)"
+	}
+	return line
 }
 
 func renderCostAutopilotClusters(out io.Writer, clusters []client.CostAutopilotCluster) {

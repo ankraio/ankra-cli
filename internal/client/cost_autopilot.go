@@ -73,6 +73,11 @@ type CostAutopilotPolicy struct {
 	EnvironmentKinds    []string                 `json:"environment_kinds" yaml:"environment_kinds"`
 	Tiers               []CostAutopilotTier      `json:"tiers" yaml:"tiers"`
 	Clusters            []CostAutopilotCluster   `json:"clusters" yaml:"clusters"`
+	// Scope says which project's clusters Clusters lists, or every project's,
+	// and whether the caller's cluster permissions left some out (Partial).
+	// The policy itself is the organisation's whatever the scope. Nil from a
+	// platform that lists every cluster of the organisation unscoped.
+	Scope *FleetCostScope `json:"scope,omitempty" yaml:"scope,omitempty"`
 }
 
 // CostAutopilotPolicyUpdate is a partial policy write. Only what is set is
@@ -118,12 +123,14 @@ type CostAutopilotOverrideRequest struct {
 	ExpiresAt *string `json:"expires_at,omitempty"`
 }
 
-// GetCostAutopilot returns the organisation's autopilot policy with every
-// live cluster's tier under it.
+// GetCostAutopilot returns the organisation's autopilot policy with the tier
+// of every live cluster in the cost project scope: the caller's current
+// project unless SetCostProjectScope names one or all, the whole
+// organisation while it has no projects.
 // GET /api/v1/org/cloud-cost/autopilot
 func (c *Client) GetCostAutopilot() (*CostAutopilotPolicy, error) {
 	var result CostAutopilotPolicy
-	if err := c.sendJSON(http.MethodGet, c.BaseURL+"/api/v1/org/cloud-cost/autopilot", nil, &result); err != nil {
+	if err := c.sendJSON(http.MethodGet, c.costScopedURL(c.BaseURL+"/api/v1/org/cloud-cost/autopilot"), nil, &result); err != nil {
 		return nil, err
 	}
 	normaliseCostAutopilotPolicy(&result)

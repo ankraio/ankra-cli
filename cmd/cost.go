@@ -41,10 +41,11 @@ worth. The ledger follows each approved cost change through to the saving
 measured seven days after it ran. Pricing settings (display currency,
 effective discount, network egress estimate) apply to every figure.
 
-The fleet reads (summary, savings, ledger, trend, events, reconcile, budgets)
-cover the project you act in (see 'ankra project current'); pass
---all-projects to read the whole organisation, or the global --project to
-read another project. Pass -o json (or yaml) for the full API document.`,
+The fleet reads (summary, savings, ledger, trend, events, reconcile, budgets,
+and the clusters 'autopilot get' lists) cover the project you act in (see
+'ankra project current'); pass --all-projects to read the whole
+organisation, or the global --project to read another project. Pass -o json
+(or yaml) for the full API document.`,
 }
 
 // costAllProjectsFlag widens a fleet cost read to the whole organisation.
@@ -656,24 +657,33 @@ func fleetCostCredentialLabel(credential client.FleetCredentialCost) string {
 // platform that reported no scope. A partial scope is said in words: every
 // figure above it is a floor.
 func fleetCostScopeLine(scope *client.FleetCostScope) string {
-	if scope == nil {
+	label := costScopeLabel(scope)
+	if label == "" {
 		return ""
 	}
-	line := ""
-	switch {
-	case scope.AllProjects:
-		line = "Scope: every project of the organisation"
-	case scope.ProjectName != nil && *scope.ProjectName != "":
-		line = "Scope: project " + *scope.ProjectName
-	case scope.ProjectID != nil && *scope.ProjectID != "":
-		line = "Scope: project " + *scope.ProjectID
-	default:
-		return ""
-	}
+	line := "Scope: " + label
 	if scope.Partial {
 		line += " (partial: only the clusters you may read are counted, so every figure is a floor)"
 	}
 	return line
+}
+
+// costScopeLabel names what a cost read covered ("project payments", "every
+// project of the organisation"), or "" when the platform named nothing.
+func costScopeLabel(scope *client.FleetCostScope) string {
+	if scope == nil {
+		return ""
+	}
+	switch {
+	case scope.AllProjects:
+		return "every project of the organisation"
+	case scope.ProjectName != nil && *scope.ProjectName != "":
+		return "project " + *scope.ProjectName
+	case scope.ProjectID != nil && *scope.ProjectID != "":
+		return "project " + *scope.ProjectID
+	default:
+		return ""
+	}
 }
 
 // fleetCostProjectLabel names a by-project row; clusters outside any
