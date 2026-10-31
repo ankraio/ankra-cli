@@ -41,7 +41,9 @@ type ObjectCostProjection struct {
 	Confidence         *string         `json:"confidence" yaml:"confidence"`
 	CoverageIncomplete *bool           `json:"coverage_incomplete" yaml:"coverage_incomplete"`
 	OpenWaste          ObjectCostWaste `json:"open_waste" yaml:"open_waste"`
-	// Trend30d is 30 UTC days, oldest first.
+	// Trend30d is the object's daily spend over 30 UTC days, oldest first:
+	// what each day cost, not a run rate like MonthlyCents. The current day
+	// is still metering (ObjectCostDay.Partial).
 	Trend30d                []ObjectCostDay       `json:"trend_30d" yaml:"trend_30d"`
 	Clusters                []ObjectCostCluster   `json:"clusters" yaml:"clusters"`
 	Namespaces              []ObjectCostNamespace `json:"namespaces" yaml:"namespaces"`
@@ -68,13 +70,23 @@ type ObjectCostWaste struct {
 	UnpricedCount int     `json:"unpriced_count" yaml:"unpriced_count"`
 }
 
-// ObjectCostDay is one UTC day of the trend. Cents is null on a day none of
-// the object's clusters was metered: unknown, never zero.
+// ObjectCostDay is one UTC day of the trend: what the object spent that day.
+// Cents is null on a day none of the object's clusters was metered: unknown,
+// never zero.
+//
+// Partial is true for the day the trend was read in, which is still
+// metering: its Cents covers only HoursMetered of the day's 24 UTC hours and
+// is not comparable to a whole day. HoursMetered is, for an object behind
+// several clusters, the fewest hours any metered cluster covered. Both are
+// absent from a platform that predates them (cluster#5617), so Partial
+// tells absent from false and HoursMetered is nil there.
 type ObjectCostDay struct {
-	Date            string `json:"date" yaml:"date"`
-	Cents           *int64 `json:"cents" yaml:"cents"`
-	ClustersMetered int    `json:"clusters_metered" yaml:"clusters_metered"`
-	ClustersTotal   int    `json:"clusters_total" yaml:"clusters_total"`
+	Date            string       `json:"date" yaml:"date"`
+	Cents           *int64       `json:"cents" yaml:"cents"`
+	Partial         OptionalBool `json:"partial,omitzero" yaml:"partial,omitempty"`
+	HoursMetered    *int         `json:"hours_metered,omitempty" yaml:"hours_metered,omitempty"`
+	ClustersMetered int          `json:"clusters_metered" yaml:"clusters_metered"`
+	ClustersTotal   int          `json:"clusters_total" yaml:"clusters_total"`
 }
 
 // ObjectCostCluster is one cluster behind the object. MonthlyCents is null

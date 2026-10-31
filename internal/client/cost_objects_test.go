@@ -137,3 +137,51 @@ func TestObjectCostCluster_CoverageFlagKeepsAbsentApartFromNull(t *testing.T) {
 		t.Fatalf("yaml must carry the three sent flags and leave the absent one out:\n%s", yamlEncoded)
 	}
 }
+
+// TestObjectCostDay_MeteringFieldsKeepAbsentApart pins the trend day's
+// partial and hours_metered (cluster#5617): a platform that sends them is
+// read as sent, false and 0 included, and one that predates them leaves
+// Partial absent and HoursMetered nil, so the command can fall back to the
+// date instead of reading "not partial". Encoding gives back exactly the
+// keys that were sent, in JSON and in YAML.
+func TestObjectCostDay_MeteringFieldsKeepAbsentApart(t *testing.T) {
+	document := `[{"date":"2026-10-24","cents":8100,"partial":false,"hours_metered":24,"clusters_metered":1,"clusters_total":1},` +
+		`{"date":"2026-10-25","cents":6748,"partial":true,"hours_metered":17,"clusters_metered":1,"clusters_total":1},` +
+		`{"date":"2026-10-23","cents":null,"partial":false,"hours_metered":0,"clusters_metered":0,"clusters_total":1},` +
+		`{"date":"2026-10-22","cents":8000,"clusters_metered":1,"clusters_total":1}]`
+	var days []ObjectCostDay
+	if err := json.Unmarshal([]byte(document), &days); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if whole := days[0]; !whole.Partial.Present || whole.Partial.Value == nil || *whole.Partial.Value ||
+		whole.HoursMetered == nil || *whole.HoursMetered != 24 {
+		t.Fatalf("a whole day = %+v", whole)
+	}
+	if today := days[1]; !today.Partial.IsTrue() || today.HoursMetered == nil || *today.HoursMetered != 17 {
+		t.Fatalf("today = %+v", today)
+	}
+	if unmetered := days[2]; !unmetered.Partial.Present || unmetered.HoursMetered == nil || *unmetered.HoursMetered != 0 {
+		t.Fatalf("an unmetered day must keep its sent 0 hours and false = %+v", unmetered)
+	}
+	if older := days[3]; older.Partial.Present || older.Partial.Value != nil || older.HoursMetered != nil {
+		t.Fatalf("a day from an older platform must read absent, not false or 0: %+v", older)
+	}
+	encoded, err := json.Marshal(days)
+	if err != nil {
+		t.Fatalf("encoding: %v", err)
+	}
+	var want, got []map[string]any
+	_ = json.Unmarshal([]byte(document), &want)
+	_ = json.Unmarshal(encoded, &got)
+	if !reflect.DeepEqual(want, got) {
+		t.Fatalf("round trip changed the days:\nwant %s\ngot  %s", document, encoded)
+	}
+	yamlEncoded, err := yaml.Marshal(days)
+	if err != nil {
+		t.Fatalf("yaml: %v", err)
+	}
+	if strings.Count(string(yamlEncoded), "partial:") != 3 || strings.Count(string(yamlEncoded), "hours_metered:") != 3 ||
+		!strings.Contains(string(yamlEncoded), "hours_metered: 0") {
+		t.Fatalf("yaml must carry the three sent pairs and leave the older day's out:\n%s", yamlEncoded)
+	}
+}
