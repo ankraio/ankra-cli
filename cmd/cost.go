@@ -362,8 +362,9 @@ func renderFleetCloudCost(out io.Writer, summary *client.FleetCloudCost) {
 	renderFleetCostUnmetered(out, summary)
 }
 
-// renderFleetCloudCostHeader prints the totals, when they were computed,
-// the spend of clusters no longer metered and the scope line, and reports
+// renderFleetCloudCostHeader prints the totals, when they were computed
+// (whenever the platform sent generated_at, metered clusters or not), the
+// spend of clusters no longer metered and the scope line, and reports
 // false (after saying so) when nothing is priced yet. Nothing is priced only
 // when no cluster is metered and nothing in scope spent anything this month:
 // a project whose only cluster was deleted still spent what it spent.
@@ -377,14 +378,21 @@ func renderFleetCloudCostHeader(out io.Writer, summary *client.FleetCloudCost) b
 	_, _ = fmt.Fprintf(out, "Cloud cost (%s): %s projected month end · %s month to date · %s/mo run rate\n",
 		strings.ToUpper(currency), formatCostCents(summary.ProjectedMonthEndCents, currency),
 		formatCostCents(summary.MonthToDateCents, currency), formatCostCents(summary.MonthlyCostEstimateCents, currency))
-	asOf := ""
-	if summary.GeneratedAt != nil && *summary.GeneratedAt != "" {
-		asOf = " · as of " + *summary.GeneratedAt
+	generatedAt := ""
+	if summary.GeneratedAt != nil {
+		generatedAt = *summary.GeneratedAt
 	}
 	if summary.ClusterCount > 0 {
+		asOf := ""
+		if generatedAt != "" {
+			asOf = " · as of " + generatedAt
+		}
 		_, _ = fmt.Fprintf(out, "  %s priced across %d provider(s)%s\n", pluralClusters(summary.ClusterCount), len(summary.ByProvider), asOf)
 	} else {
 		_, _ = fmt.Fprintln(out, "  No cluster is metered now, so the run rate is zero; the month to date is what clusters no longer metered spent this month.")
+		if generatedAt != "" {
+			_, _ = fmt.Fprintf(out, "  Figures as of %s.\n", generatedAt)
+		}
 	}
 	for _, line := range fleetCostUnmeteredLines(summary) {
 		_, _ = fmt.Fprintf(out, "  %s\n", line)
@@ -543,7 +551,10 @@ func renderFleetCostUnmetered(out io.Writer, summary *client.FleetCloudCost) {
 
 // renderFleetCloudCostBreakdown is `cost summary --by`: the totals and the
 // one grouping asked for. A grouping the platform did not serve says so
-// rather than printing an empty table.
+// rather than printing an empty table. The clusters no longer metered are
+// listed after any grouping: the header's month to date carries their spend
+// and its gap line counts them, so the view that shows the money also shows
+// whose it is.
 func renderFleetCloudCostBreakdown(out io.Writer, summary *client.FleetCloudCost, breakdown string) {
 	if !renderFleetCloudCostHeader(out, summary) {
 		return
@@ -562,6 +573,7 @@ func renderFleetCloudCostBreakdown(out io.Writer, summary *client.FleetCloudCost
 		_, _ = fmt.Fprintln(out)
 		_, _ = fmt.Fprintf(out, "No by-%s breakdown in this rollup.\n", breakdown)
 	}
+	renderFleetCostUnmetered(out, summary)
 }
 
 func renderFleetCostByProvider(out io.Writer, summary *client.FleetCloudCost, currency string) bool {

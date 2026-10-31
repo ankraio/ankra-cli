@@ -175,3 +175,70 @@ func TestCostSummaryListsTheCostliestUnmeteredClustersWhateverThePlatformOrder(t
 		t.Fatalf("the costliest are listed first and the cheapest are the ones hidden:\n%s", output)
 	}
 }
+
+// TestCostSummaryFromAPlatformThatReportsNoUnmeteredSpendSaysNothingOfIt is
+// the other half of the absent test above (review finding 4432419878): a
+// platform that reports an empty list decodes as reported-and-empty, not as
+// absent, and the summary still prints no gap line, no zero and no list.
+func TestCostSummaryFromAPlatformThatReportsNoUnmeteredSpendSaysNothingOfIt(t *testing.T) {
+	summary := decodeFleetWire(t, `{"currency": "eur", "cluster_count": 1, "monthly_cost_estimate_cents": 7300,
+  "month_to_date_cents": 4000, "projected_month_end_cents": 7300,
+  "by_provider": [{"provider": "hetzner", "cluster_count": 1, "monthly_cost_estimate_cents": 7300,
+                   "month_to_date_cents": 4000, "projected_month_end_cents": 7300}], "top_clusters": [],
+  "unmetered_clusters": [], "unmetered_month_to_date_cents": 0, "generated_at": "2026-10-31T13:00:00Z"}`)
+	if summary.UnmeteredClusters == nil || summary.UnmeteredMonthToDateCents == nil {
+		t.Fatalf("a reported empty list must not decode as absent, got %+v", summary)
+	}
+	var out bytes.Buffer
+	renderFleetCloudCost(&out, summary)
+	output := out.String()
+	if !strings.Contains(output, "1 cluster priced across 1 provider(s) · as of 2026-10-31T13:00:00Z\n") ||
+		strings.Contains(output, "of the month to date is from") || strings.Contains(output, "€0.00 of the month") ||
+		strings.Contains(output, "Deleted or stopped reporting") || strings.Contains(output, "floor") {
+		t.Fatalf("nothing unmetered must print nothing about it:\n%s", output)
+	}
+}
+
+// TestCostSummaryByGroupingListsTheUnmeteredClustersItsHeaderCounts pins
+// review finding 4432419880: `cost summary --by` prints the header, whose
+// month to date and gap line include the clusters no longer metered, so it
+// lists them too, under every grouping.
+func TestCostSummaryByGroupingListsTheUnmeteredClustersItsHeaderCounts(t *testing.T) {
+	summary := decodeFleetWire(t, fleetWithUnmeteredSpend)
+	for _, breakdown := range fleetCostBreakdowns {
+		var out bytes.Buffer
+		renderFleetCloudCostBreakdown(&out, summary, breakdown)
+		output := out.String()
+		for _, expected := range []string{"from 3 clusters that were deleted or stopped reporting this month",
+			"Deleted or stopped reporting this month (in the month to date, in no provider row):", "gone-a", "stalled-b", "gone-c"} {
+			if !strings.Contains(output, expected) {
+				t.Fatalf("--by %s lacks %q:\n%s", breakdown, expected, output)
+			}
+		}
+	}
+}
+
+// TestCostSummaryDatesTheFiguresWhenNoClusterIsMetered pins review finding
+// 4432419883: when every figure is what clusters no longer metered spent,
+// the time the platform computed them is still shown.
+func TestCostSummaryDatesTheFiguresWhenNoClusterIsMetered(t *testing.T) {
+	summary := decodeFleetWire(t, `{
+  "currency": "usd", "cluster_count": 0, "monthly_cost_estimate_cents": 0,
+  "month_to_date_cents": 33616, "projected_month_end_cents": 33616,
+  "by_provider": [], "top_clusters": [],
+  "unmetered_clusters": [{"cluster_id": "d4", "cluster_name": "only-one", "provider": "hetzner",
+    "month_to_date_cents": 33616, "is_deleted": true, "is_moved_out": false, "last_snapshot_at": "2026-10-03T08:00:00Z"}],
+  "unmetered_month_to_date_cents": 33616, "generated_at": "2026-10-03T08:00:00Z"
+}`)
+	for name, render := range map[string]func(*bytes.Buffer){
+		"summary":              func(out *bytes.Buffer) { renderFleetCloudCost(out, summary) },
+		"summary --by project": func(out *bytes.Buffer) { renderFleetCloudCostBreakdown(out, summary, fleetCostByProject) },
+	} {
+		var out bytes.Buffer
+		render(&out)
+		output := out.String()
+		if !strings.Contains(output, "No cluster is metered now") || !strings.Contains(output, "Figures as of 2026-10-03T08:00:00Z.") {
+			t.Fatalf("%s: the figures' time must be shown when no cluster is metered:\n%s", name, output)
+		}
+	}
+}

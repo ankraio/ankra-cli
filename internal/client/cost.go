@@ -89,9 +89,15 @@ type FleetUnmeteredCluster struct {
 // top-cluster rows cover the clusters metered in the last day; the month to
 // date and the month end also carry what UnmeteredClusters spent this month.
 // ByProject and Scope arrive from a platform with projects; an older
-// platform leaves them empty. UnmeteredClusters, UnmeteredMonthToDateCents
-// and GeneratedAt are nil from a platform that predates them, which is not
-// the same as none: such a platform counted no unmetered spend at all.
+// platform leaves them empty. The unmetered fields keep "not reported"
+// apart from "none": a platform that predates them leaves
+// UnmeteredClusters and UnmeteredMonthToDateCents nil (an absent or null
+// key), while one that reports them sends a list, empty but not nil when
+// nothing in scope is unmetered, and a total. GetFleetCloudCost never fills
+// in a nil list, so a reader can tell the two apart. The summary says nothing
+// about unmetered spend in either case, never a zero or "none". An older
+// platform also left that spend out of its month to date, so its provider
+// rows add up and there is no gap to name. GeneratedAt is nil when not sent.
 type FleetCloudCost struct {
 	RawDocument `json:"-" yaml:"-"`
 
