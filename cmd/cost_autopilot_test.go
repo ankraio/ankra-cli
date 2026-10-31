@@ -89,7 +89,7 @@ func autopilotPointer[T any](value T) *T {
 }
 
 // costAutopilotFixture is the policy as the platform sends it: set, with
-// quiet hours and a pre-notice route, every tier described, a cluster on its
+// quiet hours and a notification route, every tier described, a cluster on its
 // environment's tier and one under an expiring override.
 func costAutopilotFixture() *client.CostAutopilotPolicy {
 	return &client.CostAutopilotPolicy{
@@ -196,7 +196,7 @@ func TestCostAutopilotGetForAPolicyNeverSet(t *testing.T) {
 		t.Fatalf("cost autopilot get failed: %v", executeError)
 	}
 	for _, expected := range []string{
-		"Cost autopilot policy: never set, so every environment kind is hands-off (every change waits for a person).",
+		"Cost autopilot policy: never set, so every environment kind is hands-off (Ankra proposes nothing on its own; every change waits for a person).",
 		"Quiet hours: none", "Notification route: none", "No live cluster yet.",
 	} {
 		if !strings.Contains(output, expected) {

@@ -480,25 +480,35 @@ func costDecisionExecuteOptions(cmd *cobra.Command) (client.DecisionExecuteOptio
 // against the kind they read. found is false for a proposal of another kind,
 // a plan naming no listed finding and a platform that names no value for the
 // kind: the caller keeps the general consent, which the platform takes for a
-// proposal's single change. A listing that could not be read says so on
-// stderr, because the consent sent is then the general one by necessity, not
-// because the platform names none.
+// proposal's single change. A proposal or a listing that could not be read
+// says so on stderr, because the consent sent is then the general one by
+// necessity, not because the platform names none.
 func costDecisionWasteKindConsent(stderr io.Writer, decisionID string) (client.WasteKindConsent, bool) {
 	proposal, proposalError := apiClient.GetDecision(decisionID)
-	if proposalError != nil || proposal == nil || proposal.Kind != costDecisionsWasteCleanupKind {
+	if proposalError != nil || proposal == nil {
+		costDecisionGeneralConsentNote(stderr, "The proposal", proposalError)
+		return client.WasteKindConsent{}, false
+	}
+	if proposal.Kind != costDecisionsWasteCleanupKind {
 		return client.WasteKindConsent{}, false
 	}
 	waste, wasteError := apiClient.GetCloudWaste()
 	if wasteError != nil || waste == nil {
-		reason := "it answered nothing"
-		if wasteError != nil {
-			reason = wasteError.Error()
-		}
-		_, _ = fmt.Fprintf(stderr, "The waste listing could not be read (%s), so the general consent (%s) is sent "+
-			"rather than the one naming what this cleanup removes.\n", reason, costDecisionsNoSnapshotConsent)
+		costDecisionGeneralConsentNote(stderr, "The waste listing", wasteError)
 		return client.WasteKindConsent{}, false
 	}
 	return waste.KindConsentFor(proposal)
+}
+
+// costDecisionGeneralConsentNote says on stderr that the general consent is
+// sent because what names the kind's consent could not be read, and why.
+func costDecisionGeneralConsentNote(stderr io.Writer, unread string, readError error) {
+	reason := "it answered nothing"
+	if readError != nil {
+		reason = readError.Error()
+	}
+	_, _ = fmt.Fprintf(stderr, "%s could not be read (%s), so the general consent (%s) is sent "+
+		"rather than one naming what a waste cleanup removes.\n", unread, reason, costDecisionsNoSnapshotConsent)
 }
 
 // costDecisionConsentPrompt is the confirmation of a waste cleanup run with a

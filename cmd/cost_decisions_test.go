@@ -563,19 +563,25 @@ func TestCostDecisionsExecuteSendsTheConsentNamingTheFindingsKind(t *testing.T) 
 		t.Fatalf("the prompt names the resource and the sentence, with no control characters: %q", stderr)
 	}
 
+	// An unreadable proposal or listing says why the general consent is sent;
+	// a platform that names none and a proposal of another kind say nothing.
 	for _, testCase := range []struct {
 		name          string
 		mock          *costDecisionsMock
-		wantNote      bool
+		wantNote      string
 		wantListReads int
 	}{
 		{"a platform before consent_by_kind",
-			&costDecisionsMock{proposal: decisionsServerCleanup(), waste: decisionsWasteListing("web-1", false), written: &running}, false, 1},
+			&costDecisionsMock{proposal: decisionsServerCleanup(), waste: decisionsWasteListing("web-1", false), written: &running}, "", 1},
 		{"a listing that could not be read",
-			&costDecisionsMock{proposal: decisionsServerCleanup(), wasteError: errors.New("permission denied"), written: &running}, true, 1},
+			&costDecisionsMock{proposal: decisionsServerCleanup(), wasteError: errors.New("permission denied"), written: &running},
+			"The waste listing could not be read (permission denied), so the general consent (no_snapshot_acknowledged) is sent", 1},
+		{"a proposal that could not be read",
+			&costDecisionsMock{getError: errors.New("connection reset"), waste: decisionsWasteListing("web-1", true), written: &running},
+			"The proposal could not be read (connection reset), so the general consent (no_snapshot_acknowledged) is sent", 0},
 		{"a proposal of another kind",
 			&costDecisionsMock{proposal: decisionsPointer(decisionFixture(decisionsWasteID, "off_hours_schedule", "approved", "Stop staging at night", decisionsOtherID)),
-				waste: decisionsWasteListing("web-1", true), written: &running}, false, 0},
+				waste: decisionsWasteListing("web-1", true), written: &running}, "", 0},
 	} {
 		_, stderr, executeError := runCostDecisionsCommand(t, testCase.mock, "", "cost", "decisions", "execute", decisionsWasteID,
 			"--acknowledge-no-snapshot", "--yes")
@@ -588,8 +594,11 @@ func TestCostDecisionsExecuteSendsTheConsentNamingTheFindingsKind(t *testing.T) 
 		if testCase.mock.wasteReads != testCase.wantListReads {
 			t.Fatalf("%s: the waste listing was read %d times, want %d", testCase.name, testCase.mock.wasteReads, testCase.wantListReads)
 		}
-		if hasNote := strings.Contains(stderr, "The waste listing could not be read (permission denied)"); hasNote != testCase.wantNote {
-			t.Fatalf("%s: the note on an unreadable listing is shown only then (%v): %q", testCase.name, testCase.wantNote, stderr)
+		if testCase.wantNote == "" && strings.Contains(stderr, "could not be read") {
+			t.Fatalf("%s: nothing went unread, so nothing is said: %q", testCase.name, stderr)
+		}
+		if testCase.wantNote != "" && !strings.Contains(stderr, testCase.wantNote) {
+			t.Fatalf("%s: stderr = %q, want %q", testCase.name, stderr, testCase.wantNote)
 		}
 	}
 

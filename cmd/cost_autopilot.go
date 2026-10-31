@@ -380,7 +380,7 @@ func renderCostAutopilot(out io.Writer, policy *client.CostAutopilotPolicy) {
 		}
 		_, _ = fmt.Fprintln(out, line)
 	} else {
-		_, _ = fmt.Fprintln(out, "Cost autopilot policy: never set, so every environment kind is hands-off (every change waits for a person).")
+		_, _ = fmt.Fprintln(out, "Cost autopilot policy: never set, so every environment kind is hands-off (Ankra proposes nothing on its own; every change waits for a person).")
 	}
 	if policy.QuietHours != nil {
 		_, _ = fmt.Fprintf(out, "  Quiet hours: %s to %s %s (the autopilot starts nothing on its own at any hour)\n",
