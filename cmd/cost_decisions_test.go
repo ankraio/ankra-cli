@@ -394,7 +394,7 @@ func TestCostDecisionsApproveIsOfThePlanItNames(t *testing.T) {
 	if mock.reads != 1 || len(mock.approvedPlans) != 1 || mock.approvedPlans[0] != decisionsPlanHash {
 		t.Fatalf("without --plan-hash the proposal is read and its plan approved: %d reads, approved %v", mock.reads, mock.approvedPlans)
 	}
-	if !strings.Contains(output, "The approved plan has plan_hash "+decisionsPlanHash+".") {
+	if !strings.Contains(output, "The platform approved the plan with plan_hash "+decisionsPlanHash+".") {
 		t.Fatalf("the approval names the plan it approved:\n%s", output)
 	}
 
@@ -424,6 +424,52 @@ func TestCostDecisionsApproveIsOfThePlanItNames(t *testing.T) {
 	_, _, executeError = runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID)
 	if executeError == nil || !strings.Contains(executeError.Error(), "reading the decision before approving its plan") || len(mock.approvedPlans) != 0 {
 		t.Fatalf("a failed read approves nothing, got %v and approvals %v", executeError, mock.approvedPlans)
+	}
+}
+
+// The output names the plan the platform's answer says it approved, never
+// the plan_hash the command sent: only the answer says what was approved. A
+// platform that predates plan_hash answers none (and ignores the one sent),
+// so the output says it could not confirm the plan instead of naming one.
+func TestCostDecisionsApproveNamesThePlanThePlatformApproved(t *testing.T) {
+	read := decisionFixture(decisionsWasteID, "waste_cleanup", "proposed", "Delete unattached volume vol-1", decisionsOtherID)
+	answered := read
+	answered.Status = "approved"
+	answered.PlanHash = decisionsPlanHash
+	mock := &costDecisionsMock{written: &answered}
+	output, _, executeError := runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID,
+		"--plan-hash", decisionsOtherPlanHash)
+	if executeError != nil {
+		t.Fatalf("cost decisions approve --plan-hash failed: %v", executeError)
+	}
+	if !strings.Contains(output, "The platform approved the plan with plan_hash "+decisionsPlanHash+".") ||
+		strings.Contains(output, decisionsOtherPlanHash) {
+		t.Fatalf("the output names the plan_hash the platform answered, not the one sent:\n%s", output)
+	}
+
+	unconfirmed := answered
+	unconfirmed.PlanHash = ""
+	mock = &costDecisionsMock{written: &unconfirmed}
+	output, _, executeError = runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID,
+		"--plan-hash", decisionsPlanHash)
+	if executeError != nil {
+		t.Fatalf("cost decisions approve on an older platform failed: %v", executeError)
+	}
+	if strings.Contains(output, "approved the plan with plan_hash") || !strings.Contains(output,
+		"The platform's answer names no plan_hash (it predates plan_hash), so it could not confirm that the plan it "+
+			"approved is the one with plan_hash "+decisionsPlanHash+".") {
+		t.Fatalf("an answer with no plan_hash confirms no plan:\n%s", output)
+	}
+
+	legacy := read
+	legacy.PlanHash = ""
+	mock = &costDecisionsMock{proposal: &legacy, written: &unconfirmed}
+	output, _, executeError = runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID)
+	if executeError != nil {
+		t.Fatalf("cost decisions approve on an older platform failed: %v", executeError)
+	}
+	if strings.Contains(output, "plan_hash") {
+		t.Fatalf("an approval that named no plan on an older platform says nothing about one:\n%s", output)
 	}
 }
 

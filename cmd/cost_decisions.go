@@ -194,9 +194,7 @@ and the plan that read shows is the one approved.`,
 		}
 		out := cmd.OutOrStdout()
 		_, _ = fmt.Fprintf(out, "Approved %s: %s\n", proposal.ID, proposal.Summary)
-		if planHash != "" {
-			_, _ = fmt.Fprintf(out, "The approved plan has plan_hash %s.\n", planHash)
-		}
+		renderCostDecisionApprovedPlan(out, proposal.PlanHash, planHash)
 		if proposal.Executable {
 			_, _ = fmt.Fprintf(out, "Run it with: ankra cost decisions execute %s\n", proposal.ID)
 		} else {
@@ -454,6 +452,22 @@ func costDecisionPlanHash(cmd *cobra.Command, decisionID string) (string, error)
 		return "", nil
 	}
 	return current.PlanHash, nil
+}
+
+// renderCostDecisionApprovedPlan names the plan an approval approved, as the
+// platform's answer states it (approvedPlanHash), never the plan_hash the
+// command sent (sentPlanHash): only the answer says what was approved. A
+// platform that predates plan_hash answers none and ignores the one sent,
+// approving whatever plan the proposal holds, so the output then says that
+// the plan could not be confirmed rather than naming one.
+func renderCostDecisionApprovedPlan(out io.Writer, approvedPlanHash, sentPlanHash string) {
+	switch {
+	case approvedPlanHash != "":
+		_, _ = fmt.Fprintf(out, "The platform approved the plan with plan_hash %s.\n", approvedPlanHash)
+	case sentPlanHash != "":
+		_, _ = fmt.Fprintf(out, "The platform's answer names no plan_hash (it predates plan_hash), so it could not "+
+			"confirm that the plan it approved is the one with plan_hash %s.\n", sentPlanHash)
+	}
 }
 
 // costDecisionApproveError reports why an approval did not happen. A plan
