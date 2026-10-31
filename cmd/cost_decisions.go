@@ -39,8 +39,8 @@ right-size ladder, an off-hours schedule, a waste cleanup - with its plan,
 where it stands, who decided and what running it did.
 
 A proposal is proposed until a person approves or sets it aside; an approved
-one runs when a person executes it (or, for one the cost autopilot approved,
-after its pre-notice unless it is held). A right-size ladder runs one wave at
+one runs when a person executes it. The cost autopilot only files proposals:
+it never approves or runs one. A right-size ladder runs one wave at
 a time: each wave is its own right_size proposal under the ladder, and the
 next wave runs only once the last one has passed its seven-day verification.
 
@@ -221,11 +221,10 @@ var costDecisionsSetAsideCmd = &cobra.Command{
 var costDecisionsHoldCmd = &cobra.Command{
 	Use:   "hold <decision-id>",
 	Short: "Hold an approved proposal before it runs, with your reason (nothing runs it until it is released or set aside)",
-	Long: `Hold an approved proposal before it runs. A held proposal is run by nothing:
-not the cost autopilot, whose pre-notice links here, and not execute. It stays
-held until someone releases it (ankra cost decisions release) or sets it
-aside. Only an approved proposal can be held; any other status is refused and
-the proposal stays as it stands.`,
+	Long: `Hold an approved proposal before it runs. A held proposal is run by nothing,
+not even execute. It stays held until someone releases it (ankra cost
+decisions release) or sets it aside. Only an approved proposal can be held;
+any other status is refused and the proposal stays as it stands.`,
 	Args:    cobra.ExactArgs(1),
 	Example: `  ankra cost decisions hold 0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e --note "Wait until the launch is over"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -250,11 +249,9 @@ the proposal stays as it stands.`,
 var costDecisionsReleaseCmd = &cobra.Command{
 	Use:   "release <decision-id>",
 	Short: "Release a held proposal back to approved, with an optional note",
-	Long: `Return a held proposal to approved. One the cost autopilot approved itself
-runs on the autopilot's next pass once its run_after has passed; one a person
-approved waits for someone to run it (ankra cost decisions execute). Only a
-held proposal can be released; any other status is refused and the proposal
-stays as it stands.`,
+	Long: `Return a held proposal to approved, where it waits for someone to run it
+(ankra cost decisions execute). Only a held proposal can be released; any
+other status is refused and the proposal stays as it stands.`,
 	Args:    cobra.ExactArgs(1),
 	Example: `  ankra cost decisions release 0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e --note "Launch is over"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
