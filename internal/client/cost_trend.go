@@ -74,6 +74,9 @@ type FleetCostTrend struct {
 // coverage or waste_resolved. DeltaStatus says how the move was measured:
 // isolated (alone in its window, so DeltaMonthlyCents is its own), shared
 // (the window's move, WindowDeltaMonthlyCents, is several events' together),
+// contradicted (a start alone in a window whose run rate fell, or a stop
+// alone in one whose run rate rose: WindowDeltaMonthlyCents moved the other
+// way, so it is not the event's and the event's own move is unknown),
 // no_snapshots (no priced hour on one side: unknown, never zero), coverage (a
 // cluster entering or leaving pricing, not spend), own_cost (a resolved
 // finding's own monthly cost), unpriced, or not_applied (the action did not
