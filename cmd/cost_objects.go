@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"ankra/internal/client"
 
@@ -17,6 +18,16 @@ import (
 // costObjectUnknown is how every figure the platform does not know prints:
 // absent is not zero, so it is never "0" and never blank.
 const costObjectUnknown = "unknown"
+
+// costObjectMeteringMark is the trend's mark for a day still metering: its
+// figure covers only part of the day, so it is never drawn as a bar to
+// compare with whole days.
+const costObjectMeteringMark = '…'
+
+// costObjectNow is the clock that names today when the platform does not
+// say which day is still metering (one that predates the partial flag,
+// cluster#5617); tests pin it.
+var costObjectNow = time.Now
 
 const costObjectLong = `Read what one object costs now and over the last 30 days, from the same
 hourly snapshots the fleet summary reads, so the object's figure and the
@@ -31,9 +42,14 @@ credential carry it.
 Every figure the platform cannot give prints as unknown, never as zero. An
 object with no priced cluster behind it says why. When coverage is incomplete
 the monthly figure is a floor ("at least"), and the clusters that contributed
-nothing, or could not price a node or billed resource, are named. The trend
-draws one mark per UTC day, scaled to the object's own peak day: '·' is a day
-no cluster was metered (unknown), '_' a metered day that cost nothing.
+nothing, or could not price a node or billed resource, are named.
+
+The trend is daily spend, what the object cost each UTC day, not the monthly
+run rate. It draws one mark per day, scaled to the object's own peak whole
+day: '·' is a day no cluster was metered (unknown), '_' a metered day that
+cost nothing, and '…' today, which is still metering. Today's figure prints
+on its own line with the hours it covers so far; it is never the latest
+figure compared with whole days.
 
 Pass -o json (or yaml) for the projection exactly as the platform serves it.`
 
@@ -394,26 +410,64 @@ func costObjectFloorLines(projection *client.ObjectCostProjection) []string {
 	return lines
 }
 
-// renderObjectCostTrend draws the 30 days with the marks and the scaling of
-// ankra cost namespaces: one mark per day, scaled to the series' own peak,
-// '·' for a day nobody metered and '_' for a metered day that cost nothing.
+// costObjectDayIsMetering says whether a trend day is still metering: the
+// platform's partial flag when it sends one, and otherwise (a platform that
+// predates the flag) whether the day is today in UTC, so the day the trend
+// was read in is never taken for a whole one.
+func costObjectDayIsMetering(day client.ObjectCostDay, today string) bool {
+	if day.Partial.Present && day.Partial.Value != nil {
+		return *day.Partial.Value
+	}
+	return day.Date == today
+}
+
+// costObjectDayCoverage is how much of a day still metering its figure
+// covers: the hours so far, or that the platform did not say, and the
+// clusters metered so far when not all of them were.
+func costObjectDayCoverage(day client.ObjectCostDay) string {
+	coverage := "hours metered not reported"
+	if day.HoursMetered != nil {
+		coverage = fmt.Sprintf("%d of 24 h", *day.HoursMetered)
+	}
+	if day.Cents != nil && day.ClustersMetered < day.ClustersTotal {
+		coverage += fmt.Sprintf(", %d of %d clusters", day.ClustersMetered, day.ClustersTotal)
+	}
+	return coverage
+}
+
+// renderObjectCostTrend draws the object's daily spend over the 30 days with
+// the marks and the scaling of ankra cost namespaces: one mark per day,
+// scaled to the peak whole day, '·' for a day nobody metered, '_' for a
+// metered day that cost nothing, and '…' for today, which is still
+// metering. Today's figure prints on its own line with the hours it covers
+// and is never the latest figure: the latest is the last whole day.
 func renderObjectCostTrend(out io.Writer, days []client.ObjectCostDay, currency string) {
 	if len(days) == 0 {
-		_, _ = fmt.Fprintln(out, "Trend: the platform returned no day, so the trend is unknown.")
+		_, _ = fmt.Fprintln(out, "Daily spend: the platform returned no day, so the trend is unknown.")
 		return
 	}
+	today := costObjectNow().UTC().Format("2006-01-02")
 	values := make([]*int64, len(days))
-	metered, partial := 0, 0
-	var peak *client.ObjectCostDay
+	isMetering := make([]bool, len(days))
+	metered, floors := 0, 0
+	var peak, latest, current *client.ObjectCostDay
 	for index := range days {
 		day := &days[index]
+		if day.Cents != nil {
+			metered++
+		}
+		if costObjectDayIsMetering(*day, today) {
+			isMetering[index] = true
+			current = day
+			continue
+		}
+		latest = day
 		values[index] = day.Cents
 		if day.Cents == nil {
 			continue
 		}
-		metered++
 		if day.ClustersMetered < day.ClustersTotal {
-			partial++
+			floors++
 		}
 		if peak == nil || *day.Cents > *peak.Cents {
 			peak = day
@@ -421,21 +475,50 @@ func renderObjectCostTrend(out io.Writer, days []client.ObjectCostDay, currency 
 	}
 	span := fmt.Sprintf("%s to %s, UTC", days[0].Date, days[len(days)-1].Date)
 	if metered == 0 {
-		_, _ = fmt.Fprintf(out, "Trend (%s): no day was metered, so the trend is unknown, not zero.\n", span)
+		_, _ = fmt.Fprintf(out, "Daily spend (%s): no day was metered, so the trend is unknown, not zero.\n", span)
 		return
 	}
-	_, _ = fmt.Fprintf(out, "Trend (%s), one mark per day scaled to the peak day:\n", span)
-	_, _ = fmt.Fprintf(out, "  %s\n", costNamespacesTrend(values))
-	_, _ = fmt.Fprintf(out, "  %c no cluster metered (unknown, not zero)   %c metered, cost nothing\n",
+	marks := []rune(costNamespacesTrend(values))
+	for index := range marks {
+		if isMetering[index] {
+			marks[index] = costObjectMeteringMark
+		}
+	}
+	_, _ = fmt.Fprintf(out, "Daily spend (%s), what each day cost, one mark per day scaled to the peak whole day:\n", span)
+	_, _ = fmt.Fprintf(out, "  %s\n", string(marks))
+	legend := fmt.Sprintf("  %c no cluster metered (unknown, not zero)   %c metered, cost nothing",
 		costNamespacesUnknownMark, costNamespacesZeroMark)
-	latest := days[len(days)-1]
-	_, _ = fmt.Fprintf(out, "  %d of %d days metered · peak %s on %s · latest %s on %s\n", metered, len(days),
-		formatCostCents(*peak.Cents, currency), peak.Date, costObjectCents(latest.Cents, currency), latest.Date)
+	if current != nil {
+		legend += fmt.Sprintf("   %c today, still metering", costObjectMeteringMark)
+	}
+	_, _ = fmt.Fprintln(out, legend)
+	summary := fmt.Sprintf("  %d of %d days metered", metered, len(days))
+	if peak != nil {
+		summary += fmt.Sprintf(" · peak %s on %s", formatCostCents(*peak.Cents, currency), peak.Date)
+	} else {
+		summary += " · no whole day metered yet"
+	}
+	if latest != nil {
+		summary += fmt.Sprintf(" · latest whole day %s on %s", costObjectCents(latest.Cents, currency), latest.Date)
+		if latest.Cents != nil && latest.HoursMetered != nil && *latest.HoursMetered < 24 {
+			summary += fmt.Sprintf(" (metered %d of 24 h)", *latest.HoursMetered)
+		}
+	}
+	_, _ = fmt.Fprintln(out, summary)
+	if current != nil {
+		if current.Cents == nil {
+			_, _ = fmt.Fprintf(out, "  Today so far (%s, %s): nothing metered yet, unknown, not zero.\n",
+				current.Date, costObjectDayCoverage(*current))
+		} else {
+			_, _ = fmt.Fprintf(out, "  Today so far (%s, %s): %s, still metering, so not comparable to a whole day.\n",
+				current.Date, costObjectDayCoverage(*current), formatCostCents(*current.Cents, currency))
+		}
+	}
 	switch {
-	case partial == 1:
+	case floors == 1:
 		_, _ = fmt.Fprintln(out, "  1 day metered only some of the clusters behind it, so that day is a floor.")
-	case partial > 1:
-		_, _ = fmt.Fprintf(out, "  %d days metered only some of the clusters behind it, so those days are floors.\n", partial)
+	case floors > 1:
+		_, _ = fmt.Fprintf(out, "  %d days metered only some of the clusters behind it, so those days are floors.\n", floors)
 	}
 }
 

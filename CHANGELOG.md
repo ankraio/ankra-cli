@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ankra cost object` no longer shows today's partial cost as the latest daily figure.** The 30-day series is daily spend: what the object cost each UTC day, not its run rate. Its last day is still metering, so its cost covers only the hours metered so far. The CLI printed that day as `latest`, so a day 17 hours in read like a whole day that had cost 17% less. Today is now drawn with `…` and printed on its own line as `Today so far (<date>, N of 24 h)`. `latest whole day` is the last day that has ended, and it is marked when it was metered for fewer than 24 hours. On a platform that does not yet flag the day still metering, the CLI treats today's UTC date as that day and says the hours were not reported. `-o json` passes the platform's `partial` and `hours_metered` fields through as served.
+
 ## v0.52.5 - 2026-10-31
 
 This release adds audited controls for inspecting the profile analysis runtime
