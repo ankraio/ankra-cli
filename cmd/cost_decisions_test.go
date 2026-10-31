@@ -24,6 +24,8 @@ type costDecisionsMock struct {
 	written        *client.DecisionProposal
 	writeError     error
 	approvedNotes  []*string
+	approvedPlans  []string
+	reads          int
 	setAsideNotes  []*string
 	heldNotes      []*string
 	releasedNotes  []*string
@@ -40,6 +42,7 @@ func (m *costDecisionsMock) ListDecisions(filter client.DecisionListFilter) (*cl
 }
 
 func (m *costDecisionsMock) GetDecision(string) (*client.DecisionProposal, error) {
+	m.reads++
 	if m.getError != nil {
 		return nil, m.getError
 	}
@@ -53,8 +56,9 @@ func (m *costDecisionsMock) GetDecisionActivity(string) (*client.DecisionActivit
 	return m.activity, nil
 }
 
-func (m *costDecisionsMock) ApproveDecision(_ string, note *string) (*client.DecisionProposal, error) {
+func (m *costDecisionsMock) ApproveDecision(_ string, note *string, planHash string) (*client.DecisionProposal, error) {
 	m.approvedNotes = append(m.approvedNotes, note)
+	m.approvedPlans = append(m.approvedPlans, planHash)
 	if m.writeError != nil {
 		return nil, m.writeError
 	}
@@ -365,6 +369,177 @@ func TestCostDecisionsApproveSendsTheNoteOnlyWhenGiven(t *testing.T) {
 	}
 	if mock.approvedNotes[0] == nil || *mock.approvedNotes[0] != "Checked" {
 		t.Fatalf("--note is sent, got %v", mock.approvedNotes)
+	}
+}
+
+const (
+	decisionsPlanHash      = "3c1f0d8e9a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d"
+	decisionsOtherPlanHash = "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d"
+)
+
+// An approval is of one plan (ankra-bn86k4.6.13): --plan-hash names the one
+// the person reviewed and is sent as given, without a read; without it the
+// proposal is read first and the plan that read served is the one named.
+func TestCostDecisionsApproveIsOfThePlanItNames(t *testing.T) {
+	read := decisionFixture(decisionsWasteID, "waste_cleanup", "proposed", "Delete unattached volume vol-1", decisionsOtherID)
+	read.PlanHash = decisionsPlanHash
+	approved := read
+	approved.Status = "approved"
+
+	mock := &costDecisionsMock{proposal: &read, written: &approved}
+	output, _, executeError := runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID)
+	if executeError != nil {
+		t.Fatalf("cost decisions approve failed: %v", executeError)
+	}
+	if mock.reads != 1 || len(mock.approvedPlans) != 1 || mock.approvedPlans[0] != decisionsPlanHash {
+		t.Fatalf("without --plan-hash the proposal is read and its plan approved: %d reads, approved %v", mock.reads, mock.approvedPlans)
+	}
+	if !strings.Contains(output, "The platform approved the plan with plan_hash "+decisionsPlanHash+".") {
+		t.Fatalf("the approval names the plan it approved:\n%s", output)
+	}
+
+	mock = &costDecisionsMock{proposal: &read, written: &approved}
+	if _, _, executeError = runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID,
+		"--plan-hash", decisionsOtherPlanHash); executeError != nil {
+		t.Fatalf("cost decisions approve --plan-hash failed: %v", executeError)
+	}
+	if mock.reads != 0 || len(mock.approvedPlans) != 1 || mock.approvedPlans[0] != decisionsOtherPlanHash {
+		t.Fatalf("--plan-hash is sent as given, without a read: %d reads, approved %v", mock.reads, mock.approvedPlans)
+	}
+
+	// A platform that predates plan_hash reads with none: the approval names
+	// no plan, as it did before.
+	legacy := read
+	legacy.PlanHash = ""
+	mock = &costDecisionsMock{proposal: &legacy, written: &approved}
+	if _, _, executeError = runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID); executeError != nil {
+		t.Fatalf("cost decisions approve on an older platform failed: %v", executeError)
+	}
+	if len(mock.approvedPlans) != 1 || mock.approvedPlans[0] != "" {
+		t.Fatalf("a read with no plan_hash names no plan, got %v", mock.approvedPlans)
+	}
+
+	// A read that fails approves nothing.
+	mock = &costDecisionsMock{getError: client.NewUnexpectedResponseError(500, "Internal Server Error"), written: &approved}
+	_, _, executeError = runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID)
+	if executeError == nil || !strings.Contains(executeError.Error(), "reading the decision before approving its plan") || len(mock.approvedPlans) != 0 {
+		t.Fatalf("a failed read approves nothing, got %v and approvals %v", executeError, mock.approvedPlans)
+	}
+}
+
+// The output names the plan the platform's answer says it approved, never
+// the plan_hash the command sent: only the answer says what was approved. A
+// platform that predates plan_hash answers none (and ignores the one sent),
+// so the output says it could not confirm the plan instead of naming one.
+func TestCostDecisionsApproveNamesThePlanThePlatformApproved(t *testing.T) {
+	read := decisionFixture(decisionsWasteID, "waste_cleanup", "proposed", "Delete unattached volume vol-1", decisionsOtherID)
+	answered := read
+	answered.Status = "approved"
+	answered.PlanHash = decisionsPlanHash
+	mock := &costDecisionsMock{written: &answered}
+	output, _, executeError := runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID,
+		"--plan-hash", decisionsOtherPlanHash)
+	if executeError != nil {
+		t.Fatalf("cost decisions approve --plan-hash failed: %v", executeError)
+	}
+	if !strings.Contains(output, "The platform approved the plan with plan_hash "+decisionsPlanHash+".") ||
+		strings.Contains(output, decisionsOtherPlanHash) {
+		t.Fatalf("the output names the plan_hash the platform answered, not the one sent:\n%s", output)
+	}
+
+	unconfirmed := answered
+	unconfirmed.PlanHash = ""
+	mock = &costDecisionsMock{written: &unconfirmed}
+	output, _, executeError = runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID,
+		"--plan-hash", decisionsPlanHash)
+	if executeError != nil {
+		t.Fatalf("cost decisions approve on an older platform failed: %v", executeError)
+	}
+	if strings.Contains(output, "approved the plan with plan_hash") || !strings.Contains(output,
+		"The platform's answer names no plan_hash (it predates plan_hash), so it could not confirm that the plan it "+
+			"approved is the one with plan_hash "+decisionsPlanHash+".") {
+		t.Fatalf("an answer with no plan_hash confirms no plan:\n%s", output)
+	}
+
+	legacy := read
+	legacy.PlanHash = ""
+	mock = &costDecisionsMock{proposal: &legacy, written: &unconfirmed}
+	output, _, executeError = runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID)
+	if executeError != nil {
+		t.Fatalf("cost decisions approve on an older platform failed: %v", executeError)
+	}
+	if strings.Contains(output, "plan_hash") {
+		t.Fatalf("an approval that named no plan on an older platform says nothing about one:\n%s", output)
+	}
+}
+
+func TestCostDecisionsApproveRefusesAPlanHashThatIsNotOne(t *testing.T) {
+	for _, planHash := range []string{"abc", strings.ToUpper(decisionsPlanHash), decisionsPlanHash + "0"} {
+		mock := &costDecisionsMock{}
+		_, _, executeError := runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID, "--plan-hash", planHash)
+		if executeError == nil || exitCodeFor(executeError) != exitUsage || len(mock.approvedPlans) != 0 || mock.reads != 0 {
+			t.Fatalf("--plan-hash %q is a usage error before anything is sent, got %v (exit %d), approvals %v",
+				planHash, executeError, exitCodeFor(executeError), mock.approvedPlans)
+		}
+	}
+}
+
+// A plan proposed again after it was read approves nothing, and the refusal
+// names the plan the proposal holds now and how to approve that one.
+func TestCostDecisionsApproveSaysThePlanChanged(t *testing.T) {
+	current := decisionFixture(decisionsWasteID, "waste_cleanup", "proposed", "Delete unattached volume vol-1", decisionsOtherID)
+	current.PlanHash = decisionsOtherPlanHash
+	drifted := &client.DecisionPlanDriftedError{
+		Detail: "This plan changed since you opened it: the proposal was recomputed with another plan, so nothing was approved. " +
+			"Read the plan it holds now and approve that one.",
+		Current: &current,
+	}
+	mock := &costDecisionsMock{writeError: drifted}
+	_, _, executeError := runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID, "--plan-hash", decisionsPlanHash)
+	if executeError == nil || exitCodeFor(executeError) != exitError {
+		t.Fatalf("a plan that changed is a refusal (exit 1), got %v", executeError)
+	}
+	for _, expected := range []string{
+		"not approved: This plan changed since you opened it",
+		"Its plan now has plan_hash " + decisionsOtherPlanHash,
+		"ankra cost decisions get " + decisionsWasteID,
+		"--plan-hash " + decisionsOtherPlanHash,
+	} {
+		if !strings.Contains(executeError.Error(), expected) {
+			t.Fatalf("the refusal lacks %q: %v", expected, executeError)
+		}
+	}
+
+	_, _, executeError = runCostDecisionsCommand(t, &costDecisionsMock{writeError: &client.DecisionPlanDriftedError{Detail: drifted.Detail}},
+		"", "cost", "decisions", "approve", decisionsWasteID, "--plan-hash", decisionsPlanHash)
+	if executeError == nil || !strings.Contains(executeError.Error(), "approve it again if it is still what you want") ||
+		strings.Contains(executeError.Error(), "plan_hash ") {
+		t.Fatalf("without the current proposal the refusal points at get, got %v", executeError)
+	}
+}
+
+// get names the plan_hash of the plan it shows, and for a proposal still to
+// decide, the approval of exactly that plan.
+func TestCostDecisionsGetNamesThePlanHash(t *testing.T) {
+	proposed := decisionFixture(decisionsWasteID, "waste_cleanup", "proposed", "Delete unattached volume vol-1", decisionsOtherID)
+	proposed.PlanHash = decisionsPlanHash
+	output, _, executeError := runCostDecisionsCommand(t, &costDecisionsMock{proposal: &proposed}, "", "cost", "decisions", "get", decisionsWasteID)
+	if executeError != nil {
+		t.Fatalf("cost decisions get failed: %v", executeError)
+	}
+	for _, expected := range []string{
+		"Plan (plan_hash " + decisionsPlanHash + "):",
+		"Approve exactly this plan with: ankra cost decisions approve " + decisionsWasteID + " --plan-hash " + decisionsPlanHash,
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output lacks %q:\n%s", expected, output)
+		}
+	}
+	running := proposed
+	running.Status = "running"
+	output, _, executeError = runCostDecisionsCommand(t, &costDecisionsMock{proposal: &running}, "", "cost", "decisions", "get", decisionsWasteID)
+	if executeError != nil || strings.Contains(output, "Approve exactly this plan") || !strings.Contains(output, "Plan (plan_hash "+decisionsPlanHash+"):") {
+		t.Fatalf("a running proposal names its plan_hash but offers no approval (%v):\n%s", executeError, output)
 	}
 }
 

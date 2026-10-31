@@ -92,7 +92,7 @@ func TestEveryCostResponseKeepsTheResponseDocument(t *testing.T) {
 		"ListDecisions":              func() (carrier, error) { return apiClient.ListDecisions(DecisionListFilter{}) },
 		"GetDecision":                func() (carrier, error) { return apiClient.GetDecision(id) },
 		"GetDecisionActivity":        func() (carrier, error) { return apiClient.GetDecisionActivity(id) },
-		"ApproveDecision":            func() (carrier, error) { return apiClient.ApproveDecision(id, nil) },
+		"ApproveDecision":            func() (carrier, error) { return apiClient.ApproveDecision(id, nil, "") },
 		"HoldDecision":               func() (carrier, error) { return apiClient.HoldDecision(id, nil) },
 		"ReleaseDecision":            func() (carrier, error) { return apiClient.ReleaseDecision(id, nil) },
 		"SetAsideDecision":           func() (carrier, error) { return apiClient.SetAsideDecision(id, nil) },
