@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"ankra/internal/client"
+	"ankra/internal/hiddenunicode"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
@@ -27,8 +28,14 @@ const (
 	// costDecisionsSummaryWidthMax is the widest the summary cell grows
 	// before it wraps, so the table fits a 100-column terminal.
 	costDecisionsSummaryWidthMax = 40
-	// costDecisionsNoSnapshotConsent is the only consent execute accepts.
+	// costDecisionsNoSnapshotConsent is the general consent: it names no kind,
+	// and the platform takes it for a proposal's single change. A waste
+	// cleanup sends the value naming its finding's kind instead, where the
+	// platform names one (costDecisionWasteKindConsent).
 	costDecisionsNoSnapshotConsent = "no_snapshot_acknowledged"
+	// costDecisionsWasteCleanupKind is the proposal kind whose consent names
+	// the kind of the finding it cleans up.
+	costDecisionsWasteCleanupKind = "waste_cleanup"
 )
 
 var costDecisionsCmd = &cobra.Command{
@@ -293,9 +300,12 @@ succeeded, or failed with the receipt saying why (exit 1).
 A plan that deletes something no snapshot keeps (an unattached volume) runs
 only with written consent: pass --acknowledge-no-snapshot once you accept
 that the deletion is final. Without it the platform refuses and nothing is
-attempted. --min-unattached-days sets the minimum age of what a waste
-cleanup deletes (the platform raises anything under 30). Neither is ever sent
-unless you pass it.
+attempted. For a waste cleanup the consent sent names what kind of resource
+it removes (a volume, a stopped server, an address, a load balancer) where
+the platform names one, and the prompt shows what you agree to; otherwise it
+is the general consent to a deletion with no snapshot. --min-unattached-days
+sets the minimum age of what a waste cleanup deletes (the platform raises
+anything under 30). Neither is ever sent unless you pass it.
 
 A ladder whose latest wave is still running, inside its seven-day
 verification or tripped by it is not run: the platform says which, and
@@ -312,10 +322,16 @@ running it again before that changes is refused the same way.`,
 		if optionsError != nil {
 			return optionsError
 		}
+		prompt := fmt.Sprintf("Run decision %s now? The platform operation its plan names is dispatched as you. [y/N]: ", decisionID)
+		if options.Consent != "" {
+			if kindConsent, found := costDecisionWasteKindConsent(cmd.ErrOrStderr(), decisionID); found {
+				options.Consent = kindConsent.Value
+				prompt = costDecisionConsentPrompt(decisionID, kindConsent)
+			}
+		}
 		yes, _ := cmd.Flags().GetBool("yes")
 		// The prompt goes to stderr so -o json keeps stdout parseable.
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
-			fmt.Sprintf("Run decision %s now? The platform operation its plan names is dispatched as you. [y/N]: ", decisionID), yes); confirmError != nil {
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), prompt, yes); confirmError != nil {
 			return confirmError
 		}
 		proposal, err := apiClient.ExecuteDecision(decisionID, options)
@@ -342,7 +358,7 @@ func init() {
 	}
 	costDecisionsSetAsideCmd.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
 	costDecisionsExecuteCmd.Flags().Bool("acknowledge-no-snapshot", false,
-		"Give the written consent a plan that deletes something no snapshot keeps needs: the deletion is final")
+		"Give the written consent a plan that deletes something no snapshot keeps needs: the deletion is final (a waste cleanup sends the consent naming what it removes)")
 	costDecisionsExecuteCmd.Flags().Int("min-unattached-days", 0, "The minimum age, in days, of what a waste cleanup deletes (0-3650; the platform raises anything under 30)")
 	costDecisionsExecuteCmd.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
 	registerStructuredOutputFlags(costDecisionsListCmd, costDecisionsGetCmd, costDecisionsActivityCmd, costDecisionsApproveCmd,
@@ -456,6 +472,51 @@ func costDecisionExecuteOptions(cmd *cobra.Command) (client.DecisionExecuteOptio
 		options.MinUnattachedDays = &days
 	}
 	return options, nil
+}
+
+// costDecisionWasteKindConsent is the consent naming the kind of the finding
+// a waste cleanup removes, where the platform names one (consent_by_kind on
+// the waste listing, cluster#5646), so what the person agreed to is recorded
+// against the kind they read. found is false for a proposal of another kind,
+// a plan naming no listed finding and a platform that names no value for the
+// kind: the caller keeps the general consent, which the platform takes for a
+// proposal's single change. A listing that could not be read says so on
+// stderr, because the consent sent is then the general one by necessity, not
+// because the platform names none.
+func costDecisionWasteKindConsent(stderr io.Writer, decisionID string) (client.WasteKindConsent, bool) {
+	proposal, proposalError := apiClient.GetDecision(decisionID)
+	if proposalError != nil || proposal == nil || proposal.Kind != costDecisionsWasteCleanupKind {
+		return client.WasteKindConsent{}, false
+	}
+	waste, wasteError := apiClient.GetCloudWaste()
+	if wasteError != nil || waste == nil {
+		reason := "it answered nothing"
+		if wasteError != nil {
+			reason = wasteError.Error()
+		}
+		_, _ = fmt.Fprintf(stderr, "The waste listing could not be read (%s), so the general consent (%s) is sent "+
+			"rather than the one naming what this cleanup removes.\n", reason, costDecisionsNoSnapshotConsent)
+		return client.WasteKindConsent{}, false
+	}
+	return waste.KindConsentFor(proposal)
+}
+
+// costDecisionConsentPrompt is the confirmation of a waste cleanup run with a
+// kind-named consent: it names the resource and what the person agrees to,
+// in the platform's words. Both come from the platform (the resource name
+// from the provider), so each is flattened to one line with no hidden or
+// control characters: nothing in them can redraw the question being agreed to.
+func costDecisionConsentPrompt(decisionID string, consent client.WasteKindConsent) string {
+	sentence, _ := hiddenunicode.Line(consent.Sentence)
+	if sentence == "" {
+		return fmt.Sprintf("Run decision %s now? The platform operation its plan names is dispatched as you. [y/N]: ", decisionID)
+	}
+	subject := "your written consent"
+	if resourceName, _ := hiddenunicode.Line(consent.ResourceName); resourceName != "" {
+		subject = fmt.Sprintf("your written consent to remove %s", resourceName)
+	}
+	return fmt.Sprintf("Run decision %s now? The platform operation its plan names is dispatched as you, with %s: %s [y/N]: ",
+		decisionID, subject, sentence)
 }
 
 // costDecisionsNarrow keeps the proposals of the kind and on the cluster

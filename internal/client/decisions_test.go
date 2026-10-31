@@ -233,6 +233,14 @@ func TestExecuteDecision_SendsConsentOnlyWhenGiven(t *testing.T) {
 	if string(captured.raw) != `{"consent":"no_snapshot_acknowledged"}` {
 		t.Fatalf("a given consent is sent alone: %q", captured.raw)
 	}
+
+	testClient, captured = captureDecisionWrite(t, http.StatusOK, running)
+	if _, err := testClient.ExecuteDecision(decisionWasteID, DecisionExecuteOptions{Consent: "delete_stopped_server_acknowledged"}); err != nil {
+		t.Fatalf("ExecuteDecision: %v", err)
+	}
+	if string(captured.raw) != `{"consent":"delete_stopped_server_acknowledged"}` {
+		t.Fatalf("a kind-named consent is sent as given: %q", captured.raw)
+	}
 }
 
 func TestExecuteDecision_RefusalsKeepTheirMeaning(t *testing.T) {
