@@ -5671,3 +5671,13 @@ func (m baseMock) ApproveProfileSummaryPolicy(context.Context, client.ProfileSum
 func (m baseMock) RevokeProfileSummaryPolicy(context.Context, client.ProfileSummaryPolicyRevocationRequest) (json.RawMessage, error) {
 	return nil, nil
 }
+
+func (m baseMock) StartProfileRuntimeQualification(context.Context, string) (*client.ProfileRuntimeQualification, error) {
+	return nil, nil
+}
+func (m baseMock) GetProfileRuntimeQualification(context.Context, string) (*client.ProfileRuntimeQualification, error) {
+	return nil, nil
+}
+func (m baseMock) CancelProfileRuntimeQualification(context.Context, string) (*client.ProfileRuntimeQualification, error) {
+	return nil, nil
+}
