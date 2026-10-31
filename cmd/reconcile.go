@@ -186,20 +186,30 @@ If no cluster is given, shows details for the currently selected cluster.`,
 // (lookupClusterByNameOrID): the command used to look its argument up by
 // name only, so the id every other cluster command accepts answered "no
 // cluster found for name" (ankra-mz2awi). A missing cluster keeps that
-// lookup's not-found exit code. With no argument the selected cluster is
-// fetched again by name, so the details are current rather than the copy
-// saved when it was selected.
+// lookup's not-found exit code. Refresh a saved selection by its immutable
+// ID: a name may have been reused for a different cluster since selection.
 func resolveClusterInfoTarget(cmd *cobra.Command, args []string) (client.ClusterListItem, error) {
 	if len(args) == 1 {
 		return lookupClusterByNameOrID(args[0])
+	}
+	if override := clusterFlagOverride(cmd); override != "" {
+		return lookupClusterByNameOrID(override)
 	}
 	selected, err := resolveActiveCluster(cmd)
 	if err != nil {
 		return client.ClusterListItem{}, err
 	}
-	cluster, err := apiClient.GetCluster(selected.Name)
+	// Older selection files may contain only a name.
+	if selected.ID == "" {
+		return lookupClusterByNameOrID(selected.Name)
+	}
+	cluster, err := apiClient.GetClusterByID(selected.ID)
 	if err != nil {
-		return client.ClusterListItem{}, fmt.Errorf("fetching cluster details for %s: %w", selected.Name, err)
+		lookupError := fmt.Errorf("fetching selected cluster %s: %w", selected.ID, err)
+		if errors.Is(err, client.ErrClusterNotFound) {
+			return client.ClusterListItem{}, withExitCode(exitNotFound, lookupError)
+		}
+		return client.ClusterListItem{}, lookupError
 	}
 	return cluster, nil
 }
