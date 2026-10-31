@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ankra cost summary` names the spend of clusters that were deleted or stopped reporting this month.** The platform's month to date counts what those clusters spent, but no provider row includes it. Before this fix the provider rows added up to less than the month to date and nothing said why. The summary now gives the gap in one line, for example `€336.16 of the month to date is from 27 clusters that were deleted or stopped reporting this month (19 deleted, 8 stopped reporting)`, and lists those clusters with why each is no longer metered and when it last was. A cluster that stopped reporting may still be running, so whenever one is listed the summary says the projected month end is a floor. The priced line also shows when the figures were computed (`as of ...`). A project whose only cluster was deleted this month now shows what it spent; before, it printed `No priced clusters yet.` That message now appears only when nothing in scope was metered or spent anything this month.
+
 ## v0.52.5 - 2026-10-31
 
 This release adds audited controls for inspecting the profile analysis runtime

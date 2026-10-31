@@ -29,7 +29,9 @@ Cost - for reporting and automation.
 Every hour Ankra prices each cluster from its node inventory at the provider
 list price and allocates the result to namespaces by their CPU and memory
 share, so each team sees the share it drives. The fleet summary rolls every
-priced cluster up by provider and lists the costliest clusters; a cluster
+priced cluster up by provider and lists the costliest clusters; its month to
+date also counts what clusters spent this month before they were deleted or
+stopped reporting, and names them, since no provider row includes it; a cluster
 read adds the component breakdown, the namespace allocation and the daily
 trend. The savings model reads the biggest priced clusters and proposes one
 lever per cluster (right-size idle capacity, reduce unallocated run rate, or
@@ -356,12 +358,16 @@ func renderFleetCloudCost(out io.Writer, summary *client.FleetCloudCost) {
 		}
 		writer.Render()
 	}
+	renderFleetCostUnmetered(out, summary)
 }
 
-// renderFleetCloudCostHeader prints the totals and the scope line, and
-// reports false (after saying so) when nothing is priced yet.
+// renderFleetCloudCostHeader prints the totals, when they were computed,
+// the spend of clusters no longer metered and the scope line, and reports
+// false (after saying so) when nothing is priced yet. Nothing is priced only
+// when no cluster is metered and nothing in scope spent anything this month:
+// a project whose only cluster was deleted still spent what it spent.
 func renderFleetCloudCostHeader(out io.Writer, summary *client.FleetCloudCost) bool {
-	if summary.ClusterCount == 0 {
+	if summary.ClusterCount == 0 && summary.MonthToDateCents == 0 && len(summary.UnmeteredClusters) == 0 {
 		_, _ = fmt.Fprintln(out, "No priced clusters yet.")
 		_, _ = fmt.Fprintln(out, "Estimates appear once a cluster on AWS, Google Cloud, Azure, Hetzner, OVHcloud, UpCloud or Scaleway has reported pricing in the last day; AWS, Google Cloud and Azure clusters need a connected cloud credential.")
 		return false
@@ -370,11 +376,162 @@ func renderFleetCloudCostHeader(out io.Writer, summary *client.FleetCloudCost) b
 	_, _ = fmt.Fprintf(out, "Cloud cost (%s): %s projected month end · %s month to date · %s/mo run rate\n",
 		strings.ToUpper(currency), formatCostCents(summary.ProjectedMonthEndCents, currency),
 		formatCostCents(summary.MonthToDateCents, currency), formatCostCents(summary.MonthlyCostEstimateCents, currency))
-	_, _ = fmt.Fprintf(out, "  %s priced across %d provider(s)\n", pluralClusters(summary.ClusterCount), len(summary.ByProvider))
+	asOf := ""
+	if summary.GeneratedAt != nil && *summary.GeneratedAt != "" {
+		asOf = " · as of " + *summary.GeneratedAt
+	}
+	if summary.ClusterCount > 0 {
+		_, _ = fmt.Fprintf(out, "  %s priced across %d provider(s)%s\n", pluralClusters(summary.ClusterCount), len(summary.ByProvider), asOf)
+	} else {
+		_, _ = fmt.Fprintln(out, "  No cluster is metered now, so the run rate is zero; the month to date is what clusters no longer metered spent this month.")
+	}
+	for _, line := range fleetCostUnmeteredLines(summary) {
+		_, _ = fmt.Fprintf(out, "  %s\n", line)
+	}
 	if scopeLine := fleetCostScopeLine(summary.Scope); scopeLine != "" {
 		_, _ = fmt.Fprintf(out, "  %s\n", scopeLine)
 	}
 	return true
+}
+
+// The reasons a cluster's spend is counted but no longer metered.
+const (
+	fleetUnmeteredDeleted          = "deleted"
+	fleetUnmeteredStoppedReporting = "stopped reporting"
+	fleetUnmeteredMovedOut         = "moved to another project"
+)
+
+// fleetUnmeteredReason is why a cluster's month is in the totals with no
+// fresh snapshot: deleted this month, moved to another project after
+// spending under the one read, or - any other live cluster - stopped
+// reporting.
+func fleetUnmeteredReason(cluster client.FleetUnmeteredCluster) string {
+	switch {
+	case cluster.IsDeleted:
+		return fleetUnmeteredDeleted
+	case cluster.IsMovedOut:
+		return fleetUnmeteredMovedOut
+	default:
+		return fleetUnmeteredStoppedReporting
+	}
+}
+
+// fleetCostUnmeteredLines name the spend the month to date carries from
+// clusters no longer metered, which no provider row includes: "€336.16 of
+// the month to date is from 27 clusters that were deleted or stopped
+// reporting this month (19 deleted, 8 stopped reporting) ...". A live
+// cluster that stopped reporting may still be running, so its cost since it
+// was last metered is in no figure and the month end is a floor. A platform
+// that predates the field (nil) gets no line: it counted no such spend.
+func fleetCostUnmeteredLines(summary *client.FleetCloudCost) []string {
+	if len(summary.UnmeteredClusters) == 0 {
+		return nil
+	}
+	reasons := []string{fleetUnmeteredDeleted, fleetUnmeteredStoppedReporting, fleetUnmeteredMovedOut}
+	spentByReason := map[string]int{}
+	spendingCount := 0
+	stoppedCount := 0
+	var spentCents int64
+	for _, cluster := range summary.UnmeteredClusters {
+		reason := fleetUnmeteredReason(cluster)
+		if reason == fleetUnmeteredStoppedReporting {
+			stoppedCount++
+		}
+		if cluster.MonthToDateCents > 0 {
+			spendingCount++
+			spentByReason[reason]++
+			spentCents += cluster.MonthToDateCents
+		}
+	}
+	if summary.UnmeteredMonthToDateCents != nil {
+		spentCents = *summary.UnmeteredMonthToDateCents
+	}
+	lines := []string{}
+	if spendingCount > 0 && spentCents > 0 {
+		verbs, parts := []string{}, []string{}
+		for _, reason := range reasons {
+			count := spentByReason[reason]
+			if count == 0 {
+				continue
+			}
+			parts = append(parts, fmt.Sprintf("%d %s", count, reason))
+			switch {
+			case reason == fleetUnmeteredDeleted && spendingCount == 1:
+				verbs = append(verbs, "was deleted")
+			case reason == fleetUnmeteredDeleted:
+				verbs = append(verbs, "were deleted")
+			default:
+				verbs = append(verbs, reason)
+			}
+		}
+		line := fmt.Sprintf("%s of the month to date is from %s that %s this month", formatCostCents(spentCents, summary.Currency),
+			pluralClusters(spendingCount), joinAlternatives(verbs))
+		if len(parts) > 1 {
+			line += " (" + strings.Join(parts, ", ") + ")"
+		}
+		lines = append(lines, line+"; no provider row includes it.")
+	}
+	if stoppedCount > 0 {
+		pronoun := "they were"
+		if stoppedCount == 1 {
+			pronoun = "it was"
+		}
+		lines = append(lines, fmt.Sprintf("What the %s that stopped reporting cost since %s last metered is not in these figures, so the projected month end is a floor.",
+			pluralClusters(stoppedCount), pronoun))
+	}
+	return lines
+}
+
+// joinAlternatives joins phrases as "a", "a or b", "a, b or c".
+func joinAlternatives(phrases []string) string {
+	if len(phrases) <= 1 {
+		return strings.Join(phrases, "")
+	}
+	return strings.Join(phrases[:len(phrases)-1], ", ") + " or " + phrases[len(phrases)-1]
+}
+
+// fleetCostUnmeteredRows is how many unmetered clusters the summary lists;
+// -o json carries every one.
+const fleetCostUnmeteredRows = 10
+
+// renderFleetCostUnmetered lists the clusters whose spend the month to date
+// carries without a fresh snapshot, costliest first, with why and when each
+// was last metered.
+func renderFleetCostUnmetered(out io.Writer, summary *client.FleetCloudCost) {
+	if len(summary.UnmeteredClusters) == 0 {
+		return
+	}
+	currency := summary.Currency
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, "Deleted or stopped reporting this month (in the month to date, in no provider row):")
+	writer := newCostTable(out)
+	writer.AppendHeader(table.Row{"Cluster", "Why", "Provider", "Month to date", "Last metered", "Cluster ID"})
+	listed := summary.UnmeteredClusters
+	if len(listed) > fleetCostUnmeteredRows {
+		listed = listed[:fleetCostUnmeteredRows]
+	}
+	for _, cluster := range listed {
+		provider := "—"
+		if cluster.Provider != nil {
+			provider = costProviderLabel(*cluster.Provider)
+		}
+		lastMetered := "—"
+		if cluster.LastSnapshotAt != nil && *cluster.LastSnapshotAt != "" {
+			lastMetered = *cluster.LastSnapshotAt
+		}
+		writer.AppendRow(table.Row{
+			cluster.ClusterName,
+			fleetUnmeteredReason(cluster),
+			provider,
+			formatCostCents(cluster.MonthToDateCents, currency),
+			lastMetered,
+			cluster.ClusterID,
+		})
+	}
+	writer.Render()
+	if hidden := len(summary.UnmeteredClusters) - len(listed); hidden > 0 {
+		_, _ = fmt.Fprintf(out, "… and %d more (-o json lists every one)\n", hidden)
+	}
 }
 
 // renderFleetCloudCostBreakdown is `cost summary --by`: the totals and the
