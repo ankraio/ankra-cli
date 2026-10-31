@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -162,24 +163,40 @@ var costDecisionsActivityCmd = &cobra.Command{
 
 var costDecisionsApproveCmd = &cobra.Command{
 	Use:   "approve <decision-id>",
-	Short: "Approve a proposal, with an optional note (a set-aside or failed one is re-opened or retried)",
-	Args:  cobra.ExactArgs(1),
-	Example: `  ankra cost decisions approve 0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e
+	Short: "Approve a proposal's plan, with an optional note (a set-aside or failed one is re-opened or retried)",
+	Long: `Approve a proposal's plan. The approval is of one plan: the platform refuses
+it, and approves nothing, when the proposal was proposed again with another
+plan in the meantime (the cost autopilot and the web page refresh proposals
+that nobody has decided yet).
+
+Pass --plan-hash with the plan_hash 'ankra cost decisions get' showed you to
+approve exactly the plan you reviewed. Without it the proposal is read first
+and the plan that read shows is the one approved.`,
+	Args: cobra.ExactArgs(1),
+	Example: `  ankra cost decisions get 0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e
+  ankra cost decisions approve 0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e --plan-hash <plan_hash from get>
   ankra cost decisions approve 0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e --note "Checked with the platform team"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		decisionID := strings.TrimSpace(args[0])
 		if err := costDecisionRequireID(decisionID); err != nil {
 			return err
 		}
-		proposal, err := apiClient.ApproveDecision(decisionID, costDecisionNote(cmd))
+		planHash, planHashError := costDecisionPlanHash(cmd, decisionID)
+		if planHashError != nil {
+			return planHashError
+		}
+		proposal, err := apiClient.ApproveDecision(decisionID, costDecisionNote(cmd), planHash)
 		if err != nil {
-			return costDecisionsError(err, "approving the decision", "POST /api/v1/org/decisions/{decision_id}/approve", true)
+			return costDecisionApproveError(err, decisionID)
 		}
 		if rendered, err := renderStructured(cmd, proposal); rendered || err != nil {
 			return err
 		}
 		out := cmd.OutOrStdout()
 		_, _ = fmt.Fprintf(out, "Approved %s: %s\n", proposal.ID, proposal.Summary)
+		if planHash != "" {
+			_, _ = fmt.Fprintf(out, "The approved plan has plan_hash %s.\n", planHash)
+		}
 		if proposal.Executable {
 			_, _ = fmt.Fprintf(out, "Run it with: ankra cost decisions execute %s\n", proposal.ID)
 		} else {
@@ -343,6 +360,8 @@ func init() {
 	for _, command := range []*cobra.Command{costDecisionsApproveCmd, costDecisionsSetAsideCmd, costDecisionsHoldCmd, costDecisionsReleaseCmd} {
 		command.Flags().String("note", "", "A note recorded with the decision (up to 2000 characters)")
 	}
+	costDecisionsApproveCmd.Flags().String("plan-hash", "",
+		"The plan_hash 'ankra cost decisions get' showed: approve that plan or nothing (read first when omitted)")
 	costDecisionsSetAsideCmd.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
 	costDecisionsExecuteCmd.Flags().Bool("acknowledge-no-snapshot", false,
 		"Give the written consent a plan that deletes something no snapshot keeps needs: the deletion is final")
@@ -407,6 +426,51 @@ func costDecisionExecuteError(executeError error, decisionID string) error {
 			strings.TrimSpace(unexpected.Detail)))
 	}
 	return costDecisionsError(executeError, "running the decision", "POST /api/v1/org/decisions/{decision_id}/execute", true)
+}
+
+// costDecisionPlanHashPattern is the shape of a plan_hash: SHA-256 in
+// lowercase hexadecimal.
+var costDecisionPlanHashPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// costDecisionPlanHash is the plan an approval is of: --plan-hash when it was
+// given, and otherwise the plan_hash of the proposal as it reads now. A
+// platform that predates plan_hash reads with none, and the approval then
+// names no plan, as it did before.
+func costDecisionPlanHash(cmd *cobra.Command, decisionID string) (string, error) {
+	if cmd.Flags().Changed("plan-hash") {
+		planHash, _ := cmd.Flags().GetString("plan-hash")
+		planHash = strings.TrimSpace(planHash)
+		if !costDecisionPlanHashPattern.MatchString(planHash) {
+			return "", withExitCode(exitUsage, fmt.Errorf(
+				"--plan-hash must be the plan_hash 'ankra cost decisions get %s' shows: 64 lowercase hexadecimal digits", decisionID))
+		}
+		return planHash, nil
+	}
+	current, readError := apiClient.GetDecision(decisionID)
+	if readError != nil {
+		return "", costDecisionsError(readError, "reading the decision before approving its plan", "GET /api/v1/org/decisions/{decision_id}", true)
+	}
+	if current == nil {
+		return "", nil
+	}
+	return current.PlanHash, nil
+}
+
+// costDecisionApproveError reports why an approval did not happen. A plan
+// the proposal no longer holds approved nothing: it says so, names the plan
+// the proposal holds now and how to approve that one, so nobody retries the
+// old plan blindly. Anything else maps like every other ledger route.
+func costDecisionApproveError(approveError error, decisionID string) error {
+	var drifted *client.DecisionPlanDriftedError
+	if !errors.As(approveError, &drifted) {
+		return costDecisionsError(approveError, "approving the decision", "POST /api/v1/org/decisions/{decision_id}/approve", true)
+	}
+	next := fmt.Sprintf("Read it with 'ankra cost decisions get %s' and approve it again if it is still what you want", decisionID)
+	if drifted.Current != nil && drifted.Current.PlanHash != "" {
+		next = fmt.Sprintf("Its plan now has plan_hash %s: read it with 'ankra cost decisions get %s' and, if it is still what you want, "+
+			"approve it with --plan-hash %s", drifted.Current.PlanHash, decisionID, drifted.Current.PlanHash)
+	}
+	return withExitCode(exitError, fmt.Errorf("not approved: %s %s", strings.TrimSpace(drifted.Detail), next))
 }
 
 // costDecisionTransitionError reports why a hold or a release did not happen.
@@ -715,8 +779,17 @@ func renderCostDecision(out io.Writer, proposal *client.DecisionProposal) {
 	}
 
 	_, _ = fmt.Fprintln(out)
-	_, _ = fmt.Fprintln(out, "Plan:")
+	if proposal.PlanHash == "" {
+		_, _ = fmt.Fprintln(out, "Plan:")
+	} else {
+		_, _ = fmt.Fprintf(out, "Plan (plan_hash %s):\n", proposal.PlanHash)
+	}
 	_, _ = fmt.Fprintln(out, indentedJSON(proposal.Plan, "  "))
+	// The statuses approve takes a proposal from: approving with this hash
+	// approves exactly the plan above, or nothing if it is proposed again.
+	if proposal.PlanHash != "" && (proposal.Status == "proposed" || proposal.Status == "set_aside" || proposal.Status == "failed") {
+		_, _ = fmt.Fprintf(out, "  Approve exactly this plan with: ankra cost decisions approve %s --plan-hash %s\n", proposal.ID, proposal.PlanHash)
+	}
 
 	if proposal.Area == costDecisionsArea {
 		_, _ = fmt.Fprintln(out)

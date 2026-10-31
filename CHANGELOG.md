@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ankra cost decisions approve` approves the plan you reviewed, or nothing.** The cost autopilot and the web page refresh proposals nobody has decided yet, so a plan could change between reading it and approving it, and the approval landed on a plan nobody had seen. `ankra cost decisions get` now shows each plan's `plan_hash` and the command that approves exactly that plan: `approve --plan-hash <hash>`. Without the flag, `approve` reads the proposal first and approves the plan that read shows. When the plan has changed since, the platform refuses the approval and approves nothing. The command then exits 1 and names the plan the proposal holds now, so you can read it and approve it again. On a platform that predates `plan_hash`, the approval names no plan, as before.
+
 ## v0.52.5 - 2026-10-31
 
 This release adds audited controls for inspecting the profile analysis runtime

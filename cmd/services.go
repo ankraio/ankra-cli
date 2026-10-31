@@ -186,7 +186,7 @@ type APIClient interface {
 	ListDecisions(filter client.DecisionListFilter) (*client.DecisionProposalList, error)
 	GetDecision(decisionID string) (*client.DecisionProposal, error)
 	GetDecisionActivity(decisionID string) (*client.DecisionActivity, error)
-	ApproveDecision(decisionID string, note *string) (*client.DecisionProposal, error)
+	ApproveDecision(decisionID string, note *string, planHash string) (*client.DecisionProposal, error)
 	SetAsideDecision(decisionID string, note *string) (*client.DecisionProposal, error)
 	HoldDecision(decisionID string, note *string) (*client.DecisionProposal, error)
 	ReleaseDecision(decisionID string, note *string) (*client.DecisionProposal, error)

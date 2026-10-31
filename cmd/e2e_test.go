@@ -847,7 +847,7 @@ func (m baseMock) GetDecisionActivity(decisionID string) (*client.DecisionActivi
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ApproveDecision(decisionID string, note *string) (*client.DecisionProposal, error) {
+func (m baseMock) ApproveDecision(decisionID string, note *string, planHash string) (*client.DecisionProposal, error) {
 	return nil, errors.New("not implemented")
 }
 
