@@ -6,6 +6,12 @@
 
 - **Inspect the profile analysis runtime with `ankra stack-profiles summary runtime-qualification start|get|cancel`.** Fixed synthetic checks use the organisation's configured staging cluster and approved candidate image. Save the request ID printed before starting and reuse it after an uncertain response. `--wait --timeout 10m` follows an operation with a bounded wait; JSON and YAML keep stdout parseable. Completed reports show each satisfied, violated and unverified observation separately. Completion and cancellation do not prove every check passed, issue an admission receipt, or enable AI generation.
 
+## v0.52.4 - 2026-10-31
+
+This release keeps cluster information tied to the exact cluster you requested
+and gives backup-policy updates enough time to complete. If an update response
+is lost, the CLI explains how to check whether the policy was saved.
+
 ### Fixed
 
 - **`ankra cluster info` keeps the selected or explicitly requested cluster's identity.** A recreated cluster with the same name no longer replaces the requested cluster in the output. Saved selections refresh by ID, so renames work and missing selections report lookup failures instead of substituting another cluster.
