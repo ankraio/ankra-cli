@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v0.52.5 - 2026-10-31
+
+This release adds audited controls for inspecting the profile analysis runtime
+with fixed synthetic checks. Reports preserve satisfied, violated and unverified
+observations; installing the CLI does not enable generation or start a check.
+
 ### Added
 
 - **Inspect the profile analysis runtime with `ankra stack-profiles summary runtime-qualification start|get|cancel`.** Fixed synthetic checks use the organisation's configured staging cluster and approved candidate image. Save the request ID printed before starting and reuse it after an uncertain response. `--wait --timeout 10m` follows an operation with a bounded wait; JSON and YAML keep stdout parseable. Completed reports show each satisfied, violated and unverified observation separately. Completion and cancellation do not prove every check passed, issue an admission receipt, or enable AI generation.
