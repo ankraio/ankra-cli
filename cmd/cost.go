@@ -334,6 +334,90 @@ func pluralClusters(count int) string {
 	return fmt.Sprintf("%d clusters", count)
 }
 
+// costCount is a count with its thousands grouped: 1,440.
+func costCount(count int) string {
+	digits := strconv.Itoa(count)
+	sign := ""
+	if strings.HasPrefix(digits, "-") {
+		sign, digits = "-", digits[1:]
+	}
+	for index := len(digits) - 3; index > 0; index -= 3 {
+		digits = digits[:index] + "," + digits[index:]
+	}
+	return sign + digits
+}
+
+// costCountOf is a grouped count with the word that agrees with it.
+func costCountOf(count int, singular string, plural string) string {
+	if count == 1 {
+		return "1 " + singular
+	}
+	return costCount(count) + " " + plural
+}
+
+// costMonthFloorMark marks a table figure built on a month so far that is
+// short of metered hours: it is at least what it says.
+const costMonthFloorMark = "≥ "
+
+// costMonthHours words the hours a month-to-date figure holds
+// (ankra-bn86k4.4.8.2): "Month so far covers 718 of 720 hours; 2 hours were
+// not metered, so the figure is a floor." Short reports that hours are
+// missing, so the month to date and the month end built on it are at least
+// what they say. It says nothing when the platform did not count the hours
+// (nil: a platform that predates them, or a sum with a cluster it could not
+// count), which is not a whole month, and nothing when every hour was metered
+// by a reading of its own, the ordinary case. The counts decide, never the
+// platform's is_short or note, so the line cannot name "0 hours" missing.
+func costMonthHours(hours *client.MonthHours) (line string, short bool) {
+	if hours == nil || hours.HoursElapsed <= 0 {
+		return "", false
+	}
+	metered := min(max(hours.HoursMetered, 0), hours.HoursElapsed)
+	missing := hours.HoursElapsed - metered
+	short = missing > 0
+	estimated := min(max(hours.HoursEstimated, 0), metered)
+	if !short && estimated == 0 {
+		return "", false
+	}
+	// Summed over several clusters the platform counts cluster hours: two
+	// clusters for a day are 48 of them.
+	unit := "hours"
+	if hours.HoursElapsed == 1 {
+		unit = "hour"
+	}
+	if hours.ClusterCount > 1 {
+		unit = "cluster " + unit
+	}
+	if short {
+		across := ""
+		if hours.ClusterCount > 1 && hours.ShortClusterCount > 0 {
+			across = " across " + costCountOf(hours.ShortClusterCount, "cluster", "clusters")
+		}
+		line = fmt.Sprintf("Month so far covers %s of %s %s; %s not metered%s, so the figure is a floor.",
+			costCount(metered), costCount(hours.HoursElapsed), unit, costCountOf(missing, "hour was", "hours were"), across)
+	} else {
+		line = fmt.Sprintf("Month so far covers all %s %s.", costCount(hours.HoursElapsed), unit)
+	}
+	if estimated > 0 {
+		estimates := "are estimates"
+		if estimated == 1 {
+			estimates = "is an estimate"
+		}
+		line += fmt.Sprintf(" %s of the covered hours %s: no metering ran then, so the next reading was copied.",
+			costCount(estimated), estimates)
+	}
+	return line, short
+}
+
+// costMonthAtLeast is "at least " before a figure built on a month so far
+// that is short of metered hours, and "" otherwise.
+func costMonthAtLeast(short bool) string {
+	if short {
+		return "at least "
+	}
+	return ""
+}
+
 func renderFleetCloudCost(out io.Writer, summary *client.FleetCloudCost) {
 	if !renderFleetCloudCostHeader(out, summary) {
 		return
@@ -346,25 +430,35 @@ func renderFleetCloudCost(out io.Writer, summary *client.FleetCloudCost) {
 		_, _ = fmt.Fprintln(out, "Costliest clusters:")
 		writer := newCostTable(out)
 		writer.AppendHeader(table.Row{"#", "Cluster", "Provider", "Projected", "Month to date", "Confidence", "Cluster ID"})
+		anyShort := false
 		for index, cluster := range summary.TopClusters {
+			mark := ""
+			if _, short := costMonthHours(cluster.MonthHours); short {
+				mark, anyShort = costMonthFloorMark, true
+			}
 			writer.AppendRow(table.Row{
 				index + 1,
 				cluster.ClusterName,
 				costProviderLabel(cluster.Provider),
-				formatCostCents(cluster.ProjectedMonthEndCents, currency),
-				formatCostCents(cluster.MonthToDateCents, currency),
+				mark + formatCostCents(cluster.ProjectedMonthEndCents, currency),
+				mark + formatCostCents(cluster.MonthToDateCents, currency),
 				cluster.ConfidenceLevel,
 				cluster.ClusterID,
 			})
 		}
 		writer.Render()
+		if anyShort {
+			_, _ = fmt.Fprintf(out, "%smarks a cluster whose month so far is short of metered hours, so its figures are floors.\n",
+				costMonthFloorMark)
+		}
 	}
 	renderFleetCostUnmetered(out, summary)
 }
 
 // renderFleetCloudCostHeader prints the totals, when they were computed
 // (whenever the platform sent generated_at, metered clusters or not), the
-// spend of clusters no longer metered and the scope line, and reports
+// hours of the month the month to date holds when some were not metered,
+// the spend of clusters no longer metered and the scope line, and reports
 // false (after saying so) when nothing is priced yet. Nothing is priced only
 // when no cluster is metered and nothing in scope spent anything this month:
 // a project whose only cluster was deleted still spent what it spent.
@@ -375,9 +469,11 @@ func renderFleetCloudCostHeader(out io.Writer, summary *client.FleetCloudCost) b
 		return false
 	}
 	currency := summary.Currency
-	_, _ = fmt.Fprintf(out, "Cloud cost (%s): %s projected month end · %s month to date · %s/mo run rate\n",
-		strings.ToUpper(currency), formatCostCents(summary.ProjectedMonthEndCents, currency),
-		formatCostCents(summary.MonthToDateCents, currency), formatCostCents(summary.MonthlyCostEstimateCents, currency))
+	monthHours, monthShort := costMonthHours(summary.MonthHours)
+	atLeast := costMonthAtLeast(monthShort)
+	_, _ = fmt.Fprintf(out, "Cloud cost (%s): %s%s projected month end · %s%s month to date · %s/mo run rate\n",
+		strings.ToUpper(currency), atLeast, formatCostCents(summary.ProjectedMonthEndCents, currency),
+		atLeast, formatCostCents(summary.MonthToDateCents, currency), formatCostCents(summary.MonthlyCostEstimateCents, currency))
 	generatedAt := ""
 	if summary.GeneratedAt != nil {
 		generatedAt = *summary.GeneratedAt
@@ -393,6 +489,9 @@ func renderFleetCloudCostHeader(out io.Writer, summary *client.FleetCloudCost) b
 		if generatedAt != "" {
 			_, _ = fmt.Fprintf(out, "  Figures as of %s.\n", generatedAt)
 		}
+	}
+	if monthHours != "" {
+		_, _ = fmt.Fprintf(out, "  %s\n", monthHours)
 	}
 	for _, line := range fleetCostUnmeteredLines(summary) {
 		_, _ = fmt.Fprintf(out, "  %s\n", line)
@@ -725,9 +824,11 @@ func renderClusterCost(out io.Writer, clusterReference string, cost *client.Clus
 	}
 	summary := cost.Summary
 	currency := summary.Currency
-	_, _ = fmt.Fprintf(out, "Cost for %s (%s, %s): %s projected month end · %s month to date · %s/mo run rate · %s/hr\n",
+	monthHours, monthShort := costMonthHours(summary.MonthHours)
+	atLeast := costMonthAtLeast(monthShort)
+	_, _ = fmt.Fprintf(out, "Cost for %s (%s, %s): %s%s projected month end · %s%s month to date · %s/mo run rate · %s/hr\n",
 		clusterReference, costProviderLabel(summary.Provider), strings.ToUpper(currency),
-		formatCostCents(summary.ProjectedMonthEndCents, currency), formatCostCents(summary.MonthToDateCents, currency),
+		atLeast, formatCostCents(summary.ProjectedMonthEndCents, currency), atLeast, formatCostCents(summary.MonthToDateCents, currency),
 		formatCostCents(summary.MonthlyCostEstimateCents, currency), formatCostCents(summary.HourlyCostCents, currency))
 	coverage := fmt.Sprintf("%d of %d nodes priced", summary.PricedNodeCount, summary.TotalNodeCount)
 	if summary.CoverageIncomplete {
@@ -742,6 +843,9 @@ func renderClusterCost(out io.Writer, clusterReference string, cost *client.Clus
 		_, _ = fmt.Fprintf(out, " · snapshot %s", summary.SnapshotAt)
 	}
 	_, _ = fmt.Fprintln(out)
+	if monthHours != "" {
+		_, _ = fmt.Fprintf(out, "  %s\n", monthHours)
+	}
 
 	_, _ = fmt.Fprintln(out)
 	_, _ = fmt.Fprintln(out, "Run rate by component (per month):")

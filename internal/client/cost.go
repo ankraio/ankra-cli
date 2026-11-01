@@ -21,15 +21,39 @@ type FleetProviderCost struct {
 	ProjectedMonthEndCents   int64  `json:"projected_month_end_cents" yaml:"projected_month_end_cents"`
 }
 
+// MonthHours is how many hours of the UTC month so far a month-to-date
+// figure holds, for one cluster or summed over several. HoursElapsed is the
+// hours the figure could hold (each hour since the cluster was first priced,
+// up to its deletion), HoursMetered how many of them a cost reading holds,
+// and HoursEstimated how many of those were only copied from the next
+// reading because no metering ran for them. IsShort is true when
+// HoursMetered is below HoursElapsed: the month to date, and the month end
+// built on it, are floors. Summed over clusters the hours are cluster hours,
+// ClusterCount says how many clusters and ShortClusterCount how many of them
+// are short. Note is the platform's own sentence; the CLI words the counts
+// itself. A platform that predates the field, or could not count every
+// cluster, sends none: a nil MonthHours is "not counted", never "whole".
+type MonthHours struct {
+	HoursElapsed      int    `json:"hours_elapsed" yaml:"hours_elapsed"`
+	HoursMetered      int    `json:"hours_metered" yaml:"hours_metered"`
+	HoursEstimated    int    `json:"hours_estimated" yaml:"hours_estimated"`
+	IsShort           bool   `json:"is_short" yaml:"is_short"`
+	ClusterCount      int    `json:"cluster_count" yaml:"cluster_count"`
+	ShortClusterCount int    `json:"short_cluster_count" yaml:"short_cluster_count"`
+	Note              string `json:"note,omitempty" yaml:"note,omitempty"`
+}
+
 // FleetClusterCost is one of the organisation's costliest clusters.
+// MonthHours is nil when the platform did not count its hours.
 type FleetClusterCost struct {
-	ClusterID                string `json:"cluster_id" yaml:"cluster_id"`
-	ClusterName              string `json:"cluster_name" yaml:"cluster_name"`
-	Provider                 string `json:"provider" yaml:"provider"`
-	MonthlyCostEstimateCents int64  `json:"monthly_cost_estimate_cents" yaml:"monthly_cost_estimate_cents"`
-	MonthToDateCents         int64  `json:"month_to_date_cents" yaml:"month_to_date_cents"`
-	ProjectedMonthEndCents   int64  `json:"projected_month_end_cents" yaml:"projected_month_end_cents"`
-	ConfidenceLevel          string `json:"confidence_level" yaml:"confidence_level"`
+	ClusterID                string      `json:"cluster_id" yaml:"cluster_id"`
+	ClusterName              string      `json:"cluster_name" yaml:"cluster_name"`
+	Provider                 string      `json:"provider" yaml:"provider"`
+	MonthlyCostEstimateCents int64       `json:"monthly_cost_estimate_cents" yaml:"monthly_cost_estimate_cents"`
+	MonthToDateCents         int64       `json:"month_to_date_cents" yaml:"month_to_date_cents"`
+	ProjectedMonthEndCents   int64       `json:"projected_month_end_cents" yaml:"projected_month_end_cents"`
+	ConfidenceLevel          string      `json:"confidence_level" yaml:"confidence_level"`
+	MonthHours               *MonthHours `json:"month_hours,omitempty" yaml:"month_hours,omitempty"`
 }
 
 // FleetProjectCost is one project's slice of the cost rollup. A nil project
@@ -98,6 +122,8 @@ type FleetUnmeteredCluster struct {
 // about unmetered spend in either case, never a zero or "none". An older
 // platform also left that spend out of its month to date, so its provider
 // rows add up and there is no gap to name. GeneratedAt is nil when not sent.
+// MonthHours is the hours of every cluster the month to date counts, summed;
+// nil when the platform did not count them.
 type FleetCloudCost struct {
 	RawDocument `json:"-" yaml:"-"`
 
@@ -114,6 +140,7 @@ type FleetCloudCost struct {
 	UnmeteredClusters         []FleetUnmeteredCluster `json:"unmetered_clusters,omitempty" yaml:"unmetered_clusters,omitempty"`
 	UnmeteredMonthToDateCents *int64                  `json:"unmetered_month_to_date_cents,omitempty" yaml:"unmetered_month_to_date_cents,omitempty"`
 	GeneratedAt               *string                 `json:"generated_at,omitempty" yaml:"generated_at,omitempty"`
+	MonthHours                *MonthHours             `json:"month_hours,omitempty" yaml:"month_hours,omitempty"`
 }
 
 // CostReadiness explains why a cluster has no estimate yet (or that it is
@@ -131,33 +158,35 @@ type CostReadiness struct {
 // ClusterCostSummary is a cluster's latest cost snapshot. The component
 // fields (compute, storage, network, control plane, infrastructure, idle,
 // unallocated) are HOURLY cents; the monthly, month-to-date and projected
-// totals are already monthly.
+// totals are already monthly. MonthHours is the hours of the month the
+// month to date holds; nil when the platform did not count them.
 type ClusterCostSummary struct {
-	Provider                 string  `json:"provider" yaml:"provider"`
-	Currency                 string  `json:"currency" yaml:"currency"`
-	TotalNodeCount           int     `json:"total_node_count" yaml:"total_node_count"`
-	PricedNodeCount          int     `json:"priced_node_count" yaml:"priced_node_count"`
-	CoverageIncomplete       bool    `json:"coverage_incomplete" yaml:"coverage_incomplete"`
-	HourlyCostCents          int64   `json:"hourly_cost_cents" yaml:"hourly_cost_cents"`
-	MonthlyCostEstimateCents int64   `json:"monthly_cost_estimate_cents" yaml:"monthly_cost_estimate_cents"`
-	MonthToDateCents         int64   `json:"month_to_date_cents" yaml:"month_to_date_cents"`
-	ProjectedMonthEndCents   int64   `json:"projected_month_end_cents" yaml:"projected_month_end_cents"`
-	ConfidenceLevel          string  `json:"confidence_level" yaml:"confidence_level"`
-	IsEstimated              bool    `json:"is_estimated" yaml:"is_estimated"`
-	SnapshotAt               string  `json:"snapshot_at" yaml:"snapshot_at"`
-	ComputeOnDemandCents     int64   `json:"compute_on_demand_cents" yaml:"compute_on_demand_cents"`
-	ComputeSpotCents         int64   `json:"compute_spot_cents" yaml:"compute_spot_cents"`
-	StorageCents             int64   `json:"storage_cents" yaml:"storage_cents"`
-	NetworkCents             int64   `json:"network_cents" yaml:"network_cents"`
-	ControlPlaneCents        int64   `json:"control_plane_cents" yaml:"control_plane_cents"`
-	InfrastructureCents      int64   `json:"infrastructure_cents" yaml:"infrastructure_cents"`
-	IdleHourlyCents          int64   `json:"idle_hourly_cents" yaml:"idle_hourly_cents"`
-	UnallocatedHourlyCents   int64   `json:"unallocated_hourly_cents" yaml:"unallocated_hourly_cents"`
-	SpotNodeCount            int     `json:"spot_node_count" yaml:"spot_node_count"`
-	OnDemandNodeCount        int     `json:"on_demand_node_count" yaml:"on_demand_node_count"`
-	StorageVolumeCount       int     `json:"storage_volume_count" yaml:"storage_volume_count"`
-	UnpricedVolumeCount      int     `json:"unpriced_volume_count" yaml:"unpriced_volume_count"`
-	AppliedDiscountPct       float64 `json:"applied_discount_pct" yaml:"applied_discount_pct"`
+	Provider                 string      `json:"provider" yaml:"provider"`
+	Currency                 string      `json:"currency" yaml:"currency"`
+	TotalNodeCount           int         `json:"total_node_count" yaml:"total_node_count"`
+	PricedNodeCount          int         `json:"priced_node_count" yaml:"priced_node_count"`
+	CoverageIncomplete       bool        `json:"coverage_incomplete" yaml:"coverage_incomplete"`
+	HourlyCostCents          int64       `json:"hourly_cost_cents" yaml:"hourly_cost_cents"`
+	MonthlyCostEstimateCents int64       `json:"monthly_cost_estimate_cents" yaml:"monthly_cost_estimate_cents"`
+	MonthToDateCents         int64       `json:"month_to_date_cents" yaml:"month_to_date_cents"`
+	ProjectedMonthEndCents   int64       `json:"projected_month_end_cents" yaml:"projected_month_end_cents"`
+	ConfidenceLevel          string      `json:"confidence_level" yaml:"confidence_level"`
+	IsEstimated              bool        `json:"is_estimated" yaml:"is_estimated"`
+	SnapshotAt               string      `json:"snapshot_at" yaml:"snapshot_at"`
+	ComputeOnDemandCents     int64       `json:"compute_on_demand_cents" yaml:"compute_on_demand_cents"`
+	ComputeSpotCents         int64       `json:"compute_spot_cents" yaml:"compute_spot_cents"`
+	StorageCents             int64       `json:"storage_cents" yaml:"storage_cents"`
+	NetworkCents             int64       `json:"network_cents" yaml:"network_cents"`
+	ControlPlaneCents        int64       `json:"control_plane_cents" yaml:"control_plane_cents"`
+	InfrastructureCents      int64       `json:"infrastructure_cents" yaml:"infrastructure_cents"`
+	IdleHourlyCents          int64       `json:"idle_hourly_cents" yaml:"idle_hourly_cents"`
+	UnallocatedHourlyCents   int64       `json:"unallocated_hourly_cents" yaml:"unallocated_hourly_cents"`
+	SpotNodeCount            int         `json:"spot_node_count" yaml:"spot_node_count"`
+	OnDemandNodeCount        int         `json:"on_demand_node_count" yaml:"on_demand_node_count"`
+	StorageVolumeCount       int         `json:"storage_volume_count" yaml:"storage_volume_count"`
+	UnpricedVolumeCount      int         `json:"unpriced_volume_count" yaml:"unpriced_volume_count"`
+	AppliedDiscountPct       float64     `json:"applied_discount_pct" yaml:"applied_discount_pct"`
+	MonthHours               *MonthHours `json:"month_hours,omitempty" yaml:"month_hours,omitempty"`
 }
 
 // CostTrendPoint is one day of the monthly estimate series.
@@ -466,7 +495,8 @@ func (c *Client) GetCloudSavings() (*CloudSavings, error) {
 }
 
 // CloudLedgerCounts is how many ledger rows sit in each measurement state.
-// Unmeasured covers both unmeasured states (coverage moved, no snapshots).
+// Unmeasured covers every unmeasured state (coverage moved, no snapshots,
+// another change overlapped, within normal day-to-day swings).
 // The counts cover the whole ledger, not only the rows returned.
 type CloudLedgerCounts struct {
 	Pending    int `json:"pending" yaml:"pending"`
@@ -498,9 +528,13 @@ type CloudLedgerVerificationDay struct {
 // figure is a real measurement (the run rate rose).
 //
 // MeasurementStatus is not_applicable, pending (inside the verification
-// window), measured, unmeasured_coverage_moved, unmeasured_no_snapshots or
-// reverted; MeasurementReason is the platform's sentence for an unmeasured
-// or reverted row. Days is how many whole days of the window have passed.
+// window), measured, unmeasured_coverage_moved, unmeasured_no_snapshots,
+// unmeasured_confounded (another measured change ran on the same cluster
+// inside the window), unmeasured_within_noise (the change was no larger than
+// the run rate's normal day-to-day swing) or reverted; a status this client
+// predates is kept as sent. MeasurementReason is the platform's sentence for
+// an unmeasured or reverted row. Days is how many whole days of the window
+// have passed.
 //
 // VerificationStatus and VerificationDays are a right-size's usage
 // verification (verifying, passed, failed, unverified_no_metrics, or
