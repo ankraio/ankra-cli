@@ -59,13 +59,13 @@ A command the CLI does not know is dispatched to an external plugin: an
 executable named ankra-<command> in ~/.ankra/plugins or on PATH, kubectl
 style. 'ankra plugins' lists what is installed.
 
-Every request names the CLI and its version in its User-Agent. When the CLI
+Every request to the Ankra API names the CLI and its version (its
+User-Agent) and the command path, never its arguments or flags. When the CLI
 runs under a coding agent (Claude Code, Codex, Cursor, Gemini CLI, ...) it
-also names the agent, a digest of the agent's session (never the session id)
-and the command path (never its arguments or flags), so your organisation's
-audit log shows which agent ran what. Set ANKRA_AGENT=<name>[/<version>] to
-name an agent the CLI does not detect. DO_NOT_TRACK=1 or ANKRA_TELEMETRY=off
-sends the User-Agent only.`,
+also names the agent and a digest of the agent's session (never the session
+id), so your organisation's audit log shows which agent ran what. Set
+ANKRA_AGENT=<name>[/<version>] to name an agent the CLI does not detect.
+DO_NOT_TRACK=1 or ANKRA_TELEMETRY=off sends the User-Agent only.`,
 	SilenceUsage:      true,
 	PersistentPreRunE: persistentPreRunE,
 }

@@ -3,7 +3,9 @@ package client
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime"
 	"strings"
@@ -242,6 +244,38 @@ func agentSessionDigest(sessionID string) string {
 	return hex.EncodeToString(digest[:])[:32]
 }
 
-// environmentLookup is how the transport reads the environment, replaced in
-// tests.
-var environmentLookup = os.Getenv
+// isAPIRequest reports whether a request goes to the client's own API host,
+// the only host the attribution headers are for. A transport without a
+// readable base URL attributes nothing.
+func (t *scopeOverrideTransport) isAPIRequest(requestURL *url.URL) bool {
+	if t.baseURL == nil || requestURL == nil {
+		return false
+	}
+	apiURL, parseError := url.Parse(*t.baseURL)
+	if parseError != nil || apiURL.Host == "" {
+		return false
+	}
+	return hostAndPort(apiURL) == hostAndPort(requestURL)
+}
+
+// hostAndPort is a URL's lower-cased host with its port, the scheme's
+// default port when the URL names none.
+func hostAndPort(address *url.URL) string {
+	port := address.Port()
+	if port == "" {
+		switch strings.ToLower(address.Scheme) {
+		case "https":
+			port = "443"
+		case "http":
+			port = "80"
+		}
+	}
+	return net.JoinHostPort(strings.ToLower(address.Hostname()), port)
+}
+
+func (t *scopeOverrideTransport) environment() func(string) string {
+	if t.lookupEnvironment != nil {
+		return t.lookupEnvironment
+	}
+	return os.Getenv
+}

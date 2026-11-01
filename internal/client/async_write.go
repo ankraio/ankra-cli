@@ -59,7 +59,7 @@ func (c *Client) httpClientForAsyncWrite(wait bool) *http.Client {
 	waitBaseTransport := &http.Transport{
 		ResponseHeaderTimeout: 0,
 	}
-	waitTransport := &scopeOverrideTransport{base: waitBaseTransport, orgID: &c.orgOverride, projectID: &c.projectOverride}
+	waitTransport := &scopeOverrideTransport{base: waitBaseTransport, orgID: &c.orgOverride, projectID: &c.projectOverride, baseURL: &c.BaseURL}
 	return &http.Client{
 		Transport: waitTransport,
 	}

@@ -326,6 +326,7 @@ func (c *Client) workspaceStreamHTTP() *http.Client {
 		base:      &http.Transport{ResponseHeaderTimeout: 30 * time.Second},
 		orgID:     &c.orgOverride,
 		projectID: &c.projectOverride,
+		baseURL:   &c.BaseURL,
 	}}
 }
 
