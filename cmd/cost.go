@@ -466,6 +466,9 @@ func renderFleetCloudCostHeader(out io.Writer, summary *client.FleetCloudCost) b
 	if summary.ClusterCount == 0 && summary.MonthToDateCents == 0 && len(summary.UnmeteredClusters) == 0 {
 		_, _ = fmt.Fprintln(out, "No priced clusters yet.")
 		_, _ = fmt.Fprintln(out, "Estimates appear once a cluster on AWS, Google Cloud, Azure, Hetzner, OVHcloud, UpCloud or Scaleway has reported pricing in the last day; AWS, Google Cloud and Azure clusters need a connected cloud credential.")
+		if line := fleetCostUnpricedLine(summary, false); line != "" {
+			_, _ = fmt.Fprintln(out, line)
+		}
 		return false
 	}
 	currency := summary.Currency
@@ -496,10 +499,35 @@ func renderFleetCloudCostHeader(out io.Writer, summary *client.FleetCloudCost) b
 	for _, line := range fleetCostUnmeteredLines(summary) {
 		_, _ = fmt.Fprintf(out, "  %s\n", line)
 	}
+	if line := fleetCostUnpricedLine(summary, true); line != "" {
+		_, _ = fmt.Fprintf(out, "  %s\n", line)
+	}
 	if scopeLine := fleetCostScopeLine(summary.Scope); scopeLine != "" {
 		_, _ = fmt.Fprintf(out, "  %s\n", scopeLine)
 	}
 	return true
+}
+
+// fleetCostUnpricedLine says how many clusters in scope have no price, and,
+// when figures are shown above it, what that means for them: "2 clusters in
+// scope have no price from the last day, so what they cost is unknown, not
+// zero: the run rate and the projected month end leave them out and are
+// floors." A platform that did not send the count (nil) gets no line, and
+// neither does a count of 0: the line is about clusters that are there,
+// never a claim that none are.
+func fleetCostUnpricedLine(summary *client.FleetCloudCost, figuresShown bool) string {
+	if summary.UnpricedClusterCount == nil || *summary.UnpricedClusterCount <= 0 {
+		return ""
+	}
+	count := *summary.UnpricedClusterCount
+	subject, costClause, pronoun, floorClause := pluralClusters(count)+" in scope have", "they cost", "them", ""
+	if count == 1 {
+		subject, costClause, pronoun = "1 cluster in scope has", "it costs", "it"
+	}
+	if figuresShown {
+		floorClause = ": the run rate and the projected month end leave " + pronoun + " out and are floors"
+	}
+	return fmt.Sprintf("%s no price from the last day, so what %s is unknown, not zero%s.", subject, costClause, floorClause)
 }
 
 // The reasons a cluster's spend is counted but no longer metered.

@@ -19,10 +19,13 @@ import (
 //   - /api/v1/org/service-packages: the catalogue of immutable package
 //     versions an organisation may set up.
 //   - /api/v1/org/service-admission: cluster placement policies, consumer
-//     bindings, the actor-bound setup reviews, the durable instance inventory
-//     and the reviewed retirements that remove an instance.
+//     bindings, the actor-bound setup reviews, the durable instance inventory,
+//     the reviewed retirements that remove an instance and the reviewed
+//     disconnections that take one application off it
+//     (managed_service_disconnections.go).
 //
-// Setting a service up and retiring one are both two steps on the platform:
+// Setting a service up, retiring one and disconnecting an application from
+// one are all two steps on the platform:
 // a prepare that stores a plan with a digest and changes nothing, and a
 // confirm that carries that digest and is the only effect. The client
 // mirrors that split one method per route; it never confirms on its own.
@@ -609,6 +612,11 @@ type ServiceInstance struct {
 	Connection            *ServiceConnection         `json:"connection" yaml:"connection"`
 	Health                *ServiceHealth             `json:"health" yaml:"health"`
 	Retirement            *ServiceInstanceRetirement `json:"retirement" yaml:"retirement"`
+	// Disconnections are the application environments a confirmed
+	// disconnection is taking off the service and has not finished with; they
+	// are no longer among Consumers. Only the single-instance read answers
+	// it; a listing and a platform from before disconnections carry none.
+	Disconnections *ServiceInstanceDisconnections `json:"disconnections,omitempty" yaml:"disconnections,omitempty"`
 }
 
 // ServiceInstancePage is one page of the inventory, ascending by id. An empty

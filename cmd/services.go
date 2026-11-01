@@ -1112,4 +1112,6 @@ type APIClient interface {
 	ListServiceRetirements(ctx context.Context, instanceID string, options client.ServiceRetirementListOptions) (*client.ServiceRetirementPage, error)
 	GetServiceRetirement(ctx context.Context, instanceID string, retirementID string) (*client.ServiceRetirement, error)
 	ConfirmServiceRetirement(ctx context.Context, instanceID string, retirementID string, digest string) (*client.ServiceRetirement, error)
+	PrepareServiceDisconnection(ctx context.Context, instanceID string, request client.ServiceDisconnectionRequest) (*client.ServiceDisconnection, error)
+	ConfirmServiceDisconnection(ctx context.Context, instanceID string, disconnectionID string, digest string) (*client.ServiceDisconnection, error)
 }
