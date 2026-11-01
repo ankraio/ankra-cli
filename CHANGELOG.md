@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Changed
+
+- **`ankra cost decisions approve` without `--plan-hash` shows you the plan and asks before approving it.** In v0.53.0 the command read the proposal and approved whatever plan that read held, so the platform's check that the plan had not changed could never refuse it, and the person approved a plan they never saw. It now prints the plan on stderr first, in plain words where it can: the kind, the cluster, for a right-size the node group, the instance types it moves from and to and which nodes, the expected saving, the plan itself and its `plan_hash`. Then it asks `Approve exactly this plan? [y/N]`; declining approves nothing and exits 4. The approval names the `plan_hash` shown, so a plan that changed after it was shown is still refused. The new `--yes` approves the plan just shown without asking. **Scripts that approve without `--plan-hash` now need `--yes`:** without a terminal, or with `-o json|yaml`, the command no longer approves a plan nobody saw. It exits 2 before reading anything and says to pass `--plan-hash` from `ankra cost decisions get`, or `--yes`. `--plan-hash` works as before.
+
+### Fixed
+
+- **The v0.53.0 cost readings depend on a platform update that is still rolling out.** The v0.53.0 notes describe `ankra cost summary` naming the clusters it has no price for (`unpriced_cluster_count`) and the hours the month so far was not metered (`month_hours`), `ankra cost events` naming a `metering_gap`, and `ankra cost object` marking `incomplete` days. The CLI shows each of these only once the platform sends it, and the platform's side of them is rolling out separately from the CLI. Until it does, `ankra cost summary` printed nothing about them, which read as every cluster priced and every hour metered. It now says what the platform did not report, for example `The platform did not say how many clusters in scope it could not price, so these figures may leave some out.` A platform that sends a count of 0 gets no line, as before.
+- **`ankra cost decisions list --kind` and `--cluster` with `-o json|yaml` print the platform's document, less the proposals filtered out.** They printed the CLI's own encoding of the remaining proposals instead, which dropped any field the CLI does not know yet. The output is now the platform's document with only the matching proposals and their unsettled ids, as `ankra cost decisions list` without those filters already printed.
+
 ## v0.53.0 - 2026-11-01
 
 This release adds `ankra services disconnect`, which takes one application off

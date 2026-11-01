@@ -469,6 +469,9 @@ func renderFleetCloudCostHeader(out io.Writer, summary *client.FleetCloudCost) b
 		if line := fleetCostUnpricedLine(summary, false); line != "" {
 			_, _ = fmt.Fprintln(out, line)
 		}
+		if line := fleetCostNotReportedLine(summary, false); line != "" {
+			_, _ = fmt.Fprintln(out, line)
+		}
 		return false
 	}
 	currency := summary.Currency
@@ -502,6 +505,9 @@ func renderFleetCloudCostHeader(out io.Writer, summary *client.FleetCloudCost) b
 	if line := fleetCostUnpricedLine(summary, true); line != "" {
 		_, _ = fmt.Fprintf(out, "  %s\n", line)
 	}
+	if line := fleetCostNotReportedLine(summary, true); line != "" {
+		_, _ = fmt.Fprintf(out, "  %s\n", line)
+	}
 	if scopeLine := fleetCostScopeLine(summary.Scope); scopeLine != "" {
 		_, _ = fmt.Fprintf(out, "  %s\n", scopeLine)
 	}
@@ -512,9 +518,9 @@ func renderFleetCloudCostHeader(out io.Writer, summary *client.FleetCloudCost) b
 // when figures are shown above it, what that means for them: "2 clusters in
 // scope have no price from the last day, so what they cost is unknown, not
 // zero: the run rate and the projected month end leave them out and are
-// floors." A platform that did not send the count (nil) gets no line, and
-// neither does a count of 0: the line is about clusters that are there,
-// never a claim that none are.
+// floors." A count of 0 gets no line: the line is about clusters that are
+// there, never a claim that none are. A platform that did not send the count
+// (nil) gets no line here either; fleetCostNotReportedLine says that instead.
 func fleetCostUnpricedLine(summary *client.FleetCloudCost, figuresShown bool) string {
 	if summary.UnpricedClusterCount == nil || *summary.UnpricedClusterCount <= 0 {
 		return ""
@@ -528,6 +534,31 @@ func fleetCostUnpricedLine(summary *client.FleetCloudCost, figuresShown bool) st
 		floorClause = ": the run rate and the projected month end leave " + pronoun + " out and are floors"
 	}
 	return fmt.Sprintf("%s no price from the last day, so what %s is unknown, not zero%s.", subject, costClause, floorClause)
+}
+
+// fleetCostNotReportedLine says which readings that qualify the totals the
+// platform did not send (ankra-bn86k4.8.25): the count of clusters in scope
+// it could not price, and the hours the month so far holds. Saying nothing
+// would read as "every cluster priced, every hour metered", which a platform
+// that predates them cannot claim. Only a missing reading counts: a count of
+// 0 says every cluster is priced, and month hours that were sent speak for
+// themselves through costMonthHours. With no figures shown (nothing priced
+// yet) only the clusters half applies.
+func fleetCostNotReportedLine(summary *client.FleetCloudCost, figuresShown bool) string {
+	unpricedUnknown := summary.UnpricedClusterCount == nil
+	hoursUnknown := figuresShown && summary.MonthHours == nil
+	switch {
+	case unpricedUnknown && hoursUnknown:
+		return "The platform did not say how many clusters in scope it could not price, or whether every hour of the month so far " +
+			"was metered, so these figures may be short of what was spent."
+	case unpricedUnknown && figuresShown:
+		return "The platform did not say how many clusters in scope it could not price, so these figures may leave some out."
+	case unpricedUnknown:
+		return "The platform did not say how many clusters in scope it could not price."
+	case hoursUnknown:
+		return "The platform did not say whether every hour of the month so far was metered, so the month to date may be short of what was spent."
+	}
+	return ""
 }
 
 // The reasons a cluster's spend is counted but no longer metered.
