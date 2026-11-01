@@ -5531,6 +5531,14 @@ func (m baseMock) ConfirmServiceRetirement(context.Context, string, string, stri
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) PrepareServiceDisconnection(context.Context, string, client.ServiceDisconnectionRequest) (*client.ServiceDisconnection, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ConfirmServiceDisconnection(context.Context, string, string, string) (*client.ServiceDisconnection, error) {
+	return nil, errors.New("not implemented")
+}
+
 // TestClusterAgentStatusSecurityUpgradeNote pins the security-upgrade note: it
 // shows only when the platform says the upgrade is required. An agent already
 // on the scoped grant, and an answer the platform could not decide (nil), show
