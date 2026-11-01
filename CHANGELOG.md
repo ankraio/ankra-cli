@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v0.54.0 - 2026-11-01
+
+This release makes `ankra cost decisions approve` show you the plan before it
+approves it, and ask. Scripts that approved by decision id alone now need
+`--yes`, or `--plan-hash` from `ankra cost decisions get`. It also stops the
+cost commands reading silence as good news: `ankra cost summary` says what the
+platform did not report, and a filtered `ankra cost decisions list -o json`
+keeps every field the platform sent.
+
 ### Changed
 
 - **`ankra cost decisions approve` without `--plan-hash` shows you the plan and asks before approving it.** In v0.53.0 the command read the proposal and approved whatever plan that read held, so the platform's check that the plan had not changed could never refuse it, and the person approved a plan they never saw. It now prints the plan on stderr first, in plain words where it can: the kind, the cluster, for a right-size the node group, the instance types it moves from and to and which nodes, the expected saving, the plan itself and its `plan_hash`. Then it asks `Approve exactly this plan? [y/N]`; declining approves nothing and exits 4. The approval names the `plan_hash` shown, so a plan that changed after it was shown is still refused. The new `--yes` approves the plan just shown without asking. **Scripts that approve without `--plan-hash` now need `--yes`:** without a terminal, or with `-o json|yaml`, the command no longer approves a plan nobody saw. It exits 2 before reading anything and says to pass `--plan-hash` from `ankra cost decisions get`, or `--yes`. `--plan-hash` works as before.
