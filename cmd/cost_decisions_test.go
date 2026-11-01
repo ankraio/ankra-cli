@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -365,7 +366,7 @@ func TestCostDecisionsActivityRendersEvents(t *testing.T) {
 func TestCostDecisionsApproveSendsTheNoteOnlyWhenGiven(t *testing.T) {
 	approved := decisionFixture(decisionsWasteID, "waste_cleanup", "approved", "Delete unattached volume vol-1", decisionsOtherID)
 	mock := &costDecisionsMock{written: &approved}
-	output, _, executeError := runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID)
+	output, _, executeError := runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID, "--plan-hash", decisionsPlanHash)
 	if executeError != nil {
 		t.Fatalf("cost decisions approve failed: %v", executeError)
 	}
@@ -376,7 +377,8 @@ func TestCostDecisionsApproveSendsTheNoteOnlyWhenGiven(t *testing.T) {
 		t.Fatalf("an approval says how to run it:\n%s", output)
 	}
 	mock = &costDecisionsMock{written: &approved}
-	if _, _, executeError = runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID, "--note", "Checked"); executeError != nil {
+	if _, _, executeError = runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID,
+		"--plan-hash", decisionsPlanHash, "--note", "Checked"); executeError != nil {
 		t.Fatalf("cost decisions approve --note failed: %v", executeError)
 	}
 	if mock.approvedNotes[0] == nil || *mock.approvedNotes[0] != "Checked" {
@@ -389,17 +391,28 @@ const (
 	decisionsOtherPlanHash = "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d"
 )
 
+// answerApprovalsOn makes the approval prompt see a terminal (true) or not
+// (false) for one test.
+func answerApprovalsOn(t *testing.T, terminal bool) {
+	t.Helper()
+	previous := promptIsInteractive
+	promptIsInteractive = func(io.Reader) bool { return terminal }
+	t.Cleanup(func() { promptIsInteractive = previous })
+}
+
 // An approval is of one plan (ankra-bn86k4.6.13): --plan-hash names the one
 // the person reviewed and is sent as given, without a read; without it the
-// proposal is read first and the plan that read served is the one named.
+// proposal is read first and the plan that read served, once shown and
+// agreed to, is the one named.
 func TestCostDecisionsApproveIsOfThePlanItNames(t *testing.T) {
 	read := decisionFixture(decisionsWasteID, "waste_cleanup", "proposed", "Delete unattached volume vol-1", decisionsOtherID)
 	read.PlanHash = decisionsPlanHash
 	approved := read
 	approved.Status = "approved"
 
+	answerApprovalsOn(t, true)
 	mock := &costDecisionsMock{proposal: &read, written: &approved}
-	output, _, executeError := runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID)
+	output, _, executeError := runCostDecisionsCommand(t, mock, "y\n", "cost", "decisions", "approve", decisionsWasteID)
 	if executeError != nil {
 		t.Fatalf("cost decisions approve failed: %v", executeError)
 	}
@@ -424,7 +437,7 @@ func TestCostDecisionsApproveIsOfThePlanItNames(t *testing.T) {
 	legacy := read
 	legacy.PlanHash = ""
 	mock = &costDecisionsMock{proposal: &legacy, written: &approved}
-	if _, _, executeError = runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID); executeError != nil {
+	if _, _, executeError = runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID, "--yes"); executeError != nil {
 		t.Fatalf("cost decisions approve on an older platform failed: %v", executeError)
 	}
 	if len(mock.approvedPlans) != 1 || mock.approvedPlans[0] != "" {
@@ -433,7 +446,7 @@ func TestCostDecisionsApproveIsOfThePlanItNames(t *testing.T) {
 
 	// A read that fails approves nothing.
 	mock = &costDecisionsMock{getError: client.NewUnexpectedResponseError(500, "Internal Server Error"), written: &approved}
-	_, _, executeError = runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID)
+	_, _, executeError = runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID, "--yes")
 	if executeError == nil || !strings.Contains(executeError.Error(), "reading the decision before approving its plan") || len(mock.approvedPlans) != 0 {
 		t.Fatalf("a failed read approves nothing, got %v and approvals %v", executeError, mock.approvedPlans)
 	}
@@ -476,7 +489,7 @@ func TestCostDecisionsApproveNamesThePlanThePlatformApproved(t *testing.T) {
 	legacy := read
 	legacy.PlanHash = ""
 	mock = &costDecisionsMock{proposal: &legacy, written: &unconfirmed}
-	output, _, executeError = runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID)
+	output, _, executeError = runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWasteID, "--yes")
 	if executeError != nil {
 		t.Fatalf("cost decisions approve on an older platform failed: %v", executeError)
 	}
@@ -527,6 +540,248 @@ func TestCostDecisionsApproveSaysThePlanChanged(t *testing.T) {
 	if executeError == nil || !strings.Contains(executeError.Error(), "approve it again if it is still what you want") ||
 		strings.Contains(executeError.Error(), "plan_hash ") {
 		t.Fatalf("without the current proposal the refusal points at get, got %v", executeError)
+	}
+}
+
+// decisionsRightSizeToApprove is a right-size proposal still to decide, with
+// the plan the platform builds: two of the group's nodes from cx42 to cx32.
+func decisionsRightSizeToApprove() client.DecisionProposal {
+	proposal := decisionFixture(decisionsWave1ID, "right_size", "proposed", "Resize prod-eu workers, wave 1 of 3", decisionsClusterID)
+	proposal.PlanHash = decisionsPlanHash
+	proposal.ExpectedMonthlyCents = decisionsPointer(int64(4200))
+	proposal.Plan = map[string]any{"parameters": map[string]any{"cluster_id": decisionsClusterID, "group_name": "workers",
+		"from_instance_type": "cx42", "to_instance_type": "cx32", "node_count": float64(2)}}
+	return proposal
+}
+
+// Approving without --plan-hash shows the plan in plain words and asks
+// (ankra-bn86k4.6.21): the person approves a plan they saw, its plan_hash is
+// the one sent, and the prompt and plan stay off stdout. Declining approves
+// nothing and exits 4.
+func TestCostDecisionsApproveWithoutAPlanHashShowsThePlanAndAsks(t *testing.T) {
+	read := decisionsRightSizeToApprove()
+	approved := read
+	approved.Status = "approved"
+	answerApprovalsOn(t, true)
+
+	mock := &costDecisionsMock{proposal: &read, written: &approved}
+	output, prompt, executeError := runCostDecisionsCommand(t, mock, "y\n", "cost", "decisions", "approve", decisionsWave1ID)
+	if executeError != nil {
+		t.Fatalf("cost decisions approve failed: %v", executeError)
+	}
+	for _, expected := range []string{
+		"Approving decision " + decisionsWave1ID + ": Resize prod-eu workers, wave 1 of 3\n",
+		"  right_size · proposed · on cluster " + decisionsClusterID + " · expected saving $42.00/mo\n",
+		"  Moves node group workers of cluster " + decisionsClusterID + " from cx42 to cx32: 2 of its nodes still on cx42\n",
+		"Plan (plan_hash " + decisionsPlanHash + "):\n",
+		`"to_instance_type": "cx32"`,
+		"Approve exactly this plan? [y/N]: ",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("stderr lacks %q:\n%s", expected, prompt)
+		}
+	}
+	if strings.Contains(output, "Approve exactly this plan?") || strings.Contains(output, "Moves node group") {
+		t.Fatalf("the plan and the question go to stderr, never stdout:\n%s", output)
+	}
+	if len(mock.approvedPlans) != 1 || mock.approvedPlans[0] != decisionsPlanHash {
+		t.Fatalf("the plan shown is the plan approved, got %v", mock.approvedPlans)
+	}
+
+	mock = &costDecisionsMock{proposal: &read, written: &approved}
+	_, _, executeError = runCostDecisionsCommand(t, mock, "n\n", "cost", "decisions", "approve", decisionsWave1ID)
+	if !errors.Is(executeError, errCancelled) || exitCodeFor(executeError) != exitCancelled || len(mock.approvedPlans) != 0 {
+		t.Fatalf("declining approves nothing and exits 4, got %v (exit %d), approvals %v",
+			executeError, exitCodeFor(executeError), mock.approvedPlans)
+	}
+
+	// Platform text that hides characters is shown without them, and the
+	// person is told.
+	hiding := read
+	hiding.Summary = "Resize prod-eu\u200b workers"
+	mock = &costDecisionsMock{proposal: &hiding, written: &approved}
+	_, prompt, executeError = runCostDecisionsCommand(t, mock, "y\n", "cost", "decisions", "approve", decisionsWave1ID)
+	if executeError != nil || !strings.Contains(prompt, ": Resize prod-eu workers\n") ||
+		!strings.Contains(prompt, "1 invisible character(s) were removed before display") {
+		t.Fatalf("hidden characters are stripped and named (%v):\n%s", executeError, prompt)
+	}
+}
+
+// Without a terminal, or with -o json|yaml, there is no one to ask: approving
+// needs --plan-hash or --yes, and without either it refuses before reading or
+// approving anything (ankra-bn86k4.6.21).
+func TestCostDecisionsApproveWithNoOneToAskNeedsAPlanHashOrYes(t *testing.T) {
+	read := decisionsRightSizeToApprove()
+	approved := read
+	approved.Status = "approved"
+	for name, scenario := range map[string]struct {
+		terminal bool
+		args     []string
+		reason   string
+	}{
+		"off a terminal":             {false, nil, "asks you first, and there is no terminal to ask on. "},
+		"-o json on a terminal":      {true, []string{"-o", "json"}, "and -o json output is for a script, so there is no one to ask. "},
+		"-o yaml off a terminal":     {false, []string{"-o", "yaml"}, "and -o yaml output is for a script, so there is no one to ask. "},
+		"off a terminal with a note": {false, []string{"--note", "Checked"}, "asks you first, and there is no terminal to ask on. "},
+	} {
+		answerApprovalsOn(t, scenario.terminal)
+		mock := &costDecisionsMock{proposal: &read, written: &approved}
+		output, _, executeError := runCostDecisionsCommand(t, mock, "y\n",
+			append([]string{"cost", "decisions", "approve", decisionsWave1ID}, scenario.args...)...)
+		if executeError == nil || exitCodeFor(executeError) != exitUsage || mock.reads != 0 || len(mock.approvedPlans) != 0 || output != "" {
+			t.Fatalf("%s: refused before anything is read or sent, got %v (exit %d), %d reads, approvals %v, stdout %q",
+				name, executeError, exitCodeFor(executeError), mock.reads, mock.approvedPlans, output)
+		}
+		for _, expected := range []string{scenario.reason, "ankra cost decisions get " + decisionsWave1ID, "--plan-hash <plan_hash>", "--yes"} {
+			if !strings.Contains(executeError.Error(), expected) {
+				t.Fatalf("%s: the refusal lacks %q: %v", name, expected, executeError)
+			}
+		}
+	}
+}
+
+// --yes approves the plan the proposal holds now without asking, still shows
+// it on stderr, and still sends its plan_hash: the platform's check that the
+// plan did not change after it was shown stays on (ankra-bn86k4.6.21).
+func TestCostDecisionsApproveYesSendsThePlanItShowed(t *testing.T) {
+	read := decisionsRightSizeToApprove()
+	approved := read
+	approved.Status = "approved"
+	answerApprovalsOn(t, false)
+
+	mock := &costDecisionsMock{proposal: &read, written: &approved}
+	output, prompt, executeError := runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWave1ID, "--yes", "-o", "json")
+	if executeError != nil {
+		t.Fatalf("cost decisions approve --yes -o json failed: %v", executeError)
+	}
+	var decoded map[string]any
+	if unmarshalError := json.Unmarshal([]byte(output), &decoded); unmarshalError != nil || decoded["id"] != decisionsWave1ID {
+		t.Fatalf("stdout stays the approved proposal as JSON (%v):\n%s", unmarshalError, output)
+	}
+	if !strings.Contains(prompt, "Plan (plan_hash "+decisionsPlanHash+"):") || strings.Contains(prompt, "[y/N]") {
+		t.Fatalf("--yes shows the plan on stderr and asks nothing:\n%s", prompt)
+	}
+	if mock.reads != 1 || len(mock.approvedPlans) != 1 || mock.approvedPlans[0] != decisionsPlanHash {
+		t.Fatalf("--yes sends the plan_hash it read: %d reads, approved %v", mock.reads, mock.approvedPlans)
+	}
+
+	// The plan changed between the read and the approval: the platform
+	// refuses, because the plan_hash shown was sent.
+	current := read
+	current.PlanHash = decisionsOtherPlanHash
+	mock = &costDecisionsMock{proposal: &read, writeError: &client.DecisionPlanDriftedError{
+		Detail: "This plan changed since you opened it, so nothing was approved.", Current: &current}}
+	_, _, executeError = runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWave1ID, "--yes")
+	if executeError == nil || !strings.Contains(executeError.Error(), "not approved: This plan changed") ||
+		len(mock.approvedPlans) != 1 || mock.approvedPlans[0] != decisionsPlanHash {
+		t.Fatalf("--yes never skips the platform's drift check, got %v, approvals %v", executeError, mock.approvedPlans)
+	}
+
+	// No proposal to show is no approval.
+	mock = &costDecisionsMock{written: &approved}
+	_, _, executeError = runCostDecisionsCommand(t, mock, "", "cost", "decisions", "approve", decisionsWave1ID, "--yes")
+	if executeError == nil || exitCodeFor(executeError) != exitError || len(mock.approvedPlans) != 0 {
+		t.Fatalf("no proposal approves nothing, got %v (exit %d), approvals %v", executeError, exitCodeFor(executeError), mock.approvedPlans)
+	}
+}
+
+func TestCostDecisionPlanInWords(t *testing.T) {
+	parameters := func(extra map[string]any) map[string]any {
+		values := map[string]any{"cluster_id": decisionsClusterID, "group_name": "workers",
+			"from_instance_type": "cx42", "to_instance_type": "cx32"}
+		for key, value := range extra {
+			values[key] = value
+		}
+		return map[string]any{"parameters": values}
+	}
+	moves := "Moves node group workers of cluster " + decisionsClusterID + " from cx42 to cx32: "
+	for name, scenario := range map[string]struct {
+		plan map[string]any
+		want string
+	}{
+		"the whole group":     {parameters(nil), moves + "every node still on cx42"},
+		"a count":             {parameters(map[string]any{"node_count": float64(3)}), moves + "3 of its nodes still on cx42"},
+		"named nodes":         {parameters(map[string]any{"nodes": []any{"w-1", "w-2"}, "node_count": float64(2)}), moves + "the nodes w-1, w-2"},
+		"hidden characters":   {parameters(map[string]any{"group_name": "work\u200bers"}), moves + "every node still on cx42"},
+		"another kind":        {map[string]any{"parameters": map[string]any{"waves": float64(3)}}, ""},
+		"no parameters":       {map[string]any{}, ""},
+		"parameters unshaped": {map[string]any{"parameters": "workers"}, ""},
+	} {
+		if got := costDecisionPlanInWords(scenario.plan); got != scenario.want {
+			t.Fatalf("%s: got %q, want %q", name, got, scenario.want)
+		}
+	}
+}
+
+// Narrowing the list by --kind or --cluster narrows the platform's own
+// document (ankra-bn86k4.8.25): -o json|yaml stays a passthrough of what the
+// platform sent, fields the CLI does not know included, less the proposals
+// filtered out.
+func TestCostDecisionsListNarrowingKeepsThePlatformDocument(t *testing.T) {
+	listing := costDecisionsFixture()
+	encoded, _ := json.Marshal(listing)
+	var document map[string]any
+	_ = json.Unmarshal(encoded, &document)
+	for _, proposal := range document["proposals"].([]any) {
+		proposal.(map[string]any)["future_field"] = "kept"
+	}
+	document["next_cursor"] = "page-2"
+	raw, _ := json.Marshal(document)
+	listing.RawDocument = client.NewRawDocument(raw)
+
+	mock := &costDecisionsMock{listing: listing, clusters: []client.ClusterListItem{{ID: decisionsClusterID, Name: "prod-eu"}}}
+	output, _, executeError := runCostDecisionsCommand(t, mock, "", "cost", "decisions", "list", "--kind", "right_size", "--cluster", "prod-eu", "-o", "json")
+	if executeError != nil {
+		t.Fatalf("cost decisions list failed: %v", executeError)
+	}
+	var decoded map[string]any
+	if unmarshalError := json.Unmarshal([]byte(output), &decoded); unmarshalError != nil {
+		t.Fatalf("output is not JSON: %v\n%s", unmarshalError, output)
+	}
+	proposals, _ := decoded["proposals"].([]any)
+	if decoded["next_cursor"] != "page-2" || len(proposals) != 2 {
+		t.Fatalf("the document keeps its own members and only the kept proposals: %+v", decoded)
+	}
+	for index, want := range []string{decisionsWave2ID, decisionsWave1ID} {
+		proposal := proposals[index].(map[string]any)
+		if proposal["id"] != want || proposal["future_field"] != "kept" {
+			t.Fatalf("proposal %d is %v with future_field %v, want %s kept whole", index, proposal["id"], proposal["future_field"], want)
+		}
+	}
+	if unsettled, _ := decoded["unsettled_proposal_ids"].([]any); len(unsettled) != 1 || unsettled[0] != decisionsWave2ID {
+		t.Fatalf("unsettled ids are narrowed with the proposals: %+v", decoded["unsettled_proposal_ids"])
+	}
+
+	output, _, executeError = runCostDecisionsCommand(t, &costDecisionsMock{listing: listing}, "", "cost", "decisions", "list",
+		"--kind", "waste_cleanup", "-o", "yaml")
+	if executeError != nil || !strings.Contains(output, "future_field: kept") || !strings.Contains(output, "next_cursor: page-2") ||
+		strings.Contains(output, decisionsWave1ID) {
+		t.Fatalf("-o yaml narrows the same document (%v):\n%s", executeError, output)
+	}
+}
+
+// A document that is not the shape the listing was decoded from is not
+// narrowed by position: the narrowed listing prints as the CLI's own
+// encoding of it instead.
+func TestCostDecisionsNarrowDocumentRefusesADocumentOfAnotherShape(t *testing.T) {
+	keep := []bool{true, false}
+	kept := map[string]bool{"a": true}
+	for name, document := range map[string]string{
+		"empty":              ``,
+		"not an object":      `[1, 2]`,
+		"count differs":      `{"proposals": [{"id": "a"}], "unsettled_proposal_ids": []}`,
+		"proposals unshaped": `{"proposals": {"id": "a"}}`,
+		"ids unshaped":       `{"proposals": [{"id": "a"}, {"id": "b"}], "unsettled_proposal_ids": "a"}`,
+		"truncated":          `{"proposals": [{"id": "a"}, {"id": "b"}]`,
+	} {
+		if narrowed := costDecisionsNarrowDocument(json.RawMessage(document), keep, kept); narrowed != nil {
+			t.Fatalf("%s: got %s, want no document", name, narrowed)
+		}
+	}
+	narrowed := costDecisionsNarrowDocument(json.RawMessage(`{"z": 1, "proposals": [{"id": "a", "x": "<&>"}, {"id": "b"}],
+		"unsettled_proposal_ids": ["b", "a"], "a": null}`), keep, kept)
+	if string(narrowed) != `{"z":1,"proposals":[{"id": "a", "x": "<&>"}],"unsettled_proposal_ids":["a"],"a":null}` {
+		t.Fatalf("members keep their order and kept elements their bytes, got %s", narrowed)
 	}
 }
 
@@ -823,7 +1078,8 @@ func TestCostDecisionsExecuteReportsConsentAndNotReadyAsSuch(t *testing.T) {
 
 func TestCostDecisionsRefusalsKeepTheirMeaning(t *testing.T) {
 	denied := &client.PermissionDeniedError{Permission: "billing.manage"}
-	_, _, executeError := runCostDecisionsCommand(t, &costDecisionsMock{writeError: denied}, "", "cost", "decisions", "approve", decisionsWasteID)
+	_, _, executeError := runCostDecisionsCommand(t, &costDecisionsMock{writeError: denied}, "", "cost", "decisions", "approve", decisionsWasteID,
+		"--plan-hash", decisionsPlanHash)
 	if executeError == nil || !strings.Contains(executeError.Error(), `"billing.manage"`) || exitCodeFor(executeError) != exitForbidden {
 		t.Fatalf("a permission refusal names it and exits 7, got %v", executeError)
 	}
@@ -884,7 +1140,8 @@ func TestCostDecisionsRefusalsKeepTheirMeaning(t *testing.T) {
 		t.Fatalf("a reference that is not an id is a usage error, got %v", executeError)
 	}
 	conflict := client.NewUnexpectedResponseError(409, "The proposal's status does not allow this action.")
-	_, _, executeError = runCostDecisionsCommand(t, &costDecisionsMock{writeError: conflict}, "", "cost", "decisions", "approve", decisionsWasteID)
+	_, _, executeError = runCostDecisionsCommand(t, &costDecisionsMock{writeError: conflict}, "", "cost", "decisions", "approve", decisionsWasteID,
+		"--plan-hash", decisionsPlanHash)
 	if executeError == nil || !strings.Contains(executeError.Error(), "approving the decision: The proposal's status does not allow this action.") {
 		t.Fatalf("an approval the status refuses relays the detail, got %v", executeError)
 	}

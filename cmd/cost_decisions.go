@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -177,12 +178,17 @@ plan in the meantime (the cost autopilot and the web page refresh proposals
 that nobody has decided yet).
 
 Pass --plan-hash with the plan_hash 'ankra cost decisions get' showed you to
-approve exactly the plan you reviewed. Without it the proposal is read first
-and the plan that read shows is the one approved.`,
+approve exactly the plan you reviewed. Without it the proposal is read first,
+its plan is shown, and you are asked before anything is approved; --yes
+approves the plan just shown without asking. Without a terminal to ask on,
+or with -o json|yaml, approving needs --plan-hash or --yes: a script that
+never saw the plan does not approve it. Either way the platform refuses the
+approval, and approves nothing, when the plan changed after it was shown.`,
 	Args: cobra.ExactArgs(1),
 	Example: `  ankra cost decisions get 0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e
   ankra cost decisions approve 0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e --plan-hash <plan_hash from get>
-  ankra cost decisions approve 0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e --note "Checked with the platform team"`,
+  ankra cost decisions approve 0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e --note "Checked with the platform team"
+  ankra cost decisions approve 0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e --yes -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		decisionID := strings.TrimSpace(args[0])
 		if err := costDecisionRequireID(decisionID); err != nil {
@@ -372,7 +378,9 @@ func init() {
 		command.Flags().String("note", "", "A note recorded with the decision (up to 2000 characters)")
 	}
 	costDecisionsApproveCmd.Flags().String("plan-hash", "",
-		"The plan_hash 'ankra cost decisions get' showed: approve that plan or nothing (read first when omitted)")
+		"The plan_hash 'ankra cost decisions get' showed: approve that plan or nothing (read, shown and asked first when omitted)")
+	costDecisionsApproveCmd.Flags().BoolP("yes", "y", false,
+		"Without --plan-hash, approve the plan the proposal holds now without asking (it is still shown on stderr)")
 	costDecisionsSetAsideCmd.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
 	costDecisionsExecuteCmd.Flags().Bool("acknowledge-no-snapshot", false,
 		"Give the written consent a plan that deletes something no snapshot keeps needs: the deletion is final (a waste cleanup sends the consent naming what it removes)")
@@ -444,9 +452,15 @@ func costDecisionExecuteError(executeError error, decisionID string) error {
 var costDecisionPlanHashPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // costDecisionPlanHash is the plan an approval is of: --plan-hash when it was
-// given, and otherwise the plan_hash of the proposal as it reads now. A
-// platform that predates plan_hash reads with none, and the approval then
-// names no plan, as it did before.
+// given. Otherwise the proposal is read and its plan shown on stderr, and the
+// plan_hash of that read is the plan approved, once the person at the
+// terminal says yes or --yes said it for them. Without --plan-hash or --yes
+// there must be a person to ask: off a terminal, or with -o json|yaml, it
+// refuses before reading anything, so a script never approves a plan nobody
+// saw. The hash sent is always the one shown, so the platform still refuses
+// an approval whose plan changed after it was shown. A platform that
+// predates plan_hash reads with none, and the approval then names no plan,
+// as it did before.
 func costDecisionPlanHash(cmd *cobra.Command, decisionID string) (string, error) {
 	if cmd.Flags().Changed("plan-hash") {
 		planHash, _ := cmd.Flags().GetString("plan-hash")
@@ -457,14 +471,137 @@ func costDecisionPlanHash(cmd *cobra.Command, decisionID string) (string, error)
 		}
 		return planHash, nil
 	}
+	yes, _ := cmd.Flags().GetBool("yes")
+	if !yes {
+		format, formatError := structuredFormatFromFlags(cmd)
+		if formatError != nil {
+			return "", formatError
+		}
+		if format != outputDefault || !promptIsInteractive(cmd.InOrStdin()) {
+			return "", withExitCode(exitUsage, fmt.Errorf(
+				"not approved: approving without --plan-hash shows the plan and asks you first, and %s. "+
+					"Read the plan with 'ankra cost decisions get %s' and approve exactly it with --plan-hash <plan_hash>, "+
+					"or pass --yes to approve the plan the proposal holds now",
+				costDecisionNoPromptReason(format), decisionID))
+		}
+	}
 	current, readError := apiClient.GetDecision(decisionID)
 	if readError != nil {
 		return "", costDecisionsError(readError, "reading the decision before approving its plan", "GET /api/v1/org/decisions/{decision_id}", true)
 	}
 	if current == nil {
-		return "", nil
+		return "", withExitCode(exitError, fmt.Errorf(
+			"not approved: the platform answered no proposal for %s, so there is no plan to show or approve", decisionID))
+	}
+	renderCostDecisionPlanToApprove(cmd.ErrOrStderr(), current)
+	if yes {
+		return current.PlanHash, nil
+	}
+	if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), "Approve exactly this plan? [y/N]: ", false); confirmError != nil {
+		if errors.Is(confirmError, errCancelled) {
+			return "", confirmError
+		}
+		return "", fmt.Errorf("reading the confirmation: %w", confirmError)
 	}
 	return current.PlanHash, nil
+}
+
+// costDecisionNoPromptReason says why an approval cannot ask: structured
+// output is for scripts, whatever stdin is.
+func costDecisionNoPromptReason(format outputFormat) string {
+	if format != outputDefault {
+		return "-o " + string(format) + " output is for a script, so there is no one to ask"
+	}
+	return "there is no terminal to ask on"
+}
+
+// renderCostDecisionPlanToApprove shows the plan an approval without
+// --plan-hash is about to approve, in plain words first: what it changes,
+// where, and what it is expected to save, then the plan itself and the
+// plan_hash the approval will name. Everything in it is platform text, so
+// each line is flattened and stripped of hidden characters: nothing in it
+// can redraw the question that follows.
+func renderCostDecisionPlanToApprove(out io.Writer, proposal *client.DecisionProposal) {
+	removed := 0
+	line := func(text string) string {
+		cleaned, stripped := hiddenunicode.Line(text)
+		removed += stripped
+		return cleaned
+	}
+	_, _ = fmt.Fprintf(out, "Approving decision %s: %s\n", line(proposal.ID), line(proposal.Summary))
+	facts := []string{line(proposal.Kind), costDecisionStatus(line(proposal.Status))}
+	if proposal.SubjectClusterID != nil && *proposal.SubjectClusterID != "" {
+		facts = append(facts, "on cluster "+line(*proposal.SubjectClusterID))
+	}
+	if proposal.Area == costDecisionsArea {
+		facts = append(facts, "expected saving "+costDecisionUSD(proposal.ExpectedMonthlyCents))
+	}
+	_, _ = fmt.Fprintf(out, "  %s\n", strings.Join(facts, " · "))
+	// The sentence restates fields of the plan below, whose hidden
+	// characters the notice already counts once.
+	if change := costDecisionPlanInWords(proposal.Plan); change != "" {
+		_, _ = fmt.Fprintf(out, "  %s\n", change)
+	}
+	if proposal.PlanHash == "" {
+		_, _ = fmt.Fprintln(out, "Plan (the platform names no plan_hash, so it cannot refuse an approval if the plan changes):")
+	} else {
+		_, _ = fmt.Fprintf(out, "Plan (plan_hash %s):\n", line(proposal.PlanHash))
+	}
+	plan, stripped := hiddenunicode.Strip(indentedJSON(proposal.Plan, "  "))
+	removed += stripped
+	_, _ = fmt.Fprintln(out, plan)
+	if notice := hiddenunicode.Notice(removed); notice != "" {
+		_, _ = fmt.Fprintln(out, notice)
+	}
+}
+
+// costDecisionPlanInWords says what a plan that moves a node group between
+// instance types does (a right_size, its rollback, a ladder wave): which
+// group, on which cluster, from which type to which, and which of its
+// nodes. A plan of any other shape has no sentence; its document is shown
+// as it is. Every value is flattened and stripped of hidden characters.
+func costDecisionPlanInWords(plan map[string]any) string {
+	parameters, isObject := plan["parameters"].(map[string]any)
+	if !isObject {
+		return ""
+	}
+	line := func(value string) string {
+		cleaned, _ := hiddenunicode.Line(value)
+		return cleaned
+	}
+	text := func(key string) string {
+		value, _ := parameters[key].(string)
+		return line(value)
+	}
+	from, to, group := text("from_instance_type"), text("to_instance_type"), text("group_name")
+	if from == "" || to == "" || group == "" {
+		return ""
+	}
+	sentence := fmt.Sprintf("Moves node group %s", group)
+	if cluster := text("cluster_id"); cluster != "" {
+		sentence += " of cluster " + cluster
+	}
+	sentence += fmt.Sprintf(" from %s to %s: ", from, to)
+	var nodes []string
+	if listed, isList := parameters["nodes"].([]any); isList {
+		for _, node := range listed {
+			if name, isText := node.(string); isText {
+				if cleaned := line(name); cleaned != "" {
+					nodes = append(nodes, cleaned)
+				}
+			}
+		}
+	}
+	count, _ := parameters["node_count"].(float64)
+	switch {
+	case len(nodes) > 0:
+		sentence += "the nodes " + strings.Join(nodes, ", ")
+	case count > 0:
+		sentence += fmt.Sprintf("%d of its nodes still on %s", int64(count), from)
+	default:
+		sentence += "every node still on " + from
+	}
+	return sentence
 }
 
 // renderCostDecisionApprovedPlan names the plan an approval approved, as the
@@ -608,14 +745,18 @@ func costDecisionConsentPrompt(decisionID string, consent client.WasteKindConsen
 }
 
 // costDecisionsNarrow keeps the proposals of the kind and on the cluster
-// asked for; an empty kind or cluster keeps every one.
+// asked for; an empty kind or cluster keeps every one. The platform's own
+// document is narrowed the same way, so -o json|yaml still prints what the
+// platform answered, fields this CLI does not know included, less the
+// proposals filtered out.
 func costDecisionsNarrow(listing *client.DecisionProposalList, kind string, clusterID string) *client.DecisionProposalList {
 	if kind == "" && clusterID == "" {
 		return listing
 	}
 	kept := map[string]bool{}
+	keep := make([]bool, len(listing.Proposals))
 	narrowed := &client.DecisionProposalList{Proposals: []client.DecisionProposal{}, UnsettledProposalIDs: []string{}}
-	for _, proposal := range listing.Proposals {
+	for index, proposal := range listing.Proposals {
 		if kind != "" && proposal.Kind != kind {
 			continue
 		}
@@ -623,6 +764,7 @@ func costDecisionsNarrow(listing *client.DecisionProposalList, kind string, clus
 			continue
 		}
 		kept[proposal.ID] = true
+		keep[index] = true
 		narrowed.Proposals = append(narrowed.Proposals, proposal)
 	}
 	for _, unsettled := range listing.UnsettledProposalIDs {
@@ -630,7 +772,85 @@ func costDecisionsNarrow(listing *client.DecisionProposalList, kind string, clus
 			narrowed.UnsettledProposalIDs = append(narrowed.UnsettledProposalIDs, unsettled)
 		}
 	}
+	if document := costDecisionsNarrowDocument(listing.RawJSON(), keep, kept); document != nil {
+		narrowed.RawDocument = client.NewRawDocument(document)
+	}
 	return narrowed
+}
+
+// costDecisionsNarrowDocument is the listing's raw document with only the
+// proposals keep marks (by position, as the listing decoded them) and the
+// unsettled ids among keptIDs. Every other member, and every kept element,
+// is copied byte for byte in the platform's order. It is nil when there is
+// no document or it does not have the shape the listing was decoded from;
+// the narrowed listing then prints as the CLI's own encoding of it.
+func costDecisionsNarrowDocument(document json.RawMessage, keep []bool, keptIDs map[string]bool) json.RawMessage {
+	if len(bytes.TrimSpace(document)) == 0 {
+		return nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(document))
+	if open, openError := decoder.Token(); openError != nil || open != json.Delim('{') {
+		return nil
+	}
+	var narrowed bytes.Buffer
+	narrowed.WriteByte('{')
+	for members := 0; decoder.More(); members++ {
+		keyToken, keyError := decoder.Token()
+		key, isKey := keyToken.(string)
+		if keyError != nil || !isKey {
+			return nil
+		}
+		var value json.RawMessage
+		if valueError := decoder.Decode(&value); valueError != nil {
+			return nil
+		}
+		var elements []json.RawMessage
+		switch key {
+		case "proposals":
+			if json.Unmarshal(value, &elements) != nil || len(elements) != len(keep) {
+				return nil
+			}
+			value = costDecisionsJoinElements(elements, func(index int, _ json.RawMessage) bool { return keep[index] })
+		case "unsettled_proposal_ids":
+			if json.Unmarshal(value, &elements) != nil {
+				return nil
+			}
+			value = costDecisionsJoinElements(elements, func(_ int, element json.RawMessage) bool {
+				var id string
+				return json.Unmarshal(element, &id) == nil && keptIDs[id]
+			})
+		}
+		if members > 0 {
+			narrowed.WriteByte(',')
+		}
+		encodedKey, _ := json.Marshal(key)
+		narrowed.Write(encodedKey)
+		narrowed.WriteByte(':')
+		narrowed.Write(value)
+	}
+	if closing, closeError := decoder.Token(); closeError != nil || closing != json.Delim('}') {
+		return nil
+	}
+	narrowed.WriteByte('}')
+	return narrowed.Bytes()
+}
+
+// costDecisionsJoinElements is a JSON array of the elements keep accepts,
+// each copied as it was.
+func costDecisionsJoinElements(elements []json.RawMessage, keep func(int, json.RawMessage) bool) json.RawMessage {
+	joined := []byte{'['}
+	first := true
+	for index, element := range elements {
+		if !keep(index, element) {
+			continue
+		}
+		if !first {
+			joined = append(joined, ',')
+		}
+		first = false
+		joined = append(joined, element...)
+	}
+	return append(joined, ']')
 }
 
 func costDecisionStatus(status string) string {
