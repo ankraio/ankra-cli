@@ -65,8 +65,11 @@ type Client struct {
 const defaultSlowWriteTimeout = 5 * time.Minute
 
 // scopeOverrideTransport injects the organisation and project override
-// headers on every request routed through the client, so no individual call
-// site needs to be aware of either override.
+// headers, and the client attribution headers (attribution.go), on every
+// request routed through the client, so no individual call site needs to be
+// aware of either. Every transport that talks to the Ankra API is one of
+// these; clients that talk to other hosts (GitHub, presigned storage URLs)
+// are built without it, so none of these headers reaches a third party.
 type scopeOverrideTransport struct {
 	base      http.RoundTripper
 	orgID     *string
@@ -82,10 +85,8 @@ func (t *scopeOverrideTransport) RoundTrip(req *http.Request) (*http.Response, e
 	if t.projectID != nil {
 		projectID = *t.projectID
 	}
-	if organisationID == "" && projectID == "" {
-		return t.base.RoundTrip(req)
-	}
 	clone := req.Clone(req.Context())
+	applyClientAttribution(clone.Header, environmentLookup)
 	if organisationID != "" {
 		clone.Header.Set(orgOverrideHeader, organisationID)
 	}
