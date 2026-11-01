@@ -158,7 +158,7 @@ func captureDecisionWrite(t *testing.T, status int, response string) (*Client, *
 func TestApproveAndSetAsideDecision_SendTheNoteOnlyWhenGiven(t *testing.T) {
 	approved := decisionProposalJSON(decisionWasteID, "waste_cleanup", "approved", `{}`, "")
 	testClient, captured := captureDecisionWrite(t, http.StatusOK, approved)
-	if _, err := testClient.ApproveDecision(decisionWasteID, nil); err != nil {
+	if _, err := testClient.ApproveDecision(decisionWasteID, nil, ""); err != nil {
 		t.Fatalf("ApproveDecision: %v", err)
 	}
 	if captured.method != http.MethodPost || captured.path != "/api/v1/org/decisions/"+decisionWasteID+"/approve" ||
@@ -172,6 +172,67 @@ func TestApproveAndSetAsideDecision_SendTheNoteOnlyWhenGiven(t *testing.T) {
 	}
 	if captured.path != "/api/v1/org/decisions/"+decisionWasteID+"/set-aside" || string(captured.raw) != `{"note":"Checked with the team"}` {
 		t.Fatalf("a set-aside sends its note: %s %q", captured.path, captured.raw)
+	}
+}
+
+// decisionPlanHash and decisionOtherPlanHash are two plan_hash values: the
+// plan a read served, and the plan the proposal was proposed again with.
+const (
+	decisionPlanHash      = "3c1f0d8e9a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d"
+	decisionOtherPlanHash = "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d"
+)
+
+// An approval names the plan it is of (ankra-bn86k4.6.13): plan_hash goes in
+// the body beside the note when one is given, and a read decodes it.
+func TestApproveDecision_NamesThePlanItIsOf(t *testing.T) {
+	approved := decisionProposalJSON(decisionWasteID, "waste_cleanup", "approved", `{}`, `,"plan_hash":"`+decisionPlanHash+`"`)
+	testClient, captured := captureDecisionWrite(t, http.StatusOK, approved)
+	decoded, err := testClient.ApproveDecision(decisionWasteID, nil, decisionPlanHash)
+	if err != nil {
+		t.Fatalf("ApproveDecision: %v", err)
+	}
+	if string(captured.raw) != `{"plan_hash":"`+decisionPlanHash+`"}` || decoded.PlanHash != decisionPlanHash {
+		t.Fatalf("an approval names its plan: sent %q, decoded plan_hash %q", captured.raw, decoded.PlanHash)
+	}
+	note := "Checked"
+	testClient, captured = captureDecisionWrite(t, http.StatusOK, approved)
+	if _, err := testClient.ApproveDecision(decisionWasteID, &note, decisionPlanHash); err != nil {
+		t.Fatalf("ApproveDecision with a note: %v", err)
+	}
+	if string(captured.raw) != `{"note":"Checked","plan_hash":"`+decisionPlanHash+`"}` {
+		t.Fatalf("an approval with a note names its plan too: %q", captured.raw)
+	}
+}
+
+// Approve's 409 PLAN_DRIFTED is told apart by its error_code and carries the
+// proposal as it stands; any other 409 keeps its detail as before.
+func TestApproveDecision_APlanProposedAgainIsTyped(t *testing.T) {
+	current := decisionProposalJSON(decisionWasteID, "waste_cleanup", "proposed", `{"parameters":{"waste_finding_id":"w2"}}`,
+		`,"plan_hash":"`+decisionOtherPlanHash+`"`)
+	testClient, _ := captureDecisionWrite(t, http.StatusConflict,
+		`{"detail":"This plan changed since you opened it: the proposal was recomputed with another plan, so nothing was approved. `+
+			`Read the plan it holds now and approve that one.","error_code":"PLAN_DRIFTED","payload":{"proposal":`+current+`}}`)
+	_, err := testClient.ApproveDecision(decisionWasteID, nil, decisionPlanHash)
+	var drifted *DecisionPlanDriftedError
+	if !errors.As(err, &drifted) || !strings.HasPrefix(drifted.Detail, "This plan changed since you opened it") ||
+		drifted.Current == nil || drifted.Current.ID != decisionWasteID || drifted.Current.PlanHash != decisionOtherPlanHash ||
+		drifted.Current.Status != "proposed" {
+		t.Fatalf("a plan proposed again is a DecisionPlanDriftedError with the proposal as it stands, got %#v", err)
+	}
+
+	testClient, _ = captureDecisionWrite(t, http.StatusConflict, `{"detail":"The proposal's status does not allow this action."}`)
+	_, err = testClient.ApproveDecision(decisionWasteID, nil, decisionPlanHash)
+	var unexpected *UnexpectedResponseError
+	if errors.As(err, &drifted) || !errors.As(err, &unexpected) || unexpected.StatusCode != http.StatusConflict ||
+		unexpected.Detail != "The proposal's status does not allow this action." {
+		t.Fatalf("a status refusal is not a plan that changed, got %v", err)
+	}
+
+	testClient, _ = captureDecisionWrite(t, http.StatusForbidden, `{"detail":"permission_denied","permission":"billing.manage","scope_type":"organisation"}`)
+	_, err = testClient.ApproveDecision(decisionWasteID, nil, decisionPlanHash)
+	var denied *PermissionDeniedError
+	if !errors.As(err, &denied) || denied.Permission != "billing.manage" {
+		t.Fatalf("a permission refusal names the permission, got %v", err)
 	}
 }
 
