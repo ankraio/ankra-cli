@@ -141,6 +141,13 @@ type FleetCloudCost struct {
 	UnmeteredMonthToDateCents *int64                  `json:"unmetered_month_to_date_cents,omitempty" yaml:"unmetered_month_to_date_cents,omitempty"`
 	GeneratedAt               *string                 `json:"generated_at,omitempty" yaml:"generated_at,omitempty"`
 	MonthHours                *MonthHours             `json:"month_hours,omitempty" yaml:"month_hours,omitempty"`
+	// UnpricedClusterCount is how many live clusters in scope have no price
+	// from the last day and are not known to spend nothing: what they cost is
+	// unknown, not zero, so the run rate and the month end are floors. The
+	// platform counts them by the rule its budgets use. nil when the platform
+	// did not send it, which says nothing about whether any cluster is
+	// unpriced.
+	UnpricedClusterCount *int `json:"unpriced_cluster_count,omitempty" yaml:"unpriced_cluster_count,omitempty"`
 }
 
 // CostReadiness explains why a cluster has no estimate yet (or that it is
