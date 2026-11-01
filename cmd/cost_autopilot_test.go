@@ -153,7 +153,7 @@ func TestCostAutopilotGetRendersPolicyTiersAndClusters(t *testing.T) {
 	for _, expected := range []string{
 		"Cost autopilot policy, last changed by " + autopilotUserID + " at 2026-09-20T10:00:00Z",
 		"Quiet hours: 22:00 to 07:00 Europe/Stockholm (the autopilot starts nothing on its own at any hour)",
-		"Notification route: 5a2b9c6d-0e1f-4a3b-8c5d-6e7f8091a2b3 (the autopilot sends no notice to it today)",
+		"Notification route: 5a2b9c6d-0e1f-4a3b-8c5d-6e7f8091a2b3 (no notice is sent to it today)",
 		"Tier by environment kind:", "Tiers:", "Clusters (2):",
 		"↳ eu-production is Hands-off as a production cluster, so every change waits for a person.",
 		`↳ Override "Load test week" set by ` + autopilotUserID + " at 2026-09-21T09:00:00Z.",

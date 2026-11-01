@@ -169,7 +169,7 @@ func init() {
 	costAutopilotSetCmd.Flags().String("quiet-hours", "", "A daily window START-END in 24-hour HH:MM, e.g. 22:00-07:00 (needs --timezone)")
 	costAutopilotSetCmd.Flags().String("timezone", "", "The IANA timezone of --quiet-hours, e.g. Europe/Stockholm")
 	costAutopilotSetCmd.Flags().Bool("clear-quiet-hours", false, "Remove the quiet hours")
-	costAutopilotSetCmd.Flags().String("notification-route", "", "The id of a notification route to keep with the policy (the autopilot sends no notice to it today)")
+	costAutopilotSetCmd.Flags().String("notification-route", "", "The id of a notification route to keep with the policy (no notice is sent to it today)")
 	costAutopilotSetCmd.Flags().Bool("clear-notification-route", false, "Remove the notification route from the policy")
 	costAutopilotSetCmd.MarkFlagsRequiredTogether("quiet-hours", "timezone")
 	costAutopilotSetCmd.MarkFlagsMutuallyExclusive("quiet-hours", "clear-quiet-hours")
@@ -389,7 +389,7 @@ func renderCostAutopilot(out io.Writer, policy *client.CostAutopilotPolicy) {
 		_, _ = fmt.Fprintln(out, "  Quiet hours: none")
 	}
 	if policy.NotificationRouteID != nil && *policy.NotificationRouteID != "" {
-		_, _ = fmt.Fprintf(out, "  Notification route: %s (the autopilot sends no notice to it today)\n", *policy.NotificationRouteID)
+		_, _ = fmt.Fprintf(out, "  Notification route: %s (no notice is sent to it today)\n", *policy.NotificationRouteID)
 	} else {
 		_, _ = fmt.Fprintln(out, "  Notification route: none")
 	}

@@ -81,7 +81,7 @@ type CostAutopilotPolicy struct {
 // only the environment kinds it changes, QuietHours or ClearQuietHours sets
 // or clears the quiet hours (null), and NotificationRouteID or
 // ClearNotificationRoute sets or clears the notification route stored with
-// the policy (null); the autopilot sends no notice to it today.
+// the policy (null); no notice is sent to it today.
 type CostAutopilotPolicyUpdate struct {
 	Defaults               map[string]string
 	QuietHours             *CostAutopilotQuietHours
