@@ -708,6 +708,10 @@ func costDecisionMeasurement(status string) string {
 		return "unmeasured: the cluster was not priced the same way on both sides"
 	case "unmeasured_no_snapshots":
 		return "unmeasured: no cost snapshot on one side"
+	case "unmeasured_confounded":
+		return "unmeasured: another cost change ran on the same cluster in the same window, so the drop is not this one's alone"
+	case "unmeasured_within_noise":
+		return "unmeasured: the change in the run rate was no larger than its normal day-to-day swings"
 	case "reverted":
 		return "reverted inside the window"
 	case "not_applicable", "":
