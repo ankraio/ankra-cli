@@ -89,7 +89,7 @@ func autopilotPointer[T any](value T) *T {
 }
 
 // costAutopilotFixture is the policy as the platform sends it: set, with
-// quiet hours and a pre-notice route, every tier described, a cluster on its
+// quiet hours and a notification route, every tier described, a cluster on its
 // environment's tier and one under an expiring override.
 func costAutopilotFixture() *client.CostAutopilotPolicy {
 	return &client.CostAutopilotPolicy{
@@ -104,10 +104,11 @@ func costAutopilotFixture() *client.CostAutopilotPolicy {
 		UpdatedAt:           autopilotPointer("2026-09-20T10:00:00Z"),
 		EnvironmentKinds:    []string{"production", "staging", "development", "preview", "unknown"},
 		Tiers: []client.CostAutopilotTier{
-			{Tier: "hands-off", Name: "Hands-off", AppliesTo: "Production", Does: "Nothing on its own.",
-				Proposes: "Every change, for a person to approve.", RollbackWindow: "-"},
-			{Tier: "managed", Name: "Managed", AppliesTo: "Development", Does: "Right-sizes and stops idle capacity after a pre-notice.",
-				Proposes: "Deletions and anything outside the rollback window.", RollbackWindow: "7 days"},
+			{Tier: "hands-off", Name: "Hands-off", AppliesTo: "Production", Does: "nothing on its own",
+				Proposes: "nothing on its own", RollbackWindow: "not applicable"},
+			{Tier: "managed", Name: "Managed", AppliesTo: "Development",
+				Does:     "nothing on its own: a stop outside working hours is proposed for a person to approve",
+				Proposes: "stops outside working hours", RollbackWindow: "any start, any time"},
 		},
 		Clusters: []client.CostAutopilotCluster{
 			{ClusterID: autopilotProdID, ClusterName: "eu-production", Environment: "production", EnvironmentKind: "production",
@@ -151,8 +152,8 @@ func TestCostAutopilotGetRendersPolicyTiersAndClusters(t *testing.T) {
 	flat := flattenAutopilotOutput(output)
 	for _, expected := range []string{
 		"Cost autopilot policy, last changed by " + autopilotUserID + " at 2026-09-20T10:00:00Z",
-		"Quiet hours: 22:00 to 07:00 Europe/Stockholm (the autopilot starts no change of its own then)",
-		"Pre-notices go to notification route 5a2b9c6d-0e1f-4a3b-8c5d-6e7f8091a2b3",
+		"Quiet hours: 22:00 to 07:00 Europe/Stockholm (the autopilot starts nothing on its own at any hour)",
+		"Notification route: 5a2b9c6d-0e1f-4a3b-8c5d-6e7f8091a2b3 (no notice is sent to it today)",
 		"Tier by environment kind:", "Tiers:", "Clusters (2):",
 		"↳ eu-production is Hands-off as a production cluster, so every change waits for a person.",
 		`↳ Override "Load test week" set by ` + autopilotUserID + " at 2026-09-21T09:00:00Z.",
@@ -195,8 +196,8 @@ func TestCostAutopilotGetForAPolicyNeverSet(t *testing.T) {
 		t.Fatalf("cost autopilot get failed: %v", executeError)
 	}
 	for _, expected := range []string{
-		"Cost autopilot policy: never set, so every environment kind is hands-off (every change waits for a person).",
-		"Quiet hours: none", "Pre-notices go through the organisation's default routing", "No live cluster yet.",
+		"Cost autopilot policy: never set, so every environment kind is hands-off (Ankra proposes nothing on its own; every change waits for a person).",
+		"Quiet hours: none", "Notification route: none", "No live cluster yet.",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("output lacks %q:\n%s", expected, output)

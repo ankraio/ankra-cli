@@ -53,8 +53,9 @@ type CostAutopilotCluster struct {
 	Tier            string                 `json:"tier" yaml:"tier"`
 }
 
-// CostAutopilotPolicy is GET /org/cloud-cost/autopilot: how much Ankra may do
-// about cost unasked. Defaults holds the tier every environment kind defaults
+// CostAutopilotPolicy is GET /org/cloud-cost/autopilot: which cost changes
+// Ankra proposes on its own (it never makes one itself; each proposal waits
+// for a person). Defaults holds the tier every environment kind defaults
 // to. IsSet is false for an organisation that never set a policy, when every
 // kind is hands-off; RecommendedDefaults is the policy the portal offers to
 // turn on. QuietHours and NotificationRouteID are nil for none and for the
@@ -79,7 +80,8 @@ type CostAutopilotPolicy struct {
 // sent, so every other part of the policy keeps its value: Defaults names
 // only the environment kinds it changes, QuietHours or ClearQuietHours sets
 // or clears the quiet hours (null), and NotificationRouteID or
-// ClearNotificationRoute sets or clears the pre-notice route (null).
+// ClearNotificationRoute sets or clears the notification route stored with
+// the policy (null); no notice is sent to it today.
 type CostAutopilotPolicyUpdate struct {
 	Defaults               map[string]string
 	QuietHours             *CostAutopilotQuietHours

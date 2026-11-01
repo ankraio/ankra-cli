@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -31,6 +32,9 @@ type costDecisionsMock struct {
 	releasedNotes  []*string
 	executeOptions []client.DecisionExecuteOptions
 	clusters       []client.ClusterListItem
+	waste          *client.CloudWaste
+	wasteError     error
+	wasteReads     int
 }
 
 func (m *costDecisionsMock) ListDecisions(filter client.DecisionListFilter) (*client.DecisionProposalList, error) {
@@ -95,6 +99,14 @@ func (m *costDecisionsMock) ExecuteDecision(_ string, options client.DecisionExe
 		return nil, m.writeError
 	}
 	return m.written, nil
+}
+
+func (m *costDecisionsMock) GetCloudWaste() (*client.CloudWaste, error) {
+	m.wasteReads++
+	if m.wasteError != nil {
+		return nil, m.wasteError
+	}
+	return m.waste, nil
 }
 
 func (m *costDecisionsMock) ListClusters(int, int) (*client.ClusterListResponse, error) {
@@ -671,6 +683,105 @@ func TestCostDecisionsExecuteSendsConsentOnlyWhenGiven(t *testing.T) {
 		"--min-unattached-days", "4000")
 	if executeError == nil || exitCodeFor(executeError) != exitUsage {
 		t.Fatalf("--min-unattached-days out of range is a usage error, got %v", executeError)
+	}
+}
+
+const (
+	decisionsServerFindingID = "6f1a2b3c-4d5e-4f60-8a7b-9c0d1e2f3a4b"
+	decisionsServerSentence  = "I understand this server and the data on its disks are deleted, and the snapshot taken first is deleted on its retention date."
+)
+
+// decisionsWasteListing is the waste listing of a platform with cluster#5646
+// when consentByKind is set, and of one before it when it is not.
+func decisionsWasteListing(resourceName string, consentByKind bool) *client.CloudWaste {
+	waste := &client.CloudWaste{
+		Findings: []client.CloudWasteFinding{
+			{ID: "7a2b3c4d-5e6f-4a70-9b8c-0d1e2f3a4b5c", Kind: "unassigned_ip", ResourceName: "203.0.113.7"},
+			{ID: decisionsServerFindingID, Kind: "stopped_server", ResourceName: resourceName},
+		},
+		Consent: client.CloudWasteConsentPolicy{SentenceByKind: map[string]string{"stopped_server": decisionsServerSentence}},
+	}
+	if consentByKind {
+		waste.Consent.ConsentByKind = map[string]string{
+			"stopped_server": "delete_stopped_server_acknowledged", "unassigned_ip": "release_unassigned_ip_acknowledged"}
+	}
+	return waste
+}
+
+func decisionsServerCleanup() *client.DecisionProposal {
+	approved := decisionFixture(decisionsWasteID, "waste_cleanup", "approved", "Delete stopped server web-1", decisionsOtherID)
+	approved.Plan = map[string]any{"consent_required": true, "parameters": map[string]any{"waste_finding_id": decisionsServerFindingID}}
+	return &approved
+}
+
+// A consented waste cleanup sends the consent naming its finding's kind
+// where the platform names one, and the prompt shows the resource and what
+// the person agrees to (ankra-bn86k4.6.16.2). A platform that names none, a
+// listing that could not be read and a proposal of another kind send the
+// general consent the platform takes for one finding.
+func TestCostDecisionsExecuteSendsTheConsentNamingTheFindingsKind(t *testing.T) {
+	running := decisionFixture(decisionsWasteID, "waste_cleanup", "running", "Delete stopped server web-1", decisionsOtherID)
+	running.OperationID = decisionsPointer(decisionsOperation)
+
+	mock := &costDecisionsMock{proposal: decisionsServerCleanup(), waste: decisionsWasteListing("web-1\x1b[2K", true), written: &running}
+	_, stderr, executeError := runCostDecisionsCommand(t, mock, "y\n", "cost", "decisions", "execute", decisionsWasteID, "--acknowledge-no-snapshot")
+	if executeError != nil {
+		t.Fatalf("cost decisions execute failed: %v", executeError)
+	}
+	if len(mock.executeOptions) != 1 || mock.executeOptions[0].Consent != "delete_stopped_server_acknowledged" {
+		t.Fatalf("a stopped server's cleanup sends its kind's consent, got %+v", mock.executeOptions)
+	}
+	if !strings.Contains(stderr, "with your written consent to remove web-1[2K: "+decisionsServerSentence+" [y/N]: ") ||
+		strings.Contains(stderr, "\x1b") {
+		t.Fatalf("the prompt names the resource and the sentence, with no control characters: %q", stderr)
+	}
+
+	// An unreadable proposal or listing says why the general consent is sent;
+	// a platform that names none and a proposal of another kind say nothing.
+	for _, testCase := range []struct {
+		name          string
+		mock          *costDecisionsMock
+		wantNote      string
+		wantListReads int
+	}{
+		{"a platform before consent_by_kind",
+			&costDecisionsMock{proposal: decisionsServerCleanup(), waste: decisionsWasteListing("web-1", false), written: &running}, "", 1},
+		{"a listing that could not be read",
+			&costDecisionsMock{proposal: decisionsServerCleanup(), wasteError: errors.New("permission denied"), written: &running},
+			"The waste listing could not be read (permission denied), so the general consent (no_snapshot_acknowledged) is sent", 1},
+		{"a proposal that could not be read",
+			&costDecisionsMock{getError: errors.New("connection reset"), waste: decisionsWasteListing("web-1", true), written: &running},
+			"The proposal could not be read (connection reset), so the general consent (no_snapshot_acknowledged) is sent", 0},
+		{"a proposal of another kind",
+			&costDecisionsMock{proposal: decisionsPointer(decisionFixture(decisionsWasteID, "off_hours_schedule", "approved", "Stop staging at night", decisionsOtherID)),
+				waste: decisionsWasteListing("web-1", true), written: &running}, "", 0},
+	} {
+		_, stderr, executeError := runCostDecisionsCommand(t, testCase.mock, "", "cost", "decisions", "execute", decisionsWasteID,
+			"--acknowledge-no-snapshot", "--yes")
+		if executeError != nil {
+			t.Fatalf("%s: cost decisions execute failed: %v", testCase.name, executeError)
+		}
+		if len(testCase.mock.executeOptions) != 1 || testCase.mock.executeOptions[0].Consent != "no_snapshot_acknowledged" {
+			t.Fatalf("%s: the general consent is sent, got %+v", testCase.name, testCase.mock.executeOptions)
+		}
+		if testCase.mock.wasteReads != testCase.wantListReads {
+			t.Fatalf("%s: the waste listing was read %d times, want %d", testCase.name, testCase.mock.wasteReads, testCase.wantListReads)
+		}
+		if testCase.wantNote == "" && strings.Contains(stderr, "could not be read") {
+			t.Fatalf("%s: nothing went unread, so nothing is said: %q", testCase.name, stderr)
+		}
+		if testCase.wantNote != "" && !strings.Contains(stderr, testCase.wantNote) {
+			t.Fatalf("%s: stderr = %q, want %q", testCase.name, stderr, testCase.wantNote)
+		}
+	}
+
+	quiet := &costDecisionsMock{proposal: decisionsServerCleanup(), waste: decisionsWasteListing("web-1", true), written: &running}
+	if _, _, executeError := runCostDecisionsCommand(t, quiet, "", "cost", "decisions", "execute", decisionsWasteID, "--yes"); executeError != nil {
+		t.Fatalf("cost decisions execute failed: %v", executeError)
+	}
+	if quiet.reads != 0 || quiet.wasteReads != 0 || quiet.executeOptions[0].Consent != "" {
+		t.Fatalf("without --acknowledge-no-snapshot nothing is looked up and no consent is sent: %d reads, %d listings, %+v",
+			quiet.reads, quiet.wasteReads, quiet.executeOptions)
 	}
 }
 

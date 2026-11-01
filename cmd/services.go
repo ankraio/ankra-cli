@@ -119,6 +119,7 @@ type APIClient interface {
 	GetCostReconciliation(month string) (*client.CostReconciliation, error)
 	GetCloudSavings() (*client.CloudSavings, error)
 	GetCloudLedger() (*client.CloudLedger, error)
+	GetCloudWaste() (*client.CloudWaste, error)
 	GetCostAutopilot() (*client.CostAutopilotPolicy, error)
 	UpdateCostAutopilot(update client.CostAutopilotPolicyUpdate) (*client.CostAutopilotPolicy, error)
 	SetCostAutopilotOverride(clusterID string, request client.CostAutopilotOverrideRequest) (*client.CostAutopilotCluster, error)

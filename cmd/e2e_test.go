@@ -5387,6 +5387,10 @@ func (m baseMock) GetCloudLedger() (*client.CloudLedger, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetCloudWaste() (*client.CloudWaste, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetCostAutopilot() (*client.CostAutopilotPolicy, error) {
 	return nil, errors.New("not implemented")
 }

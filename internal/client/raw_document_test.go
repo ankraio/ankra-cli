@@ -77,6 +77,7 @@ func TestEveryCostResponseKeepsTheResponseDocument(t *testing.T) {
 		"UpdateCostSettings":         func() (carrier, error) { return apiClient.UpdateCostSettings(CostSettings{Currency: "eur"}) },
 		"GetCloudSavings":            func() (carrier, error) { return apiClient.GetCloudSavings() },
 		"GetCloudLedger":             func() (carrier, error) { return apiClient.GetCloudLedger() },
+		"GetCloudWaste":              func() (carrier, error) { return apiClient.GetCloudWaste() },
 		"GetCostAutopilot":           func() (carrier, error) { return apiClient.GetCostAutopilot() },
 		"UpdateCostAutopilot":        func() (carrier, error) { return apiClient.UpdateCostAutopilot(CostAutopilotPolicyUpdate{}) },
 		"SetCostAutopilotOverride":   func() (carrier, error) { return apiClient.SetCostAutopilotOverride(id, CostAutopilotOverrideRequest{}) },
