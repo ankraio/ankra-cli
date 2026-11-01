@@ -10,19 +10,22 @@ import (
 // currency. Status is under, approaching, crossing (projected past the budget
 // this month), over (already past it) or unknown (nothing in scope priced).
 // Every figure is nil while nothing in scope is priced: an unread month is not
-// a month with no spend. CrossingAt is set only while crossing.
+// a month with no spend. CrossingAt is set only while crossing. MonthHours is
+// the hours of the month the month to date holds over the clusters in scope;
+// nil when the platform did not count them, which is not a whole month.
 type CostBudgetProjection struct {
-	Status                     string  `json:"status" yaml:"status"`
-	MonthToDateCents           *int64  `json:"month_to_date_cents" yaml:"month_to_date_cents"`
-	ProjectedMonthEndCents     *int64  `json:"projected_month_end_cents" yaml:"projected_month_end_cents"`
-	PercentOfBudget            *int    `json:"percent_of_budget" yaml:"percent_of_budget"`
-	CrossingAt                 *string `json:"crossing_at" yaml:"crossing_at"`
-	RunningSavingsMonthlyCents *int64  `json:"running_savings_monthly_cents" yaml:"running_savings_monthly_cents"`
-	AfterRunningChangesCents   *int64  `json:"after_running_changes_cents" yaml:"after_running_changes_cents"`
-	PricedClusterCount         int     `json:"priced_cluster_count" yaml:"priced_cluster_count"`
-	UnpricedClusterCount       int     `json:"unpriced_cluster_count" yaml:"unpriced_cluster_count"`
-	Complete                   bool    `json:"complete" yaml:"complete"`
-	Currency                   string  `json:"currency" yaml:"currency"`
+	Status                     string      `json:"status" yaml:"status"`
+	MonthToDateCents           *int64      `json:"month_to_date_cents" yaml:"month_to_date_cents"`
+	ProjectedMonthEndCents     *int64      `json:"projected_month_end_cents" yaml:"projected_month_end_cents"`
+	PercentOfBudget            *int        `json:"percent_of_budget" yaml:"percent_of_budget"`
+	CrossingAt                 *string     `json:"crossing_at" yaml:"crossing_at"`
+	RunningSavingsMonthlyCents *int64      `json:"running_savings_monthly_cents" yaml:"running_savings_monthly_cents"`
+	AfterRunningChangesCents   *int64      `json:"after_running_changes_cents" yaml:"after_running_changes_cents"`
+	PricedClusterCount         int         `json:"priced_cluster_count" yaml:"priced_cluster_count"`
+	UnpricedClusterCount       int         `json:"unpriced_cluster_count" yaml:"unpriced_cluster_count"`
+	Complete                   bool        `json:"complete" yaml:"complete"`
+	Currency                   string      `json:"currency" yaml:"currency"`
+	MonthHours                 *MonthHours `json:"month_hours,omitempty" yaml:"month_hours,omitempty"`
 }
 
 // CostBudget is a monthly cost budget for one scope (the organisation, a

@@ -21,14 +21,17 @@ import (
 // after it ran. The ledger sends how many days have passed, not the length.
 const costLedgerVerificationDays = 7
 
-// The widest the cluster and lever cells grow before they wrap, so a long
-// name cannot push the table past a 100-column terminal. The cells are
-// wrapped here rather than through a column WidthMax: go-pretty applies a
-// column's WidthMax to a merged cell that starts in it too, which would fold
-// every note under a row into the first column's width.
+// The widest the cluster, lever and status cells grow before they wrap, so a
+// long name or status cannot push the table past a 100-column terminal. The
+// cells are wrapped here rather than through a column WidthMax: go-pretty
+// applies a column's WidthMax to a merged cell that starts in it too, which
+// would fold every note under a row into the first column's width. The status
+// width is that of "unmeasured · coverage moved", so only the longer statuses
+// wrap.
 const (
 	costLedgerClusterWidthMax = 24
 	costLedgerLeverWidthMax   = 22
+	costLedgerStatusWidthMax  = 27
 )
 
 var costLedgerCmd = &cobra.Command{
@@ -128,6 +131,10 @@ func costLedgerStatus(row client.CloudLedgerRow) string {
 		return "unmeasured · coverage moved"
 	case "unmeasured_no_snapshots":
 		return "unmeasured · no snapshots"
+	case "unmeasured_confounded":
+		return "unmeasured · another change overlapped"
+	case "unmeasured_within_noise":
+		return "unmeasured · within normal day-to-day swings"
 	case "reverted":
 		return "reverted"
 	case "not_applicable", "":
@@ -254,7 +261,7 @@ func renderCloudLedger(out io.Writer, ledger *client.CloudLedger) {
 		rows = append(rows, table.Row{
 			text.WrapSoft(costLedgerCluster(row), costLedgerClusterWidthMax),
 			text.WrapSoft(costLedgerLever(row.Lever), costLedgerLeverWidthMax),
-			costLedgerStatus(row),
+			text.WrapSoft(costLedgerStatus(row), costLedgerStatusWidthMax),
 			formatOptionalCostCents(row.ExpectedMonthlyCents, currency),
 			formatOptionalCostCents(row.MeasuredMonthlyCents, currency),
 		})

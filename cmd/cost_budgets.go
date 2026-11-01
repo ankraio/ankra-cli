@@ -408,8 +408,8 @@ func costBudgetScope(budget client.CostBudget) string {
 }
 
 // costBudgetNotes is what goes under a budget's row: its id and threshold,
-// the crossing hour, where the running changes land it, and how much of the
-// scope the figures cover.
+// the crossing hour, where the running changes land it, how much of the
+// scope the figures cover, and how many hours of the month they hold.
 func costBudgetNotes(budget client.CostBudget) []string {
 	projection := budget.Projection
 	currency := projection.Currency
@@ -439,7 +439,20 @@ func costBudgetNotes(budget client.CostBudget) []string {
 		notes = append(notes, fmt.Sprintf("%d of %d clusters in scope are priced; the spend of the others is not in these figures.",
 			projection.PricedClusterCount, projection.PricedClusterCount+projection.UnpricedClusterCount))
 	}
+	if line, _ := costBudgetMonthHours(projection); line != "" {
+		notes = append(notes, line)
+	}
 	return notes
+}
+
+// costBudgetMonthHours words the hours a budget's month to date holds and
+// reports whether some were not metered (costMonthHours). A month whose
+// status is unknown has no figures to qualify, so it says nothing.
+func costBudgetMonthHours(projection client.CostBudgetProjection) (string, bool) {
+	if projection.Status == "unknown" || projection.Status == "" {
+		return "", false
+	}
+	return costMonthHours(projection.MonthHours)
 }
 
 func renderCostBudgets(out io.Writer, budgets *client.CostBudgets) {
@@ -477,14 +490,27 @@ func renderCostBudgetTable(out io.Writer, budgets []client.CostBudget) {
 		if currency == "" {
 			currency = budget.Currency
 		}
+		// A month short of metered hours is a floor: its spend and the month
+		// end built on it are at least what they say (the note says why).
+		mark := ""
+		if _, short := costBudgetMonthHours(projection); short {
+			mark = costMonthFloorMark
+		}
+		spent := costBudgetFigure(projection.MonthToDateCents, currency)
+		if projection.MonthToDateCents != nil {
+			spent = mark + spent
+		}
 		projected := costBudgetFigure(projection.ProjectedMonthEndCents, currency)
+		if projection.ProjectedMonthEndCents != nil {
+			projected = mark + projected
+		}
 		if projection.ProjectedMonthEndCents != nil && projection.PercentOfBudget != nil {
 			projected += fmt.Sprintf(" (%d%%)", *projection.PercentOfBudget)
 		}
 		rows = append(rows, table.Row{
 			text.WrapSoft(budget.Name, costBudgetsBudgetWidthMax) + "\n" + text.WrapSoft(costBudgetScope(budget), costBudgetsBudgetWidthMax),
 			formatCostCents(budget.MonthlyCents, budget.Currency),
-			costBudgetFigure(projection.MonthToDateCents, currency),
+			spent,
 			projected,
 			costBudgetStatus(projection.Status),
 		})
