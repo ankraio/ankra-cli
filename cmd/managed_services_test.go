@@ -782,21 +782,26 @@ func TestServicesSetupStructuredOutputStaysParseable(t *testing.T) {
 	}
 }
 
-// runServicesThroughRoot runs `ankra services ...` through the real root
-// command - its persistent flags, its pre-run, and the setup command's flag
-// parsing as a person types it - with no terminal on stdin. It mutates the
-// package-global rootCmd (output, input, arguments and flag state), so a test
-// that uses it must not call t.Parallel().
+// runServicesThroughRoot runs `ankra services <subcommand> ...` through the
+// real root command - its persistent flags, its pre-run, its SilenceUsage
+// (so stdout holds only what the command itself writes) and the
+// subcommand's flag parsing as a person types it - with no terminal on stdin.
+// The first argument names the subcommand, whose flags are reset around the
+// run. It mutates the package-global rootCmd (output, input, arguments and
+// flag state), so a test that uses it must not call t.Parallel().
 func runServicesThroughRoot(t *testing.T, platform *fakeServicesPlatform, arguments ...string) (string, string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, platform.client())
-	setupCommand, _, findError := rootCmd.Find([]string{"services", "setup"})
-	if findError != nil || setupCommand.Name() != "setup" {
-		t.Fatalf("services setup is not registered on the root command: %v", findError)
+	if len(arguments) == 0 {
+		t.Fatal("runServicesThroughRoot needs the services subcommand to run")
 	}
-	resetTreeFlags(t, setupCommand)
-	t.Cleanup(func() { resetTreeFlags(t, setupCommand) })
+	subcommand, _, findError := rootCmd.Find([]string{"services", arguments[0]})
+	if findError != nil || subcommand.Name() != arguments[0] {
+		t.Fatalf("services %s is not registered on the root command: %v", arguments[0], findError)
+	}
+	resetTreeFlags(t, subcommand)
+	t.Cleanup(func() { resetTreeFlags(t, subcommand) })
 	var stdout, stderr bytes.Buffer
 	rootCmd.SetOut(&stdout)
 	rootCmd.SetErr(&stderr)

@@ -535,18 +535,44 @@ func TestServicesDisconnectSaysWhenTheApplicationIsAlreadyBeingDisconnected(t *t
 }
 
 // A refused confirm (the plan moved, or expired) exits non-zero with the
-// platform's sentence and the way forward; a retired service is refused
-// before anything is prepared.
+// platform's sentence and the way forward, and - typed through the real root
+// command, as a person or a script runs it - prints no document on stdout a
+// pipe could read as a disconnection; the review still goes to stderr. A
+// retired service is refused before anything is prepared.
 func TestServicesDisconnectRelaysRefusals(t *testing.T) {
 	platform := newFakeServicesPlatform(t)
 	platform.disconnectionConfirmConflict = true
-	stdout, _, runError := runServicesCommand(t, platform, "", "disconnect", "orders-db", "--application", "storefront", "--yes", "-o", "json")
+	stdout, stderr, runError := runServicesThroughRoot(t, platform, "disconnect", "orders-db", "--application", "storefront", "--yes", "-o", "json")
 	if runError == nil || exitCodeFor(runError) != exitError ||
 		!strings.Contains(runError.Error(), "The disconnection changed since it was reviewed") || !strings.Contains(runError.Error(), "run the command again") {
 		t.Fatalf("expected the platform's conflict with the way forward, got %v", runError)
 	}
-	if stdout != "" {
+	if confirms := platform.disconnectionConfirms(); len(confirms) != 1 {
+		t.Errorf("expected the one confirm attempt, got %d", len(confirms))
+	}
+	if strings.TrimSpace(stdout) != "" {
 		t.Errorf("a refused confirm must leave stdout empty, got:\n%s", stdout)
+	}
+	if !strings.Contains(stderr, fakeDisconnectCredential) {
+		t.Errorf("the review still goes to stderr:\n%s", stderr)
+	}
+
+	// The paths that stop before confirming leave stdout empty too: no
+	// terminal without --yes (exit 4), and a review that needs a choice
+	// for the conventional names (exit 2).
+	platform = newFakeServicesPlatform(t)
+	stdout, _, runError = runServicesThroughRoot(t, platform, "disconnect", "orders-db", "--application", "storefront", "-o", "json")
+	if exitCodeFor(runError) != exitCancelled || strings.TrimSpace(stdout) != "" {
+		t.Errorf("no terminal without --yes must exit 4 with nothing on stdout, got %v:\n%s", runError, stdout)
+	}
+	platform = newFakeServicesPlatform(t)
+	platform.disconnectionChoiceRequired = true
+	stdout, _, runError = runServicesThroughRoot(t, platform, "disconnect", "orders-db", "--application", "storefront", "--yes", "-o", "json")
+	if exitCodeFor(runError) != exitUsage || strings.TrimSpace(stdout) != "" {
+		t.Errorf("a review that needs a choice must exit 2 with nothing on stdout, got %v:\n%s", runError, stdout)
+	}
+	if confirms := platform.disconnectionConfirms(); len(confirms) != 0 {
+		t.Errorf("nothing may be confirmed on a path that stops before confirming: %+v", confirms)
 	}
 
 	platform = newFakeServicesPlatform(t)

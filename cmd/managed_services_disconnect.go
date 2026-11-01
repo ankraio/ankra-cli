@@ -184,7 +184,9 @@ func runServicesDisconnect(command *cobra.Command, arguments []string) error {
 	case connectionNames.ChoiceRequired && connectionNames.Choice == nil && selection.namesFrom == "":
 		printServiceDisconnectionPlan(human, names, *consumer, *disconnection)
 		if reviewOnly {
-			if rendered, renderError := renderStructured(command, disconnection); rendered || renderError != nil {
+			// The review is the document on stdout under -o json|yaml; the
+			// note goes to the human writer either way (stderr then).
+			if _, renderError := renderStructured(command, disconnection); renderError != nil {
 				return renderError
 			}
 			_, _ = fmt.Fprintf(human, "\nNothing changed. Confirming needs a choice of who gives %s from now on: "+
@@ -222,7 +224,7 @@ func runServicesDisconnect(command *cobra.Command, arguments []string) error {
 
 	printServiceDisconnectionPlan(human, names, *consumer, *disconnection)
 	if reviewOnly {
-		if rendered, renderError := renderStructured(command, disconnection); rendered || renderError != nil {
+		if _, renderError := renderStructured(command, disconnection); renderError != nil {
 			return renderError
 		}
 		_, _ = fmt.Fprintf(human, "\nNothing changed. Run the command again without --review-only to disconnect the application; "+
