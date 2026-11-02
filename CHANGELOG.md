@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changed
+
+- **`ankra application environments set --branches` turns pushes on for the environment, as the portal does.** Setting a branch rule on an environment that did not deploy pushes saved a rule that never deployed anything; the environment now follows the rule from the next matching push. Add `--disable` to save the rule with pushes still off. `--clear` keeps the environment's switch as it was.
+- **`ankra application environments set` accepts `--follow` and `--follow-branches` for `--branches`, and `--none` for `--clear`**, the words the portal and `ankra application deploy --follow-branches` use, so `ankra application environments set my-app staging --follow develop,release/*` works as written. `ankra application auto-deploy --help` and the bundled skills now point at the command instead of the portal.
+
 ## v0.54.0 - 2026-11-01
 
 This release makes `ankra cost decisions approve` show you the plan before it
