@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra cluster agent ci set --ankra-workspace-storage-class <class>` gives a cluster's Ankra Workspaces a storage class of their own, apart from the one pipeline steps use.** Until now both read `--storage-class`. An Ankra Workspace stays off the nodes pipeline steps run on, so a class only those nodes can use left every workspace on the cluster Pending for good, and the same write replaced each of them at its next use, stopping whatever ran in it. Left empty, which is every cluster today, workspaces go on inheriting `--storage-class` and nothing changes. To move pipeline steps to such a class with no workspace replaced, first pass the class the workspaces use now, then change `--storage-class`. On a cluster whose storage class is empty the workspaces use the cluster's default class with no name at all, so naming a class there replaces each of them once. Naming a different class replaces each workspace at its next use, and an empty value goes back to inheriting. The write restarts no agent and reaches no pipeline step. `ankra cluster agent ci get` shows the class as `Ankra Workspace class`, and says when it is inherited. A platform that predates the setting shows no such line, and a `set` that names the class there fails rather than reporting it as stored.
+
+### Fixed
+
+- **`ankra cluster agent ci set --storage-class` now says what it does to Ankra Workspaces.** Its help described only pipeline step workspaces. It now says that pipeline steps take the class at the next agent re-render, and that Ankra Workspaces on the cluster with no workspace class of their own are replaced on next use.
+
 ## v0.55.0 - 2026-11-02
 
 This release lets you set what the merge train's auto-admit waits for and which

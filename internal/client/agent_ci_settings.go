@@ -109,6 +109,11 @@ type AgentCISettings struct {
 	// never "off".
 	CIStepWorkspaces       *string `json:"ci_step_workspaces,omitempty" yaml:"ci_step_workspaces,omitempty"`
 	SupportsStepWorkspaces *bool   `json:"supports_step_workspaces,omitempty" yaml:"supports_step_workspaces,omitempty"`
+	// AnkraWorkspaceStorageClass is the storage class the cluster's Ankra
+	// Workspaces cut their /work volume from, "" to inherit CIStorageClass. It
+	// is nil on a platform older than the setting, which is "not reported",
+	// never "inherits": nobody chose anything there.
+	AnkraWorkspaceStorageClass *string `json:"ankra_workspace_storage_class,omitempty" yaml:"ankra_workspace_storage_class,omitempty"`
 }
 
 // The run reservation modes. off computes nothing (every cluster's default),
@@ -203,6 +208,11 @@ type AgentCIPlacementToleration struct {
 // CIStepWorkspaces is sent only when named too. The dispatcher reads it at a
 // run's first step and the agent's release never carries it, so a write naming
 // nothing else re-renders nothing either.
+//
+// AnkraWorkspaceStorageClass is sent only when named, and a pointer to ""
+// returns the cluster's Ankra Workspaces to inheriting the CI storage class. No
+// pipeline step and no release carries it: an Ankra Workspace reads it at its
+// next use.
 type AgentCISettingsUpdate struct {
 	CIWorkerCount    *int
 	CIStorageClass   *string
@@ -214,6 +224,8 @@ type AgentCISettingsUpdate struct {
 	CIBuildAppArmorProfile *string
 	// CIStepWorkspaces is documented on the type.
 	CIStepWorkspaces *string
+	// AnkraWorkspaceStorageClass is documented on the type.
+	AnkraWorkspaceStorageClass *string
 }
 
 // NamesChartSetting reports whether the write names a setting rendered into
@@ -223,6 +235,14 @@ type AgentCISettingsUpdate struct {
 // release as it already was.
 func (update AgentCISettingsUpdate) NamesChartSetting() bool {
 	return update.CIWorkerCount != nil || update.CIStorageClass != nil
+}
+
+// NamesStepPayloadSetting reports whether the write names a setting the
+// platform carries on each pipeline step's payload or reads at a run's first
+// step, which reaches the cluster with the next step dispatched.
+func (update AgentCISettingsUpdate) NamesStepPayloadSetting() bool {
+	return update.CIPlacement != nil || update.ClearPlacement || update.CIRunReservation != nil ||
+		update.CIImagePrepull != nil || update.CIBuildAppArmorProfile != nil || update.CIStepWorkspaces != nil
 }
 
 // MarshalJSON renders the partial body: only the named members, and
@@ -252,6 +272,9 @@ func (update AgentCISettingsUpdate) MarshalJSON() ([]byte, error) {
 	}
 	if update.CIStepWorkspaces != nil {
 		body["ci_step_workspaces"] = *update.CIStepWorkspaces
+	}
+	if update.AnkraWorkspaceStorageClass != nil {
+		body["ankra_workspace_storage_class"] = *update.AnkraWorkspaceStorageClass
 	}
 	return json.Marshal(body)
 }
