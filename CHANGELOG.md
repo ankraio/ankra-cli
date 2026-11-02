@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ankra cluster get <kind> <name>` and `ankra cluster describe` with `-o json` or `-o yaml` now say on stderr when the platform could not vouch for the object.** That means the cluster did not answer and the platform fell back to its last rows, or the agent's watch reported trouble. Before this, a pod last seen before an API server outage printed exactly like the live one, with nothing to say it was 24 minutes old. The object on stdout and the exit code are unchanged, and a routine cache hit stays silent. A script that merges stderr into its JSON with `2>&1` gets the extra line on those reads only.
+- **`ankra org ci-settings` names one more reason a CI pool member takes no runs: its agent cannot reach the cluster's Kubernetes API.** The agent can read as online while that is true, so "offline or does not run pipeline steps" sent readers looking in the wrong place.
+
 ## v0.54.0 - 2026-11-01
 
 This release makes `ankra cost decisions approve` show you the plan before it
