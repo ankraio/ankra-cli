@@ -733,7 +733,7 @@ func newPipelineTrainSettingsCommand(use string, short string, isEnabled bool) *
 					settings.MaxCars)
 				printPipelineTrainAutoAdmit(command.OutOrStdout(), *settings)
 				if criterion != nil && *criterion == client.PipelineMergeTrainCriterionReady &&
-					settings.AutoAdmitCriterion != "" {
+					settings.AutoAdmitCriterion == client.PipelineMergeTrainCriterionReady {
 					_, _ = fmt.Fprintln(command.OutOrStdout(), pipelineTrainReadyCarSentence)
 				}
 				return unstoredError

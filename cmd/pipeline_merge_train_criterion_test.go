@@ -166,6 +166,20 @@ func TestPipelineTrainEnableSaysPlainlyWhatReadyDoes(t *testing.T) {
 	}
 }
 
+// The sentence describes the stored rule, so a platform that answers another
+// criterion than the one named does not get it (ankra-cli#680 review).
+func TestPipelineTrainEnableSaysReadyOnlyWhenReadyIsWhatWasStored(t *testing.T) {
+	mock := &pipelineTrainMock{settingsAnswer: pipelineTrainStoredRule("on", "green", pipelineTrainDefaultPaths, true)}
+	output, runError := runPipelineTrainCommand(t, mock, "enable", "--auto-admit-criterion", "ready", "--repository",
+		testPipelineRepositoryID)
+	if runError != nil {
+		t.Fatalf("enable: %v", runError)
+	}
+	if strings.Contains(output, "only run that has to pass") {
+		t.Fatalf("output describes a ready rule the platform did not store:\n%s", output)
+	}
+}
+
 func TestPipelineTrainCriterionSentenceNamesEachRuleAndWhenItDoesNothing(t *testing.T) {
 	cases := []struct {
 		name      string
