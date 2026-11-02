@@ -42,11 +42,14 @@ func reconcileCents(cents int64) *int64 { return &cents }
 func reconcileText(value string) *string { return &value }
 
 // costReconciliationFixture is one credential per state the route answers:
-// a stated difference with its caveat, tax and credits; final figures not
-// yet in (month to date after a failed refresh); a credential never
-// imported; mixed currencies; and a known zero.
+// a stated difference with its caveat, tax and credits, over every cluster;
+// final figures not yet in (month to date after a failed refresh), over one
+// cluster of two with the hours share unknown; a credential never imported,
+// where no cluster was fully metered; mixed currencies, from a platform that
+// predates difference_coverage; and a known zero.
 func costReconciliationFixture() *client.CostReconciliation {
 	difference, complete, partial, isComplete := 3.26, "complete", "partial", true
+	whole, invoiceShare := 100.0, 55.5
 	return &client.CostReconciliation{
 		Month: "2026-08", MonthClosed: true, PeriodHours: 744, GeneratedAt: "2026-09-26T08:00:00Z",
 		Credentials: []client.CostReconciliationCredential{
@@ -56,21 +59,26 @@ func costReconciliationFixture() *client.CostReconciliation {
 				EstimateMinor: reconcileCents(9200), EstimateComplete: &isComplete, DifferencePct: &difference,
 				EstimateFX:          &client.CostReconciliationFX{From: "usd", To: "eur", RateFromUSD: 0.92, AsOf: reconcileText("2026-09-25T00:00:00Z")},
 				UnplacedPricedMinor: reconcileCents(300), DifferenceCaveat: reconcileText("1 billed line(s) in categories the estimate prices are not placed on any cluster."),
-				UnmatchedLineCount: 1,
-				Imports:            []client.CostReconciliationImport{{SourceDocumentID: "usage-2026-08", State: "complete", LinesState: &complete}}},
+				UnmatchedLineCount: 1, CoverageReported: true,
+				DifferenceCoverage: &client.CostReconciliationCoverage{ClustersCovered: 2, ClustersNamed: 2, MatchedMinor: 9500,
+					EstimateMinor: 9200, InvoiceSharePct: &whole, HoursSharePct: &whole},
+				Imports: []client.CostReconciliationImport{{SourceDocumentID: "usage-2026-08", State: "complete", LinesState: &complete}}},
 			{CredentialID: "aaaaaaaa-0000-4000-8000-000000000002", CredentialName: reconcileText("upcloud-prod"), Provider: "upcloud",
 				State: "failed", Currency: reconcileText("eur"), InvoiceMinor: reconcileCents(9000), MatchedMinor: reconcileCents(9000),
-				EstimateMinor: reconcileCents(9200), EstimateComplete: &isComplete,
+				EstimateMinor: reconcileCents(9200), EstimateComplete: &isComplete, CoverageReported: true,
+				DifferenceCoverage: &client.CostReconciliationCoverage{ClustersCovered: 1, ClustersNamed: 2, MatchedMinor: 5000,
+					EstimateMinor: 5100, InvoiceSharePct: &invoiceShare},
 				DifferenceReason: reconcileText("The provider's figures for this month are not final yet, so the difference is not stated until they are."),
 				Imports: []client.CostReconciliationImport{{SourceDocumentID: "usage-2026-08", State: "failed", LinesState: &partial,
 					Reason: reconcileText("Reading UpCloud's billing summary for 2026-08 failed (502): Bad gateway")}}},
-			{CredentialID: "aaaaaaaa-0000-4000-8000-000000000003", Provider: "hetzner", State: "absent",
+			{CredentialID: "aaaaaaaa-0000-4000-8000-000000000003", Provider: "hetzner", State: "absent", CoverageReported: true,
 				DifferenceReason: reconcileText("No billing document has been imported for this month, so what the provider billed is unknown, not zero.")},
 			{CredentialID: "aaaaaaaa-0000-4000-8000-000000000004", CredentialName: reconcileText("do-legacy"), Provider: "digitalocean",
 				State: "complete", CurrenciesMixed: true, UnmatchedLineCount: 2,
 				DifferenceReason: reconcileText("The imported lines are in more than one currency, so they are not summed.")},
 			{CredentialID: "aaaaaaaa-0000-4000-8000-000000000005", CredentialName: reconcileText("ovh-idle"), Provider: "ovh",
 				State: "complete", Currency: reconcileText("eur"), InvoiceMinor: reconcileCents(0), MatchedMinor: reconcileCents(0),
+				CoverageReported: true,
 				DifferenceReason: reconcileText("The provider billed nothing on this credential for this month, so there is nothing to compare with the estimate.")},
 		},
 	}
@@ -113,6 +121,76 @@ func TestCostReconcileRendersEveryStateWithoutReadingUnknownAsZero(t *testing.T)
 	}
 	if absentRow == "" || strings.Contains(absentRow, "0.00") {
 		t.Errorf("a never-imported credential must read unknown, never zero: %q", absentRow)
+	}
+}
+
+// costReconcileRow is the table row whose text holds every one of the
+// given fragments, or "" when none does.
+func costReconcileRow(output string, fragments ...string) string {
+	for _, line := range strings.Split(output, "\n") {
+		holdsAll := true
+		for _, fragment := range fragments {
+			holdsAll = holdsAll && strings.Contains(line, fragment)
+		}
+		if holdsAll {
+			return line
+		}
+	}
+	return ""
+}
+
+func TestCostReconcileSaysWhatTheStatedDifferenceCovers(t *testing.T) {
+	mock := &costReconcileMock{reconciliation: costReconciliationFixture()}
+	output, err := runCostReconcileCommand(t, mock, "cost", "reconcile", "--month", "2026-08")
+	if err != nil {
+		t.Fatalf("cost reconcile: %v", err)
+	}
+	for _, row := range []struct{ credential, coverage string }{
+		{"ovh-prod (OVHcloud)", "2/2 clusters · 100% billed · 100% hours"},
+		{"upcloud-prod (UpCloud)", "1/2 clusters · 55.5% billed · unknown hours"},
+		{"deleted credential aaaaaaaa", "no cluster fully metered"},
+		{"do-legacy (DigitalOcean)", "not reported"},
+		{"ovh-idle (OVHcloud)", "no cluster fully metered"},
+	} {
+		if costReconcileRow(output, row.credential, row.coverage) == "" {
+			t.Errorf("the %s row does not say its difference covers %q:\n%s", row.credential, row.coverage, output)
+		}
+	}
+	if !strings.Contains(output, "Difference covers") {
+		t.Errorf("the table has no Difference covers column:\n%s", output)
+	}
+	if strings.Contains(costReconcileRow(output, "upcloud-prod (UpCloud)"), "0% hours") {
+		t.Errorf("an hours share the platform could not give must read unknown, never 0%%:\n%s", output)
+	}
+}
+
+func TestCostReconcileSaysWhereAnInvoiceIsCountedAndWhenItIsWithheld(t *testing.T) {
+	counter := "aaaaaaaa-0000-4000-8000-000000000001"
+	unlisted := "bbbbbbbb-0000-4000-8000-000000000009"
+	mock := &costReconcileMock{reconciliation: &client.CostReconciliation{Month: "2026-10", MonthClosed: true,
+		Credentials: []client.CostReconciliationCredential{
+			{CredentialID: counter, CredentialName: reconcileText("ovh-scoped"), Provider: "ovh", State: "complete",
+				Currency: reconcileText("eur"), MatchedMinor: reconcileCents(4000), InvoiceWithheld: true},
+			{CredentialID: "aaaaaaaa-0000-4000-8000-000000000002", CredentialName: reconcileText("ovh-twin"), Provider: "ovh",
+				State: "complete", SameInvoiceAs: &counter},
+			{CredentialID: "aaaaaaaa-0000-4000-8000-000000000003", CredentialName: reconcileText("ovh-other"), Provider: "ovh",
+				State: "complete", SameInvoiceAs: &unlisted},
+		}}}
+	output, err := runCostReconcileCommand(t, mock, "cost", "reconcile")
+	if err != nil {
+		t.Fatalf("cost reconcile: %v", err)
+	}
+	for _, row := range [][]string{
+		{"ovh-scoped (OVHcloud)", "withheld (scoped read)"},
+		{"ovh-twin (OVHcloud)", "counted under ovh-scoped (OVHcloud)"},
+		{"ovh-other (OVHcloud)", "counted under bbbbbbbb"},
+	} {
+		if costReconcileRow(output, row...) == "" {
+			t.Errorf("no row holds %q:\n%s", row, output)
+		}
+	}
+	if !strings.Contains(output, "the invoice total, tax, credits and unplaced lines are withheld") {
+		t.Errorf("a scoped read does not say what it withheld:\n%s", output)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"ankra/internal/client"
@@ -32,11 +33,14 @@ it provisioned, a node's provider id, a volume's handle). Tax and credits are
 reported apart, since the estimate carries neither.
 
 Nothing unknown reads as agreement. A credential no billing document was
-imported for is unknown, not zero; a failed import says why; a difference is
-stated only when the provider's figures are final and the estimate covers
-every hour each named cluster existed that month, and otherwise the reason is
-shown. Billed lines no cluster could be placed on are counted with their
-amount.
+imported for is unknown, not zero; a failed import says why. A difference is
+stated only when the provider's figures are final, and then only over the
+clusters metered for every hour they existed that month, never as the
+accuracy of the whole invoice: the Difference covers column says how many of
+the invoice's clusters that is, and what share of the billed amount and of
+their hours. When no cluster qualifies, or the share is too small, no
+difference is stated and the reason is shown. Billed lines no cluster could
+be placed on are counted with their amount.
 
 --month reads a UTC calendar month as YYYY-MM (the last closed month when
 omitted; the running month is month to date on both sides). Pass -o json (or
@@ -205,6 +209,51 @@ func costReconcileDifference(credential client.CostReconciliationCredential) str
 	return fmt.Sprintf("%.2f%%", *credential.DifferencePct)
 }
 
+// costReconcileCoverage is the Difference covers column: how many of the
+// clusters the invoice's lines are placed on the difference is taken over,
+// and what share of the billed amount and of their hours those hold. A
+// share the platform could not give reads unknown, never 0%. A platform
+// that predates the field said nothing, which is not the same as saying no
+// cluster qualified.
+func costReconcileCoverage(credential client.CostReconciliationCredential) string {
+	if !credential.CoverageReported {
+		return "not reported"
+	}
+	coverage := credential.DifferenceCoverage
+	if coverage == nil {
+		return "no cluster fully metered"
+	}
+	return fmt.Sprintf("%d/%d clusters · %s billed · %s hours", coverage.ClustersCovered, coverage.ClustersNamed,
+		costReconcileShare(coverage.InvoiceSharePct), costReconcileShare(coverage.HoursSharePct))
+}
+
+// costReconcileShare renders a share as the platform cut it (two decimals at
+// most, 100 only when it is all), or unknown.
+func costReconcileShare(percent *float64) string {
+	if percent == nil {
+		return "unknown"
+	}
+	return strconv.FormatFloat(*percent, 'f', -1, 64) + "%"
+}
+
+// costReconcileBilled is the Billed column. An invoice counted under another
+// credential that reads the same provider account names that credential
+// rather than reading unknown, and a read for a project or a set of
+// clusters says the total was withheld.
+func costReconcileBilled(credential client.CostReconciliationCredential, labels map[string]string) string {
+	switch {
+	case credential.SameInvoiceAs != nil && *credential.SameInvoiceAs != "":
+		if label, known := labels[*credential.SameInvoiceAs]; known {
+			return "counted under " + label
+		}
+		return "counted under " + costShortID(*credential.SameInvoiceAs)
+	case credential.InvoiceWithheld:
+		return "withheld (scoped read)"
+	default:
+		return costReconcileAmount(credential.InvoiceMinor, credential)
+	}
+}
+
 // costReconcileNotes is what a reader needs beside a credential's row: why
 // no difference is stated, the caveat on one that is, what was set apart,
 // the unplaced lines, failed imports in the provider's words, and the
@@ -216,6 +265,10 @@ func costReconcileNotes(credential client.CostReconciliationCredential) []string
 	}
 	if credential.DifferenceCaveat != nil && *credential.DifferenceCaveat != "" {
 		notes = append(notes, *credential.DifferenceCaveat)
+	}
+	if credential.InvoiceWithheld {
+		notes = append(notes, "Read for a project or a set of clusters: the invoice total, tax, credits and unplaced lines are "+
+			"withheld, and the difference and what it covers are these clusters' billed lines alone.")
 	}
 	if credential.Currency != nil && !credential.CurrenciesMixed {
 		currency := *credential.Currency
@@ -267,6 +320,10 @@ func renderCostReconciliation(out io.Writer, reconciliation *client.CostReconcil
 		return
 	}
 	_, _ = fmt.Fprintln(out)
+	labels := make(map[string]string, len(reconciliation.Credentials))
+	for _, credential := range reconciliation.Credentials {
+		labels[credential.CredentialID] = costReconcileCredentialLabel(credential)
+	}
 	writer := newCostTable(out)
 	writer.SetColumnConfigs([]table.ColumnConfig{
 		{Number: 3, Align: text.AlignRight},
@@ -274,15 +331,16 @@ func renderCostReconciliation(out io.Writer, reconciliation *client.CostReconcil
 		{Number: 5, Align: text.AlignRight},
 		{Number: 6, Align: text.AlignRight},
 	})
-	writer.AppendHeader(table.Row{"Credential", "Import", "Billed", "On clusters", "Estimate", "Difference"})
+	writer.AppendHeader(table.Row{"Credential", "Import", "Billed", "On clusters", "Estimate", "Difference", "Difference covers"})
 	for _, credential := range reconciliation.Credentials {
 		writer.AppendRow(table.Row{
-			costReconcileCredentialLabel(credential),
+			labels[credential.CredentialID],
 			costReconcileImportCell(credential),
-			costReconcileAmount(credential.InvoiceMinor, credential),
+			costReconcileBilled(credential, labels),
 			costReconcileAmount(credential.MatchedMinor, credential),
 			costReconcileEstimate(credential),
 			costReconcileDifference(credential),
+			costReconcileCoverage(credential),
 		})
 	}
 	writer.Render()

@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- **`ankra cost reconcile` now says what a stated difference covers.** The platform states the difference between the invoice and the estimate only over the clusters metered for every hour they existed, never over the whole invoice, but the table printed it as a bare percentage, so +0.17% read as the accuracy of the whole bill. A new Difference covers column gives how many of the invoice's clusters it is taken over, and what share of the billed amount and of their hours those hold; a share the platform could not give reads unknown, never 0%, and a platform that predates the field reads "not reported" rather than "no cluster fully metered". The command's help no longer claims the estimate must cover every hour of every cluster before a difference is stated. A read for a project now says the invoice total was withheld instead of reading unknown, and a credential whose invoice is counted under another one that reads the same provider account names that credential.
 - **`ankra cluster agent ci set --storage-class` now says what it does to Ankra Workspaces.** Its help described only pipeline step workspaces. It now says that pipeline steps take the class at the next agent re-render, and that Ankra Workspaces on the cluster with no workspace class of their own are replaced on next use.
 
 ## v0.55.0 - 2026-11-02
