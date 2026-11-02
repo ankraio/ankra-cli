@@ -72,6 +72,23 @@ func TestAgentCISettingsLaneParity(t *testing.T) {
 		},
 	})
 
+	stepWorkspaces := AgentCIStepWorkspacesShadow
+	lanes = append(lanes, struct {
+		name       string
+		wantMethod string
+		wantBody   map[string]any
+		call       func(testClient *Client) error
+	}{
+		name:       "set sends only the step workspaces when they alone are named",
+		wantMethod: http.MethodPut,
+		wantBody:   map[string]any{"ci_step_workspaces": "shadow"},
+		call: func(testClient *Client) error {
+			_, updateError := testClient.UpdateAgentCISettings(context.Background(), "cluster-1",
+				AgentCISettingsUpdate{CIStepWorkspaces: &stepWorkspaces})
+			return updateError
+		},
+	})
+
 	for _, lane := range lanes {
 		t.Run(lane.name, func(t *testing.T) {
 			var seenMethod, seenPath string
@@ -196,6 +213,43 @@ func TestGetAgentCISettingsDecodesTheRunReservation(t *testing.T) {
 			if (settings.SupportsRunReservation == nil) != (testCase.wantSupported == nil) ||
 				(settings.SupportsRunReservation != nil && *settings.SupportsRunReservation != *testCase.wantSupported) {
 				t.Errorf("supports_run_reservation = %v, want %v", settings.SupportsRunReservation, testCase.wantSupported)
+			}
+		})
+	}
+}
+
+// ci_step_workspaces and supports_step_workspaces decode when the platform
+// sends them, and stay nil when it predates them: "not reported" is never read
+// as "off" or "not supported".
+func TestGetAgentCISettingsDecodesTheStepWorkspaces(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		body          string
+		wantMode      *string
+		wantSupported *bool
+	}{
+		"current platform": {
+			body:          `{"ci_worker_count":2,"ci_step_workspaces":"shadow","supports_step_workspaces":true}`,
+			wantMode:      strPtr(AgentCIStepWorkspacesShadow),
+			wantSupported: boolPtr(true),
+		},
+		"older platform": {body: `{"ci_worker_count":2}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				_, _ = writer.Write([]byte(testCase.body))
+			})
+			settings, getError := testClient.GetAgentCISettings(context.Background(), "cluster-1")
+			if getError != nil {
+				t.Fatalf("GetAgentCISettings error = %v", getError)
+			}
+			if (settings.CIStepWorkspaces == nil) != (testCase.wantMode == nil) ||
+				(settings.CIStepWorkspaces != nil && *settings.CIStepWorkspaces != *testCase.wantMode) {
+				t.Errorf("ci_step_workspaces = %v, want %v", settings.CIStepWorkspaces, testCase.wantMode)
+			}
+			if (settings.SupportsStepWorkspaces == nil) != (testCase.wantSupported == nil) ||
+				(settings.SupportsStepWorkspaces != nil && *settings.SupportsStepWorkspaces != *testCase.wantSupported) {
+				t.Errorf("supports_step_workspaces = %v, want %v", settings.SupportsStepWorkspaces, testCase.wantSupported)
 			}
 		})
 	}

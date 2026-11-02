@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra cluster agent ci set --step-workspaces off|shadow|on` sets whether a pipeline that declares `workspace.mode: per_step` gets a workspace for each step**, so its steps can run on different nodes rather than on one volume that keeps the whole run on one node. `off` is every cluster's default and runs every pipeline on the shared volume. `shadow` still does, and records the mode each `per_step` run would have taken under `on`, which is how to check a cluster first. `on` gives each step its own workspace; it needs an agent that advertises step workspaces and a ready backup vault to hand files between steps through, and a run without either stays on the shared volume. A run takes its mode at its first step and keeps it, so a run already started finishes in the mode it has. `ankra cluster agent ci get` shows the mode and whether the cluster's agent advertises step workspaces, and says so when the mode is `on` but the agent cannot do it. A platform that predates the setting shows neither line, and a `set` that names the mode there fails rather than reporting it as stored.
+
 ## v0.54.0 - 2026-11-01
 
 This release makes `ankra cost decisions approve` show you the plan before it
