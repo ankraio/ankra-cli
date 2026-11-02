@@ -153,6 +153,57 @@ func TestUpdateAgentCISettingsSendsExplicitZeroValues(t *testing.T) {
 	}
 }
 
+// An empty value returns the workspaces to inheriting, so a pointer to "" has to
+// reach the platform, and a write that does not name the class must not send it:
+// a member sent by accident would undo the class an operator pinned.
+func TestUpdateAgentCISettingsSendsTheAnkraWorkspaceClassOnlyWhenNamed(t *testing.T) {
+	var seenBody map[string]any
+	testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		seenBody = nil
+		if decodeError := json.NewDecoder(request.Body).Decode(&seenBody); decodeError != nil {
+			t.Fatalf("decode request body: %v", decodeError)
+		}
+		jsonResponse(t, writer, http.StatusOK, AgentCISettings{})
+	})
+
+	workspaceClass := ""
+	if _, updateError := testClient.UpdateAgentCISettings(context.Background(), "cluster-1",
+		AgentCISettingsUpdate{AnkraWorkspaceStorageClass: &workspaceClass}); updateError != nil {
+		t.Fatalf("UpdateAgentCISettings error = %v", updateError)
+	}
+	if value, present := seenBody["ankra_workspace_storage_class"]; !present || value != "" {
+		t.Errorf("an explicit empty workspace class was not sent: %v", seenBody)
+	}
+
+	workerCount := 2
+	if _, updateError := testClient.UpdateAgentCISettings(context.Background(), "cluster-1",
+		AgentCISettingsUpdate{CIWorkerCount: &workerCount}); updateError != nil {
+		t.Fatalf("UpdateAgentCISettings error = %v", updateError)
+	}
+	if _, present := seenBody["ankra_workspace_storage_class"]; present {
+		t.Errorf("a write that does not name the workspace class sent it: %v", seenBody)
+	}
+}
+
+// A platform older than the setting does not send the member, which has to read
+// as not reported rather than as an empty class.
+func TestAgentCISettingsTellsAnAbsentWorkspaceClassFromAnEmptyOne(t *testing.T) {
+	var absent AgentCISettings
+	if decodeError := json.Unmarshal([]byte(`{"ci_worker_count": 1}`), &absent); decodeError != nil {
+		t.Fatal(decodeError)
+	}
+	if absent.AnkraWorkspaceStorageClass != nil {
+		t.Errorf("an absent member decoded as %q", *absent.AnkraWorkspaceStorageClass)
+	}
+	var empty AgentCISettings
+	if decodeError := json.Unmarshal([]byte(`{"ankra_workspace_storage_class": ""}`), &empty); decodeError != nil {
+		t.Fatal(decodeError)
+	}
+	if empty.AnkraWorkspaceStorageClass == nil || *empty.AnkraWorkspaceStorageClass != "" {
+		t.Errorf("an empty member decoded as %v", empty.AnkraWorkspaceStorageClass)
+	}
+}
+
 func TestGetAgentCISettingsDecodesTheResponse(t *testing.T) {
 	updatedAt := "2026-09-06T10:00:00Z"
 	testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
