@@ -740,7 +740,7 @@ func newPipelineTrainSettingsCommand(use string, short string, isEnabled bool) *
 			}
 			_, _ = fmt.Fprintln(command.OutOrStdout(),
 				"The merge train is off; the pull requests in it leave on its next pass.")
-			return nil
+			return unstoredError
 		},
 	}
 	registerPipelineSelectorFlags(settingsCommand)

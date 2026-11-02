@@ -372,6 +372,20 @@ func TestPipelineTrainEnableFailsWhenThePlatformDidNotStoreIt(t *testing.T) {
 	}
 }
 
+// A platform answering an enable as off still did not store what was named, so
+// the disabled branch reports it too instead of exiting 0 (ankra-cli#680 review).
+func TestPipelineTrainEnableAnsweredOffStillFailsWhenNotStored(t *testing.T) {
+	mock := &pipelineTrainMock{settingsAnswer: &client.PipelineMergeTrainSettings{Enabled: false, MaxCars: 1}}
+	output, runError := runPipelineTrainCommand(t, mock, "enable", "--auto-admit-criterion", "ready", "--repository",
+		testPipelineRepositoryID)
+	if runError == nil || !strings.Contains(runError.Error(), "did not store --auto-admit-criterion ready") {
+		t.Fatalf("want the not-stored error, got %v\n%s", runError, output)
+	}
+	if !strings.Contains(output, "The merge train is off") {
+		t.Fatalf("the platform's answer is still reported:\n%s", output)
+	}
+}
+
 func TestPipelineTrainEnableSurfacesThePlatformsRefusalInItsWords(t *testing.T) {
 	sentence := "Merge train auto-admit can only be set to admit at ready by a human member, not a service account token."
 	mock := &pipelineTrainMock{settingsError: errors.New(sentence)}
