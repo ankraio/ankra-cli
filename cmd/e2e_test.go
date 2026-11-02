@@ -1536,6 +1536,10 @@ func (m baseMock) GetApplicationSecurityVersions(context.Context, string, string
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetApplicationBranchBuilds(context.Context, string) (*client.ApplicationBranchBuilds, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateAPIToken(client.CreateAPITokenRequest) (*client.CreateAPITokenResponse, error) {
 	return nil, errors.New("not implemented")
 }

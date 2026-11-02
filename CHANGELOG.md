@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ankra application deploy` without `image_tag` deploys the newest published image when the platform has no build tag recorded.** A newer push whose pipeline run was superseded or failed before its publish step left the application's recorded build without a tag, and the deploy was refused with "Ankra has not recorded the tag of a published image" although the registry, and the portal's version picker, still held every image published before it. The command now answers that refusal by deploying the newest published build of the tracked branch, or else the newest image the registry holds for every component, and says on stderr which tag it chose. `--set image_tag=<tag>` still picks one yourself, and a deploy with no published image is refused as before.
+
 ## v0.54.0 - 2026-11-01
 
 This release makes `ankra cost decisions approve` show you the plan before it

@@ -248,6 +248,11 @@ func newApplicationDeployCommand() *cobra.Command {
 The cluster is identified by ID. Use --set key=value (repeatable) to pass
 deploy inputs declared by the application's chart.
 
+Without --set image_tag=<tag> the platform deploys the newest build it
+recorded. When it has no tag recorded for that build, the command deploys the
+newest published build of the tracked branch instead (or the newest image in
+the application's registry) and says on stderr which tag it chose.
+
 --environment names the environment the deployment belongs to.
 --follow-branches gives that environment a branch rule from the start, so
 pushes to matching branches deploy to it: for example main for production and
@@ -291,15 +296,20 @@ develop for development. It needs --environment.`,
 			if resolveError != nil {
 				return resolveError
 			}
-			payload, deployError := apiClient.DeployApplication(command.Context(), applicationID,
-				client.DeployApplicationRequest{
-					ClusterID:       clusterID,
-					Namespace:       strings.TrimSpace(namespace),
-					DeployMode:      deployMode,
-					Inputs:          inputs,
-					EnvironmentName: environmentName,
-					FollowBranches:  followBranches,
-				})
+			deployRequest := client.DeployApplicationRequest{
+				ClusterID:       clusterID,
+				Namespace:       strings.TrimSpace(namespace),
+				DeployMode:      deployMode,
+				Inputs:          inputs,
+				EnvironmentName: environmentName,
+				FollowBranches:  followBranches,
+			}
+			payload, deployError := apiClient.DeployApplication(command.Context(), applicationID, deployRequest)
+			if deployError != nil && isDeployTagNotRecorded(deployError) {
+				if _, isPinned := inputs[imageTagInputName]; !isPinned {
+					payload, deployError = deployNewestPublishedImage(command, applicationID, deployRequest, deployError)
+				}
+			}
 			if deployError != nil {
 				return deployError
 			}

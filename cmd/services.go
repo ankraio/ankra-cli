@@ -381,6 +381,7 @@ type APIClient interface {
 	GetApplicationContainerSecurity(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationCodeSecurity(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationSecurityVersions(requestContext context.Context, applicationID string, component string) (*client.ApplicationSecurityVersions, error)
+	GetApplicationBranchBuilds(requestContext context.Context, applicationID string) (*client.ApplicationBranchBuilds, error)
 	GetApplicationDemos(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	CheckApplicationDemoBuild(requestContext context.Context, applicationID string, branch string) (json.RawMessage, error)
 	DeployApplicationDemo(requestContext context.Context, applicationID string, demoRequest client.DeployApplicationDemoRequest) (json.RawMessage, error)
