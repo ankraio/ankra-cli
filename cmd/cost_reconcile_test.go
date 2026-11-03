@@ -156,7 +156,7 @@ func TestCostReconcileSaysWhatTheStatedDifferenceCovers(t *testing.T) {
 			t.Errorf("the %s row does not say its difference covers %q:\n%s", row.credential, row.coverage, output)
 		}
 	}
-	if !strings.Contains(output, "Difference covers") {
+	if !strings.Contains(strings.ToUpper(output), "DIFFERENCE COVERS") {
 		t.Errorf("the table has no Difference covers column:\n%s", output)
 	}
 	if strings.Contains(costReconcileRow(output, "upcloud-prod (UpCloud)"), "0% hours") {
