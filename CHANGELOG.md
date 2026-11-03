@@ -9,7 +9,38 @@
 ### Fixed
 
 - **`ankra tickets get`, `comment`, `decide` and every other ticket command find a chat-fix receipt by its number.** The board leaves receipts (the records of writes a person made through the AI chat or MCP) out of its listing unless asked, and the CLI looked a number up in that listing, so `ankra tickets get T-1298` answered `ticket T-1298 not found` for every receipt, open or closed, while the ticket page and MCP showed it. A number is now looked up with receipts included, by the platform's exact-number search first, so a ticket older than the 2000 most recently updated is found too.
-- **`ankra cluster stacks clone --with-data` says why no data was carried.** When the platform cloned a stack's configuration but could carry none of the selected data, the command exited nonzero claiming the platform predated clone-with-data, even though the platform had answered with its reasons in `data_warnings` (for example, a database whose owning member the clone could not rewrite). Those reasons were only visible with `-o json`. The error now lists them, names the draft that was created, and warns that deploying that draft would start its databases empty. The old diagnosis is kept only for a platform that names no run and gives no reason.
+
+## v0.59.0 - 2026-11-03
+
+This release lets the CLI decide a preserved GitOps path: a file in a cluster's
+GitOps repository that Ankra did not write, which it keeps instead of
+overwriting. `ankra cluster gitops preserved list|show|resolve` shows what
+differs and records which version wins, after previewing what the choice
+discards. Installing this release changes nothing on any cluster or workload.
+
+### Added
+
+- **`ankra cluster gitops preserved list|show|resolve` decides a preserved GitOps path from the CLI.** A preserved path is a file in a cluster's GitOps repository that Ankra did not write, such as a cluster file edited by hand. Ankra keeps Git's version instead of overwriting it, so its own later changes to that file (a new add-on, a chart version it rolled) never reach Git until someone decides which version wins. These are not merge conflicts, so `ankra cluster gitops conflicts resolve` could not decide them, and a cluster with no conflicts and an undecided preserved path could only be fixed with a hand-built API call. `list` shows each file with when it was detected, its decision, whether its content is withheld and why, and how many differences the platform found. `show <path>` prints those differences key by key, with Git's and Ankra's value where the platform shows them and `(masked)` where it does not. `resolve <path> --keep git|ankra` records the decision: `--keep git` imports Git's version and the cluster changes to match it, and `--keep ankra` (or `--keep cluster`) writes Ankra's version into Git over the edit made there. Before it asks, `resolve` lists what the choice discards: the stacks and add-ons only one version declares, folded into one line each, and the values that change. It also warns when keeping Git's version would drop `encrypted_paths` entries that Ankra declares, which would deploy SOPS ciphertext as the value. It reads the file's two content digests from the platform itself, so a decision covers exactly the versions it showed. It needs `--yes` when there is no terminal to ask on. `--withdraw` removes a recorded decision without changing anything in Git or on the cluster. A file that changed since it was read, a decision someone else already recorded, and Ankra's version over SOPS-encrypted content are each refused with the command to run next. A missing `clusters.write` exits 7, a path that is no longer preserved exits 3, and `-o json` returns the platform's answer. `ankra cluster gitops status` now names these commands instead of the API route. `ankra cluster gitops conflicts list` points at undecided preserved paths when there are no conflicts, and `conflicts resolve` points at `preserved resolve` when it is given a file path. Needs a platform that serves the preserved-path routes to API tokens.
+
+## v0.58.0 - 2026-11-03
+
+This release makes `ankra cluster stacks clone --with-data` say why no data
+was carried instead of blaming an old platform, and warns that deploying the
+draft it left would start its databases empty. `ankra org access-policy`
+commands now name the organisation they read or proposed for.
+
+`ankra pipeline get -o json|yaml` now prints the run as the platform sent it.
+Scripts reading `-o json` get more fields, and a field the platform does not
+send is left out rather than printed as `null` or `""`. **Scripts reading
+`-o yaml` need new key names:** the old output used lowercased field names
+under `pipelinerun` (`pipelinerun.runid`, `queuereason`), and the keys are now
+the same snake_case names as `-o json` at the top level (`run_id`,
+`queue_reason`). Installing this release changes nothing on any cluster or
+workload.
+
+### Fixed
+
+- **`ankra cluster stacks clone --with-data` says why no data was carried.** When the platform cloned a stack's configuration but could carry none of the selected data, the command exited nonzero claiming the platform predated clone-with-data, even though the platform had answered with its reasons in `data_warnings` (for example, a database whose owning member the clone could not rewrite). Those reasons were only visible with `-o json`. The error now lists them, names the draft that was created, and warns that deploying that draft would start its databases empty. The printed result above it no longer says `Stack cloned successfully!` or suggests `deploy-draft`, which contradicted that warning. The old diagnosis is kept only for a platform that names no run and gives no reason.
 - **`ankra pipeline get -o json|yaml` prints the run as the platform sent it.** The command decoded the run into this CLI's own types and encoded those again, so any field the platform added after the CLI was built was missing from the output, with nothing to say so. Each step's `memory_working_set_peak_bytes`, for example, was absent even though the platform reported it, and a script reading the output concluded it was unset. The output is now the platform's document with `time_saved` added as its last field, so every field the platform sends appears, including ones this CLI does not know about yet. A field the platform does not send is no longer printed as `null` or `""`. `ankra pipeline run --wait` and `ankra pipeline rerun --wait` with `-o json|yaml` print the finished run the same way. In `ankra pipeline get --watch -o json`, each event's `run` and `step` now come from the platform's document too, as the help always said; the run carries no `steps` member, because every step has its own event. The readable `Resources used` section also gives each step's working-set peak beside its memory peak. The working-set peak leaves out page cache, which fills whatever room a step has, so for a step whose memory peak reached its request, it is the closer measure of what the step needed.
 
 ### Changed

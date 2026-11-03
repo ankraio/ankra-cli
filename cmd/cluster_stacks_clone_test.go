@@ -548,7 +548,7 @@ func TestStacksCloneRepeatsThePlatformsReasonsWhenItCarriedNoData(t *testing.T) 
 				arguments = append(arguments, "-o", format)
 			}
 
-			_, executeError := runCloneCommand(t, mock, arguments...)
+			output, executeError := runCloneCommand(t, mock, arguments...)
 
 			if executeError == nil {
 				t.Fatal("a clone that carried no data must not report success")
@@ -562,6 +562,72 @@ func TestStacksCloneRepeatsThePlatformsReasonsWhenItCarriedNoData(t *testing.T) 
 			}
 			if strings.Contains(message, "without clone-with-data") {
 				t.Errorf("a platform that explained itself must not be diagnosed as an old one: %v", message)
+			}
+			// The printed result sits right above the refusal, so it must not
+			// call the clone a success or offer the deploy the refusal warns
+			// against.
+			for _, forbidden := range []string{"cloned successfully", "deploy-draft"} {
+				if strings.Contains(output, forbidden) {
+					t.Errorf("a clone that carried no data must not print %q:\n%s", forbidden, output)
+				}
+			}
+			if format == "" && !strings.Contains(output, "Draft ID:    cde33ab8-92db-4875-9a45-1e48cfaaad46") {
+				t.Errorf("the draft it left must still be named:\n%s", output)
+			}
+		})
+	}
+}
+
+// A platform that predates clone-with-data ignores the data half and acts on
+// --deploy, so a clone with no data run can have started a deploy, and that is
+// the one thing the operator must not miss.
+func TestStacksCloneSaysADeployStartedEvenWhenItCarriedNoData(t *testing.T) {
+	operationID := "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+	mock := newCloneLaneMock()
+	mock.cloneResult = &client.CloneStackToClusterResult{
+		DraftID: "cde33ab8-92db-4875-9a45-1e48cfaaad46", StackName: backupTestStack,
+		Deployed: true, OperationID: &operationID,
+	}
+
+	output, executeError := runCloneCommand(t, mock, "cluster", "stacks", "clone", backupTestStack,
+		"--cluster", "demo", "--to", "staging", "--with-data", "--deploy")
+
+	if executeError == nil || !strings.Contains(executeError.Error(), "carried no data") {
+		t.Fatalf("a clone that carried no data must not report success, got: %v", executeError)
+	}
+	if !strings.Contains(output, "its deploy has started (operation "+operationID+")") {
+		t.Errorf("the deploy that started must be reported:\n%s", output)
+	}
+}
+
+// A refused deploy is reported on either path, but only a clone that was not
+// meant to carry data is told to deploy the draft once the refusal is resolved.
+func TestStacksCloneOffersARefusedDeployAgainOnlyWhenNoDataWasAskedFor(t *testing.T) {
+	refusal := "the target's agent is not connected"
+	for name, withData := range map[string]bool{"with data": true, "without data": false} {
+		t.Run(name, func(t *testing.T) {
+			mock := newCloneLaneMock()
+			mock.cloneResult = &client.CloneStackToClusterResult{
+				DraftID: "cde33ab8-92db-4875-9a45-1e48cfaaad46", StackName: backupTestStack,
+				DeployError: &refusal,
+			}
+			arguments := []string{"cluster", "stacks", "clone", backupTestStack,
+				"--cluster", "demo", "--to", "staging", "--deploy"}
+			if withData {
+				arguments = append(arguments, "--with-data")
+			}
+
+			output, executeError := runCloneCommand(t, mock, arguments...)
+
+			if executeError == nil {
+				t.Fatal("a refused deploy must exit nonzero")
+			}
+			if !strings.Contains(output, "the deploy you asked for was refused: "+refusal) {
+				t.Errorf("the refusal must be reported:\n%s", output)
+			}
+			offered := strings.Contains(output, "deploy-draft")
+			if offered == withData {
+				t.Errorf("deploy-draft offered=%v for a clone with data=%v:\n%s", offered, withData, output)
 			}
 		})
 	}

@@ -33,6 +33,8 @@ type APIClient interface {
 	ListClusterGitopsConflicts(ctx context.Context, clusterID string) (*client.GitopsConflictList, error)
 	ResolveClusterGitopsConflict(ctx context.Context, clusterID string, resourceKey string, keep string) (*client.GitopsConflictResolution, error)
 	ResolveAllClusterGitopsConflicts(ctx context.Context, clusterID string, keep string) (*client.GitopsConflictResolution, error)
+	ListClusterGitopsPreservedPaths(ctx context.Context, clusterID string) (*client.GitopsPreservedPathList, error)
+	ResolveClusterGitopsPreservedPath(ctx context.Context, clusterID string, decision client.GitopsPreservedPathDecision) (*client.GitopsPreservedPathResolution, error)
 	DeleteCluster(ctx context.Context, name string) error
 	TriggerReconcile(ctx context.Context, clusterID string) (*client.TriggerReconcileResult, error)
 	ProvisionCluster(ctx context.Context, clusterID string) (*client.ProvisionClusterResult, error)

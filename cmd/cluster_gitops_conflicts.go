@@ -146,6 +146,9 @@ func runClusterGitopsConflictsList(command *cobra.Command, arguments []string) e
 		return encodeStructured(command.OutOrStdout(), format, conflicts)
 	}
 	printGitopsConflictList(command.OutOrStdout(), cluster.Name, conflicts.Conflicts)
+	if len(conflicts.Conflicts) == 0 {
+		printGitopsPreservedHint(command.OutOrStdout(), cluster.ID)
+	}
 	return nil
 }
 
@@ -392,9 +395,23 @@ func printGitopsConflictResolution(out io.Writer, errOut io.Writer, resolution *
 // gitopsConflictNotOpenError is the answer for a key with no open conflict:
 // it was never one, or it was resolved or cleared since it was listed.
 func gitopsConflictNotOpenError(cluster client.ClusterListItem, resourceKey string) error {
-	return withExitCode(exitNotFound, fmt.Errorf(
-		"no open GitOps conflict '%s' on cluster '%s'; it may have been resolved or cleared already. "+
-			"List the open ones with 'ankra cluster gitops conflicts list'", resourceKey, cluster.Name))
+	message := fmt.Sprintf("no open GitOps conflict '%s' on cluster '%s'; it may have been resolved or cleared "+
+		"already. List the open ones with 'ankra cluster gitops conflicts list'", resourceKey, cluster.Name)
+	if gitopsConflictKeyLooksLikeFile(resourceKey) {
+		message += fmt.Sprintf(". '%s' looks like a file path: a file Git and Ankra are divided on is a preserved "+
+			"path, not a conflict; decide it with 'ankra cluster gitops preserved resolve %s --keep git|ankra'",
+			resourceKey, resourceKey)
+	}
+	return withExitCode(exitNotFound, errors.New(message))
+}
+
+// gitopsConflictKeyLooksLikeFile reports a "resource key" that is a YAML or
+// JSON file path, the shape of a preserved path rather than a conflict key
+// ("stack:web/addon:nginx").
+func gitopsConflictKeyLooksLikeFile(resourceKey string) bool {
+	lowered := strings.ToLower(resourceKey)
+	return !strings.Contains(lowered, ":") && (strings.HasSuffix(lowered, ".yaml") ||
+		strings.HasSuffix(lowered, ".yml") || strings.HasSuffix(lowered, ".json"))
 }
 
 // gitopsConflictsError maps a refusal from the conflict routes onto what the
