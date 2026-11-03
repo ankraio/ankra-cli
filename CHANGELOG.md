@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ankra cost settings` no longer says the network egress estimate changes a figure.** Nothing meters network egress yet, so `--include-egress` is stored and no cost figure includes egress, whichever way it is set. The `cost` and `cost settings set` help, the `--include-egress` flag and the `cost settings get` line now say so, instead of promising an estimated egress charge that applies to every figure.
+
 ## v0.57.0 - 2026-11-03
 
 This release points `ankra cost autopilot get` at the project you act in, like

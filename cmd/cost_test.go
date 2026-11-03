@@ -412,6 +412,22 @@ func TestCostSettingsGetRendersEverySetting(t *testing.T) {
 	}
 }
 
+// TestCostSettingsGetSaysEgressIsNotMetered pins ankra-bn86k4.8.21: nothing
+// meters network egress yet, so the setting must not read as if a figure
+// carried it, on or off.
+func TestCostSettingsGetSaysEgressIsNotMetered(t *testing.T) {
+	for _, isIncluded := range []bool{true, false} {
+		settings := &client.CostSettings{Currency: "eur", IncludeNetworkEgressEstimate: isIncluded}
+		output, executeError := runCostCommand(t, &costMock{settings: settings}, "cost", "settings", "get")
+		if executeError != nil {
+			t.Fatalf("cost settings get failed: %v", executeError)
+		}
+		if !strings.Contains(output, "(stored, not metered yet: no figure includes network egress today)") {
+			t.Fatalf("include=%v: the egress line does not say it is not metered:\n%s", isIncluded, output)
+		}
+	}
+}
+
 func TestCostSettingsSetChangesOnlyThePassedFlags(t *testing.T) {
 	mock := &costMock{settings: &client.CostSettings{Currency: "usd", EffectiveDiscountPct: 0, IncludeNetworkEgressEstimate: true}}
 	output, executeError := runCostCommand(t, mock, "cost", "settings", "set", "--discount", "12.5")
