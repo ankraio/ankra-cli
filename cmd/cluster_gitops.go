@@ -13,9 +13,11 @@ import (
 // `ankra cluster gitops`.
 var clusterGitopsCmd = &cobra.Command{
 	Use:   "gitops",
-	Short: "Inspect a cluster's GitOps wiring and resolve its merge conflicts",
-	Long: `Commands for inspecting which GitOps repository a cluster syncs from, and for
-listing and resolving the merge conflicts that pause its sync.`,
+	Short: "Inspect a cluster's GitOps wiring and decide its merge conflicts and preserved paths",
+	Long: `Commands for inspecting which GitOps repository a cluster syncs from, for
+listing and resolving the merge conflicts that pause its sync, and for listing
+and deciding its preserved paths: files edited in Git that Ankra keeps instead
+of overwriting.`,
 }
 
 var clusterGitopsStatusCmd = &cobra.Command{
@@ -288,7 +290,7 @@ func printGitopsPreservedPaths(status *client.ClusterGitopsStatus) {
 		fmt.Printf("    ... and %d more\n", unlisted)
 	}
 	fmt.Println("  Note: each file was edited in Git, so Ankra keeps Git's version and its own later changes to it do not reach Git until a person decides it; nothing is paused")
-	fmt.Println("  Decide a file through the API: POST /api/v1/org/clusters/{cluster_id}/gitops/preserved-paths/resolve (the portal lists these files but cannot decide them yet)")
+	fmt.Println("  See where each file differs with 'ankra cluster gitops preserved list' and decide one with 'ankra cluster gitops preserved resolve <path> --keep git|ankra'")
 }
 
 func init() {
