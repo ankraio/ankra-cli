@@ -460,9 +460,6 @@ func printCloneResult(out io.Writer, result *client.CloneStackToClusterResult) {
 		*result.DataCloneRunID, *result.DataCloneRunID)
 }
 
-// cloneDeployError turns a refused --deploy into the exit code: the clone
-// itself landed (the draft is on the target and has been printed), but the
-// deploy the person asked for did not start, and exit 0 would say it did.
 // cloneCarriedNoDataError explains a with-data clone that opened no data run.
 //
 // A platform that understands clone-with-data and could not carry any of the
@@ -488,6 +485,9 @@ func cloneCarriedNoDataError(result *client.CloneStackToClusterResult) error {
 		draft, strings.Join(result.DataWarnings, "\n  - "))
 }
 
+// cloneDeployError turns a refused --deploy into the exit code: the clone
+// itself landed (the draft is on the target and has been printed), but the
+// deploy the person asked for did not start, and exit 0 would say it did.
 func cloneDeployError(result *client.CloneStackToClusterResult) error {
 	if result == nil || result.DeployError == nil || *result.DeployError == "" {
 		return nil
