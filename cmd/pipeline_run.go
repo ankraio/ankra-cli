@@ -972,7 +972,8 @@ func printPipelineStepQueueing(out io.Writer, detail client.PipelineRunDetail) {
 // resource suggestions for the run.
 //
 // The memory peak counts page cache, so a peak equal to the request says the
-// step filled its room, not that it needed it, and the line says so. The CPU
+// step filled its room, not that it needed it, and the line says so; the
+// working-set peak beside it leaves that cache out. The CPU
 // average needs the script's run time, which older agents do not report; the
 // CPU half is left out then rather than guessed from the step's duration,
 // which includes its Pending wait. Nothing is printed when no step carries a
@@ -1026,21 +1027,7 @@ func printPipelineStepQuarantinedTests(out io.Writer, detail client.PipelineRunD
 // pipelineStepResourceUseLine is one step's line of the resources section.
 func pipelineStepResourceUseLine(step client.PipelineStep) (string, bool) {
 	parts := []string{}
-	if step.MemoryPeakBytes != nil {
-		memory := "memory peak " + formatPipelineCacheBytes(*step.MemoryPeakBytes)
-		if step.MemoryRequestBytes != nil && *step.MemoryRequestBytes > 0 {
-			memory += fmt.Sprintf(" of %s requested (%d%%)", formatPipelineCacheBytes(*step.MemoryRequestBytes),
-				*step.MemoryPeakBytes*100 / *step.MemoryRequestBytes)
-			if *step.MemoryPeakBytes*100 >= *step.MemoryRequestBytes*95 {
-				memory += ", which is its whole request: page cache fills spare room, so this is not what it needed"
-			}
-		}
-		if step.MemoryLimitHits != nil && *step.MemoryLimitHits > 0 {
-			memory += fmt.Sprintf(", met its memory limit %d time(s)", *step.MemoryLimitHits)
-		}
-		if step.MemoryOOMKills != nil && *step.MemoryOOMKills > 0 {
-			memory += fmt.Sprintf(", %d process(es) killed for memory", *step.MemoryOOMKills)
-		}
+	if memory, isReported := pipelineStepMemoryUse(step); isReported {
 		parts = append(parts, memory)
 	}
 	// A run under a second is mostly its shell starting, so its average is
@@ -1062,6 +1049,64 @@ func pipelineStepResourceUseLine(step client.PipelineStep) (string, bool) {
 		return "", false
 	}
 	return "  " + step.StepKey + ": " + strings.Join(parts, "; "), true
+}
+
+// pipelineStepMemoryUse is the memory half of a step's resources line: the
+// memory peak and the working-set peak (ankra-q573dh.79.34.2), each against
+// the step's memory request, then how often it met its limit and lost a
+// process to it.
+//
+// The memory peak counts page cache, which fills whatever room the step has,
+// so a peak at its request says nothing about what it needed. The working set
+// leaves reclaimable cache out, so when the agent measured it the at-request
+// note points at it; without it the note says only that the peak is not the
+// need. Either figure can be missing on its own: memory.peak needs a newer
+// kernel than the working-set sampling does, and agents older than the
+// sampling report the peak alone.
+func pipelineStepMemoryUse(step client.PipelineStep) (string, bool) {
+	peak, workingSet := step.MemoryPeakBytes, step.MemoryWorkingSetPeakBytes
+	if peak == nil && workingSet == nil {
+		return "", false
+	}
+	request := int64(0)
+	if step.MemoryRequestBytes != nil && *step.MemoryRequestBytes > 0 {
+		request = *step.MemoryRequestBytes
+	}
+	figures := []string{}
+	isRequestNamed := false
+	describe := func(label string, used int64) string {
+		figure := label + " " + formatPipelineCacheBytes(used)
+		switch {
+		case request == 0:
+		case isRequestNamed:
+			figure += fmt.Sprintf(" (%d%%)", used*100/request)
+		default:
+			figure += fmt.Sprintf(" of %s requested (%d%%)", formatPipelineCacheBytes(request), used*100/request)
+			isRequestNamed = true
+		}
+		return figure
+	}
+	if peak != nil {
+		figures = append(figures, describe("memory peak", *peak))
+	}
+	if workingSet != nil {
+		figures = append(figures, describe("working set peak", *workingSet))
+	}
+	memory := strings.Join(figures, ", ")
+	if peak != nil && request > 0 && *peak*100 >= request*95 {
+		if workingSet != nil {
+			memory += ": page cache fills spare room, so the working set is nearer what it needed"
+		} else {
+			memory += ", which is its whole request: page cache fills spare room, so this is not what it needed"
+		}
+	}
+	if step.MemoryLimitHits != nil && *step.MemoryLimitHits > 0 {
+		memory += fmt.Sprintf(", met its memory limit %d time(s)", *step.MemoryLimitHits)
+	}
+	if step.MemoryOOMKills != nil && *step.MemoryOOMKills > 0 {
+		memory += fmt.Sprintf(", %d process(es) killed for memory", *step.MemoryOOMKills)
+	}
+	return memory, true
 }
 
 // pipelineStepQueueWait is the time between Ankra handing a step to the agent

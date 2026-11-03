@@ -267,6 +267,12 @@ type PipelineStep struct {
 	CPUUsageMicroseconds     *int64 `json:"cpu_usage_usec,omitempty"`
 	CPUThrottledMicroseconds *int64 `json:"cpu_throttled_usec,omitempty"`
 	UsageElapsedMicroseconds *int64 `json:"usage_elapsed_usec,omitempty"`
+	// MemoryWorkingSetPeakBytes is the highest working set the agent sampled
+	// over the step's life: memory.current less inactive_file, the kubelet's
+	// definition, so reclaimable page cache is not counted the way it is in
+	// MemoryPeakBytes (ankra-q573dh.79.34.2). Nil when it was not measured,
+	// never zero for that.
+	MemoryWorkingSetPeakBytes *int64 `json:"memory_working_set_peak_bytes,omitempty"`
 	// QuarantinedTestFailures is how many failed tests the repository's test
 	// quarantine forgave this step, which is why it reads success
 	// (ankra-q573dh.9.10). Nil for every step the quarantine did not rescue,
@@ -286,7 +292,13 @@ type PipelineRunList struct {
 
 // PipelineRunDetail is the GET …/pipeline-runs/{run_id} body: the run plus
 // its planned steps.
+//
+// It keeps the body it was decoded from (RawDocument), so -o json|yaml prints
+// the run as the platform answered it: the struct declares only what the
+// readable detail reads, and encoding it dropped every field the platform
+// added since this CLI was built (ankra-ga9b8k).
 type PipelineRunDetail struct {
+	RawDocument `json:"-" yaml:"-"`
 	PipelineRun
 	Steps []PipelineStep `json:"steps"`
 	// PromotedFromRunNumber is the number of the run PromotedFromRunID
@@ -1019,6 +1031,7 @@ func pipelineValidationDetailFromBody(body []byte) string {
 // doPipelineRequest issues an authenticated JSON request against the pipeline
 // API and decodes a 2xx response into target (nil target discards the body,
 // which is every DELETE and any GET/POST whose caller only needs the error).
+// A target that embeds RawDocument also keeps the body it was decoded from.
 func (c *Client) doPipelineRequest(ctx context.Context, method string, endpoint string,
 	payload any, target any) error {
 	var bodyReader *bytes.Reader
@@ -1057,7 +1070,7 @@ func (c *Client) doPipelineRequest(ctx context.Context, method string, endpoint 
 	if target == nil || len(bytes.TrimSpace(body)) == 0 {
 		return nil
 	}
-	if unmarshalError := json.Unmarshal(body, target); unmarshalError != nil {
+	if unmarshalError := decodeKeepingRawDocument(body, target); unmarshalError != nil {
 		return fmt.Errorf("parse response: %w", unmarshalError)
 	}
 	return nil
