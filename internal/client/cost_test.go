@@ -34,6 +34,42 @@ func TestGetFleetCloudCost_Success(t *testing.T) {
 	}
 }
 
+// TestGetFleetCloudCost_KeepsUnreportedUnmeteredSpendApartFromNone pins the
+// three states of the unmetered fields (review finding 4432419878): a
+// platform that does not report them (key absent or null) decodes as nil, and
+// one that reports nothing unmetered decodes as an empty, non-nil list and a
+// zero total. The client must not fill in a nil list the way it does for
+// by_provider, or "not reported" would read as "none".
+func TestGetFleetCloudCost_KeepsUnreportedUnmeteredSpendApartFromNone(t *testing.T) {
+	const totals = `"currency": "eur", "cluster_count": 1, "month_to_date_cents": 4000, "by_provider": [], "top_clusters": []`
+	for name, scenario := range map[string]struct {
+		body         string
+		wantReported bool
+	}{
+		"absent":         {body: `{` + totals + `}`},
+		"null":           {body: `{` + totals + `, "unmetered_clusters": null, "unmetered_month_to_date_cents": null}`},
+		"reported, none": {body: `{` + totals + `, "unmetered_clusters": [], "unmetered_month_to_date_cents": 0}`, wantReported: true},
+	} {
+		body := scenario.body
+		testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(body))
+		})
+		result, err := testClient.GetFleetCloudCost()
+		if err != nil {
+			t.Fatalf("%s: GetFleetCloudCost: %v", name, err)
+		}
+		listReported := result.UnmeteredClusters != nil
+		totalReported := result.UnmeteredMonthToDateCents != nil
+		if listReported != scenario.wantReported || totalReported != scenario.wantReported {
+			t.Fatalf("%s: list reported %v, total reported %v, want %v", name, listReported, totalReported, scenario.wantReported)
+		}
+		if scenario.wantReported && (len(result.UnmeteredClusters) != 0 || *result.UnmeteredMonthToDateCents != 0) {
+			t.Fatalf("%s: a platform that reports nothing unmetered must decode as an empty list and a zero total: %+v", name, result)
+		}
+	}
+}
+
 func TestGetCloudSavings_Success(t *testing.T) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

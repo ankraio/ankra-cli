@@ -10,7 +10,7 @@ import (
 
 // costAutopilotGolden is a GET /api/v1/org/cloud-cost/autopilot body in the
 // shape the cluster's openapi.json declares (CostAutopilotPolicy): a set
-// policy with quiet hours and a pre-notice route, the tiers, a cluster whose
+// policy with quiet hours and a notification route, the tiers, a cluster whose
 // environment set its tier and one under an override with no expiry.
 const costAutopilotGolden = `{"is_set":true,` +
 	`"defaults":{"production":"hands-off","staging":"scheduled","development":"managed","preview":"ephemeral","unknown":"hands-off"},` +

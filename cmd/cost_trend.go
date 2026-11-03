@@ -16,13 +16,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// The widest the cluster and event cells of `cost events` grow before they
-// wrap, so the table fits a 100-column terminal. They are wrapped in the cell
+// The widest the cluster, event and move cells of `cost events` grow before
+// they wrap, so the table fits a 100-column terminal. They are wrapped in the cell
 // rather than through a column WidthMax for the reason the ledger gives: a
 // merged note row would be folded to the first column's width.
 const (
 	costEventsClusterWidthMax = 20
 	costEventsSubjectWidthMax = 30
+	costEventsMoveWidthMax    = 20
 )
 
 var costTrendCmd = &cobra.Command{
@@ -80,10 +81,19 @@ cluster's run rate changed between the priced hour before it and the first
 priced hour at least 30 minutes after it. When the event was alone in that
 window the move is its own. When several events share the window (a release
 and the scale-up it caused) the move is theirs together and each row says
-"shared" rather than claim a split. With no priced hour on one side the move
-is unknown, never zero. A coverage event's move is coverage, not spend; a
+"shared" rather than claim a split. A start alone in a window whose run rate
+fell, or a stop alone in one whose run rate rose, did not make that move:
+something else did, so its own move is unknown and the row says which way
+the run rate went. With no priced hour on one side the move is unknown,
+never zero. A coverage event's move is coverage, not spend; a
 resolved finding's is its own monthly cost. The platform's note on an event
 sits under its row.
+
+When the cluster was not priced for some hours inside an event's window (a
+start after a stop it was not metered through, or a metering hour that was
+missed), the move cannot be told apart from the cluster leaving or entering
+pricing. The row says "unknown (not priced for part of the window)", never
+zero.
 
 A kind of event the platform could not read is named above the table: its
 events are missing, not quiet. The platform serves at most the newest 500.
@@ -377,8 +387,25 @@ func costEventMove(event client.CostEvent, currency string) string {
 			return signed(event.WindowDeltaMonthlyCents) + " (shared)"
 		}
 		return "unknown (shared)"
+	case "contradicted":
+		// A start alone in a window whose run rate fell, or a stop alone in
+		// one whose run rate rose: something else moved it, so the event's
+		// own move is unknown. The window's move is shown as which way the
+		// run rate went, never as the event's (ankra-bn86k4.8.16).
+		if event.WindowDeltaMonthlyCents != nil {
+			return "unknown (went the other way: " + signed(event.WindowDeltaMonthlyCents) + ")"
+		}
+		return "unknown (went the other way)"
 	case "no_snapshots":
 		return "unknown"
+	case "metering_gap":
+		// The cluster was not priced for some hours inside the event's
+		// window, so neither the event nor the window carries a move: the
+		// run rate either side of the gap mixes the cluster leaving or
+		// entering pricing with whatever happened in the hours nobody priced
+		// (ankra-bn86k4.8.17). Unknown, never zero, and never the generic
+		// "(metering gap)" qualifier.
+		return "unknown (not priced for part of the window)"
 	case "coverage":
 		if event.DeltaMonthlyCents != nil {
 			return signed(event.DeltaMonthlyCents) + " (coverage)"
@@ -473,7 +500,7 @@ func renderCostEvents(out io.Writer, events *client.CostEvents) {
 			costEventWhen(event.At),
 			text.WrapSoft(costEventCluster(event), costEventsClusterWidthMax),
 			text.WrapSoft(costEventWhat(event), costEventsSubjectWidthMax),
-			costEventMove(event, currency),
+			text.WrapSoft(costEventMove(event, currency), costEventsMoveWidthMax),
 		})
 	}
 	// A note spans the whole row under the one it explains, wrapped to the

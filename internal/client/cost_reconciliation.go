@@ -1,6 +1,7 @@
 package client
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 )
@@ -37,7 +38,8 @@ type CostReconciliationFX struct {
 
 // CostReconciliationCluster is one cluster the invoice's lines are placed
 // on. A nil estimate is no estimate recorded for the month, not zero;
-// MeteredHours below LifetimeHours makes the estimate a floor.
+// MeteredHours below LifetimeHours makes the estimate a floor. InCoverage
+// says the cluster is one of those the stated difference is taken over.
 type CostReconciliationCluster struct {
 	ClusterID     string `json:"cluster_id" yaml:"cluster_id"`
 	ClusterName   string `json:"cluster_name" yaml:"cluster_name"`
@@ -47,6 +49,24 @@ type CostReconciliationCluster struct {
 	MeteredHours  *int   `json:"metered_hours" yaml:"metered_hours"`
 	LifetimeHours *int   `json:"lifetime_hours" yaml:"lifetime_hours"`
 	PeriodHours   int    `json:"period_hours" yaml:"period_hours"`
+	InCoverage    bool   `json:"in_coverage" yaml:"in_coverage"`
+}
+
+// CostReconciliationCoverage is what a credential's difference speaks for:
+// the clusters on its invoice that have a priced estimate and were metered
+// for the hours they existed (the platform allows a missed hour or so). The
+// difference is taken over these clusters alone, never over the whole
+// invoice. HoursSharePct is their metered hours as a share of the hours
+// every named cluster existed. A nil share is unknown, never 0%:
+// InvoiceSharePct is nil when the invoice total is not positive, and
+// HoursSharePct when a named cluster's record is gone.
+type CostReconciliationCoverage struct {
+	ClustersCovered int      `json:"clusters_covered" yaml:"clusters_covered"`
+	ClustersNamed   int      `json:"clusters_named" yaml:"clusters_named"`
+	MatchedMinor    int64    `json:"matched_minor" yaml:"matched_minor"`
+	EstimateMinor   int64    `json:"estimate_minor" yaml:"estimate_minor"`
+	InvoiceSharePct *float64 `json:"invoice_share_pct" yaml:"invoice_share_pct"`
+	HoursSharePct   *float64 `json:"hours_share_pct" yaml:"hours_share_pct"`
 }
 
 // CostReconciliationLine is one billed line nothing placed on a cluster.
@@ -65,6 +85,16 @@ type CostReconciliationLine struct {
 // zero, and DifferenceReason says why no difference is stated. State is the
 // last import attempt's, or "absent" when no billing document was ever
 // imported for the month.
+//
+// DifferenceCoverage is nil for two reasons a reader must not merge:
+// CoverageReported false is a platform that predates the field, so what the
+// difference covers was not said; true with a nil coverage is the
+// platform saying no cluster was metered for every hour it existed.
+// InvoiceWithheld marks a read for a project or a set of clusters: the
+// invoice total, tax, credits and unplaced lines are left out, and the
+// difference is the scope's clusters alone. SameInvoiceAs is the credential
+// this one's invoice is counted under when both read one provider account;
+// this credential's amounts are then nil.
 type CostReconciliationCredential struct {
 	CredentialID        string                      `json:"credential_id" yaml:"credential_id"`
 	CredentialName      *string                     `json:"credential_name" yaml:"credential_name"`
@@ -83,12 +113,34 @@ type CostReconciliationCredential struct {
 	EstimateFX          *CostReconciliationFX       `json:"estimate_fx" yaml:"estimate_fx"`
 	DifferencePct       *float64                    `json:"difference_pct" yaml:"difference_pct"`
 	DifferenceReason    *string                     `json:"difference_reason" yaml:"difference_reason"`
+	DifferenceCoverage  *CostReconciliationCoverage `json:"difference_coverage" yaml:"difference_coverage"`
+	CoverageReported    bool                        `json:"-" yaml:"-"`
 	UnplacedPricedMinor *int64                      `json:"unplaced_priced_minor" yaml:"unplaced_priced_minor"`
 	DifferenceCaveat    *string                     `json:"difference_caveat" yaml:"difference_caveat"`
 	Clusters            []CostReconciliationCluster `json:"clusters" yaml:"clusters"`
 	UnmatchedLines      []CostReconciliationLine    `json:"unmatched_lines" yaml:"unmatched_lines"`
 	UnmatchedLineCount  int                         `json:"unmatched_line_count" yaml:"unmatched_line_count"`
 	UnmatchedTruncated  bool                        `json:"unmatched_truncated" yaml:"unmatched_truncated"`
+	InvoiceWithheld     bool                        `json:"invoice_withheld" yaml:"invoice_withheld"`
+	SameInvoiceAs       *string                     `json:"same_invoice_as" yaml:"same_invoice_as"`
+}
+
+// UnmarshalJSON decodes a credential and records whether the platform sent
+// difference_coverage at all (CoverageReported), which a nil pointer alone
+// cannot say.
+func (credential *CostReconciliationCredential) UnmarshalJSON(data []byte) error {
+	type plainCredential CostReconciliationCredential
+	var decoded plainCredential
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	_, decoded.CoverageReported = fields["difference_coverage"]
+	*credential = CostReconciliationCredential(decoded)
+	return nil
 }
 
 // CostReconciliation is GET /org/cloud-cost/reconciliation: per cloud

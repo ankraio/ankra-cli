@@ -25,17 +25,19 @@ const (
 
 var costAutopilotCmd = &cobra.Command{
 	Use:   "autopilot",
-	Short: "How much Ankra may do about cost unasked: the tier per environment kind, quiet hours, and per-cluster overrides",
-	Long: `The cost autopilot decides how much Ankra may do about cost without asking -
-the Autopilot view in the portal.
+	Short: "Which cost changes Ankra proposes on its own: the tier per environment kind, quiet hours, and per-cluster overrides",
+	Long: `The cost autopilot decides which cost changes Ankra proposes on its own - the
+Autopilot view in the portal. It never makes a change itself: everything it
+files is a proposal that waits for a person to approve and run it (ankra cost
+decisions).
 
 Every environment kind (production, staging, development, preview, unknown)
-defaults to a tier: hands-off (every change waits for a person), scheduled,
-managed or ephemeral, each described by 'ankra cost autopilot get'. A cluster
-takes its environment's tier unless a person overrides it. Quiet hours are a
-daily window when the autopilot starts no change of its own, and its
-pre-notices go to a notification route or to the organisation's default
-routing.
+defaults to a tier, each described by 'ankra cost autopilot get'. On
+scheduled and managed, Ankra proposes stopping the cluster outside working
+hours; on hands-off and ephemeral it proposes nothing on its own. A cluster
+takes its environment's tier unless a person overrides it. The quiet hours
+and the notification route are kept with the policy: the autopilot starts
+nothing on its own at any hour and sends no notice to the route today.
 
 An organisation that never set a policy is hands-off for every kind. Reading
 the policy is open to every member; changing it needs billing.manage and
@@ -44,11 +46,19 @@ clusters.write (at the cluster, for an override).`,
 
 var costAutopilotGetCmd = &cobra.Command{
 	Use:   "get",
-	Short: "Show the policy (tier per environment kind, quiet hours, pre-notice route), the tiers and every cluster's tier",
-	Args:  cobra.NoArgs,
+	Short: "Show the policy (tier per environment kind, quiet hours, notification route), the tiers and every cluster's tier",
+	Long: `Show the organisation's autopilot policy, the tiers, and the tier of every
+live cluster in the project you act in. The policy is the organisation's, so
+it reads the same in every project; only the cluster list follows the
+project. --all-projects lists every project's clusters, and the global
+--project flag picks another project. A cluster list your cluster
+permissions cut short says so.`,
+	Args: cobra.NoArgs,
 	Example: `  ankra cost autopilot get
+  ankra cost autopilot get --all-projects
   ankra cost autopilot get -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		applyCostProjectScope(cmd)
 		policy, err := apiClient.GetCostAutopilot()
 		if err != nil {
 			return costAutopilotError(err, "reading the cost autopilot", http.MethodGet, false)
@@ -66,7 +76,7 @@ var costAutopilotSetCmd = &cobra.Command{
 	Short: "Change the parts of the policy you pass; everything else keeps its value",
 	Long: `Change the organisation's autopilot policy. Only what you pass is sent, so
 every other part keeps its value: --default changes only the environment
-kinds it names, and the quiet hours and the pre-notice route change only when
+kinds it names, and the quiet hours and the notification route change only when
 you pass them or clear them.
 
 --default KIND=TIER may repeat. The kinds are production, staging,
@@ -167,8 +177,8 @@ func init() {
 	costAutopilotSetCmd.Flags().String("quiet-hours", "", "A daily window START-END in 24-hour HH:MM, e.g. 22:00-07:00 (needs --timezone)")
 	costAutopilotSetCmd.Flags().String("timezone", "", "The IANA timezone of --quiet-hours, e.g. Europe/Stockholm")
 	costAutopilotSetCmd.Flags().Bool("clear-quiet-hours", false, "Remove the quiet hours")
-	costAutopilotSetCmd.Flags().String("notification-route", "", "The id of the notification route the autopilot's pre-notices go to")
-	costAutopilotSetCmd.Flags().Bool("clear-notification-route", false, "Send the pre-notices through the organisation's default routing")
+	costAutopilotSetCmd.Flags().String("notification-route", "", "The id of a notification route to keep with the policy (no notice is sent to it today)")
+	costAutopilotSetCmd.Flags().Bool("clear-notification-route", false, "Remove the notification route from the policy")
 	costAutopilotSetCmd.MarkFlagsRequiredTogether("quiet-hours", "timezone")
 	costAutopilotSetCmd.MarkFlagsMutuallyExclusive("quiet-hours", "clear-quiet-hours")
 	costAutopilotSetCmd.MarkFlagsMutuallyExclusive("timezone", "clear-quiet-hours")
@@ -182,6 +192,7 @@ func init() {
 	_ = costAutopilotOverrideCmd.MarkFlagRequired("reason")
 	costAutopilotClearCmd.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
 	registerStructuredOutputFlags(costAutopilotGetCmd, costAutopilotSetCmd, costAutopilotOverrideCmd, costAutopilotClearCmd)
+	registerCostProjectScopeFlag(costAutopilotGetCmd)
 	costAutopilotCmd.AddCommand(costAutopilotGetCmd)
 	costAutopilotCmd.AddCommand(costAutopilotSetCmd)
 	costAutopilotCmd.AddCommand(costAutopilotOverrideCmd)
@@ -378,18 +389,18 @@ func renderCostAutopilot(out io.Writer, policy *client.CostAutopilotPolicy) {
 		}
 		_, _ = fmt.Fprintln(out, line)
 	} else {
-		_, _ = fmt.Fprintln(out, "Cost autopilot policy: never set, so every environment kind is hands-off (every change waits for a person).")
+		_, _ = fmt.Fprintln(out, "Cost autopilot policy: never set, so every environment kind is hands-off (Ankra proposes nothing on its own; every change waits for a person).")
 	}
 	if policy.QuietHours != nil {
-		_, _ = fmt.Fprintf(out, "  Quiet hours: %s to %s %s (the autopilot starts no change of its own then)\n",
+		_, _ = fmt.Fprintf(out, "  Quiet hours: %s to %s %s (the autopilot starts nothing on its own at any hour)\n",
 			policy.QuietHours.Start, policy.QuietHours.End, policy.QuietHours.Timezone)
 	} else {
 		_, _ = fmt.Fprintln(out, "  Quiet hours: none")
 	}
 	if policy.NotificationRouteID != nil && *policy.NotificationRouteID != "" {
-		_, _ = fmt.Fprintf(out, "  Pre-notices go to notification route %s\n", *policy.NotificationRouteID)
+		_, _ = fmt.Fprintf(out, "  Notification route: %s (no notice is sent to it today)\n", *policy.NotificationRouteID)
 	} else {
-		_, _ = fmt.Fprintln(out, "  Pre-notices go through the organisation's default routing")
+		_, _ = fmt.Fprintln(out, "  Notification route: none")
 	}
 
 	_, _ = fmt.Fprintln(out)
@@ -423,12 +434,35 @@ func renderCostAutopilot(out io.Writer, policy *client.CostAutopilotPolicy) {
 	}
 
 	_, _ = fmt.Fprintln(out)
+	if scopeLine := costAutopilotScopeLine(policy.Scope); scopeLine != "" {
+		_, _ = fmt.Fprintln(out, scopeLine)
+	}
 	if len(policy.Clusters) == 0 {
 		_, _ = fmt.Fprintln(out, "No live cluster yet.")
 		return
 	}
 	_, _ = fmt.Fprintf(out, "Clusters (%d):\n", len(policy.Clusters))
 	renderCostAutopilotClusters(out, policy.Clusters)
+}
+
+// costAutopilotScopeLine says whose clusters the list below it holds, or ""
+// when the platform did not say (one that lists the whole organisation).
+// The policy above it is the organisation's in every scope. A list the
+// caller's cluster permissions cut short says so even when the scope names
+// no project, because without it the list reads as complete.
+func costAutopilotScopeLine(scope *client.FleetCostScope) string {
+	label := costScopeLabel(scope)
+	if label == "" {
+		if scope == nil || !scope.Partial {
+			return ""
+		}
+		return "Clusters: partial, only the clusters you may read are listed"
+	}
+	line := "Clusters of " + label
+	if scope.Partial {
+		line += " (partial: only the clusters you may read are listed)"
+	}
+	return line
 }
 
 func renderCostAutopilotClusters(out io.Writer, clusters []client.CostAutopilotCluster) {

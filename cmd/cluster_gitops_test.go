@@ -236,6 +236,7 @@ func TestClusterGitopsStatusNotConfigured(t *testing.T) {
 func TestClusterGitopsStatusJSONOutput(t *testing.T) {
 	mock := &gitopsStatusMock{status: syncedGitopsStatus()}
 	setMockClient(t, mock)
+	resetGitopsStatusOutputFlag(t)
 
 	output, err := executeCommand("cluster", "gitops", "status", "my-cluster", "-o", "json")
 	if err != nil {
@@ -341,4 +342,226 @@ func TestGitopsErrorSummaryShapes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// PLA-914: Git's head moved without touching the cluster's files, so the
+// platform advanced the applied commit without a sync, and the status read
+// "last synced 2 days ago" for a current cluster (ankra-xx7u1l). The applied
+// commit and the head check are printed beside the last full sync.
+func TestClusterGitopsStatusShowsTheCommitPointer(t *testing.T) {
+	resetGitopsStatusOutputFlag(t)
+	status := syncedGitopsStatus()
+	status.AppliedCommitSHA = strPtrCmd("def456")
+	status.AppliedCommitAt = strPtrCmd("2026-10-27T10:00:00Z")
+	status.HeadCheckedSHA = strPtrCmd("def456")
+	status.HeadCheckedAt = strPtrCmd("2026-10-29T10:00:00Z")
+	setMockClient(t, &gitopsStatusMock{status: status})
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "gitops", "status", "my-cluster")
+	})
+	for _, fragment := range []string{
+		"Last Synced Commit: abc123",
+		"Applied Commit: def456, since 2026-10-27T10:00:00Z (",
+		"Git Head Checked: def456, read 2026-10-29T10:00:00Z (",
+		"Note: the cluster is in step with Git's head; the applied commit moved since the last full sync without a new sync",
+	} {
+		if !strings.Contains(stdoutOutput, fragment) {
+			t.Errorf("expected output to contain %q, got: %s", fragment, stdoutOutput)
+		}
+	}
+
+	behind := syncedGitopsStatus()
+	behind.AppliedCommitSHA = strPtrCmd("abc123")
+	behind.HeadCheckedSHA = strPtrCmd("fff999")
+	setMockClient(t, &gitopsStatusMock{status: behind})
+	behindOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "gitops", "status", "my-cluster")
+	})
+	if !strings.Contains(behindOutput, "Git Head Checked: fff999\n") ||
+		!strings.Contains(behindOutput, "Note: Git's head is not applied to the cluster yet; the next sync applies it") {
+		t.Errorf("expected the unapplied head named, got: %s", behindOutput)
+	}
+
+	// While conflicts pause the sync, no line promises the next sync applies
+	// the head.
+	paused := syncedGitopsStatus()
+	paused.SyncStatus = strPtrCmd("conflict")
+	paused.OpenConflictCount = intPtrCmd(1)
+	paused.OpenConflictKeys = []string{"stack:web/addon:redis"}
+	paused.AppliedCommitSHA = strPtrCmd("abc123")
+	paused.HeadCheckedSHA = strPtrCmd("fff999")
+	setMockClient(t, &gitopsStatusMock{status: paused})
+	pausedOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "gitops", "status", "my-cluster")
+	})
+	if strings.Contains(pausedOutput, "the next sync applies it") ||
+		!strings.Contains(pausedOutput, "nothing from Git is applied until the open conflicts are resolved") {
+		t.Errorf("expected no next-sync promise under a conflict pause, got: %s", pausedOutput)
+	}
+
+	// A platform that reports no pointer prints no pointer lines.
+	setMockClient(t, &gitopsStatusMock{status: syncedGitopsStatus()})
+	bareOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "gitops", "status", "my-cluster")
+	})
+	for _, absent := range []string{"Applied Commit", "Git Head Checked", "Note:"} {
+		if strings.Contains(bareOutput, absent) {
+			t.Errorf("expected output without %q, got: %s", absent, bareOutput)
+		}
+	}
+}
+
+// ankra-u5m2k6: a diverged status names each preserved file, when it was
+// detected and whether it is decided, instead of only "diverged".
+func TestClusterGitopsStatusListsPreservedPaths(t *testing.T) {
+	resetGitopsStatusOutputFlag(t)
+	status := syncedGitopsStatus()
+	status.SyncStatus = strPtrCmd("diverged")
+	status.PreservedPathCount = intPtrCmd(3)
+	status.PreservedPathUndecidedCount = intPtrCmd(2)
+	status.PreservedPaths = []string{"clusters/staging/staging.yaml", "clusters/staging/stacks/a/values.yaml"}
+	status.PreservedPathDetails = []client.ClusterGitopsPreservedPath{
+		{Path: "clusters/staging/staging.yaml", DetectedAt: strPtrCmd("2026-10-23T08:00:00Z"), Decided: boolPtrCmd(false)},
+		{Path: "clusters/staging/stacks/a/values.yaml", DetectedAt: strPtrCmd("2026-10-24T08:00:00Z"),
+			Decided: boolPtrCmd(true), ResolutionChoice: strPtrCmd("git"), ResolvedAt: strPtrCmd("2026-10-25T08:00:00Z")},
+	}
+	setMockClient(t, &gitopsStatusMock{status: status})
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "gitops", "status", "my-cluster")
+	})
+	if strings.Contains(stdoutOutput, "cluster > GitOps") {
+		t.Errorf("expected no pointer to a portal decide action that does not exist, got: %s", stdoutOutput)
+	}
+	for _, fragment := range []string{
+		"Sync Status: diverged",
+		"Preserved Paths: 3 (2 awaiting a decision)",
+		"    - clusters/staging/staging.yaml (detected 2026-10-23T08:00:00Z (",
+		"), awaiting a decision)",
+		"    - clusters/staging/stacks/a/values.yaml (detected 2026-10-24T08:00:00Z (",
+		"decided: take Git's version, runs on the next sync)",
+		"    ... and 1 more",
+		"Ankra keeps Git's version",
+		"POST /api/v1/org/clusters/{cluster_id}/gitops/preserved-paths/resolve",
+	} {
+		if !strings.Contains(stdoutOutput, fragment) {
+			t.Errorf("expected output to contain %q, got: %s", fragment, stdoutOutput)
+		}
+	}
+
+	// A platform with names but no details still lists the names.
+	namesOnly := syncedGitopsStatus()
+	namesOnly.PreservedPathCount = intPtrCmd(1)
+	namesOnly.PreservedPaths = []string{"clusters/staging/staging.yaml"}
+	setMockClient(t, &gitopsStatusMock{status: namesOnly})
+	namesOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "gitops", "status", "my-cluster")
+	})
+	if !strings.Contains(namesOutput, "Preserved Paths: 1\n") || !strings.Contains(namesOutput, "    - clusters/staging/staging.yaml\n") {
+		t.Errorf("expected the names listed, got: %s", namesOutput)
+	}
+
+	// An unreported decision is unknown, not undecided; a count with no
+	// names says the names were not sent rather than implying none exist.
+	unreported := syncedGitopsStatus()
+	unreported.PreservedPathCount = intPtrCmd(2)
+	unreported.PreservedPathDetails = []client.ClusterGitopsPreservedPath{{Path: "clusters/staging/staging.yaml"}}
+	setMockClient(t, &gitopsStatusMock{status: unreported})
+	unreportedOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "gitops", "status", "my-cluster")
+	})
+	if !strings.Contains(unreportedOutput, "    - clusters/staging/staging.yaml\n") ||
+		strings.Contains(unreportedOutput, "awaiting a decision") || !strings.Contains(unreportedOutput, "    ... and 1 more") {
+		t.Errorf("expected the path without a decision claim, got: %s", unreportedOutput)
+	}
+	countOnly := syncedGitopsStatus()
+	countOnly.PreservedPathCount = intPtrCmd(4)
+	setMockClient(t, &gitopsStatusMock{status: countOnly})
+	countOnlyOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "gitops", "status", "my-cluster")
+	})
+	if !strings.Contains(countOnlyOutput, "Preserved Paths: 4\n") ||
+		!strings.Contains(countOnlyOutput, "(the platform did not list the files)") {
+		t.Errorf("expected the unlisted files named as unlisted, got: %s", countOnlyOutput)
+	}
+
+	// An unreported count is unknown, not zero: nothing prints.
+	setMockClient(t, &gitopsStatusMock{status: syncedGitopsStatus()})
+	bareOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "gitops", "status", "my-cluster")
+	})
+	if strings.Contains(bareOutput, "Preserved Paths") {
+		t.Errorf("expected no preserved-path lines, got: %s", bareOutput)
+	}
+}
+
+// -o json carries the preserved paths and the commit pointer, which the
+// client used to drop on decode.
+func TestClusterGitopsStatusJSONOutputCarriesPreservedPathsAndPointer(t *testing.T) {
+	status := syncedGitopsStatus()
+	status.PreservedPathCount = intPtrCmd(1)
+	status.PreservedPathUndecidedCount = intPtrCmd(1)
+	status.PreservedPaths = []string{"clusters/staging/staging.yaml"}
+	status.PreservedPathDetails = []client.ClusterGitopsPreservedPath{
+		{Path: "clusters/staging/staging.yaml", DetectedAt: strPtrCmd("2026-10-23T08:00:00Z"), Decided: boolPtrCmd(false)},
+	}
+	status.AppliedCommitSHA = strPtrCmd("def456")
+	status.HeadCheckedAt = strPtrCmd("2026-10-29T10:00:00Z")
+	setMockClient(t, &gitopsStatusMock{status: status})
+	resetGitopsStatusOutputFlag(t)
+
+	output, err := executeCommand("cluster", "gitops", "status", "my-cluster", "-o", "json")
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+	var decoded map[string]interface{}
+	if unmarshalErr := json.Unmarshal([]byte(output), &decoded); unmarshalErr != nil {
+		t.Fatalf("expected parseable JSON on stdout, got %v: %s", unmarshalErr, output)
+	}
+	details, ok := decoded["preserved_path_details"].([]interface{})
+	if decoded["preserved_path_count"] != float64(1) || decoded["preserved_path_undecided_count"] != float64(1) ||
+		!ok || len(details) != 1 || decoded["applied_commit_sha"] != "def456" ||
+		decoded["head_checked_at"] != "2026-10-29T10:00:00Z" {
+		t.Fatalf("JSON output = %s", output)
+	}
+	detail, _ := details[0].(map[string]interface{})
+	if detail["path"] != "clusters/staging/staging.yaml" || detail["decided"] != false ||
+		detail["detected_at"] != "2026-10-23T08:00:00Z" {
+		t.Errorf("preserved_path_details[0] = %v", detail)
+	}
+}
+
+// The client decodes the platform's fields (ankra-xx7u1l, ankra-u5m2k6).
+func TestClusterGitopsStatusDecodesThePlatformFields(t *testing.T) {
+	var status client.ClusterGitopsStatus
+	body := `{"sync_status":"diverged","preserved_path_count":2,"preserved_paths":["a.yaml","b.yaml"],` +
+		`"preserved_path_undecided_count":1,"preserved_path_details":[{"path":"a.yaml","detected_at":"2026-10-23T08:00:00Z",` +
+		`"last_seen_at":"2026-10-29T08:00:00Z","decided":true,"resolution_choice":"cluster","resolved_at":"2026-10-24T08:00:00Z"}],` +
+		`"applied_commit_sha":"def456","applied_commit_at":"2026-10-27T10:00:00Z","head_checked_sha":"def456",` +
+		`"head_checked_at":"2026-10-29T10:00:00Z"}`
+	if decodeErr := json.Unmarshal([]byte(body), &status); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	if *status.PreservedPathCount != 2 || *status.PreservedPathUndecidedCount != 1 || len(status.PreservedPaths) != 2 ||
+		len(status.PreservedPathDetails) != 1 || status.PreservedPathDetails[0].Decided == nil ||
+		!*status.PreservedPathDetails[0].Decided ||
+		*status.PreservedPathDetails[0].ResolutionChoice != "cluster" || *status.AppliedCommitSHA != "def456" ||
+		*status.AppliedCommitAt != "2026-10-27T10:00:00Z" || *status.HeadCheckedSHA != "def456" ||
+		*status.HeadCheckedAt != "2026-10-29T10:00:00Z" {
+		t.Fatalf("decoded = %+v", status)
+	}
+}
+
+// resetGitopsStatusOutputFlag clears -o on the shared status command now and
+// when the test ends: cobra keeps a flag's value between executions, so a JSON
+// test left it set and every human-output test after it printed nothing.
+func resetGitopsStatusOutputFlag(t *testing.T) {
+	t.Helper()
+	_ = clusterGitopsStatusCmd.Flags().Set("output", "")
+	t.Cleanup(func() { _ = clusterGitopsStatusCmd.Flags().Set("output", "") })
+}
+
+func boolPtrCmd(value bool) *bool {
+	return &value
 }

@@ -222,6 +222,39 @@ func TestPipelineRunDetailPrintsWhatEachStepUsedAgainstItsRequests(t *testing.T)
 	}
 }
 
+// The working-set peak (ankra-q573dh.79.34.2) sits beside the memory peak,
+// against the same request, and an at-request peak points at it; either
+// figure prints on its own when the agent measured only that one.
+func TestPipelineRunDetailPrintsTheWorkingSetPeakBesideTheMemoryPeak(t *testing.T) {
+	var output bytes.Buffer
+	printPipelineRunDetail(&output, client.PipelineRunDetail{
+		PipelineRun: client.PipelineRun{RunNumber: 9, ID: "run-9", Status: "concluded"},
+		Steps: []client.PipelineStep{
+			{StepKey: "build", Status: "concluded", MemoryRequestBytes: int64PipelinePtr(10 << 30),
+				MemoryPeakBytes: int64PipelinePtr(10 << 30), MemoryWorkingSetPeakBytes: int64PipelinePtr(6 << 30),
+				MemoryLimitHits: int64PipelinePtr(3)},
+			{StepKey: "test", Status: "concluded", MemoryRequestBytes: int64PipelinePtr(8 << 30),
+				MemoryPeakBytes: int64PipelinePtr(6 << 30), MemoryWorkingSetPeakBytes: int64PipelinePtr(5 << 30)},
+			{StepKey: "lint", Status: "concluded", MemoryRequestBytes: int64PipelinePtr(8 << 30),
+				MemoryWorkingSetPeakBytes: int64PipelinePtr(4 << 30)},
+			{StepKey: "unrequested", Status: "concluded", MemoryPeakBytes: int64PipelinePtr(2 << 30),
+				MemoryWorkingSetPeakBytes: int64PipelinePtr(1 << 30)},
+		},
+	}, client.PipelineSelector{})
+	rendered := output.String()
+	for _, expected := range []string{
+		"  build: memory peak 10.0 GiB of 10.0 GiB requested (100%), working set peak 6.0 GiB (60%): page cache " +
+			"fills spare room, so the working set is nearer what it needed, met its memory limit 3 time(s)\n",
+		"  test: memory peak 6.0 GiB of 8.0 GiB requested (75%), working set peak 5.0 GiB (62%)\n",
+		"  lint: working set peak 4.0 GiB of 8.0 GiB requested (50%)\n",
+		"  unrequested: memory peak 2.0 GiB, working set peak 1.0 GiB\n",
+	} {
+		if !strings.Contains(rendered, expected) {
+			t.Errorf("output missing %q:\n%s", expected, rendered)
+		}
+	}
+}
+
 // A run whose steps carry no usage report - an older platform or agent -
 // prints no resources section at all.
 func TestPipelineRunDetailPrintsNoResourcesSectionWithoutUsage(t *testing.T) {

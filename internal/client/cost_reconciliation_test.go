@@ -65,6 +65,54 @@ func TestGetCostReconciliation_DecodesNullsAsUnknownAndSendsTheMonth(t *testing.
 	}
 }
 
+// costReconciliationCoverageBody is the shape cluster#5739 added: a
+// credential whose difference covers one of two clusters (hours share
+// unknown, read for a scope so the invoice is withheld), one whose platform
+// says no cluster was fully metered (an explicit null), and one counted under
+// the first that carries no difference_coverage key at all, as a platform
+// from before that change answers.
+const costReconciliationCoverageBody = `{"month":"2026-10","month_closed":true,"period_hours":744,"generated_at":"",` +
+	`"credentials":[` +
+	`{"credential_id":"aaaaaaaa-0000-4000-8000-000000000001","provider":"ovh","state":"complete","difference_pct":0.17,` +
+	`"difference_coverage":{"clusters_covered":1,"clusters_named":2,"matched_minor":9000,"estimate_minor":8985,` +
+	`"invoice_share_pct":90.18,"hours_share_pct":null},"invoice_withheld":true,"same_invoice_as":null,` +
+	`"clusters":[{"cluster_id":"cccccccc-0000-4000-8000-000000000001","cluster_name":"prod","line_count":2,"period_hours":744,"in_coverage":true},` +
+	`{"cluster_id":"cccccccc-0000-4000-8000-000000000002","cluster_name":"batch","line_count":1,"period_hours":744,"in_coverage":false}]},` +
+	`{"credential_id":"aaaaaaaa-0000-4000-8000-000000000002","provider":"upcloud","state":"complete","difference_pct":null,` +
+	`"difference_coverage":null},` +
+	`{"credential_id":"aaaaaaaa-0000-4000-8000-000000000003","provider":"ovh","state":"complete",` +
+	`"same_invoice_as":"aaaaaaaa-0000-4000-8000-000000000001"}]}`
+
+func TestGetCostReconciliation_TellsAnUnreportedCoverageFromNoClusterCovered(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(costReconciliationCoverageBody))
+	}
+	reconciliation, err := newTestClient(t, handler).GetCostReconciliation("2026-10")
+	if err != nil || len(reconciliation.Credentials) != 3 {
+		t.Fatalf("GetCostReconciliation = %+v, %v", reconciliation, err)
+	}
+	covered, uncovered, unreported := reconciliation.Credentials[0], reconciliation.Credentials[1], reconciliation.Credentials[2]
+	coverage := covered.DifferenceCoverage
+	if !covered.CoverageReported || coverage == nil || coverage.ClustersCovered != 1 || coverage.ClustersNamed != 2 ||
+		coverage.MatchedMinor != 9000 || coverage.EstimateMinor != 8985 ||
+		coverage.InvoiceSharePct == nil || *coverage.InvoiceSharePct != 90.18 || coverage.HoursSharePct != nil {
+		t.Fatalf("a stated coverage did not decode, or an unknown hours share became a number: %+v", covered)
+	}
+	if !covered.InvoiceWithheld || covered.SameInvoiceAs != nil || len(covered.Clusters) != 2 ||
+		!covered.Clusters[0].InCoverage || covered.Clusters[1].InCoverage {
+		t.Fatalf("withheld, same_invoice_as or in_coverage did not decode: %+v", covered)
+	}
+	if !uncovered.CoverageReported || uncovered.DifferenceCoverage != nil {
+		t.Fatalf("an explicit null coverage must read as reported with no cluster covered: %+v", uncovered)
+	}
+	if unreported.CoverageReported || unreported.DifferenceCoverage != nil {
+		t.Fatalf("a credential with no difference_coverage key must read as not reported: %+v", unreported)
+	}
+	if unreported.SameInvoiceAs == nil || *unreported.SameInvoiceAs != covered.CredentialID {
+		t.Fatalf("same_invoice_as did not decode: %+v", unreported)
+	}
+}
+
 func TestGetCostReconciliation_OmitsTheMonthToLeaveItToThePlatform(t *testing.T) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.RawQuery != "" {

@@ -847,7 +847,7 @@ func (m baseMock) GetDecisionActivity(decisionID string) (*client.DecisionActivi
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ApproveDecision(decisionID string, note *string) (*client.DecisionProposal, error) {
+func (m baseMock) ApproveDecision(decisionID string, note *string, planHash string) (*client.DecisionProposal, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2006,6 +2006,10 @@ func (m baseMock) HetznerNodeCloudInitLog(clusterID, nodeID string) (*client.Nod
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) DiagnoseClusterNode(ctx context.Context, provider, clusterID, nodeID string) (*client.NodeDiagnoseResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) OvhNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error) {
 	return nil, errors.New("not implemented")
 }
@@ -3034,7 +3038,7 @@ func (m baseMock) CreateProxmoxCluster(request client.CreateProxmoxClusterReques
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionProxmoxCluster(clusterID string, _ bool) (*client.ProviderDeprovisionClusterResponse, error) {
+func (m baseMock) DeprovisionProxmoxCluster(clusterID string, _ client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -5383,6 +5387,10 @@ func (m baseMock) GetCloudLedger() (*client.CloudLedger, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetCloudWaste() (*client.CloudWaste, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetCostAutopilot() (*client.CostAutopilotPolicy, error) {
 	return nil, errors.New("not implemented")
 }
@@ -5527,6 +5535,14 @@ func (m baseMock) ConfirmServiceRetirement(context.Context, string, string, stri
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) PrepareServiceDisconnection(context.Context, string, client.ServiceDisconnectionRequest) (*client.ServiceDisconnection, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ConfirmServiceDisconnection(context.Context, string, string, string) (*client.ServiceDisconnection, error) {
+	return nil, errors.New("not implemented")
+}
+
 // TestClusterAgentStatusSecurityUpgradeNote pins the security-upgrade note: it
 // shows only when the platform says the upgrade is required. An agent already
 // on the scoped grant, and an answer the platform could not decide (nil), show
@@ -5665,5 +5681,15 @@ func (m baseMock) ApproveProfileSummaryPolicy(context.Context, client.ProfileSum
 }
 
 func (m baseMock) RevokeProfileSummaryPolicy(context.Context, client.ProfileSummaryPolicyRevocationRequest) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (m baseMock) StartProfileRuntimeQualification(context.Context, string) (*client.ProfileRuntimeQualification, error) {
+	return nil, nil
+}
+func (m baseMock) GetProfileRuntimeQualification(context.Context, string) (*client.ProfileRuntimeQualification, error) {
+	return nil, nil
+}
+func (m baseMock) CancelProfileRuntimeQualification(context.Context, string) (*client.ProfileRuntimeQualification, error) {
 	return nil, nil
 }

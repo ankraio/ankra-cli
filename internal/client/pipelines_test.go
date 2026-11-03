@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -956,5 +957,122 @@ func TestMovePipelineMergeTrainToFrontPostsToTheEntrysFrontPath(t *testing.T) {
 	}
 	if entry.PullRequestNumber != 776 || entry.Position != 4 {
 		t.Fatalf("entry = %+v", entry)
+	}
+}
+
+func TestSetPipelineMergeTrainSettingsSendsOnlyWhatIsNamed(t *testing.T) {
+	criterion := PipelineMergeTrainCriterionReadyShadow
+	defaultList := []string(nil)
+	nothing := []string{}
+	patterns := []string{"alembic/**", "!alembic/docs/**"}
+	cases := map[string]struct {
+		request SetPipelineMergeTrainSettingsRequest
+		want    string
+	}{
+		"naming nothing": {
+			request: SetPipelineMergeTrainSettingsRequest{Enabled: true},
+			want:    `{"enabled":true}`,
+		},
+		"the criterion": {
+			request: SetPipelineMergeTrainSettingsRequest{Enabled: true, AutoAdmitCriterion: &criterion},
+			want:    `{"enabled":true,"auto_admit_criterion":"ready_shadow"}`,
+		},
+		"the default list is null": {
+			request: SetPipelineMergeTrainSettingsRequest{Enabled: true, AutoAdmitProtectedPaths: &defaultList},
+			want:    `{"enabled":true,"auto_admit_protected_paths":null}`,
+		},
+		"nothing protected is an empty list": {
+			request: SetPipelineMergeTrainSettingsRequest{Enabled: true, AutoAdmitProtectedPaths: &nothing},
+			want:    `{"enabled":true,"auto_admit_protected_paths":[]}`,
+		},
+		"a list": {
+			request: SetPipelineMergeTrainSettingsRequest{Enabled: true, AutoAdmitProtectedPaths: &patterns},
+			want:    `{"enabled":true,"auto_admit_protected_paths":["alembic/**","!alembic/docs/**"]}`,
+		},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			var capturedMethod, capturedPath, capturedBody string
+			testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				capturedMethod = r.Method
+				capturedPath = r.URL.Path
+				body, _ := io.ReadAll(r.Body)
+				capturedBody = string(body)
+				_, _ = fmt.Fprint(w, `{"enabled":true,"max_cars":1,"auto_admit":"on"}`)
+			})
+			if _, err := testClient.SetPipelineMergeTrainSettings(context.Background(),
+				PipelineSelector{RepositoryID: "repo-1"}, testCase.request); err != nil {
+				t.Fatalf("SetPipelineMergeTrainSettings error = %v", err)
+			}
+			if capturedMethod != http.MethodPut ||
+				capturedPath != "/api/v1/org/pipeline-repositories/repo-1/merge-train/settings" {
+				t.Errorf("request = %s %s", capturedMethod, capturedPath)
+			}
+			if capturedBody != testCase.want {
+				t.Errorf("body = %s, want %s", capturedBody, testCase.want)
+			}
+		})
+	}
+}
+
+func TestPipelineMergeTrainSettingsTellsAnEmptyListFromAMissingOne(t *testing.T) {
+	cases := map[string]struct {
+		body string
+		want string
+	}{
+		"a platform with the criterion": {
+			body: `{"enabled":true,"max_cars":1,"auto_admit_criterion":"ready",` +
+				`"auto_admit_protected_paths":["alembic/**"],"auto_admit_protected_paths_is_default":true}`,
+			want: `{"enabled":true,"max_cars":1,"auto_admit_criterion":"ready",` +
+				`"auto_admit_protected_paths":["alembic/**"],"auto_admit_protected_paths_is_default":true}`,
+		},
+		"a list that protects nothing": {
+			body: `{"enabled":true,"max_cars":1,"auto_admit_criterion":"ready",` +
+				`"auto_admit_protected_paths":[],"auto_admit_protected_paths_is_default":false}`,
+			want: `{"enabled":true,"max_cars":1,"auto_admit_criterion":"ready",` +
+				`"auto_admit_protected_paths":[],"auto_admit_protected_paths_is_default":false}`,
+		},
+		"a platform that predates it": {
+			body: `{"enabled":true,"max_cars":1}`,
+			want: `{"enabled":true,"max_cars":1}`,
+		},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			var settings PipelineMergeTrainSettings
+			if err := json.Unmarshal([]byte(testCase.body), &settings); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			encoded, err := json.Marshal(settings)
+			if err != nil {
+				t.Fatalf("encode: %v", err)
+			}
+			if string(encoded) != testCase.want {
+				t.Errorf("encoded = %s, want %s", encoded, testCase.want)
+			}
+		})
+	}
+}
+
+func TestSetPipelineMergeTrainSettingsSurfacesThePlatformsRefusal(t *testing.T) {
+	for _, sentence := range []string{
+		"Merge train auto-admit can only be set to admit at ready by a human member, not a service account token.",
+		"Merge train auto-admit's protected paths can only be changed by a human member, not a service account token.",
+	} {
+		testClient := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = fmt.Fprintf(w, `{"detail":%q}`, sentence)
+		})
+		criterion := PipelineMergeTrainCriterionReady
+		_, err := testClient.SetPipelineMergeTrainSettings(context.Background(),
+			PipelineSelector{RepositoryID: "repo-1"},
+			SetPipelineMergeTrainSettingsRequest{Enabled: true, AutoAdmitCriterion: &criterion})
+		if err == nil || err.Error() != sentence {
+			t.Fatalf("error = %v, want the platform's sentence as it reads", err)
+		}
+		var permissionDenied *PermissionDeniedError
+		if errors.As(err, &permissionDenied) {
+			t.Errorf("decoded as *PermissionDeniedError: %+v, which would replace the sentence", permissionDenied)
+		}
 	}
 }
