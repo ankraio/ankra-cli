@@ -203,6 +203,43 @@ A ticket is referenced by number (`8`, `T-8`, `#8`) or UUID. Statuses: `triage`,
 `planning`, `awaiting_review`, `awaiting_approval`, `executing`, `verifying`, `blocked`, `done`,
 `cancelled`.
 
+### Structure: roots, symptoms, sub-tickets and links
+
+A **symptom** sits under the root ticket that carries its work: it gets no agent run or thread of
+its own, and it is settled or stands alone again when the root closes. A **sub-ticket** is filed
+under a ticket and worked like any ticket. Links join tickets with a relation: `relates_to` (the
+default), `duplicate_of`, `recurrence_of`, `spawned`, `evidence` or `fix`.
+
+```bash
+ankra tickets get T-42                             # parent, what is under it, links both ways
+ankra tickets list --parent T-42 --include-closed  # every ticket directly under T-42, with its role
+ankra tickets list --top-level                     # only tickets that sit under no other
+ankra tickets nest T-51 --root T-42 --reason "Same expired certificate"
+ankra tickets detach T-51                          # a symptom stands on its own again
+ankra tickets create --title "Renew the wildcard certificate" --parent T-42
+ankra tickets links T-42                           # the LINK column is what unlink takes
+ankra tickets link T-50 T-31 --relation recurrence_of
+ankra tickets unlink T-50 T-31
+ankra tickets close T-50 --duplicate-of T-42       # closes as duplicate and links the keeper
+ankra tickets close T-50 --resolution fixed --note "Renewed the certificate"
+```
+
+`close --duplicate-of` names the open ticket covering the same cause. The platform links the
+closed ticket to that ticket's canonical keeper (naming a symptom or a duplicate resolves to the
+ticket that carries the work) and tells the keeper. The CLI reads the link back and names the
+keeper. If the platform wrote no link, the command fails and prints the `tickets link` command
+that adds it. A refused write prints the platform's sentence. It exits 2 when the request named the
+wrong thing (a root that is the ticket itself, an unknown number, a closed keeper), 3 when the
+ticket is not in your organisation, and 1 when the tickets' state refused it (a closed root, a
+sub-ticket, a loop, or a concurrent change to retry).
+
+`tickets get` says when the tickets under a ticket or its links could not be read, and then exits
+1. It never shows an unread part as empty. With `-o json`, `get` prints the ticket with
+`parent_ticket_number`, `parent_ticket_title`, `parent_ticket_status`, `child_role` (`symptom`,
+`subtask` or null), `live_symptom_count` and `symptoms_needing_person_count`. Read the children with
+`tickets list --parent <ticket> -o json` and the links with `tickets links <ticket> -o json`, which
+prints `links` and `incoming_links` as the platform sent them.
+
 ### Answering a decision
 
 A `blocked` ticket is waiting on a choice the agent offered:
