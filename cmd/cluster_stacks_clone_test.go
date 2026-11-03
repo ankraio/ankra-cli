@@ -527,6 +527,46 @@ func TestStacksCloneReportsAPlatformThatCarriedNoData(t *testing.T) {
 	}
 }
 
+// A platform that understood the data flags and could carry none of the
+// selected data says why in data_warnings. Those reasons are the answer, so
+// the refusal repeats them instead of diagnosing a platform that predates
+// clone-with-data (the 2026-11-03 Psono rehearsal, which read "no member owns
+// this data" from -o json while the CLI blamed an old platform).
+func TestStacksCloneRepeatsThePlatformsReasonsWhenItCarriedNoData(t *testing.T) {
+	ownerWarning := "psono-rs-acceptance/psono-rs-db is not carried: the cloned stack has no member that owns this data, so nothing on the target would adopt it."
+	summaryWarning := "None of the selected data could be carried onto the target's members, so the stack was cloned without it; the reasons are listed above."
+	for _, format := range []string{"", "json"} {
+		t.Run("output "+format, func(t *testing.T) {
+			mock := newCloneLaneMock()
+			mock.cloneResult = &client.CloneStackToClusterResult{
+				DraftID: "cde33ab8-92db-4875-9a45-1e48cfaaad46", StackName: backupTestStack,
+				DataWarnings: []string{ownerWarning, summaryWarning},
+			}
+			arguments := []string{"cluster", "stacks", "clone", backupTestStack, "--cluster", "demo",
+				"--to", "staging", "--with-data"}
+			if format != "" {
+				arguments = append(arguments, "-o", format)
+			}
+
+			_, executeError := runCloneCommand(t, mock, arguments...)
+
+			if executeError == nil {
+				t.Fatal("a clone that carried no data must not report success")
+			}
+			message := executeError.Error()
+			for _, expected := range []string{"carried no data", ownerWarning, summaryWarning,
+				"cde33ab8-92db-4875-9a45-1e48cfaaad46"} {
+				if !strings.Contains(message, expected) {
+					t.Errorf("the refusal must carry %q, got: %v", expected, message)
+				}
+			}
+			if strings.Contains(message, "without clone-with-data") {
+				t.Errorf("a platform that explained itself must not be diagnosed as an old one: %v", message)
+			}
+		})
+	}
+}
+
 func TestStacksCloneStructuredOutputCarriesTheDataFields(t *testing.T) {
 	mock := newCloneLaneMock()
 	mock.cloneResult = sampleCloneWithDataResult()

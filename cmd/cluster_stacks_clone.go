@@ -151,9 +151,7 @@ Examples:
 		}
 		// A clone that asked for data and came back without a run carried
 		// none: the target holds a configuration copy shaped exactly like the
-		// one nobody asked for. The platform refuses that case on its own
-		// side; a CLI talking to a build that predates clone-with-data has to
-		// say so itself rather than report the copy as complete.
+		// one nobody asked for, so it is never reported as complete.
 		if cloneRequest.IncludeData && dataCloneRunID == "" {
 			if format != outputDefault {
 				if encodeError := encodeStructured(cmd.OutOrStdout(), format, result); encodeError != nil {
@@ -162,9 +160,7 @@ Examples:
 			} else {
 				printCloneResult(cmd.ErrOrStderr(), result)
 			}
-			return fmt.Errorf("the clone carried no data: the platform accepted it and named no data " +
-				"clone run, which is how a platform without clone-with-data answers. The stack's " +
-				"configuration is on the target as a draft; its data is not")
+			return cloneCarriedNoDataError(result)
 		}
 
 		if !wait {
@@ -462,6 +458,31 @@ func printCloneResult(out io.Writer, result *client.CloneStackToClusterResult) {
 	_, _ = fmt.Fprintf(out, "\nThe stack has been created as a draft and its data is being moved by "+
 		"run %s. Follow it with 'ankra runs get %s', or re-run with --wait.\n",
 		*result.DataCloneRunID, *result.DataCloneRunID)
+}
+
+// cloneCarriedNoDataError explains a with-data clone that opened no data run.
+//
+// A platform that understands clone-with-data and could not carry any of the
+// selected data says why in data_warnings - an asset whose owning member the
+// clone could not rewrite, an engine the platform lacks - and those reasons
+// are the answer, so they are repeated here rather than replaced by a guess.
+// Only a reply with no run and no reason at all is read as a platform that
+// predates clone-with-data. Either way the draft holds configuration only,
+// and deploying it would initialise empty databases in place of the data.
+func cloneCarriedNoDataError(result *client.CloneStackToClusterResult) error {
+	draft := "a draft"
+	if result != nil && result.DraftID != "" {
+		draft = "draft " + result.DraftID
+	}
+	if result == nil || len(result.DataWarnings) == 0 {
+		return fmt.Errorf("the clone carried no data: the platform accepted it and named no data "+
+			"clone run and no reason, which is how a platform without clone-with-data answers. The "+
+			"stack's configuration is on the target as %s; its data is not", draft)
+	}
+	return fmt.Errorf("the clone carried no data: the platform cloned the stack's configuration "+
+		"to the target as %s but opened no data clone run, because:\n  - %s\n"+
+		"Do not deploy that draft as a restore: its databases would start empty",
+		draft, strings.Join(result.DataWarnings, "\n  - "))
 }
 
 // cloneDeployError turns a refused --deploy into the exit code: the clone
