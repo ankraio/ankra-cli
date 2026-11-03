@@ -5,6 +5,7 @@
 ### Fixed
 
 - **`ankra cost cluster` shows a component under a cent an hour at its real monthly figure.** The run rate by component multiplied each whole-cent hourly figure by 730, so a part that costs less than a cent an hour, such as a stopped cluster's volumes, read `0.00` a month, and the components could miss the monthly run rate by a few cents. Once the platform sends each component over a month, computed from its full-precision hourly price, the table reads those figures, and the compute, storage, network, control plane and bastion lines add up to the run rate. On a platform that does not send them yet, the table reads as before. `-o json` and `-o yaml` print the platform's response as sent, unchanged.
+- **A secret you generate with `ankra secrets create --generate` no longer expires after a day.** It is kept until you delete it, like a secret whose value you supply, and `--ttl` still gives it an expiry (at most 168h for a generated secret). The `create` help, the `--ttl` flag and the `ankra-sops-secrets` skill now say so. Secrets an Ankra AI conversation generates for itself still expire after a day unless a deployed resource references them.
 
 ## v0.57.1 - 2026-11-03
 

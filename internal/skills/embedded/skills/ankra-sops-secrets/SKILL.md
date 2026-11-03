@@ -205,9 +205,9 @@ addons:
 - **The sentinel only resolves inside a sealed key.** A sentinel at a key `encrypted_paths` does
   not declare is refused at push time, and an organisation without SOPS configured refuses the
   save. Run `ankra cluster sops-config` first.
-- **A generated slot expires** (after a day by default, `--ttl` up to a week) unless a deployed
-  resource references its sentinel, which keeps it for as long as it is referenced. Reference it
-  promptly, and check `ankra secrets list` (EXPIRES `never (in use)`).
+- **A slot does not expire unless you give `--ttl`**, generated or not (a generated slot takes
+  `--ttl` up to a week). A slot with a `--ttl` is kept past it for as long as a deployed resource
+  references its sentinel; check `ankra secrets list` (EXPIRES `never` or `never (in use)`).
 - **Rotation keeps the id.** `set` and `rotate` replace the value in place, so nothing that
   references the sentinel changes; Ankra re-delivers the resources that use it.
 - **Delete is guarded.** A slot that deployed resources reference is refused and the resources are
