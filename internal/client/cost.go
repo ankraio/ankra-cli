@@ -229,7 +229,9 @@ type ClusterCost struct {
 
 // CostSettings is the organisation's pricing configuration: the display
 // currency (usd, eur or gbp), the effective discount in percent applied on
-// top of list prices, and whether a network egress estimate is included.
+// top of list prices, and IncludeNetworkEgressEstimate, which is stored, not
+// metered yet: no figure includes network egress today, whichever way it is
+// set (ankra-bn86k4.8.21).
 //
 // AnalysedClusterLimit is how many of the costliest priced clusters the
 // savings model analyses: the limit in effect (the organisation's own, or the

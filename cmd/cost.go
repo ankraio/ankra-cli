@@ -38,8 +38,9 @@ trend. The savings model reads the biggest priced clusters and proposes one
 lever per cluster (right-size idle capacity, reduce unallocated run rate, or
 an off-hours schedule for non-production) with the monthly saving each is
 worth. The ledger follows each approved cost change through to the saving
-measured seven days after it ran. Pricing settings (display currency,
-effective discount, network egress estimate) apply to every figure.
+measured seven days after it ran. The display currency and the effective
+discount apply to every figure. The network egress estimate setting is stored,
+not metered yet: no figure includes network egress today.
 
 The fleet reads (summary, savings, ledger, trend, events, reconcile, budgets,
 and the clusters 'autopilot get' lists) cover the project you act in (see
@@ -206,6 +207,9 @@ var costSettingsSetCmd = &cobra.Command{
 	Long: `Change one or more pricing settings. Only the flags you pass change; the
 other settings keep their current values. The route is organisation-admin
 only and every fleet and cluster figure re-prices on the next read.
+
+--include-egress is stored, not metered yet: no figure includes network egress
+today, whichever way it is set.
 
 --analysed-cluster-limit sets how many of the costliest priced clusters the
 savings model analyses (1 to 50); --analysed-cluster-limit default returns it
@@ -1201,7 +1205,9 @@ func renderCostSettings(out io.Writer, settings *client.CostSettings) {
 	}
 	_, _ = fmt.Fprintf(out, "Display currency: %s\n", strings.ToUpper(settings.Currency))
 	_, _ = fmt.Fprintf(out, "Effective discount: %g%%\n", settings.EffectiveDiscountPct)
-	_, _ = fmt.Fprintf(out, "Network egress estimate: %s\n", egress)
+	// Nothing meters network egress yet (ankra-bn86k4.8.21): the setting is
+	// stored and moves no figure, so the line says so whichever way it is set.
+	_, _ = fmt.Fprintf(out, "Network egress estimate: %s (stored, not metered yet: no figure includes network egress today)\n", egress)
 	if settings.AnalysedClusterLimit == nil {
 		_, _ = fmt.Fprintln(out, "Analysed-cluster limit: unknown (this platform does not report it)")
 	} else {
@@ -1243,7 +1249,7 @@ func cloudSavingsStaleHeading(thresholds client.CloudSavingsThresholds) string {
 func init() {
 	costSettingsSetCmd.Flags().String("currency", "", "Display currency: usd, eur or gbp")
 	costSettingsSetCmd.Flags().Float64("discount", 0, "Effective discount in percent (0-100), applied on top of list prices; 10 means 10%")
-	costSettingsSetCmd.Flags().Bool("include-egress", false, "Include an estimated network egress charge (pass --include-egress=false to drop it)")
+	costSettingsSetCmd.Flags().Bool("include-egress", false, "Whether figures should include a network egress estimate once egress is metered (stored, not metered yet: no figure includes it today; --include-egress=false clears it)")
 	costSettingsSetCmd.Flags().String("analysed-cluster-limit", "", "How many of the costliest priced clusters the savings model analyses (1-50), or default for the platform's 8")
 	costSummaryCmd.Flags().String("by", "", "Show only one breakdown: provider, credential or project (default: the full rollup)")
 	registerStructuredOutputFlags(costSummaryCmd, costSavingsCmd, costClusterCmd, costSettingsGetCmd, costSettingsSetCmd)
