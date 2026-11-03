@@ -2,18 +2,38 @@
 
 ## Unreleased
 
-### Added
+## v0.57.0 - 2026-11-03
 
-- **`ankra cluster agent ci set --ankra-workspace-storage-class <class>` gives a cluster's Ankra Workspaces a storage class of their own, apart from the one pipeline steps use.** Until now both read `--storage-class`. An Ankra Workspace stays off the nodes pipeline steps run on, so a class only those nodes can use left every workspace on the cluster Pending for good, and the same write replaced each of them at its next use, stopping whatever ran in it. Left empty, which is every cluster today, workspaces go on inheriting `--storage-class` and nothing changes. To move pipeline steps to such a class with no workspace replaced, first pass the class the workspaces use now, then change `--storage-class`. On a cluster whose storage class is empty the workspaces use the cluster's default class with no name at all, so naming a class there replaces each of them once. Naming a different class replaces each workspace at its next use, and an empty value goes back to inheriting. The write restarts no agent and reaches no pipeline step. `ankra cluster agent ci get` shows the class as `Ankra Workspace class`, and says when it is inherited. A platform that predates the setting shows no such line, and a `set` that names the class there fails rather than reporting it as stored.
+This release points `ankra cost autopilot get` at the project you act in, like
+the other cost reads, and adds `--all-projects` to list every project's
+clusters. Once the platform scopes the list, a script that read every cluster
+from it needs `--all-projects`. It also makes `ankra cost reconcile` say what a
+stated difference covers, and makes `ankra cluster get` and `ankra cluster
+describe` with `-o json|yaml` say on stderr when the platform could not vouch
+for the object.
 
 ### Fixed
 
 - **`ankra cost autopilot get` lists the clusters of the project you act in, and takes `--all-projects`.** It was the one cost read that took no project flag, so it could not be pointed at another project or at the whole organisation like `ankra cost summary`. It now reads the project you act in, the global `--project` flag picks another one, and `--all-projects` lists every project's clusters. The policy itself is the organisation's and reads the same in every project. Once the platform says whose clusters it listed, a line above the list names the project, and adds `(partial: only the clusters you may read are listed)` when your cluster permissions left some out. A list cut short that way says so even when the platform names no project for it, and `ankra cost summary` does the same for its rollup, so a partial answer never reads as a complete one. A platform that does not scope the list yet still lists every cluster, with no line.
 - **`ankra cost events` says when a start or stop did not make the move in its window.** A start alone in a window whose run rate fell, or a stop alone in one whose run rate rose, did not cause that move: something else did. The platform marks such an event `contradicted`, and the CLI printed the window's move as if it were the event's, for example `-$300.00 (contradicted)`. The row now reads `unknown (went the other way: -$300.00)`, with the platform's note under it.
 - **`ankra cost reconcile` now says what a stated difference covers.** The platform states the difference between the invoice and the estimate only over the clusters metered for the hours they existed (allowing a missed hour or so), never over the whole invoice, but the table printed it as a bare percentage, so +0.17% read as the accuracy of the whole bill. A new Difference covers column gives how many of the invoice's clusters it is taken over, the share of the billed amount they hold, and the share of all the named clusters' hours that was metered for them; a share the platform could not give reads unknown, never 0%, and a platform that predates the field reads "not reported" rather than "no cluster fully metered". The command's help no longer claims the estimate must cover every hour of every cluster before a difference is stated. A read for the project you act in (the default) now says the invoice total was withheld, and that --all-projects reads all of it, instead of reading unknown, and a credential whose invoice is counted under another one that reads the same provider account names that credential.
-- **`ankra cluster agent ci set --storage-class` now says what it does to Ankra Workspaces.** Its help described only pipeline step workspaces. It now says that pipeline steps take the class at the next agent re-render, and that Ankra Workspaces on the cluster with no workspace class of their own are replaced on next use.
 - **`ankra cluster get <kind> <name>` and `ankra cluster describe` with `-o json` or `-o yaml` now say on stderr when the platform could not vouch for the object.** That means the cluster did not answer and the platform fell back to its last rows, or the agent's watch reported trouble. Before this, a pod last seen before an API server outage printed exactly like the live one, with nothing to say it was 24 minutes old. The object on stdout and the exit code are unchanged, and a routine cache hit stays silent. A script that merges stderr into its JSON with `2>&1` gets the extra line on those reads only.
 - **`ankra org ci-settings` names one more reason a CI pool member takes no runs: its agent cannot reach the cluster's Kubernetes API.** The agent can read as online while that is true, so "offline or does not run pipeline steps" sent readers looking in the wrong place.
+
+## v0.56.0 - 2026-11-02
+
+This release gives a cluster's Ankra Workspaces a storage class of their own,
+apart from the one pipeline steps use, with `ankra cluster agent ci set
+--ankra-workspace-storage-class`. Left empty, which is every cluster today,
+workspaces go on inheriting `--storage-class`.
+
+### Added
+
+- **`ankra cluster agent ci set --ankra-workspace-storage-class <class>` gives a cluster's Ankra Workspaces a storage class of their own, apart from the one pipeline steps use.** Until now both read `--storage-class`. An Ankra Workspace stays off the nodes pipeline steps run on, so a class only those nodes can use left every workspace on the cluster Pending for good, and the same write replaced each of them at its next use, stopping whatever ran in it. Left empty, which is every cluster today, workspaces go on inheriting `--storage-class` and nothing changes. To move pipeline steps to such a class with no workspace replaced, first pass the class the workspaces use now, then change `--storage-class`. On a cluster whose storage class is empty the workspaces use the cluster's default class with no name at all, so naming a class there replaces each of them once. Naming a different class replaces each workspace at its next use, and an empty value goes back to inheriting. The write restarts no agent and reaches no pipeline step. `ankra cluster agent ci get` shows the class as `Ankra Workspace class`, and says when it is inherited. A platform that predates the setting shows no such line, and a `set` that names the class there fails rather than reporting it as stored.
+
+### Fixed
+
+- **`ankra cluster agent ci set --storage-class` now says what it does to Ankra Workspaces.** Its help described only pipeline step workspaces. It now says that pipeline steps take the class at the next agent re-render, and that Ankra Workspaces on the cluster with no workspace class of their own are replaced on next use.
 
 ## v0.55.0 - 2026-11-02
 
