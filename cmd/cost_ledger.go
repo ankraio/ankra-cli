@@ -157,10 +157,10 @@ func costLedgerStatus(row client.CloudLedgerRow) string {
 		// not "approved"; one the platform could not judge is said to be
 		// unknown, never lapsed and never standing. A platform that predates
 		// approval_expired keeps the words below.
-		switch {
-		case row.ApprovalExpired.IsTrue():
+		switch costLedgerApprovalState(row) {
+		case costLedgerApprovalLapsed:
 			return "approval lapsed"
-		case costLedgerApprovalUnknown(row):
+		case costLedgerApprovalUnknown:
 			return "approved · may have lapsed"
 		}
 		switch row.Status {
@@ -198,11 +198,34 @@ func costLedgerVerification(row client.CloudLedgerRow) string {
 	}
 }
 
-// costLedgerApprovalUnknown reports a row whose approval the platform could
-// not judge: approval_expired sent as null. Absent is an older platform, not
-// an unknown.
-func costLedgerApprovalUnknown(row client.CloudLedgerRow) bool {
-	return row.ApprovalExpired.Present && row.ApprovalExpired.Value == nil
+// The approval verdicts a ledger row can show besides "it stands".
+const (
+	costLedgerApprovalStands = ""
+	costLedgerApprovalLapsed = "lapsed"
+	// costLedgerApprovalUnknown is approval_expired sent as null: the
+	// platform could not judge the approval. Absent is an older platform,
+	// not an unknown.
+	costLedgerApprovalUnknown = "unknown"
+)
+
+// costLedgerApprovalState is the verdict a row's approval_expired gives, for a
+// change that has not started. A running or succeeded change ran on its
+// approval, which the platform answers false for; were it to send anything
+// else, the change's own status is what the row says. Any other status,
+// including one this CLI predates (the platform judges held approvals too),
+// takes the platform's verdict.
+func costLedgerApprovalState(row client.CloudLedgerRow) string {
+	if row.Status == "running" || row.Status == "succeeded" || !row.ApprovalExpired.Present {
+		return costLedgerApprovalStands
+	}
+	switch {
+	case row.ApprovalExpired.Value == nil:
+		return costLedgerApprovalUnknown
+	case *row.ApprovalExpired.Value:
+		return costLedgerApprovalLapsed
+	default:
+		return costLedgerApprovalStands
+	}
 }
 
 // costLedgerApprovalNote explains a lapsed approval, or one the platform could
@@ -217,12 +240,12 @@ func costLedgerApprovalNote(row client.CloudLedgerRow) string {
 	if row.ExpectedMonthlyCents != nil {
 		leftOut = " Its expected saving is left out of the total above."
 	}
-	switch {
-	case row.ApprovalExpired.IsTrue():
+	switch costLedgerApprovalState(row) {
+	case costLedgerApprovalLapsed:
 		return fmt.Sprintf("Approved more than %d days ago and never started, so the approval has lapsed and the change will not run.%s "+
 			"Read it with 'ankra cost decisions get %s' and approve it again if it is still what you want.",
 			costLedgerApprovalDays, leftOut, row.DecisionID)
-	case costLedgerApprovalUnknown(row):
+	case costLedgerApprovalUnknown:
 		return fmt.Sprintf("Approved more than %d days ago and not run yet. A rollback keeps its approval past that only when it is "+
 			"confirmed to undo its right-size, which the ledger does not check, so whether this approval still stands is "+
 			"unknown: 'ankra cost decisions get %s' says.%s", costLedgerApprovalDays, row.DecisionID, leftOut)

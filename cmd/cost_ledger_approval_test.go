@@ -150,10 +150,11 @@ func TestCostLedgerSaysWhetherAnApprovalStillStands(t *testing.T) {
 		}
 	}
 	// Each note sits under its own row, and only those two rows get one.
-	if !(strings.Index(flat, "ci-runners") < strings.Index(flat, "↳ Approved more than 7 days ago and never started") &&
+	notesSitUnderTheirRows := strings.Index(flat, "ci-runners") < strings.Index(flat, "↳ Approved more than 7 days ago and never started") &&
 		strings.Index(flat, "↳ Approved more than 7 days ago and never started") < strings.Index(flat, "web-eu") &&
 		strings.Index(flat, "prod-us") < strings.Index(flat, "↳ Approved more than 7 days ago and not run yet") &&
-		strings.Index(flat, "↳ Approved more than 7 days ago and not run yet") < strings.Index(flat, "dev-sandbox")) {
+		strings.Index(flat, "↳ Approved more than 7 days ago and not run yet") < strings.Index(flat, "dev-sandbox")
+	if !notesSitUnderTheirRows {
 		t.Errorf("an approval note must sit directly under its own row:\n%s", output)
 	}
 	if count := strings.Count(flat, "↳ Approved more than"); count != 2 {
@@ -199,6 +200,22 @@ func TestCostLedgerApprovalNotePerAnswer(t *testing.T) {
 			// A row the ledger measured ran, so its measurement is what it says.
 			overrides: map[string]any{"measurement_status": "measured", "status": "succeeded", "days": 7},
 			status:    "measured",
+		},
+		"running, whatever the flag says": {
+			// A change that started ran on its approval; its status is what
+			// the row says, even with nothing measuring it.
+			overrides: map[string]any{"status": "running"},
+			status:    "running",
+		},
+		"succeeded unmeasured, whatever the flag says": {
+			overrides: map[string]any{"status": "succeeded", "approval_expired": json.RawMessage("null")},
+			status:    "not measured",
+		},
+		"a status this CLI predates takes the verdict": {
+			// The platform judges held approvals too; its verdict stands.
+			overrides: map[string]any{"status": "held"},
+			status:    "approval lapsed",
+			notes:     []string{lapsedApprovalNote},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
