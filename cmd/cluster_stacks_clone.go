@@ -431,6 +431,9 @@ func printCloneResult(out io.Writer, result *client.CloneStackToClusterResult) {
 			_, _ = fmt.Fprintf(out,
 				"\nThe stack has been created as a draft. Review and deploy it from the Ankra dashboard, "+
 					"or run 'ankra cluster stacks deploy-draft %s'.\n", result.StackName)
+		} else if !result.Deployed {
+			_, _ = fmt.Fprintf(out, "Deploy it with 'ankra cluster stacks deploy-draft %s' once that is resolved.\n",
+				result.StackName)
 		}
 		return
 	}
@@ -465,13 +468,13 @@ func printCloneMembers(out io.Writer, result *client.CloneStackToClusterResult) 
 }
 
 // printCloneDeployOutcome prints what became of a deploy the clone reports, and
-// says whether it reported one.
+// says whether it reported one. What to do about a refused deploy is left to
+// the caller: a draft with no data must not be offered for deploy.
 func printCloneDeployOutcome(out io.Writer, result *client.CloneStackToClusterResult) bool {
 	switch {
 	case result.DeployError != nil && *result.DeployError != "":
-		_, _ = fmt.Fprintf(out, "\nThe stack has been created as a draft, but the deploy you asked for was refused: %s\n"+
-			"Deploy it with 'ankra cluster stacks deploy-draft %s' once that is resolved.\n",
-			*result.DeployError, result.StackName)
+		_, _ = fmt.Fprintf(out, "\nThe stack has been created as a draft, but the deploy you asked for was refused: %s\n",
+			*result.DeployError)
 		return true
 	case result.Deployed:
 		_, _ = fmt.Fprintf(out, "\nThe stack has been created and its deploy has started")

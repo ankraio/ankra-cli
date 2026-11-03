@@ -600,6 +600,39 @@ func TestStacksCloneSaysADeployStartedEvenWhenItCarriedNoData(t *testing.T) {
 	}
 }
 
+// A refused deploy is reported on either path, but only a clone that was not
+// meant to carry data is told to deploy the draft once the refusal is resolved.
+func TestStacksCloneOffersARefusedDeployAgainOnlyWhenNoDataWasAskedFor(t *testing.T) {
+	refusal := "the target's agent is not connected"
+	for name, withData := range map[string]bool{"with data": true, "without data": false} {
+		t.Run(name, func(t *testing.T) {
+			mock := newCloneLaneMock()
+			mock.cloneResult = &client.CloneStackToClusterResult{
+				DraftID: "cde33ab8-92db-4875-9a45-1e48cfaaad46", StackName: backupTestStack,
+				DeployError: &refusal,
+			}
+			arguments := []string{"cluster", "stacks", "clone", backupTestStack,
+				"--cluster", "demo", "--to", "staging", "--deploy"}
+			if withData {
+				arguments = append(arguments, "--with-data")
+			}
+
+			output, executeError := runCloneCommand(t, mock, arguments...)
+
+			if executeError == nil {
+				t.Fatal("a refused deploy must exit nonzero")
+			}
+			if !strings.Contains(output, "the deploy you asked for was refused: "+refusal) {
+				t.Errorf("the refusal must be reported:\n%s", output)
+			}
+			offered := strings.Contains(output, "deploy-draft")
+			if offered == withData {
+				t.Errorf("deploy-draft offered=%v for a clone with data=%v:\n%s", offered, withData, output)
+			}
+		})
+	}
+}
+
 func TestStacksCloneStructuredOutputCarriesTheDataFields(t *testing.T) {
 	mock := newCloneLaneMock()
 	mock.cloneResult = sampleCloneWithDataResult()
