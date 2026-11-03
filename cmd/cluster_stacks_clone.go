@@ -158,7 +158,7 @@ Examples:
 					return encodeError
 				}
 			} else {
-				printCloneResult(cmd.ErrOrStderr(), result)
+				printCloneWithoutData(cmd.ErrOrStderr(), result)
 			}
 			return cloneCarriedNoDataError(result)
 		}
@@ -423,6 +423,39 @@ func cloneBlockedReason(run *client.Run) string {
 // answer to whether it is a copy.
 func printCloneResult(out io.Writer, result *client.CloneStackToClusterResult) {
 	_, _ = fmt.Fprintf(out, "\nStack cloned successfully!\n")
+	printCloneMembers(out, result)
+	printCloneDataResult(out, result)
+
+	if result.DataCloneRunID == nil || *result.DataCloneRunID == "" {
+		if !printCloneDeployOutcome(out, result) {
+			_, _ = fmt.Fprintf(out,
+				"\nThe stack has been created as a draft. Review and deploy it from the Ankra dashboard, "+
+					"or run 'ankra cluster stacks deploy-draft %s'.\n", result.StackName)
+		} else if !result.Deployed {
+			_, _ = fmt.Fprintf(out, "Deploy it with 'ankra cluster stacks deploy-draft %s' once that is resolved.\n",
+				result.StackName)
+		}
+		return
+	}
+	_, _ = fmt.Fprintf(out, "\nThe stack has been created as a draft and its data is being moved by "+
+		"run %s. Follow it with 'ankra runs get %s', or re-run with --wait.\n",
+		*result.DataCloneRunID, *result.DataCloneRunID)
+}
+
+// printCloneWithoutData renders a with-data clone that opened no data run. Its
+// draft holds configuration only, so it is neither called a success nor offered
+// for deploy: cloneCarriedNoDataError follows and says why, and what deploying
+// it would do. A deploy outcome is still printed, because a platform that
+// predates clone-with-data acts on --deploy and that must not go unsaid.
+func printCloneWithoutData(out io.Writer, result *client.CloneStackToClusterResult) {
+	_, _ = fmt.Fprintf(out, "\nOnly the stack's configuration was cloned, not its data.\n")
+	printCloneMembers(out, result)
+	printCloneDeployOutcome(out, result)
+}
+
+// printCloneMembers prints the draft and what it was assembled from, with the
+// warnings and the secrets still needed before it can deploy.
+func printCloneMembers(out io.Writer, result *client.CloneStackToClusterResult) {
 	_, _ = fmt.Fprintf(out, "  Draft ID:    %s\n", result.DraftID)
 	_, _ = fmt.Fprintf(out, "  Stack Name:  %s\n", result.StackName)
 	_, _ = fmt.Fprintf(out, "  Addons:      %d\n", result.AddonsCloned)
@@ -432,32 +465,28 @@ func printCloneResult(out io.Writer, result *client.CloneStackToClusterResult) {
 	}
 	printWarnings(out, result.Warnings)
 	printCloneNeedsInput(out, result.NeedsInput)
-	printCloneDataResult(out, result)
+}
 
-	if result.DataCloneRunID == nil || *result.DataCloneRunID == "" {
-		switch {
-		case result.DeployError != nil && *result.DeployError != "":
-			_, _ = fmt.Fprintf(out, "\nThe stack has been created as a draft, but the deploy you asked for was refused: %s\n"+
-				"Deploy it with 'ankra cluster stacks deploy-draft %s' once that is resolved.\n",
-				*result.DeployError, result.StackName)
-		case result.Deployed:
-			_, _ = fmt.Fprintf(out, "\nThe stack has been created and its deploy has started")
-			if result.OperationID != nil && *result.OperationID != "" {
-				_, _ = fmt.Fprintf(out, " (operation %s). Follow it with 'ankra cluster operations list %s'.\n",
-					*result.OperationID, *result.OperationID)
-			} else {
-				_, _ = fmt.Fprintln(out, ".")
-			}
-		default:
-			_, _ = fmt.Fprintf(out,
-				"\nThe stack has been created as a draft. Review and deploy it from the Ankra dashboard, "+
-					"or run 'ankra cluster stacks deploy-draft %s'.\n", result.StackName)
+// printCloneDeployOutcome prints what became of a deploy the clone reports, and
+// says whether it reported one. What to do about a refused deploy is left to
+// the caller: a draft with no data must not be offered for deploy.
+func printCloneDeployOutcome(out io.Writer, result *client.CloneStackToClusterResult) bool {
+	switch {
+	case result.DeployError != nil && *result.DeployError != "":
+		_, _ = fmt.Fprintf(out, "\nThe stack has been created as a draft, but the deploy you asked for was refused: %s\n",
+			*result.DeployError)
+		return true
+	case result.Deployed:
+		_, _ = fmt.Fprintf(out, "\nThe stack has been created and its deploy has started")
+		if result.OperationID != nil && *result.OperationID != "" {
+			_, _ = fmt.Fprintf(out, " (operation %s). Follow it with 'ankra cluster operations list %s'.\n",
+				*result.OperationID, *result.OperationID)
+		} else {
+			_, _ = fmt.Fprintln(out, ".")
 		}
-		return
+		return true
 	}
-	_, _ = fmt.Fprintf(out, "\nThe stack has been created as a draft and its data is being moved by "+
-		"run %s. Follow it with 'ankra runs get %s', or re-run with --wait.\n",
-		*result.DataCloneRunID, *result.DataCloneRunID)
+	return false
 }
 
 // cloneCarriedNoDataError explains a with-data clone that opened no data run.
