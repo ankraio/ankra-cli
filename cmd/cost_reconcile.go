@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -230,13 +231,22 @@ func costReconcileCoverage(credential client.CostReconciliationCredential) strin
 		costReconcileShare(coverage.InvoiceSharePct), costReconcileShare(coverage.HoursSharePct))
 }
 
-// costReconcileShare renders a share as the platform cut it (two decimals at
-// most, 100 only when it is all), or unknown.
+// costReconcileShare renders a share at two decimals at most, or unknown.
+// Rounding never turns a part into the whole or a sliver into nothing: a
+// share under 100 prints 99.99% at most, and one above 0 prints 0.01% at
+// least, whatever precision the platform sent.
 func costReconcileShare(percent *float64) string {
 	if percent == nil {
 		return "unknown"
 	}
-	return strconv.FormatFloat(*percent, 'f', -1, 64) + "%"
+	rounded := math.Round(*percent*100) / 100
+	switch {
+	case *percent < 100 && rounded >= 100:
+		rounded = 99.99
+	case *percent > 0 && rounded <= 0:
+		rounded = 0.01
+	}
+	return strconv.FormatFloat(rounded, 'f', -1, 64) + "%"
 }
 
 // costReconcileBilled is the Billed column. An invoice counted under another

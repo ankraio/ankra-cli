@@ -164,6 +164,32 @@ func TestCostReconcileSaysWhatTheStatedDifferenceCovers(t *testing.T) {
 	}
 }
 
+// A share prints at two decimals at most whatever precision arrives, and
+// rounding never reads a part as the whole or a sliver as nothing.
+func TestCostReconcileShareRoundsWithoutReachingTheWholeOrNothing(t *testing.T) {
+	cases := []struct {
+		share float64
+		want  string
+	}{
+		{90.18, "90.18%"},
+		{90.18000001, "90.18%"},
+		{33.33333333333333, "33.33%"},
+		{99.996, "99.99%"},
+		{100, "100%"},
+		{0.004, "0.01%"},
+		{0, "0%"},
+	}
+	for _, testCase := range cases {
+		share := testCase.share
+		if got := costReconcileShare(&share); got != testCase.want {
+			t.Errorf("share %v renders %q, want %q", testCase.share, got, testCase.want)
+		}
+	}
+	if got := costReconcileShare(nil); got != "unknown" {
+		t.Errorf("an absent share renders %q, want unknown", got)
+	}
+}
+
 func TestCostReconcileSaysWhereAnInvoiceIsCountedAndWhenItIsWithheld(t *testing.T) {
 	counter := "aaaaaaaa-0000-4000-8000-000000000001"
 	unlisted := "bbbbbbbb-0000-4000-8000-000000000009"
