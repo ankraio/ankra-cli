@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v0.57.1 - 2026-11-03
+
+This release makes `ankra cost ledger` say when an approval has lapsed, so its
+rows agree with the expected total above them. It also stops `ankra cost
+settings` from promising a network egress estimate that no figure includes.
+Installing this release changes nothing on any cluster or workload.
+
 ### Fixed
 
 - **`ankra cost ledger` says when an approval has lapsed.** An approval lasts seven days, and the platform leaves a change approved longer ago that never started out of the expected total in the header, because it will not run. The table still printed it as `approved · not run yet` with its amount, so the rows and the total disagreed. Such a row now reads `approval lapsed`, with a note under it that its expected saving is not in the total and how to approve it again. A right-size rollback approved that long ago reads `approved · may have lapsed`: its approval stands only if it is confirmed to undo its right-size, which the ledger does not check, and the note points at `ankra cost decisions get`, which does. `-o json` and `-o yaml` carry the platform's `approval_expired` as sent. On a platform that does not send it yet, the ledger reads as before.
