@@ -5287,6 +5287,18 @@ func (m baseMock) DecideTicket(ticketID string, decision client.TicketDecision) 
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListTicketProjectChannels() (*client.TicketProjectChannelsList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetTicketProjectChannels(string, client.SetTicketProjectChannelsRequest) (*client.SetTicketProjectChannelsResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RemoveTicketProjectChannels(string) error {
+	return errors.New("not implemented")
+}
+
 func (m baseMock) GetBoardIdentity() (*client.BoardIdentity, error) {
 	return nil, errors.New("not implemented")
 }

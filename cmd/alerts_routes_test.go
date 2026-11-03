@@ -11,16 +11,26 @@ import (
 
 type notificationRoutesMock struct {
 	baseMock
-	routes         []client.NotificationRoute
-	createRequest  *client.CreateNotificationRouteRequest
-	updatedID      string
-	updateRequest  *client.UpdateNotificationRouteRequest
-	deleteCalls    []string
-	testCalls      []string
-	previewRequest *client.PreviewNotificationRoutesRequest
-	preview        *client.NotificationRoutePreview
-	previewError   error
+	routes          []client.NotificationRoute
+	createRequest   *client.CreateNotificationRouteRequest
+	updatedID       string
+	updateRequest   *client.UpdateNotificationRouteRequest
+	deleteCalls     []string
+	testCalls       []string
+	previewRequest  *client.PreviewNotificationRoutesRequest
+	preview         *client.NotificationRoutePreview
+	previewError    error
+	projects        []client.ProjectSummary
+	projectOverride string
 }
+
+func (m *notificationRoutesMock) ListProjects() ([]client.ProjectSummary, error) {
+	return m.projects, nil
+}
+
+func (m *notificationRoutesMock) SetProjectOverride(projectID string) { m.projectOverride = projectID }
+
+func (m *notificationRoutesMock) ProjectOverride() string { return m.projectOverride }
 
 func (m *notificationRoutesMock) ListNotificationRoutes() (*client.NotificationRouteList, error) {
 	return &client.NotificationRouteList{Items: m.routes}, nil
@@ -50,6 +60,7 @@ func (m *notificationRoutesMock) CreateNotificationRoute(request client.CreateNo
 		StopOnMatch:    request.StopOnMatch != nil && *request.StopOnMatch,
 		Mode:           mode,
 		Enabled:        request.Enabled == nil || *request.Enabled,
+		ProjectID:      request.ProjectID,
 		CreatedAt:      "2026-08-17T10:00:00Z",
 		UpdatedAt:      "2026-08-17T10:00:00Z",
 	}, nil
@@ -699,5 +710,162 @@ func TestAlertsRoutesPreviewSendsTheApplicationAndReference(t *testing.T) {
 	if request == nil || request.ApplicationID == nil || request.Reference == nil ||
 		*request.Reference != "pull/55" {
 		t.Fatalf("preview must carry the application and reference, got %+v", request)
+	}
+}
+
+const routeTestCoreProjectID = "5b3c1a2e-0000-4000-8000-0000000000c0"
+
+func routeTestProjects() []client.ProjectSummary {
+	return []client.ProjectSummary{{ID: routeTestCoreProjectID, Name: "Core", Slug: "core"}}
+}
+
+// runRouteProjectCommand runs an alerts command that may pass the global
+// --project, and resets the root's persistent flags around it so the
+// selection never leaks into the next case.
+func runRouteProjectCommand(t *testing.T, mock APIClient, args ...string) (string, error) {
+	t.Helper()
+	resetTreeFlags(t, rootCmd)
+	t.Cleanup(func() { resetTreeFlags(t, rootCmd) })
+	stdout, _, runError := runAlertsCommand(t, mock, "", args...)
+	return stdout, runError
+}
+
+func TestAlertsRoutesCreateProjectScope(t *testing.T) {
+	cases := []struct {
+		name          string
+		extra         []string
+		wantSet       bool
+		wantProjectID string
+	}{
+		{"neither flag keeps the current project", nil, false, ""},
+		{"--project sends the resolved id", []string{"--project", "core"}, true, routeTestCoreProjectID},
+		{"--organisation-wide sends null", []string{"--organisation-wide"}, true, ""},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			mock := &notificationRoutesMock{projects: routeTestProjects()}
+			args := append([]string{"alerts", "routes", "create", "--destination-id", "3d0f6a2e-0000-4000-8000-000000000001"}, testCase.extra...)
+			stdout, runError := runRouteProjectCommand(t, mock, args...)
+			if runError != nil {
+				t.Fatalf("alerts routes create failed: %v", runError)
+			}
+			request := mock.createRequest
+			if request == nil {
+				t.Fatal("expected the create call to reach the client")
+			}
+			if request.ProjectIDSet != testCase.wantSet {
+				t.Errorf("project_id set = %t, want %t", request.ProjectIDSet, testCase.wantSet)
+			}
+			gotProjectID := ""
+			if request.ProjectID != nil {
+				gotProjectID = *request.ProjectID
+			}
+			if gotProjectID != testCase.wantProjectID {
+				t.Errorf("project_id = %q, want %q", gotProjectID, testCase.wantProjectID)
+			}
+			if testCase.wantProjectID != "" && !strings.Contains(stdout, "Project:       Core ("+routeTestCoreProjectID+")") {
+				t.Errorf("expected the project name in the detail, got:\n%s", stdout)
+			}
+			if testCase.wantSet && testCase.wantProjectID == "" && !strings.Contains(stdout, "Project:       organisation-wide") {
+				t.Errorf("expected an organisation-wide route, got:\n%s", stdout)
+			}
+		})
+	}
+}
+
+func TestAlertsRoutesCreateRefusesProjectWithOrganisationWide(t *testing.T) {
+	mock := &notificationRoutesMock{projects: routeTestProjects()}
+	_, runError := runRouteProjectCommand(t, mock,
+		"alerts", "routes", "create", "--destination-id", "3d0f6a2e-0000-4000-8000-000000000001",
+		"--project", "core", "--organisation-wide")
+	if runError == nil || exitCodeFor(runError) != exitUsage {
+		t.Fatalf("expected a usage error, got %v", runError)
+	}
+	if mock.createRequest != nil {
+		t.Error("a usage error must not reach the client")
+	}
+}
+
+func TestAlertsRoutesListShowsProjects(t *testing.T) {
+	routes := sampleNotificationRoutes()
+	routes[0].ProjectID = strPtrCmd(routeTestCoreProjectID)
+	mock := &notificationRoutesMock{routes: routes, projects: routeTestProjects()}
+	stdout, _, runError := runAlertsCommand(t, mock, "", "alerts", "routes", "list")
+	if runError != nil {
+		t.Fatalf("alerts routes list failed: %v", runError)
+	}
+	for _, fragment := range []string{"Project", "Core (" + routeTestCoreProjectID + ")", "organisation-wide"} {
+		if !strings.Contains(stdout, fragment) {
+			t.Errorf("expected the table to contain %q, got:\n%s", fragment, stdout)
+		}
+	}
+
+	stdout, _, runError = runAlertsCommand(t, mock, "", "alerts", "routes", "list", "-o", "json")
+	if runError != nil {
+		t.Fatalf("alerts routes list -o json failed: %v", runError)
+	}
+	var decoded struct {
+		Items []map[string]interface{} `json:"items"`
+	}
+	if unmarshalError := json.Unmarshal([]byte(stdout), &decoded); unmarshalError != nil {
+		t.Fatalf("expected parseable JSON, got %v: %s", unmarshalError, stdout)
+	}
+	if len(decoded.Items) != 2 {
+		t.Fatalf("items = %v", decoded.Items)
+	}
+	if decoded.Items[0]["project_id"] != routeTestCoreProjectID {
+		t.Errorf("project_id = %v, want %s", decoded.Items[0]["project_id"], routeTestCoreProjectID)
+	}
+	if value, present := decoded.Items[1]["project_id"]; !present || value != nil {
+		t.Errorf("an organisation-wide route must carry project_id null, got %v (present %t)", value, present)
+	}
+}
+
+type unlistableProjectsRoutesMock struct{ notificationRoutesMock }
+
+func (m *unlistableProjectsRoutesMock) ListProjects() ([]client.ProjectSummary, error) {
+	return nil, client.NewUnexpectedResponseError(403, "project-pinned token")
+}
+
+func TestAlertsRoutesListFallsBackToTheIDWhenProjectsCannotBeListed(t *testing.T) {
+	routes := sampleNotificationRoutes()
+	routes[0].ProjectID = strPtrCmd(routeTestCoreProjectID)
+	mock := &unlistableProjectsRoutesMock{notificationRoutesMock: notificationRoutesMock{routes: routes}}
+	stdout, _, runError := runAlertsCommand(t, mock, "", "alerts", "routes", "list")
+	if runError != nil {
+		t.Fatalf("a refused project listing must not fail the route list: %v", runError)
+	}
+	if !strings.Contains(stdout, routeTestCoreProjectID) {
+		t.Errorf("expected the project id, got:\n%s", stdout)
+	}
+}
+
+func TestAlertsRoutesPreviewSendsTheProject(t *testing.T) {
+	mock := &notificationRoutesMock{
+		projects: routeTestProjects(),
+		preview:  &client.NotificationRoutePreview{Routable: true, ProjectID: strPtrCmd(routeTestCoreProjectID)},
+	}
+	stdout, runError := runRouteProjectCommand(t, mock,
+		"alerts", "routes", "preview", "--kind", "pipeline_run_failed", "--severity", "warning", "--project", "core")
+	if runError != nil {
+		t.Fatalf("alerts routes preview failed: %v", runError)
+	}
+	request := mock.previewRequest
+	if request == nil || request.ProjectID == nil || *request.ProjectID != routeTestCoreProjectID {
+		t.Fatalf("preview must carry the project id, got %+v", request)
+	}
+	if !strings.Contains(stdout, "Evaluated as a notification of project Core") {
+		t.Errorf("expected the evaluated project, got:\n%s", stdout)
+	}
+
+	mock.previewRequest = nil
+	mock.projectOverride = ""
+	_, runError = runRouteProjectCommand(t, mock,
+		"alerts", "routes", "preview", "--kind", "pipeline_run_failed", "--severity", "warning")
+	if runError != nil {
+		t.Fatalf("alerts routes preview failed: %v", runError)
+	}
+	if mock.previewRequest == nil || mock.previewRequest.ProjectID != nil {
+		t.Errorf("without --project the preview must omit project_id, got %+v", mock.previewRequest)
 	}
 }
