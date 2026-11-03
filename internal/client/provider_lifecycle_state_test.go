@@ -32,6 +32,8 @@ func TestStartClusterOptionsQuery(t *testing.T) {
 		"both":    {StartClusterOptions{Scope: "all", RestoreState: &no}, "?restore_state=false&scope=all"},
 		"snapshot implies restore": {StartClusterOptions{RestoreSnapshotID: "6f1c2b3a-0d4e-4f5a-8b6c-7d8e9f0a1b2c"},
 			"?restore_snapshot_id=6f1c2b3a-0d4e-4f5a-8b6c-7d8e9f0a1b2c&restore_state=true"},
+		"snapshot over a kept etcd": {StartClusterOptions{RestoreSnapshotID: "6f1c2b3a-0d4e-4f5a-8b6c-7d8e9f0a1b2c", RestoreOverKeptEtcd: true},
+			"?restore_over_kept_etcd=true&restore_snapshot_id=6f1c2b3a-0d4e-4f5a-8b6c-7d8e9f0a1b2c&restore_state=true"},
 		"snapshot keeps an explicit restore state": {StartClusterOptions{RestoreState: &no, RestoreSnapshotID: "6f1c2b3a-0d4e-4f5a-8b6c-7d8e9f0a1b2c"},
 			"?restore_snapshot_id=6f1c2b3a-0d4e-4f5a-8b6c-7d8e9f0a1b2c&restore_state=false"},
 	} {

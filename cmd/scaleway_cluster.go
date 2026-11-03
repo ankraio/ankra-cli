@@ -72,7 +72,7 @@ var scalewayStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, startError := apiClient.StartScalewayCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command), RestoreSnapshotID: restoreSnapshotIDFlag(command)})
+		result, startError := apiClient.StartScalewayCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command), RestoreSnapshotID: restoreSnapshotIDFlag(command), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(command)})
 		if startError != nil {
 			return fmt.Errorf("starting Scaleway cluster: %w", startError)
 		}

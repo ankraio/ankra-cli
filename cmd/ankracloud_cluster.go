@@ -79,7 +79,7 @@ var ankraCloudStartCmd = &cobra.Command{
 			return withExitCode(exitUsage, fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope))
 		}
 
-		result, startError := apiClient.StartAnkraCloudCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command), RestoreSnapshotID: restoreSnapshotIDFlag(command)})
+		result, startError := apiClient.StartAnkraCloudCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command), RestoreSnapshotID: restoreSnapshotIDFlag(command), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(command)})
 		if startError != nil {
 			return fmt.Errorf("starting Ankra Cloud cluster: %w", startError)
 		}

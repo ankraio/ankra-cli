@@ -58,10 +58,23 @@ const restoreSnapshotIDFlagUsage = "State snapshot to restore on start, by id: f
 	"restore on its own (no snapshot was captured after its last start while older ones exist, for example a " +
 	"cluster whose control plane was lost); the refusal of a plain start names the newest. Implies --restore-state=true."
 
-// registerRestoreFlags declares a start command's --restore-state and --restore-snapshot-id.
+const restoreOverKeptEtcdFlagUsage = "With --restore-snapshot-id: confirm that the cluster's control-plane machines, " +
+	"and the etcd its stop kept on them, are lost, so the named snapshot may reset it (a provider that keeps its " +
+	"servers across a stop, such as Ankra Cloud, after a host failure). The install still refuses to restore over an " +
+	"etcd it finds alive."
+
+// registerRestoreFlags declares a start command's --restore-state, --restore-snapshot-id and
+// --restore-over-kept-etcd.
 func registerRestoreFlags(cmd *cobra.Command) {
 	registerThreeStateFlag(cmd, "restore-state", restoreStateFlagUsage)
 	cmd.Flags().Var(&snapshotIdentifierValue{}, "restore-snapshot-id", restoreSnapshotIDFlagUsage)
+	cmd.Flags().Bool("restore-over-kept-etcd", false, restoreOverKeptEtcdFlagUsage)
+}
+
+// restoreOverKeptEtcdFlag reads --restore-over-kept-etcd; false when the command does not declare it.
+func restoreOverKeptEtcdFlag(cmd *cobra.Command) bool {
+	isConfirmed, flagError := cmd.Flags().GetBool("restore-over-kept-etcd")
+	return flagError == nil && isConfirmed
 }
 
 // restoreSnapshotIDFlag reads --restore-snapshot-id; "" when it is not given.
