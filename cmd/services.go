@@ -509,6 +509,14 @@ type APIClient interface {
 	CommentOnTicket(ticketID string, body string) (*client.TicketEvent, error)
 	TransitionTicket(ticketID string, status string, note string) (*client.Ticket, error)
 	DecideTicket(ticketID string, decision client.TicketDecision) (*client.Ticket, error)
+	ListTicketLinks(ticketID string) (*client.TicketLinkList, error)
+	AddTicketLink(ticketID string, link client.TicketLinkRequest) (*client.TicketLink, error)
+	RemoveTicketLink(holderTicketID string, linkID string) error
+	NestTicket(ticketID string, request client.TicketNestRequest) (*client.Ticket, error)
+	DetachTicket(ticketID string, reason string) (*client.Ticket, error)
+	CloseTicket(ticketID string, request client.TicketCloseRequest) (*client.Ticket, error)
+	CreateTicket(request client.TicketCreateRequest) (*client.Ticket, error)
+	CreateSubTicket(parentTicketID string, request client.TicketCreateRequest) (*client.Ticket, error)
 
 	GetAIProviderStatus() (*client.AIProviderStatus, error)
 	SetAIProvider(provider string) (*client.AIProviderStatus, error)

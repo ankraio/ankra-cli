@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -15,16 +16,27 @@ import (
 
 var ticketsCmd = &cobra.Command{
 	Use:   "tickets",
-	Short: "Work the AI board: list tickets, read one, comment, move it, answer a decision",
+	Short: "Work the AI board: list tickets, read one, file, link, nest, close, answer a decision",
 	Long: `Work the organisation's AI board from the terminal.
 
 The AI board is where Ankra's agents track incidents, insights and requests
 as tickets. These commands list the board, show one ticket with its
 timeline, comment on it, move it through its lifecycle, and answer the
-decision a blocked ticket is waiting on - the same choice the ticket page
+decision a blocked ticket is waiting on: the same choice the ticket page
 renders as options plus "something else".
 
-A ticket is referenced by its number (8, T-8 or #8) or its UUID.`,
+Tickets have structure. A symptom sits under the root ticket that carries
+its work ("ankra tickets nest", "detach"), a sub-ticket under the ticket it
+was filed for ("create --parent"), and tickets link to each other with a
+relation such as duplicate_of or recurrence_of ("links", "link", "unlink").
+"ankra tickets get" shows all of it, and "close --duplicate-of" closes a
+ticket as a duplicate and links it to the keeper in one step.
+
+A ticket is referenced by its number (8, T-8 or #8) or its UUID.
+
+A refused write prints the platform's sentence and exits 2 when the request
+named the wrong thing (400, 422), 3 when the ticket is not in your
+organisation (404) and 1 when the tickets' state refused it (409).`,
 }
 
 var ticketsListCmd = &cobra.Command{
@@ -37,11 +49,29 @@ var ticketsListCmd = &cobra.Command{
 		includeClosed, _ := cmd.Flags().GetBool("include-closed")
 		search, _ := cmd.Flags().GetString("search")
 		limit, _ := cmd.Flags().GetInt("limit")
+		parentReference, _ := cmd.Flags().GetString("parent")
+		topLevel, _ := cmd.Flags().GetBool("top-level")
 
-		response, err := apiClient.ListTickets(client.TicketListFilter{
+		filter := client.TicketListFilter{
 			Statuses: statuses, NeedsHuman: needsHuman, IncludeClosed: includeClosed,
-			Search: search, Limit: limit,
-		})
+			Search: search, Limit: limit, TopLevelOnly: topLevel,
+		}
+		var parent *client.Ticket
+		if strings.TrimSpace(parentReference) != "" {
+			if topLevel {
+				return withExitCode(exitUsage, errors.New("--parent and --top-level ask opposite things; give one"))
+			}
+			resolved, resolveError := resolveTicketReference(parentReference)
+			if resolveError != nil {
+				return resolveError
+			}
+			parent = resolved
+			// Everything under the ticket, receipts included, so the list
+			// agrees with the counts and with "tickets get".
+			filter.ParentTicketID = parent.ID
+			filter.IncludeReceipts = true
+		}
+		response, err := apiClient.ListTickets(filter)
 		if err != nil {
 			return err
 		}
@@ -49,19 +79,31 @@ var ticketsListCmd = &cobra.Command{
 			return renderError
 		}
 		if len(response.Tickets) == 0 {
+			if parent != nil {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "No tickets under T-%d match.\n", parent.TicketNumber)
+				return nil
+			}
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No tickets found.")
 			return nil
 		}
 		writer := table.NewWriter()
 		writer.SetOutputMirror(cmd.OutOrStdout())
-		writer.AppendHeader(table.Row{"TICKET", "TITLE", "STATUS", "PRIORITY", "ASSIGNEE", "WAITING ON"})
+		if parent != nil {
+			writer.AppendHeader(table.Row{"TICKET", "ROLE", "TITLE", "STATUS", "PRIORITY", "ASSIGNEE", "WAITING ON"})
+		} else {
+			writer.AppendHeader(table.Row{"TICKET", "TITLE", "STATUS", "PRIORITY", "ASSIGNEE", "WAITING ON"})
+		}
 		for _, ticket := range response.Tickets {
-			writer.AppendRow(table.Row{
+			row := table.Row{
 				"T-" + strconv.FormatInt(ticket.TicketNumber, 10),
 				truncateCell(ticket.Title, 60),
 				ticket.Status, ticket.Priority,
 				ticketAssigneeLabel(ticket), ticketWaitingLabel(ticket),
-			})
+			}
+			if parent != nil {
+				row = append(table.Row{row[0], ticketChildRoleLabel(ticket)}, row[1:]...)
+			}
+			writer.AppendRow(row)
 		}
 		writer.Render()
 		if response.TotalCount > len(response.Tickets) {
@@ -74,8 +116,24 @@ var ticketsListCmd = &cobra.Command{
 
 var ticketsGetCmd = &cobra.Command{
 	Use:   "get <ticket>",
-	Short: "Show one ticket, including the decision it is waiting on",
-	Args:  cobra.ExactArgs(1),
+	Short: "Show one ticket: its parent, what is under it, its links and the decision it waits on",
+	Long: `Show one ticket. Besides its fields this shows where it sits: the ticket it
+is under and whether that ticket carries its work (a symptom) or it is a
+sub-ticket of it, the open symptoms and sub-tickets under it, every ticket
+directly under it with its role, and its links in both directions. A part
+that could not be read is said to be unread, never shown as empty, and the
+command then exits 1 after printing the rest.
+
+With -o json only the ticket is printed, with its structure fields:
+parent_ticket_id, parent_ticket_number, parent_ticket_title,
+parent_ticket_status, child_role ("symptom", "subtask" or null),
+sub_ticket_count and open_sub_ticket_count (every child, symptoms included),
+live_symptom_count and symptoms_needing_person_count. Read the children with
+"ankra tickets list --parent <ticket> -o json" and the links with
+"ankra tickets links <ticket> -o json".`,
+	Example: `  ankra tickets get T-42
+  ankra tickets get T-42 -o json`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ticket, err := resolveTicketReference(args[0])
 		if err != nil {
@@ -102,10 +160,22 @@ var ticketsGetCmd = &cobra.Command{
 			_, _ = fmt.Fprintf(out, "Resolved:  %s\n", *ticket.Resolution)
 		}
 		_, _ = fmt.Fprintf(out, "Updated:   %s\n", ticket.UpdatedAt)
+		renderTicketParentLine(out, *ticket)
+		renderTicketChildCounts(out, *ticket)
 		if strings.TrimSpace(ticket.Body) != "" {
 			_, _ = fmt.Fprintf(out, "\n%s\n", strings.TrimSpace(ticket.Body))
 		}
+		unread := []string{}
+		if !renderTicketChildren(out, *ticket) {
+			unread = append(unread, "the tickets under it")
+		}
+		if !renderTicketLinksSection(out, *ticket) {
+			unread = append(unread, "its links")
+		}
 		renderTicketDecision(cmd, *ticket)
+		if len(unread) > 0 {
+			return fmt.Errorf("T-%d is shown above, but %s could not be read", ticket.TicketNumber, strings.Join(unread, " and "))
+		}
 		return nil
 	},
 }
@@ -262,37 +332,64 @@ the option with your note beside it. The answer lands on the timeline as a
 var ticketUUIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // resolveTicketReference accepts a ticket UUID or a ticket number (8, T-8,
-// #8) and returns the ticket. Numbers are resolved by walking the listing,
-// closed tickets included, because the API addresses tickets by id.
+// #8) and returns the ticket. The API addresses tickets by id, so a number
+// is looked up through the listing: first as a search for that number,
+// which the platform answers with that one ticket, then, for a platform
+// that reads the search as text only, by walking the listing. Both include
+// closed tickets and chat-fix receipts: the board leaves receipts out
+// unless asked, and a receipt named by its number is a ticket like any
+// other, so leaving them out answered "not found" for every one
+// (ankra-vwlr6g).
 func resolveTicketReference(reference string) (*client.Ticket, error) {
 	trimmed := strings.TrimSpace(reference)
 	if ticketUUIDPattern.MatchString(trimmed) {
 		return apiClient.GetTicket(trimmed)
 	}
-	numberText := strings.TrimPrefix(strings.TrimPrefix(strings.ToUpper(trimmed), "T-"), "#")
-	number, parseError := strconv.ParseInt(numberText, 10, 64)
-	if parseError != nil || number < 1 {
+	number, isNumber := parseTicketNumber(trimmed)
+	if !isNumber {
 		return nil, withExitCode(exitUsage, fmt.Errorf(
 			"'%s' is not a ticket reference; use the ticket number (8, T-8) or its UUID", reference))
 	}
+	everyTicket := client.TicketListFilter{IncludeClosed: true, IncludeReceipts: true}
+	byNumber := everyTicket
+	byNumber.Search = "T-" + strconv.FormatInt(number, 10)
+	byNumber.Limit = 50
+	searched, searchError := apiClient.ListTickets(byNumber)
+	if searchError != nil {
+		return nil, searchError
+	}
+	if found := ticketWithNumber(searched.Tickets, number); found != nil {
+		return found, nil
+	}
 	const pageSize = 200
-	for offset := 0; offset < pageSize*10; offset += pageSize {
-		page, listError := apiClient.ListTickets(client.TicketListFilter{
-			IncludeClosed: true, Limit: pageSize, Offset: offset,
-		})
+	const pageCap = 10
+	for offset := 0; offset < pageSize*pageCap; offset += pageSize {
+		page := everyTicket
+		page.Limit = pageSize
+		page.Offset = offset
+		listed, listError := apiClient.ListTickets(page)
 		if listError != nil {
 			return nil, listError
 		}
-		for index := range page.Tickets {
-			if page.Tickets[index].TicketNumber == number {
-				return &page.Tickets[index], nil
-			}
+		if found := ticketWithNumber(listed.Tickets, number); found != nil {
+			return found, nil
 		}
-		if len(page.Tickets) < pageSize {
-			break
+		if len(listed.Tickets) < pageSize {
+			return nil, withExitCode(exitNotFound, fmt.Errorf("ticket T-%d not found", number))
 		}
 	}
-	return nil, withExitCode(exitNotFound, fmt.Errorf("ticket T-%d not found", number))
+	return nil, withExitCode(exitNotFound, fmt.Errorf(
+		"ticket T-%d not found by number, nor among the %d most recently updated tickets; name it by its UUID",
+		number, pageSize*pageCap))
+}
+
+func ticketWithNumber(tickets []client.Ticket, number int64) *client.Ticket {
+	for index := range tickets {
+		if tickets[index].TicketNumber == number {
+			return &tickets[index]
+		}
+	}
+	return nil
 }
 
 func ticketAssigneeLabel(ticket client.Ticket) string {
@@ -386,6 +483,9 @@ func init() {
 	ticketsListCmd.Flags().Bool("include-closed", false, "Include done and cancelled tickets")
 	ticketsListCmd.Flags().String("search", "", "Match on the title")
 	ticketsListCmd.Flags().Int("limit", 50, "Maximum tickets to list (up to 200)")
+	ticketsListCmd.Flags().String("parent", "",
+		"Only the tickets directly under this one (42, T-42 or its UUID), with their role; add --include-closed for settled ones")
+	ticketsListCmd.Flags().Bool("top-level", false, "Only tickets that sit under no other ticket")
 	ticketsEventsCmd.Flags().Int("limit", 200, "Maximum events to show")
 	ticketsCommentCmd.Flags().String("body", "", "The comment (markdown)")
 	ticketsTransitionCmd.Flags().String("status", "", "The status to move to")
