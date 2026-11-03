@@ -794,7 +794,7 @@ func TestAlertsRoutesListShowsProjects(t *testing.T) {
 	if runError != nil {
 		t.Fatalf("alerts routes list failed: %v", runError)
 	}
-	for _, fragment := range []string{"Project", "Core (" + routeTestCoreProjectID + ")", "organisation-wide"} {
+	for _, fragment := range []string{"PROJECT", "Core (" + routeTestCoreProjectID + ")", "organisation-wide"} {
 		if !strings.Contains(stdout, fragment) {
 			t.Errorf("expected the table to contain %q, got:\n%s", fragment, stdout)
 		}
