@@ -114,7 +114,11 @@ func readDuplicateKeeper(ticketID string) (*client.TicketLink, error) {
 	var keeper *client.TicketLink
 	for index := range links.Links {
 		if links.Links[index].Relation == "duplicate_of" {
-			keeper = &links.Links[index]
+			// The newest one is this close's: an older duplicate_of the
+			// ticket already held must not be named as its result.
+			if keeper == nil || links.Links[index].CreatedAt >= keeper.CreatedAt {
+				keeper = &links.Links[index]
+			}
 		}
 	}
 	return keeper, nil
@@ -135,7 +139,7 @@ func reportDuplicateKeeper(cmd *cobra.Command, structured bool, ticketNumber int
 		return nil
 	}
 	if keeper == nil {
-		return fmt.Errorf("T-%d was closed as a duplicate, but the platform recorded no link to %s; "+
+		return fmt.Errorf("ticket T-%d was closed as a duplicate, but the platform recorded no link to %s; "+
 			"it may predate duplicate_of. Link it with: ankra tickets link T-%d %s --relation duplicate_of",
 			ticketNumber, named, ticketNumber, named)
 	}

@@ -176,10 +176,16 @@ again and retry.`,
 		out := cmd.OutOrStdout()
 		root := ticketParentLabel(*nested)
 		_, _ = fmt.Fprintf(out, "T-%d is a symptom of %s. The root carries the work.\n", nested.TicketNumber, root)
-		if request.RootTicketNumber != nil && nested.ParentTicketNumber != nil &&
-			*request.RootTicketNumber != *nested.ParentTicketNumber {
-			_, _ = fmt.Fprintf(out, "T-%d is itself a symptom, so the ticket sits under its root, T-%d.\n",
-				*request.RootTicketNumber, *nested.ParentTicketNumber)
+		if nested.ParentTicketNumber != nil {
+			switch {
+			case request.RootTicketNumber != nil && *request.RootTicketNumber != *nested.ParentTicketNumber:
+				_, _ = fmt.Fprintf(out, "T-%d is itself a symptom, so the ticket sits under its root, T-%d.\n",
+					*request.RootTicketNumber, *nested.ParentTicketNumber)
+			case request.RootTicketID != nil && nested.ParentTicketID != nil &&
+				!strings.EqualFold(*request.RootTicketID, *nested.ParentTicketID):
+				_, _ = fmt.Fprintf(out, "The root you named is itself a symptom, so the ticket sits under its root, T-%d.\n",
+					*nested.ParentTicketNumber)
+			}
 		}
 		return nil
 	},
@@ -307,9 +313,9 @@ func findTicketLink(links client.TicketLinkList, ticketNumber int64, reference s
 		return &matches[0], nil
 	case 0:
 		if relation != "" {
-			return nil, withExitCode(exitNotFound, fmt.Errorf("T-%d has no %s link with %s", ticketNumber, relation, reference))
+			return nil, withExitCode(exitNotFound, fmt.Errorf("ticket T-%d has no %s link with %s", ticketNumber, relation, reference))
 		}
-		return nil, withExitCode(exitNotFound, fmt.Errorf("T-%d has no link with %s", ticketNumber, reference))
+		return nil, withExitCode(exitNotFound, fmt.Errorf("ticket T-%d has no link with %s", ticketNumber, reference))
 	}
 	relations := make([]string, 0, len(matches))
 	for _, match := range matches {
