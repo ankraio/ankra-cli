@@ -443,7 +443,8 @@ func TestClusterGitopsStatusListsPreservedPaths(t *testing.T) {
 		"decided: take Git's version, runs on the next sync)",
 		"    ... and 1 more",
 		"Ankra keeps Git's version",
-		"POST /api/v1/org/clusters/{cluster_id}/gitops/preserved-paths/resolve",
+		"ankra cluster gitops preserved list",
+		"ankra cluster gitops preserved resolve <path> --keep git|ankra",
 	} {
 		if !strings.Contains(stdoutOutput, fragment) {
 			t.Errorf("expected output to contain %q, got: %s", fragment, stdoutOutput)
