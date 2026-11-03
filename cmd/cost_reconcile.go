@@ -270,8 +270,9 @@ func costReconcileNotes(credential client.CostReconciliationCredential) []string
 		notes = append(notes, *credential.DifferenceCaveat)
 	}
 	if credential.InvoiceWithheld {
-		notes = append(notes, "Read for a project or a set of clusters: the invoice total, tax, credits and unplaced lines are "+
-			"withheld, and the difference and what it covers are these clusters' billed lines alone.")
+		notes = append(notes, "Read for the project you act in: the invoice total, tax, credits and unplaced lines are "+
+			"withheld, and the difference and what it covers are that project's clusters alone. --all-projects reads the "+
+			"whole invoice where your access allows it.")
 	}
 	if credential.Currency != nil && !credential.CurrenciesMixed {
 		currency := *credential.Currency
