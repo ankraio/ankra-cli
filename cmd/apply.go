@@ -36,6 +36,15 @@ func init() {
 		"Allow this apply to change the cluster's GitOps repository or branch. Ankra writes the cluster's current state to the new source first, then syncs from it; anything that later leaves that source is pruned. A target that cannot be written leaves the cluster unchanged")
 	clusterApplyCmd.Flags().Bool("allow-repoint-destroying-data", false,
 		"Additionally allow a repoint on a cluster holding PersistentVolumeClaims, whose data is destroyed if the new source stops defining their workloads. Requires --allow-repoint")
+	// The apply replaces every stack the file names, so a member of such a
+	// stack that the file no longer lists is uninstalled - which is also what
+	// a file saved before that member was added looks like. The platform
+	// refuses such an apply unless one of these declares the removal
+	// (ankra-kwr1sp).
+	clusterApplyCmd.Flags().Bool("prune", false,
+		"Remove the members (add-ons, manifests, applications) of the file's stacks that the file no longer lists. Use it when the file is the complete, current definition of those stacks; without it, or --confirm-removal, such an apply is refused and changes nothing")
+	clusterApplyCmd.Flags().StringArray("confirm-removal", nil,
+		"Allow the apply to remove this member, which the file no longer lists, as kind/name (kind addon, manifest or application; repeatable)")
 	registerAsyncWriteFlags(clusterApplyCmd)
 	// The shared wording ("wait for the operation to finish") is true of the
 	// node-group and bastion writes, but on apply it promises more than it
@@ -83,6 +92,26 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	importRequest.Prune, err = cmd.Flags().GetBool("prune")
+	if err != nil {
+		return fmt.Errorf("reading --prune: %w", err)
+	}
+	confirmRemovalFlags, err := cmd.Flags().GetStringArray("confirm-removal")
+	if err != nil {
+		return fmt.Errorf("reading --confirm-removal: %w", err)
+	}
+	for _, value := range confirmRemovalFlags {
+		if strings.Contains(value, ":") {
+			return withExitCode(exitUsage, fmt.Errorf("--confirm-removal %q: apply writes one cluster, so name the member as kind/name", value))
+		}
+	}
+	confirmations, err := parseConfirmedRemovals(confirmRemovalFlags, nil)
+	if err != nil {
+		return err
+	}
+	for _, confirmation := range confirmations {
+		importRequest.ConfirmedMemberRemovals = append(importRequest.ConfirmedMemberRemovals, confirmation.Member)
+	}
 	printUnreadImportMetadataWarnings(cmd, filePath)
 	if dryRun {
 		fmt.Printf("Validation succeeded for %q; no changes applied (--dry-run).\n", filePath)
@@ -111,6 +140,14 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	defer cancelRequestContext()
 
 	importResponse, submitted, err := applyImportCluster(requestContext, importRequest, wait)
+	if refusal, isRemovalRefusal := asMemberRemovalRefusal(err); isRemovalRefusal {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), refusal.Message)
+		if len(refusal.Members) > 0 {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "If these should go, apply again with %s, or with --prune when the file is the complete, current definition of its stacks. Otherwise add them to the file.\n",
+				confirmApplyRemovalFlags(refusal.Members))
+		}
+		return withExitCode(exitError, errors.New("the apply would remove members the file no longer lists; nothing was changed"))
+	}
 	if err != nil {
 		return err
 	}
@@ -181,6 +218,15 @@ func runApply(cmd *cobra.Command, _ []string) error {
 		strings.TrimRight(baseURL, "/"), importResponse.ClusterId)
 	printValidationWarnings(cmd.ErrOrStderr(), importResponse.Warnings)
 	return nil
+}
+
+// confirmApplyRemovalFlags renders --confirm-removal flags for a hint.
+func confirmApplyRemovalFlags(members []string) string {
+	flags := make([]string, 0, len(members))
+	for _, member := range members {
+		flags = append(flags, "--confirm-removal "+member)
+	}
+	return strings.Join(flags, " ")
 }
 
 // applyClusterOverride makes --cluster the target of the apply. The document's

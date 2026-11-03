@@ -94,12 +94,14 @@ func (c *Client) CreateProxmoxCluster(request CreateProxmoxClusterRequest) (*Cre
 	return &result, nil
 }
 
-// DeprovisionProxmoxCluster tears the cluster down. force asks the platform to
+// DeprovisionProxmoxCluster tears the cluster down. Force asks the platform to
 // finish even when Proxmox itself cannot be reached: the VMs are marked down
 // and may leak, which is the only way a cluster whose host or jumphost is gone
-// can leave "deprovisioning" (ankra-4tret).
-func (c *Client) DeprovisionProxmoxCluster(clusterID string, force bool) (*ProviderDeprovisionClusterResponse, error) {
-	return c.deprovisionProviderCluster(proxmoxKind, clusterID, DeprovisionOptions{Force: force})
+// can leave "deprovisioning" (ankra-4tret). AcceptVolumeDataLoss lets the
+// platform delete the disks the cluster's CSI driver provisioned; without it
+// a cluster that has some is refused with 409.
+func (c *Client) DeprovisionProxmoxCluster(clusterID string, options DeprovisionOptions) (*ProviderDeprovisionClusterResponse, error) {
+	return c.deprovisionProviderCluster(proxmoxKind, clusterID, options)
 }
 
 func (c *Client) StopProxmoxCluster(clusterID string, options StopClusterOptions) (*ProviderStopClusterResponse, error) {
@@ -180,8 +182,8 @@ func (c *Client) ChangeProxmoxControlPlaneCount(clusterID string, count int) (*C
 	return c.changeControlPlaneCount(proxmoxKind, clusterID, count)
 }
 
-func (c *Client) ChangeProxmoxControlPlaneInstanceType(clusterID, instanceType string, drainOptions DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
-	return c.changeControlPlaneInstanceType(proxmoxKind, clusterID, instanceType, drainOptions)
+func (c *Client) ChangeProxmoxControlPlaneInstanceType(clusterID, instanceType string, options ControlPlaneInstanceTypeOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
+	return c.changeControlPlaneInstanceType(proxmoxKind, clusterID, instanceType, options)
 }
 
 func (c *Client) ListProxmoxClusterNodes(clusterID string) (*NodeListResult, error) {

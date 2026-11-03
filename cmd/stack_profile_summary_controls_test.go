@@ -24,6 +24,7 @@ type summaryControlMock struct {
 	revoke    client.ProfileSummaryPolicyRevocationRequest
 	response  json.RawMessage
 	failure   error
+	routing   *client.ProfileSummaryRouting
 }
 
 func (m *summaryControlMock) result() (json.RawMessage, error) {
@@ -56,6 +57,10 @@ func (m *summaryControlMock) CancelProfileSummaryGeneration(_ context.Context, i
 	return m.result()
 }
 func (m *summaryControlMock) GetProfileSummaryPolicy(context.Context) (json.RawMessage, error) {
+	return m.result()
+}
+func (m *summaryControlMock) PreviewProfileSummaryPolicy(_ context.Context, routing client.ProfileSummaryRouting) (json.RawMessage, error) {
+	m.routing = &routing
 	return m.result()
 }
 func (m *summaryControlMock) ApproveProfileSummaryPolicy(_ context.Context, r client.ProfileSummaryPolicyApprovalRequest) (json.RawMessage, error) {

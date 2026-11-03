@@ -166,8 +166,8 @@ func (c *Client) ChangeMorpheusControlPlaneCount(clusterID string, count int) (*
 	return c.changeControlPlaneCount(morpheusKind, clusterID, count)
 }
 
-func (c *Client) ChangeMorpheusControlPlaneInstanceType(clusterID, instanceType string, drainOptions DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
-	return c.changeControlPlaneInstanceType(morpheusKind, clusterID, instanceType, drainOptions)
+func (c *Client) ChangeMorpheusControlPlaneInstanceType(clusterID, instanceType string, options ControlPlaneInstanceTypeOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
+	return c.changeControlPlaneInstanceType(morpheusKind, clusterID, instanceType, options)
 }
 
 func (c *Client) ListMorpheusClusterNodes(clusterID string) (*NodeListResult, error) {

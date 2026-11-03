@@ -57,7 +57,15 @@ addons, persistent selection, and more.
 
 A command the CLI does not know is dispatched to an external plugin: an
 executable named ankra-<command> in ~/.ankra/plugins or on PATH, kubectl
-style. 'ankra plugins' lists what is installed.`,
+style. 'ankra plugins' lists what is installed.
+
+Every request to the Ankra API names the CLI and its version (its
+User-Agent) and the command path, never its arguments or flags. When the CLI
+runs under a coding agent (Claude Code, Codex, Cursor, Gemini CLI, ...) it
+also names the agent and a digest of the agent's session (never the session
+id), so your organisation's audit log shows which agent ran what. Set
+ANKRA_AGENT=<name>[/<version>] to name an agent the CLI does not detect.
+DO_NOT_TRACK=1 or ANKRA_TELEMETRY=off sends the User-Agent only.`,
 	SilenceUsage:      true,
 	PersistentPreRunE: persistentPreRunE,
 }
@@ -70,10 +78,12 @@ func SetVersion(v string) {
 	}
 	version = v
 	rootCmd.Version = v
+	client.SetVersion(v)
 }
 
 func Execute() {
 	rootCmd.Version = version
+	client.SetVersion(version)
 	wrapArgsValidators(rootCmd)
 	wrapProviderKindRefusals(rootCmd)
 	if handled, exitCode := dispatchExternalPlugin(os.Args[1:]); handled {
@@ -127,6 +137,8 @@ func init() {
 		String("base-url", "", "Base URL for the Ankra API (or set ANKRA_BASE_URL)")
 	rootCmd.PersistentFlags().
 		String("org", "", "Organisation name or ID to run this command against, overriding the selected organisation (or set ANKRA_ORG)")
+	rootCmd.PersistentFlags().
+		String("project", "", "Project slug, name or ID to run this command in, overriding the selected project (or set ANKRA_PROJECT)")
 
 	_ = viper.BindPFlag("token", rootCmd.PersistentFlags().Lookup("token"))
 	_ = viper.BindPFlag("base-url", rootCmd.PersistentFlags().Lookup("base-url"))
@@ -265,6 +277,10 @@ func initConfig() {
 // command, so positional arguments cannot accidentally bypass auth (the
 // previous implementation scanned os.Args[1:]).
 func persistentPreRunE(cmd *cobra.Command, _ []string) error {
+	// The command path, never its arguments, names this invocation on the
+	// platform's side (client attribution), so the requests an agent makes
+	// can be read as the commands it ran.
+	client.SetInvocationCommand(cmd.CommandPath())
 	if !commandRequiresAuth(cmd) || commandDryRunSkipsAuth(cmd) {
 		return nil
 	}
@@ -281,6 +297,9 @@ func persistentPreRunE(cmd *cobra.Command, _ []string) error {
 	}
 
 	if err := applyOrganisationOverride(cmd, resolved.source); err != nil {
+		return err
+	}
+	if err := applyProjectOverride(cmd, resolved.source); err != nil {
 		return err
 	}
 	return nil

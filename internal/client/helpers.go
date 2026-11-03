@@ -139,7 +139,7 @@ func (c *Client) sendJSONContext(ctx context.Context, method string, url string,
 	if target == nil {
 		return nil
 	}
-	if unmarshalError := json.Unmarshal(body, target); unmarshalError != nil {
+	if unmarshalError := decodeKeepingRawDocument(body, target); unmarshalError != nil {
 		return fmt.Errorf("parse response: %w", unmarshalError)
 	}
 	return nil

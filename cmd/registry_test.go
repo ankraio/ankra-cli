@@ -721,7 +721,7 @@ func TestRegistryProjectsCreateAndDelete(t *testing.T) {
 	mock := &registryRobotsMock{}
 	output, runError := runRegistryCommand(t, mock, "", "projects", "create", " edge ")
 	if runError != nil || mock.createdProject != "edge" ||
-		!strings.Contains(output, "artifact.ankra.cloud/org-abc-edge") || !strings.Contains(output, "--project edge") {
+		!strings.Contains(output, "artifact.ankra.cloud/org-abc-edge") || !strings.Contains(output, "--registry-project edge") {
 		t.Fatalf("create: error=%v created=%q\n%s", runError, mock.createdProject, output)
 	}
 
@@ -751,7 +751,7 @@ func TestRegistryProjectsOnAPlatformThatPredatesThem(t *testing.T) {
 		{"projects", "list"},
 		{"projects", "create", "edge"},
 		{"projects", "delete", "edge", "--yes"},
-		{"robots", "create", "edge-ci", "--project", "edge"},
+		{"robots", "create", "edge-ci", "--registry-project", "edge"},
 	} {
 		_, runError := runRegistryCommand(t, mock, "", arguments...)
 		if runError == nil || !strings.Contains(runError.Error(), "does not serve registry projects yet") {
@@ -769,7 +769,7 @@ func TestRegistryProjectsOnAPlatformThatPredatesThem(t *testing.T) {
 // any robot exists.
 func TestRegistryRobotsCreateOnAProject(t *testing.T) {
 	mock := &registryRobotsMock{}
-	if _, runError := runRegistryCommand(t, mock, "", "robots", "create", "staging-ci", "--project", " Staging "); runError != nil {
+	if _, runError := runRegistryCommand(t, mock, "", "robots", "create", "staging-ci", "--registry-project", " Staging "); runError != nil {
 		t.Fatalf("create --project: %v", runError)
 	}
 	encoded, _ := json.Marshal(mock.createRequest)
@@ -778,7 +778,7 @@ func TestRegistryRobotsCreateOnAProject(t *testing.T) {
 	}
 
 	mock = &registryRobotsMock{projectsError: errors.New("the projects route must not be asked for the default project")}
-	if _, runError := runRegistryCommand(t, mock, "", "robots", "create", "main-ci", "--project", "default"); runError != nil {
+	if _, runError := runRegistryCommand(t, mock, "", "robots", "create", "main-ci", "--registry-project", "default"); runError != nil {
 		t.Fatalf("create --project default: %v", runError)
 	}
 	encoded, _ = json.Marshal(mock.createRequest)
@@ -787,7 +787,7 @@ func TestRegistryRobotsCreateOnAProject(t *testing.T) {
 	}
 
 	mock = &registryRobotsMock{}
-	_, missingError := runRegistryCommand(t, mock, "", "robots", "create", "nowhere", "--project", "production")
+	_, missingError := runRegistryCommand(t, mock, "", "robots", "create", "nowhere", "--registry-project", "production")
 	if exitCodeFor(missingError) != exitUsage || !strings.Contains(missingError.Error(), "default, staging") ||
 		!strings.Contains(missingError.Error(), "ankra registry projects create production") || mock.createRequest != nil {
 		t.Fatalf("a project the organisation does not have: error=%v request=%+v", missingError, mock.createRequest)
@@ -901,7 +901,7 @@ func TestRegistryRobotsCreateOnAProjectWithAWriteOnlyToken(t *testing.T) {
 	honoured.Name = "staging-ci"
 	honoured.ProjectName = "staging"
 	mock := &registryRobotsMock{projectsError: readDenied, created: honoured}
-	output, runError := runRegistryCommand(t, mock, "", "robots", "create", "staging-ci", "--project", "staging")
+	output, runError := runRegistryCommand(t, mock, "", "robots", "create", "staging-ci", "--registry-project", "staging")
 	if runError != nil || mock.createRequest == nil || mock.createRequest.Project != "staging" || mock.deleted != "" ||
 		!strings.Contains(output, "s3cret") {
 		t.Fatalf("an honoured create from a write-only token: error=%v request=%+v deleted=%q\n%s",
@@ -912,9 +912,9 @@ func TestRegistryRobotsCreateOnAProjectWithAWriteOnlyToken(t *testing.T) {
 	ignored.Name = "staging-ci"
 	ignored.ProjectName = "default"
 	mock = &registryRobotsMock{projectsError: readDenied, created: ignored}
-	output, runError = runRegistryCommand(t, mock, "", "robots", "create", "staging-ci", "--project", "staging")
+	output, runError = runRegistryCommand(t, mock, "", "robots", "create", "staging-ci", "--registry-project", "staging")
 	if runError == nil || mock.deleted != "staging-ci" || strings.Contains(output, "s3cret") ||
-		!strings.Contains(runError.Error(), "did not honour --project") ||
+		!strings.Contains(runError.Error(), "did not honour --registry-project") ||
 		!strings.Contains(runError.Error(), `project "default"`) {
 		t.Fatalf("a create bound to another project: error=%v deleted=%q\n%s", runError, mock.deleted, output)
 	}
@@ -938,7 +938,7 @@ func TestRegistryRobotsCreateOnAnIntegratedRegistry(t *testing.T) {
 	mock := &registryRobotsMock{projectsError: errors.New("the Ankra registry's projects must not be asked about an integrated registry"),
 		created: integrated("smartoptics-harbor")}
 	output, runError := runRegistryCommand(t, mock, "", "robots", "create", "jenkins", "--registry", " smartoptics-harbor ",
-		"--admin-credential", "smartoptics-harbor-robot-admin", "--project", "Smart-Hub-Images")
+		"--admin-credential", "smartoptics-harbor-robot-admin", "--registry-project", "Smart-Hub-Images")
 	if runError != nil || mock.deleted != "" || !strings.Contains(output, "s3cret") {
 		t.Fatalf("create --registry: error=%v deleted=%q\n%s", runError, mock.deleted, output)
 	}
@@ -950,13 +950,13 @@ func TestRegistryRobotsCreateOnAnIntegratedRegistry(t *testing.T) {
 
 	mock = &registryRobotsMock{created: integrated("smartoptics-harbor")}
 	if _, runError := runRegistryCommand(t, mock, "", "robots", "create", "jenkins", "--registry", "smartoptics-harbor",
-		"--admin-credential", "admin", "--project", "default"); runError != nil || mock.createRequest.Project != "default" {
+		"--admin-credential", "admin", "--registry-project", "default"); runError != nil || mock.createRequest.Project != "default" {
 		t.Fatalf("a project named default on an integrated registry: error=%v request=%+v", runError, mock.createRequest)
 	}
 
 	mock = &registryRobotsMock{created: integrated("")}
 	output, runError = runRegistryCommand(t, mock, "", "robots", "create", "jenkins", "--registry", "smartoptics-harbor",
-		"--admin-credential", "admin", "--project", "collectorcharts")
+		"--admin-credential", "admin", "--registry-project", "collectorcharts")
 	if runError == nil || mock.deleted != "jenkins" || strings.Contains(output, "s3cret") ||
 		!strings.Contains(runError.Error(), "did not honour --registry") ||
 		!strings.Contains(runError.Error(), "ankra helm credentials create") {

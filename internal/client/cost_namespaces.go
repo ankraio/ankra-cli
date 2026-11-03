@@ -11,6 +11,8 @@ import (
 // as GET /api/v1/org/clusters/{cluster_id}/cost/namespaces/history serves it
 // (ankra-cozgu.3.3.1).
 type NamespaceCostHistory struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	ClusterID   string                `json:"cluster_id"`
 	Currency    string                `json:"currency"`
 	Granularity string                `json:"granularity"`

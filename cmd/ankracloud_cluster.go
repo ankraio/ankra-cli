@@ -106,10 +106,13 @@ func init() {
 	ankraCloudNetworksCmd.Flags().String("zone", "", "Only list the networks in this zone")
 	ankraCloudPlansCmd.Flags().String("credential-id", "", "Ankra Cloud credential ID (required unless --cluster is given)")
 	ankraCloudPlansCmd.Flags().String("cluster", "", "List the plans under an existing cluster's own credential instead")
+	ankraCloudCPUPoolsCmd.Flags().String("credential-id", "", "Ankra Cloud credential ID (required unless --cluster is given)")
+	ankraCloudCPUPoolsCmd.Flags().String("zone", "", "Zone whose CPU pools to list (required with --credential-id)")
+	ankraCloudCPUPoolsCmd.Flags().String("cluster", "", "List the CPU pools of an existing cluster's zone under its own credential instead")
 	registerStructuredOutputFlags(
 		ankraCloudCreateCmd, ankraCloudPreflightCmd, ankraCloudDeprovisionCmd,
 		ankraCloudWorkersCmd, ankraCloudK8sVersionCmd, ankraCloudZonesCmd,
-		ankraCloudPlansCmd, ankraCloudTemplatesCmd, ankraCloudNetworksCmd, ankraCloudPricingCmd,
+		ankraCloudPlansCmd, ankraCloudCPUPoolsCmd, ankraCloudTemplatesCmd, ankraCloudNetworksCmd, ankraCloudPricingCmd,
 	)
 
 	ankraCloudDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
@@ -117,7 +120,7 @@ func init() {
 	ankraCloudCmd.AddCommand(
 		ankraCloudCreateCmd, ankraCloudPreflightCmd, ankraCloudDeprovisionCmd,
 		ankraCloudStopCmd, ankraCloudStartCmd, ankraCloudWorkersCmd, ankraCloudK8sVersionCmd,
-		ankraCloudZonesCmd, ankraCloudPlansCmd, ankraCloudTemplatesCmd, ankraCloudNetworksCmd, ankraCloudPricingCmd,
+		ankraCloudZonesCmd, ankraCloudPlansCmd, ankraCloudCPUPoolsCmd, ankraCloudTemplatesCmd, ankraCloudNetworksCmd, ankraCloudPricingCmd,
 	)
 	ankraCloudCmd.AddCommand(newControlPlaneCmd(ankraCloudControlPlaneOps, "Ankra Cloud", "ankracloud plans"))
 	clusterCmd.AddCommand(ankraCloudCmd)
@@ -583,6 +586,94 @@ control-plane or bastion resizes).`,
 		printAnkraCloudPricingNote(result)
 		return nil
 	},
+}
+
+var ankraCloudCPUPoolsCmd = &cobra.Command{
+	Use:   "cpu-pools",
+	Short: "List the CPU pools of an Ankra Cloud zone and the instructions each can run",
+	Long: `List the CPU pools of an Ankra Cloud zone: compute nodes grouped by exact CPU.
+
+A server is placed in one pool and only moves within it, and its guest sees the
+host's CPU, so the pool decides which instructions a workload may use. The
+x86-64 level column is the microarchitecture level every CPU of the pool meets:
+3 or more has AVX2, which images built for x86-64-v3 (duckdb, pyarrow, numba
+wheels and many ML runtimes) need or they crash with SIGILL.
+
+Pin a node group to a pool with 'ankra cluster node-group add --cpu-pool <name>'.
+
+Pass --cluster to list the pools of an existing cluster's zone under its own
+credential, or --credential-id with --zone to browse before creating one.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		credentialID, _ := cmd.Flags().GetString("credential-id")
+		zone, _ := cmd.Flags().GetString("zone")
+		clusterArgument, _ := cmd.Flags().GetString("cluster")
+		if (credentialID == "") == (clusterArgument == "") {
+			return withExitCode(exitUsage, errors.New("pass exactly one of --credential-id or --cluster"))
+		}
+		var result *client.AnkraCloudCatalogResult
+		var listError error
+		if clusterArgument != "" {
+			if zone != "" {
+				return withExitCode(exitUsage, errors.New("--zone is taken from the cluster when --cluster is given"))
+			}
+			clusterID, resolveError := resolveClusterArg(clusterArgument)
+			if resolveError != nil {
+				return resolveError
+			}
+			result, listError = apiClient.ListAnkraCloudClusterCPUPools(clusterID)
+		} else {
+			if zone == "" {
+				return withExitCode(exitUsage, errors.New("--zone is required with --credential-id"))
+			}
+			result, listError = apiClient.ListAnkraCloudCPUPools(credentialID, zone)
+		}
+		if listError != nil {
+			return fmt.Errorf("listing Ankra Cloud CPU pools: %w", listError)
+		}
+
+		if handled, renderError := renderStructured(cmd, result); renderError != nil {
+			return renderError
+		} else if handled {
+			return nil
+		}
+
+		if len(result.CPUPools) == 0 {
+			fmt.Println("No CPU pools reported for this zone.")
+			return nil
+		}
+		poolsTable := newAnkraCloudTable()
+		poolsTable.AppendHeader(table.Row{"Pool", "Vendor", "Model", "x86-64 level", "AVX2", "Nodes"})
+		for _, pool := range result.CPUPools {
+			poolsTable.AppendRow(table.Row{
+				pool.Name, pool.Vendor, pool.Model,
+				formatCPUPoolLevel(pool.X86_64Level), formatCPUPoolAVX2(pool.HasAVX2), pool.Nodes,
+			})
+		}
+		poolsTable.Render()
+		return nil
+	},
+}
+
+// formatCPUPoolLevel renders a pool's x86-64 level, "unknown" when the
+// platform could not say: an unreported level is not a low one.
+func formatCPUPoolLevel(level *int) string {
+	if level == nil {
+		return "unknown"
+	}
+	return fmt.Sprintf("v%d", *level)
+}
+
+// formatCPUPoolAVX2 renders whether a pool's CPUs have AVX2, "unknown" when
+// the level behind it was not reported.
+func formatCPUPoolAVX2(hasAVX2 *bool) string {
+	switch {
+	case hasAVX2 == nil:
+		return "unknown"
+	case *hasAVX2:
+		return "yes"
+	default:
+		return "no"
+	}
 }
 
 var ankraCloudTemplatesCmd = &cobra.Command{

@@ -94,7 +94,7 @@ func (c *Client) doJSONWithClient(
 	if target == nil || len(body) == 0 {
 		return nil
 	}
-	if err := json.Unmarshal(body, target); err != nil {
+	if err := decodeKeepingRawDocument(body, target); err != nil {
 		return fmt.Errorf("parse response: %w", err)
 	}
 	return nil

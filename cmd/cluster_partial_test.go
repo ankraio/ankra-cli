@@ -468,7 +468,7 @@ func TestMapPatchError_ExitCodeClassification(t *testing.T) {
 		wantExit   int
 	}{
 		{"401 unauthorized -> exitAuth", 401, exitAuth},
-		{"403 forbidden -> exitAuth", 403, exitAuth},
+		{"403 forbidden -> exitForbidden", 403, exitForbidden},
 		{"404 not found -> exitNotFound", 404, exitNotFound},
 		{"500 server error -> exitError", 500, exitError},
 	}
@@ -488,7 +488,8 @@ func TestMapPatchError_ExitCodeClassification(t *testing.T) {
 
 // A platform RBAC 403 ({"detail":"permission_denied", ...}) is a role
 // problem, not a credential problem: it must classify as exitForbidden (7)
-// with the permission named, while every other 403 stays exitAuth (6).
+// with the permission named. Every other 403 classifies as exitForbidden too
+// (TestMapPatchError_ExitCodeClassification, TestMapPatchError_SandboxRefusalIsForbidden).
 func TestMapPatchError_RBACDenialGetsExitForbidden(t *testing.T) {
 	perr := &client.PatchStackError{
 		StatusCode: 403,
@@ -503,6 +504,20 @@ func TestMapPatchError_RBACDenialGetsExitForbidden(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), `"stacks.deploy"`) {
 		t.Errorf("message should name the missing permission, got %q", err.Error())
+	}
+}
+
+// A sandbox cluster's 403 is the platform refusing the write, not a rejected
+// credential: logging in again cannot change it, so it exits 7, and the
+// message points at promoting the cluster.
+func TestMapPatchError_SandboxRefusalIsForbidden(t *testing.T) {
+	perr := &client.PatchStackError{StatusCode: 403, Body: []byte(`{"detail":"sandbox mode is enabled"}`)}
+	err := mapPatchError(perr)
+	if got := exitCodeFor(err); got != exitForbidden {
+		t.Errorf("exitCodeFor = %d, want %d", got, exitForbidden)
+	}
+	if !strings.Contains(err.Error(), "promote the cluster first") {
+		t.Errorf("message should say how to proceed, got %q", err.Error())
 	}
 }
 

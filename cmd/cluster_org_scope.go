@@ -70,6 +70,44 @@ func lookUpClusterInScope(clusterID string) clusterLookup {
 	}
 }
 
+// findClusterInOrganisationProjects asks every other project of the
+// organisation in scope for a cluster ID the project in scope does not have.
+// The platform reads a cluster inside one project (the X-Ankra-Project-Id
+// override, else the member's current project), so a cluster in a sibling
+// project answers 404 exactly like a cluster of another organisation. The
+// project that has it stays set as this invocation's override, so the token
+// mint that follows runs in the same project; on a miss the previous project
+// is restored. The member's server-side current project is never moved.
+//
+// An explicit --project or ANKRA_PROJECT pin is never second-guessed, and an
+// organisation whose projects cannot be listed (projects off, or an older
+// platform) is left to the cross-organisation search.
+func findClusterInOrganisationProjects(clusterID string) clusterLookup {
+	if projectPinnedExplicitly || !isLikelyClusterID(clusterID) {
+		return clusterLookup{}
+	}
+	projects, err := apiClient.ListProjects()
+	if err != nil || len(projects) < 2 {
+		return clusterLookup{}
+	}
+	restore := apiClient.ProjectOverride()
+	for _, project := range projects {
+		if project.ID == "" || project.ID == restore || (restore == "" && project.IsCurrent) {
+			continue
+		}
+		apiClient.SetProjectOverride(project.ID)
+		if answer := lookUpClusterInScope(clusterID); answer.found() {
+			if answer.cluster.ProjectID == nil {
+				projectID := project.ID
+				answer.cluster.ProjectID = &projectID
+			}
+			return answer
+		}
+	}
+	apiClient.SetProjectOverride(restore)
+	return clusterLookup{}
+}
+
 // organisationScopeSearch is the outcome of looking for a cluster ID outside
 // the organisation this invocation is scoped to.
 type organisationScopeSearch struct {
@@ -124,6 +162,12 @@ func findClusterInOtherOrganisations(clusterID string) organisationScopeSearch {
 
 	restore := apiClient.OrganisationOverride()
 	defer apiClient.SetOrganisationOverride(restore)
+	// A project belongs to one organisation, and the platform refuses a
+	// project header naming another organisation's project, so the search
+	// asks each organisation in its member's current project.
+	restoreProject := apiClient.ProjectOverride()
+	apiClient.SetProjectOverride("")
+	defer apiClient.SetProjectOverride(restoreProject)
 
 	// A lookup that failed is not a miss. Counting one as a miss would put the
 	// organisation in searchedLabels and let the caller report "searched
@@ -173,6 +217,7 @@ func adoptOwningOrganisation(clusterID string, notify io.Writer) (organisationSc
 		return search, false
 	}
 	apiClient.SetOrganisationOverride(search.owner.OrganisationID)
+	apiClient.SetProjectOverride("")
 	if notify != nil {
 		_, _ = fmt.Fprintf(notify, "Note: cluster %s is in organisation %s, not %s; running against the owning organisation.\n",
 			clusterID, organisationLabel(search.owner), scopedOrganisationPhrase(search.scopedLabel))
@@ -227,7 +272,11 @@ func (r clusterOrganisationResolution) settled() bool { return r.inScope || r.ad
 //     caller must fall back to letting the backend answer for the ID, which
 //     is the behaviour that predates the cross-organisation lookup.
 func resolveClusterOrganisation(clusterID string, notify io.Writer) clusterOrganisationResolution {
-	if answer := lookUpClusterInScope(clusterID); answer.found() {
+	answer := lookUpClusterInScope(clusterID)
+	if !answer.found() && answer.absent() {
+		answer = findClusterInOrganisationProjects(clusterID)
+	}
+	if answer.found() {
 		return clusterOrganisationResolution{
 			cluster:        answer.cluster,
 			organisationID: answer.cluster.OrganisationID,

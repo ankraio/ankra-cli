@@ -292,6 +292,10 @@ type NodeGroupInfo struct {
 	// DiskTier is the storage tier of the group's servers' root disks
 	// (Ankra Cloud). Omitted when the group chose none.
 	DiskTier string `json:"disk_tier,omitempty"`
+	// CPUPool is the Ankra Cloud CPU pool the group pins its servers to.
+	// Omitted when the group pinned none, and against a platform that
+	// predates the field.
+	CPUPool string `json:"cpu_pool,omitempty"`
 }
 
 type NodeGroupListResult struct {
@@ -325,6 +329,11 @@ type AddNodeGroupRequest struct {
 	// creates, scale-ups included (Ankra Cloud clusters only): local-nvme,
 	// standard, maxiops or hdd. Omitted, the zone's default tier applies.
 	DiskTier string `json:"disk_tier,omitempty"`
+	// CPUPool pins every server the group creates, scale-ups included, to one
+	// CPU pool of the cluster's zone (Ankra Cloud clusters only), for example
+	// a pool of x86-64 level 3 for workloads that need AVX2. Omitted, the
+	// Cloud places each server.
+	CPUPool string `json:"cpu_pool,omitempty"`
 }
 
 type AddNodeGroupResult struct {

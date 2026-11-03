@@ -128,27 +128,17 @@ func listAllClusters() ([]client.ClusterListItem, error) {
 }
 
 var clusterInfoCmd = &cobra.Command{
-	Use:     "info [name]",
+	Use:     "info [name|id]",
 	Aliases: []string{"get-cluster"},
 	Short:   "Show details of a specific cluster",
-	Long: `Show details of a specific cluster.
+	Long: `Show details of a specific cluster, named by its name or its id.
 
-If no name is provided, shows details for the currently selected cluster.`,
+If no cluster is given, shows details for the currently selected cluster.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		var name string
-		if len(args) == 1 {
-			name = args[0]
-		} else {
-			selected, err := resolveActiveCluster(cmd)
-			if err != nil {
-				return err
-			}
-			name = selected.Name
-		}
-		cluster, err := apiClient.GetCluster(name)
+		cluster, err := resolveClusterInfoTarget(cmd, args)
 		if err != nil {
-			return fmt.Errorf("fetching cluster details for %s: %w", name, err)
+			return err
 		}
 		if cluster.PortalURL == "" {
 			cluster.PortalURL = portalClusterURL(cluster)
@@ -189,6 +179,39 @@ If no name is provided, shows details for the currently selected cluster.`,
 		}
 		return nil
 	},
+}
+
+// resolveClusterInfoTarget fetches the cluster `cluster info` describes. An
+// argument resolves as a name or an id, like --cluster does
+// (lookupClusterByNameOrID): the command used to look its argument up by
+// name only, so the id every other cluster command accepts answered "no
+// cluster found for name" (ankra-mz2awi). A missing cluster keeps that
+// lookup's not-found exit code. Refresh a saved selection by its immutable
+// ID: a name may have been reused for a different cluster since selection.
+func resolveClusterInfoTarget(cmd *cobra.Command, args []string) (client.ClusterListItem, error) {
+	if len(args) == 1 {
+		return lookupClusterByNameOrID(args[0])
+	}
+	if override := clusterFlagOverride(cmd); override != "" {
+		return lookupClusterByNameOrID(override)
+	}
+	selected, err := resolveActiveCluster(cmd)
+	if err != nil {
+		return client.ClusterListItem{}, err
+	}
+	// Older selection files may contain only a name.
+	if selected.ID == "" {
+		return lookupClusterByNameOrID(selected.Name)
+	}
+	cluster, err := apiClient.GetClusterByID(selected.ID)
+	if err != nil {
+		lookupError := fmt.Errorf("fetching selected cluster %s: %w", selected.ID, err)
+		if errors.Is(err, client.ErrClusterNotFound) {
+			return client.ClusterListItem{}, withExitCode(exitNotFound, lookupError)
+		}
+		return client.ClusterListItem{}, lookupError
+	}
+	return cluster, nil
 }
 
 var clusterReconcileCmd = &cobra.Command{
@@ -574,7 +597,7 @@ If no cluster name is provided, uses the currently selected cluster.`,
 			}
 			return nil
 		case cloudClusterKindProxmox:
-			result, deprovisionError := apiClient.DeprovisionProxmoxCluster(clusterID, force)
+			result, deprovisionError := apiClient.DeprovisionProxmoxCluster(clusterID, deprovisionOptions)
 			if deprovisionError != nil {
 				return fmt.Errorf("deprovisioning Proxmox VE cluster: %w", deprovisionError)
 			}

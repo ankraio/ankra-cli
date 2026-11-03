@@ -36,14 +36,19 @@ ankra login                 # browser SSO; stores credentials in ~/.ankra.yaml
 ankra org list
 ankra org switch <slug|name|id>
 ankra org current
+ankra project list                  # projects: the team-sized scope beneath an organisation
+ankra project switch <slug|name|id>
+ankra project current               # says whether a flag, a saved selection or the platform decides
 ankra cluster list
 ankra cluster select <name>         # persisted; omit the name for a picker
 ankra cluster info                  # confirm what you are about to change
 ```
 
 Most `ankra cluster ...` subcommands act on the **selected** cluster. Override per command with
-`--cluster <name|id>`, and the organisation with the global `--org <name|id>`. In a shared script,
-never rely on the selection - pass both explicitly.
+`--cluster <name|id>`, the organisation with the global `--org <name|id>`, and the project with the
+global `--project <slug|name|id>` (or `ANKRA_PROJECT`). In a shared script, never rely on the
+selection - pass all three explicitly. While an organisation has projects off, `ankra project`
+exits 3 saying so and everything else works as before.
 
 ## The command map
 
@@ -67,7 +72,8 @@ never rely on the selection - pass both explicitly.
 | Metrics and logs | `ankra cluster metrics\|top\|logs\|events\|logs-ship` | `ankra-observability`, `ankra-troubleshooting` |
 | Debugging inside a cluster | `ankra cluster exec\|terminal\|debug ...` | `ankra-troubleshooting` |
 | AI provider, tools, runs, board, memories | `ankra ai ...`, `ankra org mcp-servers ...`, `ankra agents ...`, `ankra tickets ...`, `ankra chat` | `ankra-ai-agents` |
-| Tokens, roles, cluster access | `ankra tokens create\|list\|rotate\|revoke\|delete` (`--service` for service accounts), `ankra org members\|roles\|invite`, `ankra cluster access grant\|list\|revoke\|elevate`, `ankra org access-policy get`, `ankra org oidc-trust` | `ankra-security` |
+| Tokens, roles, cluster access | `ankra tokens create\|list\|rotate\|revoke\|delete` (`--service` for service accounts, `--project` to pin one to a project), `ankra org members\|roles\|invite`, `ankra cluster access grant\|list\|revoke\|elevate`, `ankra org access-policy get`, `ankra org oidc-trust` | `ankra-security` |
+| Projects (scope beneath the organisation) | `ankra project list\|current\|switch\|create\|get\|rename\|delete\|members\|move`, global `--project`, `ankra cost ... --all-projects`, `ankra cost object project`, `ankra org usage --group-by project` | `ankra-security`, `ankra-platform-principles` |
 | Credentials | `ankra credentials ...` | `ankra-security` |
 | Vulnerabilities, CVEs, compliance | `ankra security overview\|findings\|clusters\|compliance\|dispositions ...` | `ankra-security` |
 | Backup vaults, object storage | `ankra backup vaults ...`, `ankra bucket ...` | `ankra-backups` |
@@ -171,6 +177,27 @@ ankra cluster agent status
 A failed platform execution explains more deploy failures than pod logs do - start there. See
 `ankra-troubleshooting`.
 
+## Recovering from a failed Kubernetes version hop (Ankra staff only)
+
+After a failed `ankra cluster upgrade` whose nodes were rolled back by hand, the platform still
+records the new version and re-runs the hop as soon as it may act again. Ankra staff hold the
+cluster still and put the record back with:
+
+```bash
+export ANKRA_STAFF_SESSION='<staff admin-portal session>'   # an API token is refused here
+ankra cluster operations hold set <cluster-id> --for 4h --reason "hop failed, manual rollback"
+ankra cluster upgrade rollback-record <cluster-id> v1.34.5+k3s1 --reason "control plane rolled back"
+ankra cluster operations hold get <cluster-id>    # wait until the record check says confirmed
+ankra cluster operations hold lift <cluster-id> --reason "record confirmed"
+```
+
+These commands take the cluster by id, not name, and never use the saved login: a customer
+login, a service token or an MCP client cannot run them, so do not offer them to a customer.
+While a hold is in force every write to the cluster through Ankra (a deploy, a scale) is refused
+with 409. `rollback-record` is refused without a hold, while a write is running, or when the
+platform's last read of the control planes does not show the version; the lift is refused until
+the platform has read every node at the recorded version (`--force` overrides, audited).
+
 ## Agent upgrades
 
 ```bash
@@ -223,6 +250,21 @@ planes are Ready and etcd keeps quorum without it. The switch is per cluster and
 ankra cluster control-plane-heal get                    # switch + latest NotReady episode (shadow = recorded only)
 ankra cluster control-plane-heal set --enabled=false    # stop the automatic restart (needs clusters.write)
 ```
+
+Ankra backs up each running cluster's etcd state every six hours and keeps the 4 newest backups plus
+one a day for the cluster's retention window (7 days by default, 1 to 90). A shorter window deletes
+the daily backups outside it, so the command asks first; confirm with the user before passing `--yes`:
+
+```bash
+ankra cluster state-snapshots retention                 # the window in effect (and whether it is the default)
+ankra cluster state-snapshots retention --days 30       # keep 30 days (needs clusters.write)
+```
+
+Control-plane changes on clusters Ankra provisions are `ankra cluster <provider> control-plane
+get|set-count|set-instance-type` (details in `ankra-cloud-clusters`). Resizing the ONLY controller
+of a running Hetzner cluster takes the Kubernetes API down for a few minutes and needs
+`--accept-api-downtime`; get the user's explicit go-ahead first, or grow to three controllers for a
+resize without downtime. Other providers resize a single controller only on a stopped cluster.
 
 Shipping logs to Ankra's hosted log store is opt-in per cluster and off by default; turning it on
 needs `clusters.write` and sends customer log content out of the cluster, so confirm with the user

@@ -120,6 +120,11 @@ type InstantiateStackProfileRequest struct {
 	// under NewStackName in place instead of drafting a renamed copy; the
 	// platform records the deployment at the new version.
 	UpgradeExisting bool `json:"upgrade_existing,omitempty"`
+	// ConfirmedMemberRemovals names, as kind/name, the members an in-place
+	// upgrade may remove although the platform cannot show the profile put
+	// them there. Without it the platform refuses such a removal with
+	// *MemberRemovalUnconfirmedError and changes nothing.
+	ConfirmedMemberRemovals []string `json:"confirmed_member_removals,omitempty"`
 }
 
 type InstantiateStackProfileResult struct {
@@ -132,6 +137,47 @@ type InstantiateStackProfileResult struct {
 	Deployed       bool     `json:"deployed"`
 	OperationID    *string  `json:"operation_id"`
 	JobCount       int      `json:"job_count"`
+}
+
+// MemberRemovalUnconfirmedCode is the error_code of the platform's refusal
+// of a stack write that would remove members nobody confirmed.
+const MemberRemovalUnconfirmedCode = "STACK_MEMBER_REMOVAL_UNCONFIRMED"
+
+// MemberRemovalUnconfirmedError is that refusal: nothing was written, and
+// Members (kind/name) are the removals a person has to confirm by name for
+// the write to go ahead.
+type MemberRemovalUnconfirmedError struct {
+	StatusCode int
+	Message    string
+	Members    []string
+}
+
+func (refusal *MemberRemovalUnconfirmedError) Error() string {
+	return refusal.Message
+}
+
+// memberRemovalUnconfirmedFromBody parses the structured refusal, and
+// returns nil for any other body.
+func memberRemovalUnconfirmedFromBody(statusCode int, body []byte) *MemberRemovalUnconfirmedError {
+	var parsed struct {
+		ErrorCode string `json:"error_code"`
+		Detail    struct {
+			Message string `json:"message"`
+			Details struct {
+				Removals []struct {
+					Member string `json:"member"`
+				} `json:"removals"`
+			} `json:"details"`
+		} `json:"detail"`
+	}
+	if json.Unmarshal(body, &parsed) != nil || parsed.ErrorCode != MemberRemovalUnconfirmedCode {
+		return nil
+	}
+	refusal := &MemberRemovalUnconfirmedError{StatusCode: statusCode, Message: parsed.Detail.Message}
+	for _, removal := range parsed.Detail.Details.Removals {
+		refusal.Members = append(refusal.Members, removal.Member)
+	}
+	return refusal
 }
 
 // AdoptStackProfileRequest records a stack the cluster already runs as a
@@ -412,6 +458,9 @@ func (c *Client) InstantiateStackProfile(ctx context.Context, clusterID string, 
 		// needs verbatim ("Version 3 of this profile is deprecated (CVE): ...
 		// Deploy another version."), so the `detail` string is the error
 		// message rather than a wrapped dump of the body.
+		if refusal := memberRemovalUnconfirmedFromBody(response.StatusCode, body); refusal != nil {
+			return nil, refusal
+		}
 		if detail := detailFromBody(body); detail != "" {
 			return nil, newBackendDetailError(response.StatusCode, detail)
 		}

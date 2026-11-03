@@ -17,6 +17,7 @@ import (
 func newSkillsTestCmd() *cobra.Command {
 	c := &cobra.Command{Use: "x", Run: func(*cobra.Command, []string) {}}
 	c.Flags().Bool("personal", false, "")
+	c.Flags().String("dir", "", "")
 	c.Flags().String("project", "", "")
 	c.Flags().StringArray("client", nil, "")
 	c.Flags().String("editor", "", "")
@@ -38,7 +39,7 @@ func newSkillsInstallTestCmd() *cobra.Command {
 func skillsTestCmdFor(t *testing.T, base *cobra.Command, project, client string) *cobra.Command {
 	t.Helper()
 	if project != "" {
-		if err := base.Flags().Set("project", project); err != nil {
+		if err := base.Flags().Set("dir", project); err != nil {
 			t.Fatal(err)
 		}
 	}

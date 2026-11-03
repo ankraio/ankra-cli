@@ -52,7 +52,7 @@ cluster mutations for confirmation.
   ankra skills install
   ankra skills install --client all
   ankra skills install --client claude-code --client cursor
-  ankra skills install --client copilot --project .
+  ankra skills install --client copilot --dir .
   ankra skills install --client claude-app
   ankra skills install --with-hooks
   ankra skills install ankra-cli ankra-gitops`,
@@ -79,7 +79,7 @@ var skillsClientsCmd = &cobra.Command{
 	Short: "List the AI assistants skills can be installed into",
 	Long: `List every supported assistant, whether it is configured here, and where
 skills would be installed for it. Detection is what --client auto (the default)
-selects; pass --project <DIR> to see the repository-scoped locations instead.`,
+selects; pass --dir <DIR> to see the repository-scoped locations instead.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		scope, root, err := skillsScope(cmd)
@@ -180,7 +180,7 @@ is detected. --client all installs everywhere; --client <id> (repeatable, or
 comma-separated) picks specific ones.
 
 By default skills install for your user, available in every project. Use
---project <DIR> to install into a repository instead (--project . for the
+--dir <DIR> to install into a repository instead (--dir . for the
 current directory) - the right scope for GitHub Copilot, whose instructions
 file is per repository.
 
@@ -730,12 +730,22 @@ func skillsSourceFS(cmd *cobra.Command) (fs.FS, error) {
 	return skills.EmbeddedFS()
 }
 
-// skillsScope resolves the install scope and its root directory: the project
-// directory when --project is given, the home directory otherwise.
+// skillsDirectoryFlag is the repository directory a skills install targets.
+// It used to be --project, which now is the global Ankra project flag (ADR
+// 0022); the old spelling is kept for one minor as a deprecated local flag
+// that shadows the global one on these commands.
+const skillsDirectoryFlag = "dir"
+
+// skillsScope resolves the install scope and its root directory: the
+// repository directory when --dir (or the deprecated --project) is given,
+// the home directory otherwise.
 func skillsScope(cmd *cobra.Command) (scope, root string, err error) {
-	projectFlag := cmd.Flags().Lookup("project")
-	if projectFlag != nil && projectFlag.Changed {
-		directory := projectFlag.Value.String()
+	for _, name := range []string{skillsDirectoryFlag, "project"} {
+		directoryFlag := cmd.Flags().Lookup(name)
+		if directoryFlag == nil || !directoryFlag.Changed {
+			continue
+		}
+		directory := directoryFlag.Value.String()
 		if directory == "" {
 			directory = "."
 		}
@@ -810,14 +820,17 @@ func skillsRequestedClients(cmd *cobra.Command) []string {
 
 func init() {
 	for _, command := range []*cobra.Command{skillsListCmd, skillsInstallCmd, skillsUninstallCmd, skillsClientsCmd} {
-		command.Flags().String("project", "", "install into <DIR> instead of your home directory (use \".\" for the current directory)")
+		command.Flags().String(skillsDirectoryFlag, "", "install into <DIR> instead of your home directory (use \".\" for the current directory)")
+		command.Flags().String("project", "", "deprecated spelling of --"+skillsDirectoryFlag)
+		_ = command.Flags().MarkDeprecated("project", "use --"+skillsDirectoryFlag+" for the repository directory; "+
+			"the global --project now selects the Ankra project (see 'ankra project')")
 		command.Flags().StringArray("client", nil,
 			"assistant to target, repeatable or comma-separated: "+strings.Join(skills.ClientIDs(), ", ")+
 				", plus \"all\" and \"auto\" (default: the assistants configured here)")
 		command.Flags().String("editor", "", "deprecated alias for --client")
 		_ = command.Flags().MarkDeprecated("editor", "use --client instead")
 		command.Flags().Bool("personal", false, "install for your user (default)")
-		_ = command.Flags().MarkDeprecated("personal", "personal scope is the default; use --project for a repository install")
+		_ = command.Flags().MarkDeprecated("personal", "personal scope is the default; use --dir for a repository install")
 	}
 	for _, command := range []*cobra.Command{skillsListCmd, skillsInstallCmd, skillsUninstallCmd} {
 		command.Flags().String("source", "", "read skills from a local directory instead of the embedded copy")

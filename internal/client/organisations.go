@@ -115,6 +115,12 @@ type InviteUserRequest struct {
 	OrganisationID string `json:"organisation_id"`
 	InviteeEmail   string `json:"invitee_email"`
 	Role           string `json:"role"`
+	// ProjectID and ProjectRoleSlug make a project-only membership (role
+	// "project"): the member reaches that one project with the project role
+	// (admin, operator, member or viewer) and nothing else of the
+	// organisation. Both are omitted for every other role.
+	ProjectID       *string `json:"project_id,omitempty"`
+	ProjectRoleSlug string  `json:"project_role_slug,omitempty"`
 }
 
 type InviteUserResponse struct {
@@ -157,7 +163,7 @@ func (c *Client) InviteUserToOrganisation(inviteReq InviteUserRequest) (*InviteU
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, newUnexpectedResponseError("invite failed", resp.StatusCode, redactedBodyForError(body, 500))
+		return nil, inviteError(resp.StatusCode, body)
 	}
 
 	var inviteResp InviteUserResponse
@@ -165,6 +171,27 @@ func (c *Client) InviteUserToOrganisation(inviteReq InviteUserRequest) (*InviteU
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 	return &inviteResp, nil
+}
+
+// inviteError keeps the platform's own sentence for a refused invite: a 403
+// (not an admin, or a role past the inviter's grant ceiling) is a role
+// refusal, a 404 ("Project not found in this organisation") a missing
+// target, anything else carrying a detail string that string. A body with no
+// string detail (a 422 validation list) is shown redacted, as before.
+func inviteError(statusCode int, body []byte) error {
+	if statusCode == http.StatusUnauthorized {
+		return ErrUnauthorized
+	}
+	if denied := PermissionDeniedFromResponse(statusCode, body); denied != nil {
+		return denied
+	}
+	if detail := detailFromBody(body); detail != "" {
+		if statusCode == http.StatusForbidden {
+			return &PermissionDeniedError{Detail: detail}
+		}
+		return newBackendDetailError(statusCode, detail)
+	}
+	return newUnexpectedResponseError("invite failed", statusCode, redactedBodyForError(body, 500))
 }
 
 func (c *Client) RemoveUserFromOrganisation(removeReq RemoveUserRequest) (*RemoveUserResponse, error) {

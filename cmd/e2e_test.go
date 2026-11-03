@@ -41,6 +41,52 @@ func (m baseMock) RegenerateChatTitle(string) error { return errors.New("not imp
 
 func (m baseMock) OrganisationOverride() string { return "" }
 
+func (m baseMock) SetProjectOverride(string) {}
+
+func (m baseMock) ProjectOverride() string { return "" }
+
+func (m baseMock) SetCostProjectScope(string) {}
+
+func (m baseMock) ListProjects() ([]client.ProjectSummary, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetCurrentProject() (*client.ProjectSummary, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetProject(string) (*client.ProjectSummary, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateProject(client.CreateProjectRequest) (*client.ProjectSummary, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateProject(string, client.UpdateProjectRequest) (*client.ProjectSummary, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteProject(string) (*client.DeleteProjectResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SwitchProject(string) (*client.SwitchProjectResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListProjectMembers(string) ([]client.ProjectMember, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) MoveResourceToProject(client.ProjectMoveRequest) (*client.ProjectMoveResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetProjectShowback(int) (*client.ProjectShowback, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) UpdateUpcloudZonePool(context.Context, string, []string, bool) (*client.UpdateUpcloudZonePoolResult, bool, error) {
 	return nil, false, nil
 }
@@ -371,6 +417,10 @@ func (m baseMock) SetApplicationAutoDeploy(requestContext context.Context, appli
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) UpdateApplicationAutoDeploy(requestContext context.Context, applicationID string, autoDeployRequest client.SetApplicationAutoDeployRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) StartApplicationPlatformBuild(requestContext context.Context, applicationID string, request client.StartApplicationPlatformBuildRequest) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
@@ -679,7 +729,7 @@ func (m baseMock) CompleteBackupVaultImport(vaultID string, importID string) (*c
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) RestoreBackupVaultImport(vaultID string, importID string) (*client.BackupVaultImport, error) {
+func (m baseMock) RestoreBackupVaultImport(vaultID string, importID string, request client.RestoreBackupVaultImportRequest) (*client.BackupVaultImport, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -797,7 +847,7 @@ func (m baseMock) GetDecisionActivity(decisionID string) (*client.DecisionActivi
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ApproveDecision(decisionID string, note *string) (*client.DecisionProposal, error) {
+func (m baseMock) ApproveDecision(decisionID string, note *string, planHash string) (*client.DecisionProposal, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1242,6 +1292,14 @@ func (m baseMock) InviteUserToOrganisation(inviteReq client.InviteUserRequest) (
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) CreateRoleAssignment(client.CreateRoleAssignmentRequest) (*client.RoleAssignment, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateMemberRole(client.UpdateMemberRoleRequest) (*client.UpdateMemberRoleResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) RemoveUserFromOrganisation(removeReq client.RemoveUserRequest) (*client.RemoveUserResponse, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1478,7 +1536,7 @@ func (m baseMock) GetApplicationSecurityVersions(context.Context, string, string
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) CreateAPIToken(name string, expiresAt *string, scopes []string) (*client.CreateAPITokenResponse, error) {
+func (m baseMock) CreateAPIToken(client.CreateAPITokenRequest) (*client.CreateAPITokenResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1804,6 +1862,14 @@ func (m baseMock) SetControlPlaneHeal(context.Context, string, bool) (*client.Co
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetStateSnapshotRetention(context.Context, string) (*client.StateSnapshotRetention, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetStateSnapshotRetention(context.Context, string, int) (*client.StateSnapshotRetention, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetOrganisationProvenancePolicy(context.Context) (*client.OrganisationProvenancePolicy, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1864,6 +1930,10 @@ func (m baseMock) GetHetznerK8sVersion(clusterID string) (*client.K8sVersionInfo
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetUpgradePreflight(kind, clusterID, targetVersion string) (*client.UpgradePreflightReport, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) UpgradeHetznerK8sVersion(clusterID, targetVersion string, force bool) (*client.UpgradeK8sVersionResult, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1920,7 +1990,7 @@ func (m baseMock) ChangeHetznerControlPlaneCount(clusterID string, count int) (*
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ChangeHetznerControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+func (m baseMock) ChangeHetznerControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1933,6 +2003,10 @@ func (m baseMock) GetHetznerClusterNode(clusterID, nodeID string) (*client.NodeD
 }
 
 func (m baseMock) HetznerNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DiagnoseClusterNode(ctx context.Context, provider, clusterID, nodeID string) (*client.NodeDiagnoseResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2188,7 +2262,7 @@ func (m baseMock) ChangeOvhControlPlaneCount(clusterID string, count int) (*clie
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ChangeOvhControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+func (m baseMock) ChangeOvhControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2296,7 +2370,7 @@ func (m baseMock) ChangeUpcloudControlPlaneCount(clusterID string, count int) (*
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ChangeUpcloudControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+func (m baseMock) ChangeUpcloudControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2412,7 +2486,7 @@ func (m baseMock) ChangeDigitaloceanControlPlaneCount(clusterID string, count in
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ChangeDigitaloceanControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+func (m baseMock) ChangeDigitaloceanControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2572,7 +2646,7 @@ func (m baseMock) ChangeScalewayControlPlaneCount(clusterID string, count int) (
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ChangeScalewayControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+func (m baseMock) ChangeScalewayControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2704,7 +2778,7 @@ func (m baseMock) ChangeAnkraCloudControlPlaneCount(clusterID string, count int)
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ChangeAnkraCloudControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+func (m baseMock) ChangeAnkraCloudControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2753,6 +2827,14 @@ func (m baseMock) ListAnkraCloudPricing(credentialID string) (*client.AnkraCloud
 }
 
 func (m baseMock) ListAnkraCloudClusterPlans(clusterID string) (*client.AnkraCloudCatalogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAnkraCloudCPUPools(credentialID, zone string) (*client.AnkraCloudCatalogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAnkraCloudClusterCPUPools(clusterID string) (*client.AnkraCloudCatalogResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2860,7 +2942,7 @@ func (m baseMock) ChangeAwsControlPlaneCount(clusterID string, count int) (*clie
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ChangeAwsControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+func (m baseMock) ChangeAwsControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2956,7 +3038,7 @@ func (m baseMock) CreateProxmoxCluster(request client.CreateProxmoxClusterReques
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionProxmoxCluster(clusterID string, _ bool) (*client.ProviderDeprovisionClusterResponse, error) {
+func (m baseMock) DeprovisionProxmoxCluster(clusterID string, _ client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -3020,7 +3102,7 @@ func (m baseMock) ChangeProxmoxControlPlaneCount(clusterID string, count int) (*
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ChangeProxmoxControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+func (m baseMock) ChangeProxmoxControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -3164,7 +3246,7 @@ func (m baseMock) ChangeMorpheusControlPlaneCount(clusterID string, count int) (
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ChangeMorpheusControlPlaneInstanceType(clusterID, instanceType string, drainOptions client.DrainOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
+func (m baseMock) ChangeMorpheusControlPlaneInstanceType(clusterID, instanceType string, options client.ControlPlaneInstanceTypeOptions) (*client.ChangeControlPlaneInstanceTypeResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -5305,6 +5387,10 @@ func (m baseMock) GetCloudLedger() (*client.CloudLedger, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetCloudWaste() (*client.CloudWaste, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetCostAutopilot() (*client.CostAutopilotPolicy, error) {
 	return nil, errors.New("not implemented")
 }
@@ -5449,6 +5535,14 @@ func (m baseMock) ConfirmServiceRetirement(context.Context, string, string, stri
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) PrepareServiceDisconnection(context.Context, string, client.ServiceDisconnectionRequest) (*client.ServiceDisconnection, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ConfirmServiceDisconnection(context.Context, string, string, string) (*client.ServiceDisconnection, error) {
+	return nil, errors.New("not implemented")
+}
+
 // TestClusterAgentStatusSecurityUpgradeNote pins the security-upgrade note: it
 // shows only when the platform says the upgrade is required. An agent already
 // on the scoped grant, and an answer the platform could not decide (nil), show
@@ -5574,6 +5668,10 @@ func (m baseMock) CancelProfileSummaryGeneration(context.Context, string) (json.
 	return nil, nil
 }
 
+func (m baseMock) PreviewProfileSummaryPolicy(context.Context, client.ProfileSummaryRouting) (json.RawMessage, error) {
+	return nil, nil
+}
+
 func (m baseMock) GetProfileSummaryPolicy(context.Context) (json.RawMessage, error) {
 	return nil, nil
 }
@@ -5583,5 +5681,15 @@ func (m baseMock) ApproveProfileSummaryPolicy(context.Context, client.ProfileSum
 }
 
 func (m baseMock) RevokeProfileSummaryPolicy(context.Context, client.ProfileSummaryPolicyRevocationRequest) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (m baseMock) StartProfileRuntimeQualification(context.Context, string) (*client.ProfileRuntimeQualification, error) {
+	return nil, nil
+}
+func (m baseMock) GetProfileRuntimeQualification(context.Context, string) (*client.ProfileRuntimeQualification, error) {
+	return nil, nil
+}
+func (m baseMock) CancelProfileRuntimeQualification(context.Context, string) (*client.ProfileRuntimeQualification, error) {
 	return nil, nil
 }

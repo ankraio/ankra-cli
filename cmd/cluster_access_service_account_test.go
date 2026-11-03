@@ -314,7 +314,7 @@ func TestKubeTokenDeniedHintFitsTheCaller(t *testing.T) {
 					t.Errorf("hint must not carry %q:\n%v", unwanted, err)
 				}
 			}
-			if exitCodeFor(err) != exitAuth {
+			if exitCodeFor(err) != exitCodeFor(denied) {
 				t.Errorf("the hint must not change the exit code, got %d", exitCodeFor(err))
 			}
 		})

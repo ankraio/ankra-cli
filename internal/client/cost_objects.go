@@ -16,6 +16,7 @@ const (
 	ObjectCostKindStack       = "stack"
 	ObjectCostKindApplication = "application"
 	ObjectCostKindCredential  = "credential"
+	ObjectCostKindProject     = "project"
 )
 
 // ObjectCostProjection is what one cluster, namespace, stack, application or
@@ -25,6 +26,8 @@ const (
 // CoverageIncomplete true makes MonthlyCents a floor: a cluster behind the
 // object could not be priced in full or contributed nothing.
 type ObjectCostProjection struct {
+	RawDocument `json:"-" yaml:"-"`
+
 	Kind   string            `json:"kind" yaml:"kind"`
 	Object ObjectCostSubject `json:"object" yaml:"object"`
 	// Currency is the display currency; every *_cents figure is in its
@@ -38,7 +41,9 @@ type ObjectCostProjection struct {
 	Confidence         *string         `json:"confidence" yaml:"confidence"`
 	CoverageIncomplete *bool           `json:"coverage_incomplete" yaml:"coverage_incomplete"`
 	OpenWaste          ObjectCostWaste `json:"open_waste" yaml:"open_waste"`
-	// Trend30d is 30 UTC days, oldest first.
+	// Trend30d is the object's daily spend over 30 UTC days, oldest first:
+	// what each day cost, not a run rate like MonthlyCents. The current day
+	// is still metering (ObjectCostDay.Partial).
 	Trend30d                []ObjectCostDay       `json:"trend_30d" yaml:"trend_30d"`
 	Clusters                []ObjectCostCluster   `json:"clusters" yaml:"clusters"`
 	Namespaces              []ObjectCostNamespace `json:"namespaces" yaml:"namespaces"`
@@ -65,13 +70,30 @@ type ObjectCostWaste struct {
 	UnpricedCount int     `json:"unpriced_count" yaml:"unpriced_count"`
 }
 
-// ObjectCostDay is one UTC day of the trend. Cents is null on a day none of
-// the object's clusters was metered: unknown, never zero.
+// ObjectCostDay is one UTC day of the trend: what the object spent that day.
+// Cents is null on a day none of the object's clusters was metered: unknown,
+// never zero.
+//
+// Partial is true for the day the trend was read in, which is still
+// metering: its Cents covers only HoursMetered of the day's 24 UTC hours and
+// is not comparable to a whole day. HoursMetered is, for an object behind
+// several clusters, the fewest hours any metered cluster covered. Both are
+// absent from a platform that predates them (cluster#5617), so Partial
+// tells absent from false and HoursMetered is nil there.
+//
+// Incomplete is true when Cents is short of an hour the day had already had
+// (a missed metering pass longer than the platform's 3-hour backfill, a
+// stopped or unpriced hour, the cluster's creation day), so Cents is a floor
+// of the day, never its whole and never a drop in spend
+// (ankra-bn86k4.4.8). Absent from a platform that predates it.
 type ObjectCostDay struct {
-	Date            string `json:"date" yaml:"date"`
-	Cents           *int64 `json:"cents" yaml:"cents"`
-	ClustersMetered int    `json:"clusters_metered" yaml:"clusters_metered"`
-	ClustersTotal   int    `json:"clusters_total" yaml:"clusters_total"`
+	Date            string       `json:"date" yaml:"date"`
+	Cents           *int64       `json:"cents" yaml:"cents"`
+	Partial         OptionalBool `json:"partial,omitzero" yaml:"partial,omitempty"`
+	HoursMetered    *int         `json:"hours_metered,omitempty" yaml:"hours_metered,omitempty"`
+	Incomplete      OptionalBool `json:"incomplete,omitzero" yaml:"incomplete,omitempty"`
+	ClustersMetered int          `json:"clusters_metered" yaml:"clusters_metered"`
+	ClustersTotal   int          `json:"clusters_total" yaml:"clusters_total"`
 }
 
 // ObjectCostCluster is one cluster behind the object. MonthlyCents is null
@@ -156,11 +178,13 @@ var objectCostPaths = map[string]string{
 	ObjectCostKindStack:       "/api/v1/org/cloud-cost/objects/stack/%s/%s",
 	ObjectCostKindApplication: "/api/v1/org/cloud-cost/objects/application/%s",
 	ObjectCostKindCredential:  "/api/v1/org/cloud-cost/objects/credential/%s",
+	ObjectCostKindProject:     "/api/v1/org/cloud-cost/objects/project/%s",
 }
 
 // GetObjectCost reads one object's cost projection: the cluster id for a
 // cluster; the cluster id and the namespace for a namespace; the cluster id
-// and the stack name for a stack; the application id; or the credential id.
+// and the stack name for a stack; the application id; the credential id; or
+// the project id.
 // Each segment is path-escaped, so a name carrying a space or a slash stays
 // one segment. A kind this client does not know, or the wrong number of
 // segments for it, is refused before any request.

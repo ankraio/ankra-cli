@@ -128,6 +128,7 @@ func TestUploadPresignedObjectRefusesMoreThanOneUploadCarries(t *testing.T) {
 
 func TestBackupVaultImportRoutes(t *testing.T) {
 	var paths []string
+	var restoreBodies []string
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		paths = append(paths, request.Method+" "+request.URL.Path)
 		if request.Header.Get("Authorization") != "Bearer token" {
@@ -136,6 +137,8 @@ func TestBackupVaultImportRoutes(t *testing.T) {
 		}
 		switch {
 		case strings.HasSuffix(request.URL.Path, "/restore"):
+			body, _ := io.ReadAll(request.Body)
+			restoreBodies = append(restoreBodies, string(body))
 			writer.WriteHeader(http.StatusAccepted)
 			_, _ = writer.Write([]byte(`{"id":"imp-1","status":"restoring","restore":{"operation_id":"op-1","status":"restoring","steps":[]}}`))
 		case strings.HasSuffix(request.URL.Path, "/complete"):
@@ -154,12 +157,23 @@ func TestBackupVaultImportRoutes(t *testing.T) {
 	if createError != nil || created.Import.ID != "imp-1" || len(created.Uploads) != 1 || created.Uploads[0].SizeBytes != 5 {
 		t.Errorf("create = %+v, %v", created, createError)
 	}
+	if created.PreviouslyRestoredDatabases != nil {
+		t.Errorf("a platform that did not report earlier restores must read as unknown, got %v", *created.PreviouslyRestoredDatabases)
+	}
 	if _, completeError := apiClient.CompleteBackupVaultImport("vault-1", "imp-1"); completeError == nil || !strings.Contains(completeError.Error(), "db/office.dump is missing from the vault") {
 		t.Errorf("a 409 detail must surface verbatim, got %v", completeError)
 	}
-	restored, restoreError := apiClient.RestoreBackupVaultImport("vault-1", "imp-1")
+	restored, restoreError := apiClient.RestoreBackupVaultImport("vault-1", "imp-1", RestoreBackupVaultImportRequest{})
 	if restoreError != nil || restored.Status != "restoring" || restored.Restore == nil || restored.Restore.OperationID != "op-1" {
 		t.Errorf("restore (202) = %+v, %v", restored, restoreError)
+	}
+	if _, restoreError := apiClient.RestoreBackupVaultImport("vault-1", "imp-1", RestoreBackupVaultImportRequest{
+		ConfirmedOverwriteDatabases: []string{"db/office"},
+	}); restoreError != nil {
+		t.Errorf("confirmed restore: %v", restoreError)
+	}
+	if len(restoreBodies) != 2 || restoreBodies[0] != `{}` || restoreBodies[1] != `{"confirmed_overwrite_databases":["db/office"]}` {
+		t.Errorf("restore bodies = %q", restoreBodies)
 	}
 	got, getError := apiClient.GetBackupVaultImport("vault-1", "imp-1")
 	if getError != nil || got.Status != "completed" {
@@ -168,6 +182,7 @@ func TestBackupVaultImportRoutes(t *testing.T) {
 	want := []string{
 		"POST /api/v1/org/backup-vaults/vault-1/imports",
 		"POST /api/v1/org/backup-vaults/vault-1/imports/imp-1/complete",
+		"POST /api/v1/org/backup-vaults/vault-1/imports/imp-1/restore",
 		"POST /api/v1/org/backup-vaults/vault-1/imports/imp-1/restore",
 		"GET /api/v1/org/backup-vaults/vault-1/imports/imp-1",
 	}

@@ -129,6 +129,20 @@ type CreateBackupVaultImportRequest struct {
 type CreateBackupVaultImportResult struct {
 	Import  BackupVaultImport         `json:"import"`
 	Uploads []BackupVaultImportUpload `json:"uploads"`
+	// PreviouslyRestoredDatabases names, as "<workload>/<database>", the
+	// import's databases an earlier restore on the cluster already loaded:
+	// restoring over them replaces every write made since, so the platform
+	// refuses it unless each is confirmed. nil means the platform did not
+	// say (one older than the check), never that none were restored.
+	PreviouslyRestoredDatabases *[]string `json:"previously_restored_databases"`
+}
+
+// RestoreBackupVaultImportRequest is the optional restore body.
+type RestoreBackupVaultImportRequest struct {
+	// ConfirmedOverwriteDatabases names each database, "<workload>/<database>"
+	// or a database name only one server of the import carries, that the
+	// restore may replace although an earlier restore already loaded it.
+	ConfirmedOverwriteDatabases []string `json:"confirmed_overwrite_databases,omitempty"`
 }
 
 // CreateBackupVaultImport registers an export and returns the presigned
@@ -156,12 +170,14 @@ func (c *Client) CompleteBackupVaultImport(vaultID string, importID string) (*Ba
 }
 
 // RestoreBackupVaultImport dispatches the in-cluster restore of an uploaded
-// import; the platform answers 202 with the import in restoring.
+// import; the platform answers 202 with the import in restoring, and 409
+// when it would replace a database an earlier restore loaded that the
+// request does not confirm.
 // POST /api/v1/org/backup-vaults/{vault_id}/imports/{import_id}/restore
-func (c *Client) RestoreBackupVaultImport(vaultID string, importID string) (*BackupVaultImport, error) {
+func (c *Client) RestoreBackupVaultImport(vaultID string, importID string, request RestoreBackupVaultImportRequest) (*BackupVaultImport, error) {
 	url := fmt.Sprintf("%s/api/v1/org/backup-vaults/%s/imports/%s/restore", c.BaseURL, neturl.PathEscape(vaultID), neturl.PathEscape(importID))
 	var result BackupVaultImport
-	if requestError := c.sendJSON(http.MethodPost, url, nil, &result); requestError != nil {
+	if requestError := c.sendJSON(http.MethodPost, url, request, &result); requestError != nil {
 		return nil, requestError
 	}
 	return &result, nil

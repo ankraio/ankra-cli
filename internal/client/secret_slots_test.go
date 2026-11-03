@@ -91,7 +91,7 @@ func TestReplaceSecretSlot_PutsTheValueAtTheSlotID(t *testing.T) {
 		jsonResponse(t, w, http.StatusOK, secretSlotTestBody("stripe-key", "user"))
 	}
 	testClient := newTestClient(t, handler)
-	testClient.HTTP.Transport = &orgOverrideTransport{base: http.DefaultTransport, orgID: &testClient.orgOverride}
+	testClient.HTTP.Transport = &scopeOverrideTransport{base: http.DefaultTransport, orgID: &testClient.orgOverride, projectID: &testClient.projectOverride}
 	testClient.SetOrganisationOverride("49b7576d-35ed-415e-9580-515a7b56e308")
 
 	if _, replaceError := testClient.ReplaceSecretSlot(context.Background(), secretSlotTestID,

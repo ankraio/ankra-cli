@@ -304,9 +304,10 @@ var clusterNodeGroupListCmd = &cobra.Command{
 			return nil
 		}
 		for _, nodeGroup := range result.NodeGroups {
-			fmt.Printf("%-20s  type=%-8s  count=%d%s  labels=%d  taints=%d%s%s\n",
+			fmt.Printf("%-20s  type=%-8s  count=%d%s  labels=%d  taints=%d%s%s%s\n",
 				nodeGroup.Name, nodeGroup.InstanceType, nodeGroup.Count, nodeGroupJoinedSuffix(nodeGroup),
-				len(nodeGroup.Labels), len(nodeGroup.Taints), nodeGroupZoneSuffix(nodeGroup), nodeGroupDiskSuffix(nodeGroup))
+				len(nodeGroup.Labels), len(nodeGroup.Taints), nodeGroupZoneSuffix(nodeGroup), nodeGroupDiskSuffix(nodeGroup),
+				nodeGroupCPUPoolSuffix(nodeGroup))
 			printNodeGroupUnregistered(nodeGroup)
 		}
 		return nil
@@ -356,6 +357,16 @@ func nodeGroupZoneSuffix(nodeGroup client.NodeGroupInfo) string {
 		return "  zones=" + strings.Join(nodeGroup.Zones, ",")
 	}
 	return ""
+}
+
+// nodeGroupCPUPoolSuffix renders the Ankra Cloud CPU pool a node group pins
+// its servers to, or "" when it pins none, so the line is unchanged for
+// every other group.
+func nodeGroupCPUPoolSuffix(nodeGroup client.NodeGroupInfo) string {
+	if nodeGroup.CPUPool == "" {
+		return ""
+	}
+	return "  cpu-pool=" + nodeGroup.CPUPool
 }
 
 // nodeGroupDiskSuffix renders a node group's root disk size and tier for a
@@ -430,6 +441,12 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 			return withExitCode(exitUsage, fmt.Errorf(
 				"--disk-gib and --disk-tier are supported only on Ankra Cloud clusters; cluster %q is %s", clusterID, kind))
 		}
+		cpuPool, _ := cmd.Flags().GetString("cpu-pool")
+		cpuPool = strings.TrimSpace(cpuPool)
+		if cpuPool != "" && kind != "ankracloud" {
+			return withExitCode(exitUsage, fmt.Errorf(
+				"--cpu-pool is supported only on Ankra Cloud clusters; cluster %q is %s", clusterID, kind))
+		}
 		labelsFlag, _ := cmd.Flags().GetString("labels")
 		labels, labelsError := parseLabelsFlag(labelsFlag)
 		if labelsError != nil {
@@ -452,6 +469,7 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 			UserData:         userData,
 			DiskGibibytes:    diskGibibytes,
 			DiskTier:         diskTier,
+			CPUPool:          cpuPool,
 		}
 
 		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
@@ -915,6 +933,7 @@ func init() {
 			"pipeline pods placed with 'ankra cluster agent ci set --node-group'")
 	clusterNodeGroupAddCmd.Flags().Int("disk-gib", 0, "Root disk size in GiB of every server the group creates, scale-ups included (Ankra Cloud clusters only; default: the plan's included disk). Ankra Cloud refuses a size below the plan's and the template's minimum")
 	clusterNodeGroupAddCmd.Flags().String("disk-tier", "", "Storage tier of the root disk of every server the group creates, scale-ups included (Ankra Cloud clusters only): local-nvme (the node's own disks, the choice for CI nodes), standard, maxiops or hdd (the zone's Ankra Storage). Default: the zone's default tier")
+	clusterNodeGroupAddCmd.Flags().String("cpu-pool", "", "CPU pool of the cluster's zone every server the group creates is pinned to, scale-ups included (Ankra Cloud clusters only). Pick one with 'ankra cluster ankracloud cpu-pools --cluster <cluster>': a pool of x86-64 level 3 has AVX2, which images built with current Python, Rust or Go wheels may need (they crash with an illegal instruction, exit 132, on a lower level). Default: the Cloud places each server")
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("name")
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("instance-type")
 

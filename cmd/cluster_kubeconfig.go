@@ -364,6 +364,9 @@ func buildManagedEntries(targets []kubeTarget, names []string) ([]kubeconfig.Ent
 		if orgID != "" {
 			args = append(args, "--org", orgID)
 		}
+		if projectID := selectedProjectIDForLinks(); projectID != "" {
+			args = append(args, "--project", projectID)
+		}
 		entry, buildErr := kubeconfig.BuildExecEntry(names[index], server, kubeconfigExecCommand, args, kubeconfigNamespace, kubeconfigInsecure)
 		if buildErr != nil {
 			return nil, buildErr
