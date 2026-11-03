@@ -550,6 +550,16 @@ type CloudLedgerVerificationDay struct {
 // not_applicable for every other lever). Platforms that predate it do not
 // send them, and they stay absent in structured output rather than reading
 // as an empty verification.
+//
+// ApprovalExpired says whether the approval a change that never started
+// stands on has lapsed (cluster#5779): true when it was approved longer ago
+// than approvals last (seven days), so it approves nothing any more and its
+// expectation is left out of RunningTotalCents; false when the approval
+// stands or the change is running or ran; null for a right-size rollback
+// approved that long ago, whose approval may still stand (a rollback
+// confirmed to undo its right-size keeps it), which only the decision itself
+// can tell, and which the total leaves out too. A platform that predates the
+// field sends nothing, which is not false: Present tells the two apart.
 type CloudLedgerRow struct {
 	DecisionID           string                        `json:"decision_id" yaml:"decision_id"`
 	ClusterID            *string                       `json:"cluster_id" yaml:"cluster_id"`
@@ -557,6 +567,7 @@ type CloudLedgerRow struct {
 	Lever                string                        `json:"lever" yaml:"lever"`
 	Summary              string                        `json:"summary" yaml:"summary"`
 	Status               string                        `json:"status" yaml:"status"`
+	ApprovalExpired      OptionalBool                  `json:"approval_expired,omitzero" yaml:"approval_expired,omitempty"`
 	ExpectedMonthlyCents *int64                        `json:"expected_monthly_cents" yaml:"expected_monthly_cents"`
 	BaselineMonthlyCents *int64                        `json:"baseline_monthly_cents" yaml:"baseline_monthly_cents"`
 	MeasuredMonthlyCents *int64                        `json:"measured_monthly_cents" yaml:"measured_monthly_cents"`
@@ -576,7 +587,8 @@ type CloudLedgerRow struct {
 // measured rows over the whole ledger (never an expectation);
 // MeasuredThisMonthCents is the same sum over the rows measured in Month
 // (the current UTC calendar month, YYYY-MM); RunningTotalCents sums the
-// expectations of the changes approved, running or still verifying. The
+// expectations of the changes approved, running or still verifying, leaving
+// out an approval that lapsed or may have (CloudLedgerRow.ApprovalExpired). The
 // totals and counts cover every row even when Truncated says the row list
 // stopped at the newest ones.
 type CloudLedger struct {
