@@ -153,7 +153,7 @@ var morpheusStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, startError := apiClient.StartMorpheusCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd)})
+		result, startError := apiClient.StartMorpheusCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd), RestoreSnapshotID: restoreSnapshotIDFlag(cmd)})
 		if startError != nil {
 			return fmt.Errorf("starting cluster: %w", startError)
 		}
@@ -407,7 +407,7 @@ func init() {
 	_ = morpheusCreateCmd.MarkFlagRequired("worker-plan-id")
 
 	morpheusStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(morpheusStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(morpheusStartCmd)
 
 	for _, catalogCmd := range []*cobra.Command{morpheusGroupsCmd, morpheusCloudsCmd, morpheusPlansCmd, morpheusLayoutsCmd, morpheusNetworksCmd} {
 		catalogCmd.Flags().String("credential-id", "", "HPE Morpheus API credential ID (required)")

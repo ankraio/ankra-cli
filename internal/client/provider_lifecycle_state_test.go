@@ -30,6 +30,10 @@ func TestStartClusterOptionsQuery(t *testing.T) {
 		"scope":   {StartClusterOptions{Scope: "control_plane"}, "?scope=control_plane"},
 		"restore": {StartClusterOptions{RestoreState: &no}, "?restore_state=false"},
 		"both":    {StartClusterOptions{Scope: "all", RestoreState: &no}, "?restore_state=false&scope=all"},
+		"snapshot implies restore": {StartClusterOptions{RestoreSnapshotID: "6f1c2b3a-0d4e-4f5a-8b6c-7d8e9f0a1b2c"},
+			"?restore_snapshot_id=6f1c2b3a-0d4e-4f5a-8b6c-7d8e9f0a1b2c&restore_state=true"},
+		"snapshot keeps an explicit restore state": {StartClusterOptions{RestoreState: &no, RestoreSnapshotID: "6f1c2b3a-0d4e-4f5a-8b6c-7d8e9f0a1b2c"},
+			"?restore_snapshot_id=6f1c2b3a-0d4e-4f5a-8b6c-7d8e9f0a1b2c&restore_state=false"},
 	} {
 		if got := testCase.options.query(); got != testCase.want {
 			t.Errorf("%s: query = %q, want %q", name, got, testCase.want)

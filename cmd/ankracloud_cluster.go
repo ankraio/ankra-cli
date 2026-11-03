@@ -79,7 +79,7 @@ var ankraCloudStartCmd = &cobra.Command{
 			return withExitCode(exitUsage, fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope))
 		}
 
-		result, startError := apiClient.StartAnkraCloudCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command)})
+		result, startError := apiClient.StartAnkraCloudCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command), RestoreSnapshotID: restoreSnapshotIDFlag(command)})
 		if startError != nil {
 			return fmt.Errorf("starting Ankra Cloud cluster: %w", startError)
 		}
@@ -97,7 +97,7 @@ var ankraCloudStartCmd = &cobra.Command{
 
 func init() {
 	ankraCloudStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(ankraCloudStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(ankraCloudStartCmd)
 	ankraCloudStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and delete the servers instead of powering them off. The cluster's volumes are kept: only a deprovision deletes them")
 	registerThreeStateFlag(ankraCloudStopCmd, "preserve-state", preserveStateFlagUsage)
 	ankraCloudStopCmd.Flags().String("mode", "", stopModeFlagUsage)

@@ -113,6 +113,38 @@ func TestHetznerStartRestoreStateFlagIsThreeState(t *testing.T) {
 	}
 }
 
+func TestHetznerStartRestoreSnapshotIDFlagIsSentAndValidated(t *testing.T) {
+	const snapshotID = "6f1c2b3a-0d4e-4f5a-8b6c-7d8e9f0a1b2c"
+	t.Cleanup(func() {
+		_ = hetznerStartCmd.Flags().Set("restore-snapshot-id", "")
+		_ = hetznerStartCmd.Flags().Set("scope", "all")
+	})
+	mock := &hetznerStateMock{}
+	setMockClient(t, mock)
+	var executeError error
+	output := captureStdout(t, func() {
+		_, executeError = executeCommand("cluster", "hetzner", "start", testClusterID, "--restore-snapshot-id", snapshotID)
+	})
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if mock.startOptions == nil || mock.startOptions.RestoreSnapshotID != snapshotID {
+		t.Fatalf("start options = %+v, want restore snapshot %s", mock.startOptions, snapshotID)
+	}
+
+	invalid := &hetznerStateMock{}
+	setMockClient(t, invalid)
+	_ = captureStdout(t, func() {
+		_, executeError = executeCommand("cluster", "hetzner", "start", testClusterID, "--restore-snapshot-id", "not-a-snapshot")
+	})
+	if executeError == nil {
+		t.Fatal("expected a usage error for a snapshot id that is not a UUID")
+	}
+	if invalid.startOptions != nil {
+		t.Fatalf("no start may be requested with an invalid snapshot id: %+v", invalid.startOptions)
+	}
+}
+
 func TestHetznerStopModeFlagIsSentAndValidated(t *testing.T) {
 	t.Cleanup(func() {
 		_ = hetznerStopCmd.Flags().Set("mode", "")

@@ -326,7 +326,7 @@ var hetznerStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, startError := apiClient.StartHetznerCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd)})
+		result, startError := apiClient.StartHetznerCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd), RestoreSnapshotID: restoreSnapshotIDFlag(cmd)})
 		if startError != nil {
 			return fmt.Errorf("starting cluster: %w", startError)
 		}
@@ -719,7 +719,7 @@ func init() {
 	registerAsyncWriteFlags(nodeGroupDeleteCmd)
 
 	hetznerStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(hetznerStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(hetznerStartCmd)
 	hetznerStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's load balancers. The cluster's CSI volumes are kept and keep billing while stopped: only a deprovision deletes them")
 	registerThreeStateFlag(hetznerStopCmd, "preserve-state", preserveStateFlagUsage)
 	hetznerStopCmd.Flags().String("mode", "", stopModeFlagUsage)
