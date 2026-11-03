@@ -167,6 +167,14 @@ type CostReadiness struct {
 // unallocated) are HOURLY cents; the monthly, month-to-date and projected
 // totals are already monthly. MonthHours is the hours of the month the
 // month to date holds; nil when the platform did not count them.
+//
+// The *MonthlyCents fields are the same components over a month
+// (ankra-bn86k4.4.23), from the full-precision hourly figures: the six
+// compute, storage, network, control plane and infrastructure parts add up
+// to MonthlyCostEstimateCents, and a part under a cent an hour, which reads
+// 0 in the hourly fields, keeps its month. Idle and unallocated overlap the
+// others and are rounded on their own. Each is nil when the platform did not
+// send it (a platform before that change).
 type ClusterCostSummary struct {
 	Provider                 string      `json:"provider" yaml:"provider"`
 	Currency                 string      `json:"currency" yaml:"currency"`
@@ -194,6 +202,15 @@ type ClusterCostSummary struct {
 	UnpricedVolumeCount      int         `json:"unpriced_volume_count" yaml:"unpriced_volume_count"`
 	AppliedDiscountPct       float64     `json:"applied_discount_pct" yaml:"applied_discount_pct"`
 	MonthHours               *MonthHours `json:"month_hours,omitempty" yaml:"month_hours,omitempty"`
+
+	ComputeOnDemandMonthlyCents *int64 `json:"compute_on_demand_monthly_cents,omitempty" yaml:"compute_on_demand_monthly_cents,omitempty"`
+	ComputeSpotMonthlyCents     *int64 `json:"compute_spot_monthly_cents,omitempty" yaml:"compute_spot_monthly_cents,omitempty"`
+	StorageMonthlyCents         *int64 `json:"storage_monthly_cents,omitempty" yaml:"storage_monthly_cents,omitempty"`
+	NetworkMonthlyCents         *int64 `json:"network_monthly_cents,omitempty" yaml:"network_monthly_cents,omitempty"`
+	ControlPlaneMonthlyCents    *int64 `json:"control_plane_monthly_cents,omitempty" yaml:"control_plane_monthly_cents,omitempty"`
+	InfrastructureMonthlyCents  *int64 `json:"infrastructure_monthly_cents,omitempty" yaml:"infrastructure_monthly_cents,omitempty"`
+	IdleMonthlyCents            *int64 `json:"idle_monthly_cents,omitempty" yaml:"idle_monthly_cents,omitempty"`
+	UnallocatedMonthlyCents     *int64 `json:"unallocated_monthly_cents,omitempty" yaml:"unallocated_monthly_cents,omitempty"`
 }
 
 // CostTrendPoint is one day of the monthly estimate series.
