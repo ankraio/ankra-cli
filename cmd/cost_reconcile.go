@@ -35,11 +35,12 @@ reported apart, since the estimate carries neither.
 Nothing unknown reads as agreement. A credential no billing document was
 imported for is unknown, not zero; a failed import says why. A difference is
 stated only when the provider's figures are final, and then only over the
-clusters metered for every hour they existed that month, never as the
-accuracy of the whole invoice: the Difference covers column says how many of
-the invoice's clusters that is, and what share of the billed amount and of
-their hours. When no cluster qualifies, or the share is too small, no
-difference is stated and the reason is shown. Billed lines no cluster could
+clusters the metering covered for the hours they existed that month (a missed
+hour or so is allowed), never as the accuracy of the whole invoice: the
+Difference covers column says how many of the invoice's clusters that is,
+the share of the billed amount they hold, and the share of all the named
+clusters' hours that was metered for them. When no cluster qualifies, or the
+share is too small, no difference is stated and the reason is shown. Billed lines no cluster could
 be placed on are counted with their amount.
 
 --month reads a UTC calendar month as YYYY-MM (the last closed month when
@@ -211,7 +212,9 @@ func costReconcileDifference(credential client.CostReconciliationCredential) str
 
 // costReconcileCoverage is the Difference covers column: how many of the
 // clusters the invoice's lines are placed on the difference is taken over,
-// and what share of the billed amount and of their hours those hold. A
+// the share of the billed amount they hold, and the share of every named
+// cluster's hours that was metered for them (under 100 when the platform
+// allowed a missed hour, or left a cluster out). A
 // share the platform could not give reads unknown, never 0%. A platform
 // that predates the field said nothing, which is not the same as saying no
 // cluster qualified.

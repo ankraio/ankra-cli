@@ -53,9 +53,11 @@ type CostReconciliationCluster struct {
 }
 
 // CostReconciliationCoverage is what a credential's difference speaks for:
-// the clusters on its invoice that were metered for every hour they existed
-// and have a priced estimate. The difference is taken over these clusters
-// alone, never over the whole invoice. A nil share is unknown, never 0%:
+// the clusters on its invoice that have a priced estimate and were metered
+// for the hours they existed (the platform allows a missed hour or so). The
+// difference is taken over these clusters alone, never over the whole
+// invoice. HoursSharePct is their metered hours as a share of the hours
+// every named cluster existed. A nil share is unknown, never 0%:
 // InvoiceSharePct is nil when the invoice total is not positive, and
 // HoursSharePct when a named cluster's record is gone.
 type CostReconciliationCoverage struct {
