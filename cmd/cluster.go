@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"time"
@@ -71,6 +72,27 @@ func resolveCloudProviderNetworking(cmd *cobra.Command) (externalCloudProvider b
 		includeNetworking = false
 	}
 	return externalCloudProvider, includeNetworking, nil
+}
+
+// registerGatewayAPIFlag adds --gateway-api to the self-managed create
+// commands. It is off by default and opt-in: the networking stack's Traefik
+// then also serves the Kubernetes Gateway API next to Ingress.
+func registerGatewayAPIFlag(cmds ...*cobra.Command) {
+	for _, cmd := range cmds {
+		cmd.Flags().Bool("gateway-api", false, "Also serve the Kubernetes Gateway API from the networking stack's Traefik, next to Ingress: installs the Gateway API CRDs, a GatewayClass named traefik and a shared Gateway named traefik-gateway (HTTP on Traefik's web entry point, routes from every namespace), and external-dns publishes HTTPRoute hostnames. Requires the networking stack (default off)")
+	}
+}
+
+// resolveGatewayAPI reads --gateway-api against whether the create installs
+// the networking stack. The Gateway API is served by the Traefik that stack
+// installs, so asking for it without the stack is a usage error here, before
+// any request is sent, rather than the platform's 400 after it.
+func resolveGatewayAPI(cmd *cobra.Command, includeNetworking bool) (bool, error) {
+	gatewayAPI, _ := cmd.Flags().GetBool("gateway-api")
+	if gatewayAPI && !includeNetworking {
+		return false, withExitCode(exitUsage, errors.New("--gateway-api requires the networking stack: the Gateway API is served by the Traefik it installs. Drop --include-networking=false (and --external-cloud-provider=false, which turns networking off), or drop --gateway-api"))
+	}
+	return gatewayAPI, nil
 }
 
 // resolveClusterArg turns a positional cluster argument into the id the

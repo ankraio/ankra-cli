@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`--gateway-api` on the self-managed cluster create commands.** `ankra cluster hetzner create`, and the OVHcloud, UpCloud, DigitalOcean, Scaleway, AWS, Ankra Cloud, Proxmox and Morpheus create commands, take `--gateway-api` to have the networking stack's Traefik also serve the Kubernetes Gateway API next to Ingress. The cluster gets the Gateway API CRDs, a GatewayClass named `traefik` and a shared Gateway named `traefik-gateway`, and external-dns publishes HTTPRoute hostnames the way it publishes Ingress ones. It is off by default, and a create without it sends the same request as before. It needs the networking stack: `--gateway-api` together with `--include-networking=false` (or `--external-cloud-provider=false`, which turns networking off) exits 2 before anything is sent. It is chosen at create time only for now, and needs a platform that accepts the option.
+
 ### Fixed
 
 - **`ankra cost cluster` shows a component under a cent an hour at its real monthly figure.** The run rate by component multiplied each whole-cent hourly figure by 730, so a part that costs less than a cent an hour, such as a stopped cluster's volumes, read `0.00` a month, and the components could miss the monthly run rate by a few cents. Once the platform sends each component over a month, computed from its full-precision hourly price, the table reads those figures, and the compute, storage, network, control plane and bastion lines add up to the run rate. On a platform that does not send them yet, the table reads as before. `-o json` and `-o yaml` print the platform's response as sent, unchanged.

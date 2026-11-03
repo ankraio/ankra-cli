@@ -42,6 +42,10 @@ var digitaloceanCreateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		gatewayAPI, err := resolveGatewayAPI(cmd, includeNetworking)
+		if err != nil {
+			return err
+		}
 		includeDNS, _ := cmd.Flags().GetBool("include-dns")
 		gitopsCredentialName, _ := cmd.Flags().GetString("gitops-credential-name")
 		gitopsRepository, _ := cmd.Flags().GetString("gitops-repository")
@@ -65,6 +69,7 @@ var digitaloceanCreateCmd = &cobra.Command{
 			EtcdSize:              etcdSize,
 			ExternalCloudProvider: externalCloudProvider,
 			IncludeNetworking:     includeNetworking,
+			GatewayAPI:            gatewayAPI,
 			IncludeDNS:            includeDNS,
 		}
 		if kubeVersion != "" {
@@ -661,6 +666,7 @@ func init() {
 	digitaloceanCreateCmd.Flags().Bool("external-cloud-provider", true, "Install the DigitalOcean CCM and CSI (cloud-provider=external) for LoadBalancers and persistent volumes (default on; pass --external-cloud-provider=false to skip, which also disables --include-networking)")
 	digitaloceanCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
 	registerIncludeDNSFlag(digitaloceanCreateCmd)
+	registerGatewayAPIFlag(digitaloceanCreateCmd)
 	registerClusterClassificationFlags(digitaloceanCreateCmd)
 	digitaloceanCreateCmd.Flags().String("gitops-credential-name", "", "GitOps GitHub credential name; when set with --gitops-repository, the generated digitalocean-cloud-provider stack is committed to Git (optional)")
 	digitaloceanCreateCmd.Flags().String("gitops-repository", "", "GitOps repository (e.g. org/repo) to commit the generated stack to (optional)")

@@ -44,6 +44,10 @@ var upcloudCreateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		gatewayAPI, err := resolveGatewayAPI(cmd, includeNetworking)
+		if err != nil {
+			return err
+		}
 		includeDNS, _ := cmd.Flags().GetBool("include-dns")
 		gitopsCredentialName, _ := cmd.Flags().GetString("gitops-credential-name")
 		gitopsRepository, _ := cmd.Flags().GetString("gitops-repository")
@@ -70,6 +74,7 @@ var upcloudCreateCmd = &cobra.Command{
 			EtcdPlan:              etcdPlan,
 			ExternalCloudProvider: externalCloudProvider,
 			IncludeNetworking:     includeNetworking,
+			GatewayAPI:            gatewayAPI,
 			IncludeDNS:            includeDNS,
 		}
 		if kubeVersion != "" {
@@ -667,6 +672,7 @@ func init() {
 	upcloudCreateCmd.Flags().String("cni", "", "CNI plugin: flannel, calico, or cilium (optional; the platform default is used when omitted)")
 	upcloudCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
 	registerIncludeDNSFlag(upcloudCreateCmd)
+	registerGatewayAPIFlag(upcloudCreateCmd)
 	registerClusterClassificationFlags(upcloudCreateCmd)
 	upcloudCreateCmd.Flags().String("gitops-credential-name", "", "GitOps GitHub credential name; when set with --gitops-repository, the generated upcloud-cloud-provider stack is committed to Git (optional)")
 	upcloudCreateCmd.Flags().String("gitops-repository", "", "GitOps repository (e.g. org/repo) to commit the generated stack to (optional)")

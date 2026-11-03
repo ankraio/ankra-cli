@@ -37,6 +37,7 @@ type CreateProxmoxClusterRequest struct {
 	// for the overlay; required with wireguard_mesh.
 	SitePublicIP      string  `json:"site_public_ip,omitempty"`
 	IncludeNetworking bool    `json:"include_networking"`
+	GatewayAPI        bool    `json:"gateway_api,omitempty"`
 	IncludeDNS        bool    `json:"include_dns"`
 	Environment       *string `json:"environment,omitempty"`
 	Criticality       *string `json:"criticality,omitempty"`

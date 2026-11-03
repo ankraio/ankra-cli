@@ -49,6 +49,7 @@ type CreateScalewayClusterRequest struct {
 	GitopsRepository     *string               `json:"gitops_repository,omitempty"`
 	GitopsBranch         *string               `json:"gitops_branch,omitempty"`
 	IncludeNetworking    *bool                 `json:"include_networking,omitempty"`
+	GatewayAPI           bool                  `json:"gateway_api,omitempty"`
 	IncludeDNS           *bool                 `json:"include_dns,omitempty"`
 	RetentionPolicy      string                `json:"retention_policy,omitempty"`
 	Environment          *string               `json:"environment,omitempty"`

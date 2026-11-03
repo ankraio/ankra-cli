@@ -232,6 +232,12 @@ func ankraCloudCreateRequestFromFlags(cmd *cobra.Command) (client.CreateAnkraClo
 		includeNetworking, _ := cmd.Flags().GetBool("include-networking")
 		request.IncludeNetworking = &includeNetworking
 	}
+	installsNetworking, _ := cmd.Flags().GetBool("include-networking")
+	gatewayAPI, gatewayAPIError := resolveGatewayAPI(cmd, installsNetworking)
+	if gatewayAPIError != nil {
+		return client.CreateAnkraCloudClusterRequest{}, gatewayAPIError
+	}
+	request.GatewayAPI = gatewayAPI
 	if cmd.Flags().Changed("include-dns") {
 		includeDNS, _ := cmd.Flags().GetBool("include-dns")
 		request.IncludeDNS = &includeDNS
@@ -808,6 +814,7 @@ func registerAnkraCloudCreateFlags(commands ...*cobra.Command) {
 		command.Flags().String("worker-disk-tier", "", ankraCloudDiskTierUsage("Worker"))
 		command.Flags().Bool("include-networking", true, "Provision the networking stack")
 		command.Flags().Bool("include-dns", true, "Provision the DNS zone")
+		registerGatewayAPIFlag(command)
 		for _, required := range []string{"name", "credential-id", "ssh-key-credential-id", "zone", "bastion-plan", "control-plane-plan"} {
 			_ = command.MarkFlagRequired(required)
 		}
