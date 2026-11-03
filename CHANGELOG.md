@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## v0.58.0 - 2026-11-03
+
+This release makes `ankra cluster stacks clone --with-data` say why no data
+was carried instead of blaming an old platform, and warns that deploying the
+draft it left would start its databases empty. `ankra org access-policy`
+commands now name the organisation they read or proposed for.
+
+`ankra pipeline get -o json|yaml` now prints the run as the platform sent it.
+Scripts reading `-o json` get more fields, and a field the platform does not
+send is left out rather than printed as `null` or `""`. **Scripts reading
+`-o yaml` need new key names:** the old output used lowercased field names
+under `pipelinerun` (`pipelinerun.runid`, `queuereason`), and the keys are now
+the same snake_case names as `-o json` at the top level (`run_id`,
+`queue_reason`). Installing this release changes nothing on any cluster or
+workload.
+
 ### Fixed
 
 - **`ankra cluster stacks clone --with-data` says why no data was carried.** When the platform cloned a stack's configuration but could carry none of the selected data, the command exited nonzero claiming the platform predated clone-with-data, even though the platform had answered with its reasons in `data_warnings` (for example, a database whose owning member the clone could not rewrite). Those reasons were only visible with `-o json`. The error now lists them, names the draft that was created, and warns that deploying that draft would start its databases empty. The printed result above it no longer says `Stack cloned successfully!` or suggests `deploy-draft`, which contradicted that warning. The old diagnosis is kept only for a platform that names no run and gives no reason.
