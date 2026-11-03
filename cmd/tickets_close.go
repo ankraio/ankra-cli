@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"ankra/internal/client"
 
@@ -116,12 +117,25 @@ func readDuplicateKeeper(ticketID string) (*client.TicketLink, error) {
 		if links.Links[index].Relation == "duplicate_of" {
 			// The newest one is this close's: an older duplicate_of the
 			// ticket already held must not be named as its result.
-			if keeper == nil || links.Links[index].CreatedAt >= keeper.CreatedAt {
+			if keeper == nil || !linkCreatedBefore(links.Links[index], *keeper) {
 				keeper = &links.Links[index]
 			}
 		}
 	}
 	return keeper, nil
+}
+
+// linkCreatedBefore reports whether a was created strictly before b. Both
+// timestamps are parsed, so fractional seconds and mixed offsets order
+// correctly; when either does not parse, neither is called older and the
+// later one in the platform's order wins.
+func linkCreatedBefore(a, b client.TicketLink) bool {
+	first, firstError := time.Parse(time.RFC3339Nano, a.CreatedAt)
+	second, secondError := time.Parse(time.RFC3339Nano, b.CreatedAt)
+	if firstError != nil || secondError != nil {
+		return false
+	}
+	return first.Before(second)
 }
 
 // reportDuplicateKeeper names the keeper the closed ticket now points at.

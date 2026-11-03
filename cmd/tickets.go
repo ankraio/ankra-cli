@@ -354,12 +354,13 @@ func resolveTicketReference(reference string) (*client.Ticket, error) {
 	byNumber := everyTicket
 	byNumber.Search = "T-" + strconv.FormatInt(number, 10)
 	byNumber.Limit = 50
-	searched, searchError := apiClient.ListTickets(byNumber)
-	if searchError != nil {
-		return nil, searchError
-	}
-	if found := ticketWithNumber(searched.Tickets, number); found != nil {
-		return found, nil
+	// A search that fails (a transient 5xx, a platform that rejects the
+	// parameter) is not the answer: the walk below needs no search support,
+	// and it returns its own error when the platform is really down.
+	if searched, searchError := apiClient.ListTickets(byNumber); searchError == nil {
+		if found := ticketWithNumber(searched.Tickets, number); found != nil {
+			return found, nil
+		}
 	}
 	const pageSize = 200
 	const pageCap = 10

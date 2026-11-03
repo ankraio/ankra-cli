@@ -77,8 +77,11 @@ which closes it and links it to the keeper in one step.`,
 		relation, _ := cmd.Flags().GetString("relation")
 		kind = strings.TrimSpace(kind)
 		target := strings.TrimSpace(args[1])
-		if kind == "" || target == "" {
-			return withExitCode(exitUsage, errors.New("name the target and its --kind"))
+		if kind == "" {
+			return withExitCode(exitUsage, errors.New("--kind must not be empty"))
+		}
+		if target == "" {
+			return withExitCode(exitUsage, errors.New("name the target to link to"))
 		}
 		ticket, err := resolveTicketReference(args[0])
 		if err != nil {
