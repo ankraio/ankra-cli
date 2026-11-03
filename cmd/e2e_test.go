@@ -1866,6 +1866,10 @@ func (m baseMock) GetStateSnapshotRetention(context.Context, string) (*client.St
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetLatestStateSnapshot(string, string) (*client.LatestStateSnapshotResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) SetStateSnapshotRetention(context.Context, string, int) (*client.StateSnapshotRetention, error) {
 	return nil, errors.New("not implemented")
 }
