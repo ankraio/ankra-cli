@@ -813,11 +813,15 @@ func fleetCostCredentialLabel(credential client.FleetCredentialCost) string {
 
 // fleetCostScopeLine says which project the rollup covered, or "" for a
 // platform that reported no scope. A partial scope is said in words: every
-// figure above it is a floor.
+// figure above it is a floor. It is said even when the scope names no
+// project, because a cut-short rollup without it reads as the whole one.
 func fleetCostScopeLine(scope *client.FleetCostScope) string {
 	label := costScopeLabel(scope)
 	if label == "" {
-		return ""
+		if scope == nil || !scope.Partial {
+			return ""
+		}
+		return "Scope: partial, only the clusters you may read are counted, so every figure is a floor"
 	}
 	line := "Scope: " + label
 	if scope.Partial {

@@ -447,11 +447,16 @@ func renderCostAutopilot(out io.Writer, policy *client.CostAutopilotPolicy) {
 
 // costAutopilotScopeLine says whose clusters the list below it holds, or ""
 // when the platform did not say (one that lists the whole organisation).
-// The policy above it is the organisation's in every scope.
+// The policy above it is the organisation's in every scope. A list the
+// caller's cluster permissions cut short says so even when the scope names
+// no project, because without it the list reads as complete.
 func costAutopilotScopeLine(scope *client.FleetCostScope) string {
 	label := costScopeLabel(scope)
 	if label == "" {
-		return ""
+		if scope == nil || !scope.Partial {
+			return ""
+		}
+		return "Clusters: partial, only the clusters you may read are listed"
 	}
 	line := "Clusters of " + label
 	if scope.Partial {

@@ -225,6 +225,38 @@ func TestCostAutopilotGetReadsTheProjectScope(t *testing.T) {
 	}
 }
 
+// TestAPartialScopeIsSaidEvenWhenItNamesNoProject pins the review finding on
+// ankra-bn86k4.13: a scope the caller's cluster permissions cut short is said
+// on both the autopilot list and the fleet rollup even when the platform
+// names no project for it, since without the line a partial list reads as
+// complete. A scope that is whole and unnamed, or absent, still says nothing.
+func TestAPartialScopeIsSaidEvenWhenItNamesNoProject(t *testing.T) {
+	for _, scenario := range []struct {
+		name          string
+		scope         *client.FleetCostScope
+		wantAutopilot string
+		wantFleet     string
+	}{
+		{"no scope", nil, "", ""},
+		{"whole and unnamed", &client.FleetCostScope{}, "", ""},
+		{"partial and unnamed", &client.FleetCostScope{Partial: true},
+			"Clusters: partial, only the clusters you may read are listed",
+			"Scope: partial, only the clusters you may read are counted, so every figure is a floor"},
+		{"partial and named", &client.FleetCostScope{ProjectName: autopilotPointer("payments"), Partial: true},
+			"Clusters of project payments (partial: only the clusters you may read are listed)",
+			"Scope: project payments (partial: only the clusters you may read are counted, so every figure is a floor)"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			if got := costAutopilotScopeLine(scenario.scope); got != scenario.wantAutopilot {
+				t.Errorf("autopilot line = %q, want %q", got, scenario.wantAutopilot)
+			}
+			if got := fleetCostScopeLine(scenario.scope); got != scenario.wantFleet {
+				t.Errorf("fleet line = %q, want %q", got, scenario.wantFleet)
+			}
+		})
+	}
+}
+
 func TestCostAutopilotGetForAPolicyNeverSet(t *testing.T) {
 	policy := costAutopilotFixture()
 	policy.IsSet = false
