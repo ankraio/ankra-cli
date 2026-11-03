@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"regexp"
 	"time"
@@ -90,7 +89,11 @@ func registerGatewayAPIFlag(cmds ...*cobra.Command) {
 func resolveGatewayAPI(cmd *cobra.Command, includeNetworking bool) (bool, error) {
 	gatewayAPI, _ := cmd.Flags().GetBool("gateway-api")
 	if gatewayAPI && !includeNetworking {
-		return false, withExitCode(exitUsage, errors.New("--gateway-api requires the networking stack: the Gateway API is served by the Traefik it installs. Drop --include-networking=false (and --external-cloud-provider=false, which turns networking off), or drop --gateway-api"))
+		drop := "--include-networking=false"
+		if cmd.Flags().Lookup("external-cloud-provider") != nil {
+			drop += " (and --external-cloud-provider=false, which turns networking off)"
+		}
+		return false, withExitCode(exitUsage, fmt.Errorf("--gateway-api requires the networking stack: the Gateway API is served by the Traefik it installs. Drop %s, or drop --gateway-api", drop))
 	}
 	return gatewayAPI, nil
 }
