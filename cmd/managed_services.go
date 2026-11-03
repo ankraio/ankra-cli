@@ -20,18 +20,18 @@ import (
 // Valkey, OpenSearch, VictoriaMetrics and the other engines Ankra offers as
 // reviewed, health-checked services on a customer's cluster.
 //
-// They mirror the platform's two-step safety. Setting a service up and
-// retiring one each prepare a review first (a stored plan with a digest,
-// which changes nothing), show it, and only then confirm it by that digest,
-// which is the one call with an effect. Nothing here confirms on its own: a
-// confirmation needs a yes at the prompt or --yes, and a retirement also
-// needs --acknowledge-data-loss.
+// They mirror the platform's two-step safety. Setting a service up,
+// retiring one and disconnecting an application from one each prepare a
+// review first (a stored plan with a digest, which changes nothing), show it,
+// and only then confirm it by that digest, which is the one call with an
+// effect. Nothing here confirms on its own: a confirmation needs a yes at the
+// prompt or --yes, and a retirement also needs --acknowledge-data-loss.
 
 func newServicesCommand() *cobra.Command {
 	servicesCommand := &cobra.Command{
 		Use:     "services",
 		Aliases: []string{"service"},
-		Short:   "Set up, inspect and retire managed services (PostgreSQL, Valkey, OpenSearch, ...)",
+		Short:   "Set up, inspect, disconnect and retire managed services (PostgreSQL, Valkey, OpenSearch, ...)",
 		Long: `Set up, inspect and retire managed services: PostgreSQL, Valkey, OpenSearch,
 VictoriaMetrics, VictoriaLogs and the other engines in the service catalogue,
 run on your own cluster as reviewed, health-checked platform services.
@@ -46,12 +46,15 @@ A service is set up in three steps:
 Declaring where a cluster is ('ankra services policy set') is optional: do it
 when services must keep data within a data boundary.
 
-Setup and retirement are two-step on the platform. A review is prepared
-first: the platform resolves a plan, stores it with a digest for ten minutes,
-and changes nothing. The plan is shown, and only confirming it by its digest
-sets the service up or removes it. Every confirmation asks first; --yes skips
-the question for scripts. Retiring a service deletes its data, so delete also
-needs --acknowledge-data-loss.
+Setup, retirement and disconnecting an application are two-step on the
+platform. A review is prepared first: the platform resolves a plan, stores it
+with a digest for ten minutes, and changes nothing. The plan is shown, and
+only confirming it by its digest sets the service up, removes it or
+disconnects the application. Every confirmation asks first; --yes skips the
+question for scripts. Retiring a service deletes its data, so delete also
+needs --acknowledge-data-loss. 'ankra services disconnect' takes one
+application off a service that keeps running for the others, and deletes
+nothing.
 
 An application namespace on the service's own cluster receives the connection
 once the service is running: a <service>-connection Secret in its namespace,
@@ -72,12 +75,14 @@ Credential values are never shown; they stay in the cluster.`,
   ankra services setup orders-db --package postgresql --cluster prod --consumer 5b1f0c7e-...
   ankra services list
   ankra services get orders-db
+  ankra services disconnect orders-db --application storefront
   ankra services delete orders-db --acknowledge-data-loss`,
 	}
 	servicesCommand.AddCommand(newServicesListCommand())
 	servicesCommand.AddCommand(newServicesGetCommand())
 	servicesCommand.AddCommand(newServicesSetupCommand())
 	servicesCommand.AddCommand(newServicesDeleteCommand())
+	servicesCommand.AddCommand(newServicesDisconnectCommand())
 	servicesCommand.AddCommand(newServicesPackagesCommand())
 	servicesCommand.AddCommand(newServicesPolicyCommand())
 	servicesCommand.AddCommand(newServicesConsumersCommand())
@@ -571,8 +576,8 @@ func newServicesGetCommand() *cobra.Command {
 		Long: `Show one managed service by name or id: its package, cluster and location, its
 deployment state, health and readiness with the evidence behind each, how it
 is reached (endpoints and the Secret holding its credentials), the consumers
-it was set up for with how each receives the connection, and the latest
-retirement if one was confirmed.
+it was set up for with how each receives the connection, the applications
+being disconnected from it, and the latest retirement if one was confirmed.
 
 A consumer on the service's cluster receives the connection as a
 <service>-connection Secret in its namespace, read as environment variables,
@@ -597,6 +602,17 @@ A value not listed here comes from a newer platform and is shown as sent.
 "Defined twice" lists the connection's variables that the application's
 workloads also get from another source. Ankra holds back a connection that
 is not delivered yet until that is resolved; the delivery reason says how.
+
+An application being disconnected ('ankra services disconnect') is no longer
+one of the consumers; until the disconnection finishes it is listed under
+Disconnecting, with its phase:
+  draining   Ankra keeps the connection Secret until no pod and no deployed
+             workload reads it; a deploy of the application rolls the
+             workloads Ankra attached it to
+  removing   the connection Secret is being removed
+  revoking   the namespace's access to the service's port is being removed,
+             where the review said it would be
+A phase not listed here comes from a newer platform and is shown as sent.
 
 The connection names the Secret and its keys only. Credential values are never
 shown here; they stay in the cluster.
@@ -706,6 +722,7 @@ func printServiceInstance(out io.Writer, names *serviceNames, instance client.Se
 			printServiceConnectionDelivery(out, consumer.ConnectionDelivery)
 		}
 	}
+	printServiceDisconnectionsInProgress(out, names, instance.Disconnections)
 
 	if instance.Retirement != nil {
 		retirement := instance.Retirement

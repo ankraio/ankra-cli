@@ -341,6 +341,49 @@ func TestCostEventsFitsA100ColumnTerminal(t *testing.T) {
 	}
 }
 
+// TestCostEventsNamesAMeteringGapInPlainWords pins delta_status metering_gap
+// (ankra-bn86k4.8.17): the cluster was not priced for some hours inside the
+// event's window, so the platform sends neither delta. The row says why the
+// move is unknown in plain words, never the generic "(metering gap)"
+// qualifier and never a figure, even one the platform should not have sent,
+// and the table still fits a 100-column terminal.
+func TestCostEventsNamesAMeteringGapInPlainWords(t *testing.T) {
+	note := "The cluster was not priced for some of the hours between the priced hour before this event and the first one after it, so its move cannot be told apart from the cluster leaving or entering pricing: unknown, not zero."
+	start := client.CostEvent{At: "2026-10-21T07:00:00Z", Day: "2026-10-21", Kind: "power_manual",
+		ClusterID: trendString("66666666-6666-4666-8666-666666666666"), ClusterName: trendString("staging-eu"),
+		Subject: "Start", DeltaStatus: "metering_gap", Note: note}
+	figured := start
+	figured.WindowDeltaMonthlyCents = trendCents(80_000)
+	for name, event := range map[string]client.CostEvent{"as sent": start, "with a stray window move": figured} {
+		if got, want := costEventMove(event, "usd"), "unknown (not priced for part of the window)"; got != want {
+			t.Fatalf("%s: metering_gap move = %q, want %q", name, got, want)
+		}
+	}
+
+	events := &client.CostEvents{Currency: "usd", GeneratedAt: "2026-10-24T06:00:00Z", Days: 30,
+		Events:  []client.CostEvent{start},
+		Sources: []client.CostEventSource{{Kind: "power_manual", Available: true}}}
+	output, executeError := runCostTrendCommand(t, &costTrendMock{events: events}, "cost", "events")
+	if executeError != nil {
+		t.Fatalf("cost events failed: %v", executeError)
+	}
+	// The move cell wraps at 20 columns: "unknown (not priced" / "for part of the" / "window)".
+	for _, expected := range []string{"unknown (not priced", "for part of the", "window)",
+		"↳ The cluster was not priced for some of the hours"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output lacks %q:\n%s", expected, output)
+		}
+	}
+	if strings.Contains(output, "(metering gap)") || strings.Contains(output, "$0.00") {
+		t.Fatalf("a metering gap must read in plain words with no move:\n%s", output)
+	}
+	for _, line := range strings.Split(strings.TrimRight(output, "\n"), "\n") {
+		if width := text.StringWidthWithoutEscSequences(line); strings.HasPrefix(line, "│") && width > 100 {
+			t.Fatalf("table line is %d columns wide, over 100: %q\n%s", width, line, output)
+		}
+	}
+}
+
 // TestCostEventsNamesAContradictedStartOrStop pins delta_status
 // contradicted (ankra-bn86k4.8.16): a start alone in a window whose run rate
 // fell, or a stop alone in one whose run rate rose, did not make that move.

@@ -65,12 +65,21 @@ type Client struct {
 const defaultSlowWriteTimeout = 5 * time.Minute
 
 // scopeOverrideTransport injects the organisation and project override
-// headers on every request routed through the client, so no individual call
-// site needs to be aware of either override.
+// headers, and the client attribution headers (attribution.go), on every
+// request routed through the client, so no individual call site needs to be
+// aware of either. Every transport that talks to the Ankra API is one of
+// these.
 type scopeOverrideTransport struct {
 	base      http.RoundTripper
 	orgID     *string
 	projectID *string
+	// baseURL is the client's API base URL. The attribution headers go only
+	// to its host, so a redirect to another host, or a caller handing this
+	// client a presigned storage or GitHub URL, sends none of them.
+	baseURL *string
+	// lookupEnvironment reads the environment the agent is detected from;
+	// nil is os.Getenv.
+	lookupEnvironment func(string) string
 }
 
 func (t *scopeOverrideTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -82,10 +91,10 @@ func (t *scopeOverrideTransport) RoundTrip(req *http.Request) (*http.Response, e
 	if t.projectID != nil {
 		projectID = *t.projectID
 	}
-	if organisationID == "" && projectID == "" {
-		return t.base.RoundTrip(req)
-	}
 	clone := req.Clone(req.Context())
+	if t.isAPIRequest(clone.URL) {
+		applyClientAttribution(clone.Header, t.environment())
+	}
 	if organisationID != "" {
 		clone.Header.Set(orgOverrideHeader, organisationID)
 	}
@@ -117,6 +126,7 @@ func New(token, baseURL string) *Client {
 		},
 		orgID:     &c.orgOverride,
 		projectID: &c.projectOverride,
+		baseURL:   &c.BaseURL,
 	}
 	c.HTTP = &http.Client{
 		Timeout:   5 * time.Minute,
@@ -185,6 +195,7 @@ func (c *Client) httpClientForSlowWrite() *http.Client {
 		base:      &tokenExpiryTransport{base: slowWriteBase, warning: c.tokenExpiryWarning},
 		orgID:     &c.orgOverride,
 		projectID: &c.projectOverride,
+		baseURL:   &c.BaseURL,
 	}
 	timeout := c.slowWriteTimeout
 	if timeout <= 0 {

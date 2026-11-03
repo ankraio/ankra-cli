@@ -80,11 +80,18 @@ type ObjectCostWaste struct {
 // several clusters, the fewest hours any metered cluster covered. Both are
 // absent from a platform that predates them (cluster#5617), so Partial
 // tells absent from false and HoursMetered is nil there.
+//
+// Incomplete is true when Cents is short of an hour the day had already had
+// (a missed metering pass longer than the platform's 3-hour backfill, a
+// stopped or unpriced hour, the cluster's creation day), so Cents is a floor
+// of the day, never its whole and never a drop in spend
+// (ankra-bn86k4.4.8). Absent from a platform that predates it.
 type ObjectCostDay struct {
 	Date            string       `json:"date" yaml:"date"`
 	Cents           *int64       `json:"cents" yaml:"cents"`
 	Partial         OptionalBool `json:"partial,omitzero" yaml:"partial,omitempty"`
 	HoursMetered    *int         `json:"hours_metered,omitempty" yaml:"hours_metered,omitempty"`
+	Incomplete      OptionalBool `json:"incomplete,omitzero" yaml:"incomplete,omitempty"`
 	ClustersMetered int          `json:"clusters_metered" yaml:"clusters_metered"`
 	ClustersTotal   int          `json:"clusters_total" yaml:"clusters_total"`
 }

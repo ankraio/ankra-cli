@@ -16,13 +16,51 @@ import (
 // train puts green pull requests in by itself, and AutoAdmitBy and
 // AutoAdmitSince name who switched it to that mode and when. A platform older
 // than auto-admit sends none of the three, and AutoAdmit is then empty.
+//
+// AutoAdmitCriterion says what auto-admit waits for before it admits a pull
+// request (cluster ankra-q573dh.79.2), one of PipelineMergeTrainCriteria.
+// AutoAdmitProtectedPaths are the patterns that keep the green rule at ready,
+// the effective list whichever way it was set, and
+// AutoAdmitProtectedPathsIsDefault says the list is the platform's default. A
+// platform older than the criterion sends none of the three: the criterion is
+// then empty and the two pointers nil, which is "not reported", never "green"
+// or "nothing protected". The list is a pointer so that an empty one, which
+// protects nothing, survives into -o json as [] rather than being omitted.
 type PipelineMergeTrainSettings struct {
-	Enabled        bool    `json:"enabled"`
-	MaxCars        int     `json:"max_cars"`
-	AutoAdmit      string  `json:"auto_admit,omitempty"`
-	AutoAdmitBy    *string `json:"auto_admit_by,omitempty"`
-	AutoAdmitSince *string `json:"auto_admit_since,omitempty"`
+	Enabled                          bool      `json:"enabled"`
+	MaxCars                          int       `json:"max_cars"`
+	AutoAdmit                        string    `json:"auto_admit,omitempty"`
+	AutoAdmitBy                      *string   `json:"auto_admit_by,omitempty"`
+	AutoAdmitSince                   *string   `json:"auto_admit_since,omitempty"`
+	AutoAdmitCriterion               string    `json:"auto_admit_criterion,omitempty" yaml:"auto_admit_criterion,omitempty"`
+	AutoAdmitProtectedPaths          *[]string `json:"auto_admit_protected_paths,omitempty" yaml:"auto_admit_protected_paths,omitempty"`
+	AutoAdmitProtectedPathsIsDefault *bool     `json:"auto_admit_protected_paths_is_default,omitempty" yaml:"auto_admit_protected_paths_is_default,omitempty"`
 }
+
+// The auto-admit criteria. green admits a pull request once its own run has
+// passed (every repository's default). ready_shadow does the same, and records
+// which pull requests whose own run is still going ready would have admitted.
+// ready admits a pull request whose own run is still going and has no failed
+// step, except one that changes a protected path, which keeps the green rule.
+const (
+	PipelineMergeTrainCriterionGreen       = "green"
+	PipelineMergeTrainCriterionReadyShadow = "ready_shadow"
+	PipelineMergeTrainCriterionReady       = "ready"
+)
+
+// PipelineMergeTrainCriteria lists the criteria in the order a repository moves
+// through them, which is also the order help text and refusals name them.
+var PipelineMergeTrainCriteria = []string{
+	PipelineMergeTrainCriterionGreen, PipelineMergeTrainCriterionReadyShadow, PipelineMergeTrainCriterionReady,
+}
+
+// The platform's bounds on a protected path list (cluster
+// enginekit/mergetrain): how many patterns, and how long one may be once
+// trimmed.
+const (
+	PipelineMergeTrainProtectedPathsLimit      = 50
+	PipelineMergeTrainProtectedPathLengthLimit = 256
+)
 
 // PipelineMergeTrainEntry is one pull request in, or recently out of, a
 // train. The car fields are null until the train built a car for it.
@@ -86,11 +124,19 @@ type PipelineMergeTrain struct {
 }
 
 // SetPipelineMergeTrainSettingsRequest is the PUT …/merge-train/settings
-// body; a nil MaxCars or AutoAdmit keeps the current value.
+// body; a nil MaxCars, AutoAdmit, AutoAdmitCriterion or AutoAdmitProtectedPaths
+// keeps the current value.
+//
+// AutoAdmitProtectedPaths is a pointer because the platform reads three things
+// into the field. A nil pointer leaves it out, which keeps the list. A pointer
+// to a nil slice sends null, which restores the default list. A pointer to a
+// slice sends that list, and an empty one protects nothing.
 type SetPipelineMergeTrainSettingsRequest struct {
-	Enabled   bool    `json:"enabled"`
-	MaxCars   *int    `json:"max_cars,omitempty"`
-	AutoAdmit *string `json:"auto_admit,omitempty"`
+	Enabled                 bool      `json:"enabled"`
+	MaxCars                 *int      `json:"max_cars,omitempty"`
+	AutoAdmit               *string   `json:"auto_admit,omitempty"`
+	AutoAdmitCriterion      *string   `json:"auto_admit_criterion,omitempty"`
+	AutoAdmitProtectedPaths *[]string `json:"auto_admit_protected_paths,omitempty"`
 }
 
 // EnqueuePipelineMergeTrainRequest is the POST …/merge-train/entries body.
@@ -113,8 +159,8 @@ func (c *Client) GetPipelineMergeTrain(ctx context.Context, selector PipelineSel
 	return &result, nil
 }
 
-// SetPipelineMergeTrainSettings switches the train on or off and sets its
-// max cars.
+// SetPipelineMergeTrainSettings switches the train on or off and sets what the
+// request names: its max cars, auto-admit's mode, criterion and protected paths.
 func (c *Client) SetPipelineMergeTrainSettings(ctx context.Context, selector PipelineSelector,
 	request SetPipelineMergeTrainSettingsRequest) (*PipelineMergeTrainSettings, error) {
 	base, selectorError := selector.basePath()

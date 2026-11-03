@@ -21,6 +21,11 @@ type pipelineTrainMock struct {
 	dequeuedEntryID string
 	movedEntryID    string
 
+	// settingsAnswer, when set, is what a settings write answers, and
+	// settingsError refuses the write after recording it.
+	settingsAnswer *client.PipelineMergeTrainSettings
+	settingsError  error
+
 	// repositoryPages answers ListPipelineRepositories one page per call, in
 	// order; repositoryListings records what each call asked for.
 	repositoryPages    []client.PipelineRepositoryList
@@ -60,6 +65,12 @@ func (mock *pipelineTrainMock) SetPipelineMergeTrainSettings(_ context.Context, 
 	request client.SetPipelineMergeTrainSettingsRequest) (*client.PipelineMergeTrainSettings, error) {
 	mock.lastSelector = selector
 	mock.settingsRequest = &request
+	if mock.settingsError != nil {
+		return nil, mock.settingsError
+	}
+	if mock.settingsAnswer != nil {
+		return mock.settingsAnswer, nil
+	}
 	maxCars := 1
 	if request.MaxCars != nil {
 		maxCars = *request.MaxCars

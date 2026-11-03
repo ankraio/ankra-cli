@@ -149,7 +149,7 @@ func renderOrganisationCIPoolCapacity(out io.Writer, members []client.Organisati
 		state := ""
 		switch {
 		case !member.CanRunSteps:
-			state = " (takes no runs: its agent is offline or does not run pipeline steps)"
+			state = " (takes no runs: its agent is offline, cannot reach its Kubernetes API, or does not run pipeline steps)"
 		case member.IsFull:
 			state = " (full)"
 		}

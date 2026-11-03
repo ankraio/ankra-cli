@@ -89,6 +89,12 @@ never zero. A coverage event's move is coverage, not spend; a
 resolved finding's is its own monthly cost. The platform's note on an event
 sits under its row.
 
+When the cluster was not priced for some hours inside an event's window (a
+start after a stop it was not metered through, or a metering hour that was
+missed), the move cannot be told apart from the cluster leaving or entering
+pricing. The row says "unknown (not priced for part of the window)", never
+zero.
+
 A kind of event the platform could not read is named above the table: its
 events are missing, not quiet. The platform serves at most the newest 500.
 
@@ -392,6 +398,14 @@ func costEventMove(event client.CostEvent, currency string) string {
 		return "unknown (went the other way)"
 	case "no_snapshots":
 		return "unknown"
+	case "metering_gap":
+		// The cluster was not priced for some hours inside the event's
+		// window, so neither the event nor the window carries a move: the
+		// run rate either side of the gap mixes the cluster leaving or
+		// entering pricing with whatever happened in the hours nobody priced
+		// (ankra-bn86k4.8.17). Unknown, never zero, and never the generic
+		// "(metering gap)" qualifier.
+		return "unknown (not priced for part of the window)"
 	case "coverage":
 		if event.DeltaMonthlyCents != nil {
 			return signed(event.DeltaMonthlyCents) + " (coverage)"

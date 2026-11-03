@@ -847,7 +847,7 @@ func (m baseMock) GetDecisionActivity(decisionID string) (*client.DecisionActivi
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) ApproveDecision(decisionID string, note *string) (*client.DecisionProposal, error) {
+func (m baseMock) ApproveDecision(decisionID string, note *string, planHash string) (*client.DecisionProposal, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -5387,6 +5387,10 @@ func (m baseMock) GetCloudLedger() (*client.CloudLedger, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetCloudWaste() (*client.CloudWaste, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetCostAutopilot() (*client.CostAutopilotPolicy, error) {
 	return nil, errors.New("not implemented")
 }
@@ -5528,6 +5532,14 @@ func (m baseMock) GetServiceRetirement(context.Context, string, string) (*client
 }
 
 func (m baseMock) ConfirmServiceRetirement(context.Context, string, string, string) (*client.ServiceRetirement, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PrepareServiceDisconnection(context.Context, string, client.ServiceDisconnectionRequest) (*client.ServiceDisconnection, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ConfirmServiceDisconnection(context.Context, string, string, string) (*client.ServiceDisconnection, error) {
 	return nil, errors.New("not implemented")
 }
 

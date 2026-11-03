@@ -119,6 +119,7 @@ type APIClient interface {
 	GetCostReconciliation(month string) (*client.CostReconciliation, error)
 	GetCloudSavings() (*client.CloudSavings, error)
 	GetCloudLedger() (*client.CloudLedger, error)
+	GetCloudWaste() (*client.CloudWaste, error)
 	GetCostAutopilot() (*client.CostAutopilotPolicy, error)
 	UpdateCostAutopilot(update client.CostAutopilotPolicyUpdate) (*client.CostAutopilotPolicy, error)
 	SetCostAutopilotOverride(clusterID string, request client.CostAutopilotOverrideRequest) (*client.CostAutopilotCluster, error)
@@ -186,7 +187,7 @@ type APIClient interface {
 	ListDecisions(filter client.DecisionListFilter) (*client.DecisionProposalList, error)
 	GetDecision(decisionID string) (*client.DecisionProposal, error)
 	GetDecisionActivity(decisionID string) (*client.DecisionActivity, error)
-	ApproveDecision(decisionID string, note *string) (*client.DecisionProposal, error)
+	ApproveDecision(decisionID string, note *string, planHash string) (*client.DecisionProposal, error)
 	SetAsideDecision(decisionID string, note *string) (*client.DecisionProposal, error)
 	HoldDecision(decisionID string, note *string) (*client.DecisionProposal, error)
 	ReleaseDecision(decisionID string, note *string) (*client.DecisionProposal, error)
@@ -1112,4 +1113,6 @@ type APIClient interface {
 	ListServiceRetirements(ctx context.Context, instanceID string, options client.ServiceRetirementListOptions) (*client.ServiceRetirementPage, error)
 	GetServiceRetirement(ctx context.Context, instanceID string, retirementID string) (*client.ServiceRetirement, error)
 	ConfirmServiceRetirement(ctx context.Context, instanceID string, retirementID string, digest string) (*client.ServiceRetirement, error)
+	PrepareServiceDisconnection(ctx context.Context, instanceID string, request client.ServiceDisconnectionRequest) (*client.ServiceDisconnection, error)
+	ConfirmServiceDisconnection(ctx context.Context, instanceID string, disconnectionID string, digest string) (*client.ServiceDisconnection, error)
 }

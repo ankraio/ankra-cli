@@ -24,6 +24,16 @@ const costObjectUnknown = "unknown"
 // compare with whole days.
 const costObjectMeteringMark = '…'
 
+// costObjectFloorMark is the trend's mark for an ended day the platform marks
+// incomplete: it was metered for fewer of its hours than it had, so its
+// figure is a floor of the day ("at least"). It is never drawn at its height,
+// where it would read as a drop in spend, and never sets the scale.
+const costObjectFloorMark = '≥'
+
+// costObjectFloorDaysListed is how many incomplete days are named one by one
+// before the rest are counted.
+const costObjectFloorDaysListed = 5
+
 // costObjectNow is the clock that names today when the platform does not
 // say which day is still metering (one that predates the partial flag,
 // cluster#5617); tests pin it.
@@ -47,9 +57,11 @@ nothing, or could not price a node or billed resource, are named.
 The trend is daily spend, what the object cost each UTC day, not the monthly
 run rate. It draws one mark per day, scaled to the object's own peak whole
 day: '·' is a day no cluster was metered (unknown), '_' a metered day that
-cost nothing, and '…' today, which is still metering. Today's figure prints
-on its own line with the hours it covers so far; it is never the latest
-figure compared with whole days.
+cost nothing, '…' today, which is still metering, and '≥' a day short of
+metered hours, whose figure is only a floor. Today's figure prints on its own
+line with the hours it covers so far; it is never the latest figure compared
+with whole days. Each day short of metered hours prints on its own line with
+the hours it is missing and its floor ("at least").
 
 Pass -o json (or yaml) for the projection exactly as the platform serves it.`
 
@@ -449,8 +461,10 @@ func renderObjectCostTrend(out io.Writer, days []client.ObjectCostDay, currency 
 	today := costObjectNow().UTC().Format("2006-01-02")
 	values := make([]*int64, len(days))
 	isMetering := make([]bool, len(days))
+	isShort := make([]bool, len(days))
 	metered, floors := 0, 0
 	var peak, latest, current *client.ObjectCostDay
+	var shortDays []*client.ObjectCostDay
 	for index := range days {
 		day := &days[index]
 		if day.Cents != nil {
@@ -462,13 +476,20 @@ func renderObjectCostTrend(out io.Writer, days []client.ObjectCostDay, currency 
 			continue
 		}
 		latest = day
-		values[index] = day.Cents
 		if day.Cents == nil {
 			continue
 		}
 		if day.ClustersMetered < day.ClustersTotal {
 			floors++
 		}
+		// A day short of metered hours is a floor: marked apart, out of the
+		// scale and out of the peak, so it never reads as a drop.
+		if day.Incomplete.IsTrue() {
+			isShort[index] = true
+			shortDays = append(shortDays, day)
+			continue
+		}
+		values[index] = day.Cents
 		if peak == nil || *day.Cents > *peak.Cents {
 			peak = day
 		}
@@ -480,8 +501,11 @@ func renderObjectCostTrend(out io.Writer, days []client.ObjectCostDay, currency 
 	}
 	marks := []rune(costNamespacesTrend(values))
 	for index := range marks {
-		if isMetering[index] {
+		switch {
+		case isMetering[index]:
 			marks[index] = costObjectMeteringMark
+		case isShort[index]:
+			marks[index] = costObjectFloorMark
 		}
 	}
 	_, _ = fmt.Fprintf(out, "Daily spend (%s), what each day cost, one mark per day scaled to the peak whole day:\n", span)
@@ -491,6 +515,9 @@ func renderObjectCostTrend(out io.Writer, days []client.ObjectCostDay, currency 
 	if current != nil {
 		legend += fmt.Sprintf("   %c today, still metering", costObjectMeteringMark)
 	}
+	if len(shortDays) > 0 {
+		legend += fmt.Sprintf("   %c short of metered hours, a floor", costObjectFloorMark)
+	}
 	_, _ = fmt.Fprintln(out, legend)
 	summary := fmt.Sprintf("  %d of %d days metered", metered, len(days))
 	if peak != nil {
@@ -499,7 +526,11 @@ func renderObjectCostTrend(out io.Writer, days []client.ObjectCostDay, currency 
 		summary += " · no whole day metered yet"
 	}
 	if latest != nil {
-		summary += fmt.Sprintf(" · latest whole day %s on %s", costObjectCents(latest.Cents, currency), latest.Date)
+		atLeast := ""
+		if latest.Cents != nil && latest.Incomplete.IsTrue() {
+			atLeast = "at least "
+		}
+		summary += fmt.Sprintf(" · latest whole day %s%s on %s", atLeast, costObjectCents(latest.Cents, currency), latest.Date)
 		if latest.Cents != nil && latest.HoursMetered != nil && *latest.HoursMetered < 24 {
 			summary += fmt.Sprintf(" (metered %d of 24 h)", *latest.HoursMetered)
 		}
@@ -509,16 +540,48 @@ func renderObjectCostTrend(out io.Writer, days []client.ObjectCostDay, currency 
 		if current.Cents == nil {
 			_, _ = fmt.Fprintf(out, "  Today so far (%s, %s): nothing metered yet, unknown, not zero.\n",
 				current.Date, costObjectDayCoverage(*current))
+		} else if current.Incomplete.IsTrue() {
+			_, _ = fmt.Fprintf(out, "  Today so far (%s, %s): at least %s, an earlier hour of today was not metered, and it is still metering, so not comparable to a whole day.\n",
+				current.Date, costObjectDayCoverage(*current), formatCostCents(*current.Cents, currency))
 		} else {
 			_, _ = fmt.Fprintf(out, "  Today so far (%s, %s): %s, still metering, so not comparable to a whole day.\n",
 				current.Date, costObjectDayCoverage(*current), formatCostCents(*current.Cents, currency))
 		}
 	}
+	renderObjectCostShortDays(out, shortDays, currency)
 	switch {
 	case floors == 1:
 		_, _ = fmt.Fprintln(out, "  1 day metered only some of the clusters behind it, so that day is a floor.")
 	case floors > 1:
 		_, _ = fmt.Fprintf(out, "  %d days metered only some of the clusters behind it, so those days are floors.\n", floors)
+	}
+}
+
+// renderObjectCostShortDays names each day short of metered hours with the
+// hours it is missing and its floor: "2026-10-19 is missing 2 metered hours,
+// so it is at least €2.61." Past costObjectFloorDaysListed days the rest are
+// counted. A day whose hours were not reported says it is missing metered
+// hours without a count.
+func renderObjectCostShortDays(out io.Writer, days []*client.ObjectCostDay, currency string) {
+	for index, day := range days {
+		if index == costObjectFloorDaysListed {
+			rest := len(days) - costObjectFloorDaysListed
+			if rest == 1 {
+				_, _ = fmt.Fprintln(out, "  1 more day is short of metered hours, so it is a floor too.")
+			} else {
+				_, _ = fmt.Fprintf(out, "  %d more days are short of metered hours, so they are floors too.\n", rest)
+			}
+			return
+		}
+		missing := "metered hours"
+		if day.HoursMetered != nil && *day.HoursMetered < 24 {
+			hours := 24 - *day.HoursMetered
+			missing = fmt.Sprintf("%d metered hour", hours)
+			if hours != 1 {
+				missing += "s"
+			}
+		}
+		_, _ = fmt.Fprintf(out, "  %s is missing %s, so it is at least %s.\n", day.Date, missing, formatCostCents(*day.Cents, currency))
 	}
 }
 
