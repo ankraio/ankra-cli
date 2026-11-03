@@ -81,6 +81,9 @@ Examples:
 		}
 
 		result := describeResult{Object: object, Events: events}
+		if outputFormat == "json" || outputFormat == "yaml" {
+			announceDegradedBareObject(objectAnswer)
+		}
 		switch outputFormat {
 		case "json":
 			encoded, marshalError := json.MarshalIndent(result, "", "  ")

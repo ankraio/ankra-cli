@@ -111,3 +111,26 @@ func TestFormatAge(t *testing.T) {
 		}
 	}
 }
+
+func TestIsDegradedSeparatesAFrozenAnswerFromARoutineCacheHit(t *testing.T) {
+	cases := []struct {
+		name   string
+		answer Answer
+		want   bool
+	}{
+		{"a live answer", Answer{}, false},
+		{"a fresh cache hit", Answer{ServedFromCache: true, AgeSeconds: 12, SyncStatus: "synced"}, false},
+		{"a resyncing inventory is still fresh", Answer{ServedFromCache: true, AgeSeconds: 12, SyncStatus: "synced", ReconcilePending: true}, false},
+		{"a quiet inventory the platform still calls fresh", Answer{ServedFromCache: true, AgeSeconds: QuietAgeSeconds, SyncStatus: "synced"}, false},
+		{"a stale fallback of unknown age", Answer{ServedFromCache: true, Stale: true, AgeSeconds: -1, SyncStatus: "agent_timeout"}, true},
+		{"a disconnected watch", Answer{ServedFromCache: true, AgeSeconds: 5, SyncStatus: "disconnected"}, true},
+		{"a failed sync", Answer{ServedFromCache: true, AgeSeconds: 5, SyncStatus: "error"}, true},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := IsDegraded(testCase.answer); got != testCase.want {
+				t.Errorf("IsDegraded(%+v) = %v, want %v", testCase.answer, got, testCase.want)
+			}
+		})
+	}
+}

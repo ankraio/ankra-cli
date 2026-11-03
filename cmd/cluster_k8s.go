@@ -589,11 +589,22 @@ type resourceQuery struct {
 // stderr, above the rows: stdout stays the rows alone, so a table or YAML
 // piped into another tool is unchanged, while the person at the terminal
 // sees that the answer came from the agent's cache and how old it is
-// (ankra-306z5f). -o json|yaml print nothing; their envelope carries the
-// cache metadata itself.
+// (ankra-306z5f). A -o json|yaml listing prints nothing: its envelope carries
+// the cache metadata itself.
 func announceCachedAnswer(answer cachenotice.Answer) {
 	if notice := cachenotice.Notice(answer); notice != "" {
 		fmt.Fprintln(os.Stderr, notice)
+	}
+}
+
+// announceDegradedBareObject is announceCachedAnswer for -o json|yaml of one
+// named object, whose stdout is the bare object: there is no envelope to carry
+// the cache metadata, so a frozen object would otherwise read as the live one
+// (ankra-kb18b.16.6). Stdout stays the object, and a fresh cache hit stays
+// silent, so only a read that should not be trusted reaches stderr.
+func announceDegradedBareObject(answer cachenotice.Answer) {
+	if cachenotice.IsDegraded(answer) {
+		announceCachedAnswer(answer)
 	}
 }
 
@@ -652,8 +663,10 @@ func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, ou
 	if err := checkSecretValues(response, items, namespace, nameFilter, outputFormat, query.revealSecretValues); err != nil {
 		return err
 	}
-	if outputFormat == "table" || query.humanOutput {
-		announceCachedAnswer(cachenotice.FromResource(cacheMetadata))
+	cachedAnswer := cachenotice.FromResource(cacheMetadata)
+	isHumanOutput := outputFormat == "table" || query.humanOutput
+	if isHumanOutput {
+		announceCachedAnswer(cachedAnswer)
 	}
 	if query.postFilter != nil {
 		items = query.postFilter(items)
@@ -667,6 +680,9 @@ func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, ou
 
 	isSingleResourceLookup := nameFilter != "" && len(items) == 1
 	if isSingleResourceLookup {
+		if !isHumanOutput {
+			announceDegradedBareObject(cachedAnswer)
+		}
 		return renderSingleResource(items[0], outputFormat)
 	}
 

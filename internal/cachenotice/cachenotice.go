@@ -111,6 +111,25 @@ func Notice(answer Answer) string {
 	return notice + "."
 }
 
+// IsDegraded says whether the platform itself reported that an answer should
+// not be taken for the cluster's current state: a stale fallback, or a watch
+// that reported trouble. Output with no room for the cache metadata speaks up
+// only when this is true, so a script that merges stderr into its JSON is
+// disturbed only by the reads it should not trust.
+//
+// A fresh cache hit is not degraded, even though Notice still gives it a line,
+// because a fresh hit is how a named read is normally answered. Neither is an
+// answer past QuietAgeSeconds: that hint suits a person reading a notice, but a
+// quiet resource type on a healthy cluster can pass it too. The platform stops
+// calling a cache answer fresh at five minutes, so an outage reaches this
+// through Stale once the answer is that old.
+func IsDegraded(answer Answer) bool {
+	if !answer.ServedFromCache {
+		return false
+	}
+	return answer.Stale || answer.SyncStatus == "disconnected" || answer.SyncStatus == "error"
+}
+
 // reasonFor names why the cluster did not answer live, from what the
 // platform said about the read. A stale answer always has one; a fresh one
 // only when its watch reported trouble, has gone quiet, or has not yet been
