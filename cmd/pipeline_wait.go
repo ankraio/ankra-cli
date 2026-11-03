@@ -15,6 +15,7 @@ package cmd
 // CLI's own choice rather than something each caller has to tune.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -442,6 +443,93 @@ type pipelineRunWatchEvent struct {
 	Outcome        *string              `json:"outcome"`
 	Run            *client.PipelineRun  `json:"run,omitempty"`
 	Step           *client.PipelineStep `json:"step,omitempty"`
+	// runDocument and stepDocument are the same run (without its steps) and
+	// step cut from the platform's run document, and MarshalJSON writes them
+	// in place of Run and Step: those declare only what this CLI reads, so
+	// encoding them dropped every field the platform added since
+	// (ankra-ga9b8k). Nil when the read carried no document; Run and Step are
+	// written then, as before, and they always serve the readable lines.
+	runDocument  json.RawMessage
+	stepDocument json.RawMessage
+}
+
+// MarshalJSON writes the event with its run or step as the platform answered
+// it when the read kept that document, and as the CLI decoded it otherwise.
+// The members and their order are the same either way.
+func (event pipelineRunWatchEvent) MarshalJSON() ([]byte, error) {
+	type plainEvent pipelineRunWatchEvent
+	wire := struct {
+		plainEvent
+		Run  any `json:"run,omitempty"`
+		Step any `json:"step,omitempty"`
+	}{plainEvent: plainEvent(event)}
+	switch {
+	case event.runDocument != nil:
+		wire.Run = event.runDocument
+	case event.Run != nil:
+		wire.Run = event.Run
+	}
+	switch {
+	case event.stepDocument != nil:
+		wire.Step = event.stepDocument
+	case event.Step != nil:
+		wire.Step = event.Step
+	}
+	return json.Marshal(wire)
+}
+
+// pipelineRunDocumentParts cuts the run detail's platform document into the
+// run object with its steps member left out, every other member byte for
+// byte and in the platform's order, and each step object in the order
+// detail.Steps decoded them. isCut is false when the detail carries no
+// document or its steps do not line up with the decode; the watch then
+// writes the CLI's own run and steps.
+func pipelineRunDocumentParts(detail *client.PipelineRunDetail) (json.RawMessage, []json.RawMessage, bool) {
+	document := bytes.TrimSpace(detail.RawJSON())
+	if len(document) == 0 {
+		return nil, nil, false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(document))
+	if open, openError := decoder.Token(); openError != nil || open != json.Delim('{') {
+		return nil, nil, false
+	}
+	var run bytes.Buffer
+	run.WriteByte('{')
+	var steps []json.RawMessage
+	members := 0
+	for decoder.More() {
+		keyToken, keyError := decoder.Token()
+		key, isKey := keyToken.(string)
+		if keyError != nil || !isKey {
+			return nil, nil, false
+		}
+		var value json.RawMessage
+		if valueError := decoder.Decode(&value); valueError != nil {
+			return nil, nil, false
+		}
+		if key == "steps" {
+			if stepsError := json.Unmarshal(value, &steps); stepsError != nil {
+				return nil, nil, false
+			}
+			continue
+		}
+		encodedKey, encodeError := json.Marshal(key)
+		if encodeError != nil {
+			return nil, nil, false
+		}
+		if members > 0 {
+			run.WriteByte(',')
+		}
+		run.Write(encodedKey)
+		run.WriteByte(':')
+		run.Write(value)
+		members++
+	}
+	if _, closeError := decoder.Token(); closeError != nil || len(steps) != len(detail.Steps) {
+		return nil, nil, false
+	}
+	run.WriteByte('}')
+	return run.Bytes(), steps, true
 }
 
 // pipelineStateKey is what makes an observation a change: a run or step whose
@@ -485,6 +573,13 @@ func watchPipelineRun(command *cobra.Command, selector client.PipelineSelector, 
 	hasSeenRun := false
 	detail, pollError := pollPipelineRun(command, selector, runID, wait, func(detail *client.PipelineRunDetail) error {
 		observedAt := time.Now().UTC().Format(time.RFC3339)
+		var runDocument json.RawMessage
+		var stepDocuments []json.RawMessage
+		if encoder != nil {
+			if run, steps, isCut := pipelineRunDocumentParts(detail); isCut {
+				runDocument, stepDocuments = run, steps
+			}
+		}
 		for index := range detail.Steps {
 			step := detail.Steps[index]
 			current := pipelineStateKeyOf(step.Status, step.Outcome)
@@ -502,6 +597,9 @@ func watchPipelineRun(command *cobra.Command, selector client.PipelineSelector, 
 				Status:        step.Status,
 				Outcome:       step.Outcome,
 				Step:          &step,
+			}
+			if stepDocuments != nil {
+				event.stepDocument = stepDocuments[index]
 			}
 			if hasSeenStep {
 				previousStatus := previous.status
@@ -524,6 +622,7 @@ func watchPipelineRun(command *cobra.Command, selector client.PipelineSelector, 
 			Status:        detail.Status,
 			Outcome:       detail.Outcome,
 			Run:           &run,
+			runDocument:   runDocument,
 		}
 		if hasSeenRun {
 			previousStatus := runState.status

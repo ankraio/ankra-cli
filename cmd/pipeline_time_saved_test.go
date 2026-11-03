@@ -132,14 +132,15 @@ func TestPipelineGetKeepsTheRunWhenTheTimeSavedReadFails(t *testing.T) {
 	}
 }
 
-// baselineRunEncoding is what `pipeline get -o <format>` printed before the
-// time-saved field: the run detail encoded on its own.
+// baselineRunEncoding is what `pipeline get -o <format>` prints for the run
+// on its own: the platform's run document, re-indented (ankra-ga9b8k).
 func baselineRunEncoding(t *testing.T, format outputFormat) string {
 	t.Helper()
 	var detail client.PipelineRunDetail
 	if decodeError := json.Unmarshal([]byte(timeSavedTestRunBody), &detail); decodeError != nil {
 		t.Fatalf("decoding the run: %v", decodeError)
 	}
+	detail.RawDocument = client.NewRawDocument([]byte(timeSavedTestRunBody))
 	var baseline bytes.Buffer
 	if encodeError := encodeStructured(&baseline, format, &detail); encodeError != nil {
 		t.Fatalf("encoding the run: %v", encodeError)
