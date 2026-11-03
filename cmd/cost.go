@@ -894,6 +894,47 @@ func costReadinessExplanation(readiness *client.CostReadiness) string {
 	}
 }
 
+// costComponents is one cluster's run rate by component, per month, in cents.
+type costComponents struct {
+	computeOnDemand, computeSpot, storage, network, controlPlane, infrastructure, idle, unallocated int64
+}
+
+// costComponentMonths reads the platform's monthly components when it sends
+// all eight (ankra-bn86k4.4.23): they come from the full-precision hourly
+// figures, so a part under a cent an hour (a stopped cluster's volumes) keeps
+// its month, and the six parts add up to the monthly run rate. Otherwise every
+// component is its whole-cent hourly figure times 730, exactly as before. The
+// two are never mixed in one table.
+func costComponentMonths(summary *client.ClusterCostSummary) costComponents {
+	monthly := []*int64{
+		summary.ComputeOnDemandMonthlyCents, summary.ComputeSpotMonthlyCents, summary.StorageMonthlyCents,
+		summary.NetworkMonthlyCents, summary.ControlPlaneMonthlyCents, summary.InfrastructureMonthlyCents,
+		summary.IdleMonthlyCents, summary.UnallocatedMonthlyCents,
+	}
+	sent := true
+	for _, part := range monthly {
+		sent = sent && part != nil
+	}
+	if sent {
+		return costComponents{
+			computeOnDemand: *summary.ComputeOnDemandMonthlyCents, computeSpot: *summary.ComputeSpotMonthlyCents,
+			storage: *summary.StorageMonthlyCents, network: *summary.NetworkMonthlyCents,
+			controlPlane: *summary.ControlPlaneMonthlyCents, infrastructure: *summary.InfrastructureMonthlyCents,
+			idle: *summary.IdleMonthlyCents, unallocated: *summary.UnallocatedMonthlyCents,
+		}
+	}
+	return costComponents{
+		computeOnDemand: summary.ComputeOnDemandCents * costHoursPerMonth,
+		computeSpot:     summary.ComputeSpotCents * costHoursPerMonth,
+		storage:         summary.StorageCents * costHoursPerMonth,
+		network:         summary.NetworkCents * costHoursPerMonth,
+		controlPlane:    summary.ControlPlaneCents * costHoursPerMonth,
+		infrastructure:  summary.InfrastructureCents * costHoursPerMonth,
+		idle:            summary.IdleHourlyCents * costHoursPerMonth,
+		unallocated:     summary.UnallocatedHourlyCents * costHoursPerMonth,
+	}
+}
+
 func renderClusterCost(out io.Writer, clusterReference string, cost *client.ClusterCost) {
 	if !cost.HasData || cost.Summary == nil {
 		_, _ = fmt.Fprintf(out, "No cost estimate for %s: %s\n", clusterReference, costReadinessExplanation(cost.Readiness))
@@ -928,21 +969,19 @@ func renderClusterCost(out io.Writer, clusterReference string, cost *client.Clus
 	_, _ = fmt.Fprintln(out, "Run rate by component (per month):")
 	writer := newCostTable(out)
 	writer.AppendHeader(table.Row{"Component", "Per month"})
-	monthly := func(hourlyCents int64) string {
-		return formatCostCents(hourlyCents*costHoursPerMonth, currency)
+	parts := costComponentMonths(summary)
+	writer.AppendRow(table.Row{"Compute (on-demand)", formatCostCents(parts.computeOnDemand, currency)})
+	if parts.computeSpot > 0 {
+		writer.AppendRow(table.Row{"Compute (spot)", formatCostCents(parts.computeSpot, currency)})
 	}
-	writer.AppendRow(table.Row{"Compute (on-demand)", monthly(summary.ComputeOnDemandCents)})
-	if summary.ComputeSpotCents > 0 {
-		writer.AppendRow(table.Row{"Compute (spot)", monthly(summary.ComputeSpotCents)})
+	writer.AppendRow(table.Row{"Storage", formatCostCents(parts.storage, currency)})
+	writer.AppendRow(table.Row{"Network", formatCostCents(parts.network, currency)})
+	writer.AppendRow(table.Row{"Control plane", formatCostCents(parts.controlPlane, currency)})
+	if parts.infrastructure > 0 {
+		writer.AppendRow(table.Row{"Bastion & VMs", formatCostCents(parts.infrastructure, currency)})
 	}
-	writer.AppendRow(table.Row{"Storage", monthly(summary.StorageCents)})
-	writer.AppendRow(table.Row{"Network", monthly(summary.NetworkCents)})
-	writer.AppendRow(table.Row{"Control plane", monthly(summary.ControlPlaneCents)})
-	if summary.InfrastructureCents > 0 {
-		writer.AppendRow(table.Row{"Bastion & VMs", monthly(summary.InfrastructureCents)})
-	}
-	writer.AppendRow(table.Row{"of which idle", monthly(summary.IdleHourlyCents)})
-	writer.AppendRow(table.Row{"Unallocated", monthly(summary.UnallocatedHourlyCents)})
+	writer.AppendRow(table.Row{"of which idle", formatCostCents(parts.idle, currency)})
+	writer.AppendRow(table.Row{"Unallocated", formatCostCents(parts.unallocated, currency)})
 	writer.Render()
 
 	if len(cost.Namespaces) > 0 {

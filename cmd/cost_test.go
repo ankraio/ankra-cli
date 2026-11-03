@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -375,6 +376,93 @@ func TestCostClusterRendersBreakdownAndNamespaces(t *testing.T) {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("output lacks %q:\n%s", expected, output)
 		}
+	}
+}
+
+// ankra-bn86k4.4.23: a stopped cluster's volumes at 0.4 cents an hour read 0
+// in the whole-cent hourly fields, so the table printed their month as 0.00.
+func subCentClusterCost(monthly bool) *client.ClusterCost {
+	cents := func(value int64) *int64 { return &value }
+	summary := &client.ClusterCostSummary{
+		Provider: "hetzner", Currency: "eur", TotalNodeCount: 1, PricedNodeCount: 1,
+		HourlyCostCents: 10, MonthlyCostEstimateCents: 7592, ConfidenceLevel: "high", SnapshotAt: "2026-11-03T12:00:00",
+		ComputeOnDemandCents: 10, StorageCents: 0, StorageVolumeCount: 2,
+	}
+	if monthly {
+		summary.ComputeOnDemandMonthlyCents, summary.ComputeSpotMonthlyCents = cents(7300), cents(0)
+		summary.StorageMonthlyCents, summary.NetworkMonthlyCents = cents(292), cents(0)
+		summary.ControlPlaneMonthlyCents, summary.InfrastructureMonthlyCents = cents(0), cents(0)
+		summary.IdleMonthlyCents, summary.UnallocatedMonthlyCents = cents(1825), cents(146)
+	}
+	return &client.ClusterCost{HasData: true, Summary: summary, Trend: []client.CostTrendPoint{}, Namespaces: []client.NamespaceCost{}}
+}
+
+func costComponentRow(t *testing.T, output, label string) string {
+	t.Helper()
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, label) {
+			return strings.Join(strings.Fields(strings.NewReplacer("│", " ", "|", " ").Replace(line)), " ")
+		}
+	}
+	t.Fatalf("no %q row:\n%s", label, output)
+	return ""
+}
+
+func TestCostClusterReadsThePlatformsMonthlyComponents(t *testing.T) {
+	output, executeError := runCostCommand(t, &costMock{clusterCost: subCentClusterCost(true)}, "cost", "cluster", costClusterID)
+	if executeError != nil {
+		t.Fatalf("cost cluster failed: %v", executeError)
+	}
+	for label, want := range map[string]string{
+		"Compute (on-demand)": "Compute (on-demand) €73.00",
+		"Storage":             "Storage €2.92",
+		"of which idle":       "of which idle €18.25",
+		"Unallocated":         "Unallocated €1.46",
+	} {
+		if got := costComponentRow(t, output, label); got != want {
+			t.Fatalf("row %q = %q, want %q:\n%s", label, got, want, output)
+		}
+	}
+}
+
+func TestCostClusterWithoutMonthlyComponentsReadsAsBefore(t *testing.T) {
+	// An older platform, and one that sends only some monthly parts, both read
+	// every component as its hourly figure times 730, never a mix of the two.
+	partial := subCentClusterCost(true)
+	partial.Summary.UnallocatedMonthlyCents = nil
+	for name, cost := range map[string]*client.ClusterCost{"older platform": subCentClusterCost(false), "partial": partial} {
+		output, executeError := runCostCommand(t, &costMock{clusterCost: cost}, "cost", "cluster", costClusterID)
+		if executeError != nil {
+			t.Fatalf("%s: cost cluster failed: %v", name, executeError)
+		}
+		if got := costComponentRow(t, output, "Compute (on-demand)"); got != "Compute (on-demand) €73.00" {
+			t.Fatalf("%s: compute row = %q", name, got)
+		}
+		if got := costComponentRow(t, output, "Storage"); got != "Storage €0.00" {
+			t.Fatalf("%s: storage row = %q, want the hourly path's €0.00", name, got)
+		}
+		if got := costComponentRow(t, output, "of which idle"); got != "of which idle €0.00" {
+			t.Fatalf("%s: idle row = %q, want the hourly path's €0.00", name, got)
+		}
+	}
+}
+
+func TestCostClusterStructuredOutputIsTheApiDocument(t *testing.T) {
+	// -o json prints the platform's response as sent, so it is the same
+	// whether or not this CLI reads the monthly components.
+	const document = `{"has_data":true,"summary":{"currency":"eur","storage_monthly_cents":292,"zz_newer":1},"trend":[],"namespaces":[]}`
+	cost := subCentClusterCost(true)
+	cost.RawDocument = client.NewRawDocument([]byte(document))
+	output, executeError := runCostCommand(t, &costMock{clusterCost: cost}, "cost", "cluster", costClusterID, "-o", "json")
+	if executeError != nil {
+		t.Fatalf("cost cluster -o json failed: %v", executeError)
+	}
+	var printed, sent map[string]any
+	if json.Unmarshal([]byte(output), &printed) != nil || json.Unmarshal([]byte(document), &sent) != nil {
+		t.Fatalf("not JSON:\n%s", output)
+	}
+	if !reflect.DeepEqual(printed, sent) {
+		t.Fatalf("-o json is not the platform's document:\n%s", output)
 	}
 }
 

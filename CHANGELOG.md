@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ankra cost cluster` shows a component under a cent an hour at its real monthly figure.** The run rate by component multiplied each whole-cent hourly figure by 730, so a part that costs less than a cent an hour, such as a stopped cluster's volumes, read `0.00` a month, and the components could miss the monthly run rate by a few cents. Once the platform sends each component over a month, computed from its full-precision hourly price, the table reads those figures, and the compute, storage, network, control plane and bastion lines add up to the run rate. On a platform that does not send them yet, the table reads as before. `-o json` and `-o yaml` print the platform's response as sent, unchanged.
+
 ## v0.57.1 - 2026-11-03
 
 This release makes `ankra cost ledger` say when an approval has lapsed, so its
