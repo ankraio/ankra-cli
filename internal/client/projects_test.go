@@ -312,6 +312,7 @@ func TestCostProjectScopeIsSentOnTheFleetCostReads(t *testing.T) {
 		{name: "events", read: func() error { _, err := testClient.GetCostEvents(0); return err }, path: "/api/v1/org/cloud-cost/events", want: "project_id=all"},
 		{name: "reconciliation with month", read: func() error { _, err := testClient.GetCostReconciliation("2026-09"); return err }, path: "/api/v1/org/cloud-cost/reconciliation", want: "month=2026-09&project_id=all"},
 		{name: "budgets", read: func() error { _, err := testClient.ListCostBudgets(); return err }, path: "/api/v1/org/cloud-cost/budgets", want: "project_id=all"},
+		{name: "autopilot", read: func() error { _, err := testClient.GetCostAutopilot(); return err }, path: "/api/v1/org/cloud-cost/autopilot", want: "project_id=all"},
 	}
 	for _, read := range reads {
 		t.Run(read.name, func(t *testing.T) {
@@ -331,6 +332,12 @@ func TestCostProjectScopeIsSentOnTheFleetCostReads(t *testing.T) {
 	}
 	if query := platform.last(t).query; query != "" {
 		t.Fatalf("query without a scope = %q, want none", query)
+	}
+	if _, err := testClient.GetCostAutopilot(); err != nil {
+		t.Fatal(err)
+	}
+	if request := platform.last(t); request.path != "/api/v1/org/cloud-cost/autopilot" || request.query != "" {
+		t.Fatalf("autopilot without a scope = %s?%s, want no query", request.path, request.query)
 	}
 }
 

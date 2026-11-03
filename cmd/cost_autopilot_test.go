@@ -24,6 +24,11 @@ type costAutopilotMock struct {
 	overrides    []client.CostAutopilotOverrideRequest
 	clearedIDs   []string
 	clusterError error
+	costScopes   []string
+}
+
+func (m *costAutopilotMock) SetCostProjectScope(scope string) {
+	m.costScopes = append(m.costScopes, scope)
 }
 
 func (m *costAutopilotMock) GetCostAutopilot() (*client.CostAutopilotPolicy, error) {
@@ -181,6 +186,74 @@ func TestCostAutopilotGetRendersPolicyTiersAndClusters(t *testing.T) {
 		if width := text.StringWidthWithoutEscSequences(line); width > 100 {
 			t.Fatalf("line is %d columns wide, over 100: %q\n%s", width, line, output)
 		}
+	}
+}
+
+// TestCostAutopilotGetReadsTheProjectScope pins ankra-bn86k4.13: the read
+// takes the project scope like the other fleet cost reads (--all-projects
+// asks for every project, no flag clears a scope an earlier command set), and
+// the cluster list says whose clusters it holds and when the caller's cluster
+// permissions cut it short.
+func TestCostAutopilotGetReadsTheProjectScope(t *testing.T) {
+	policy := costAutopilotFixture()
+	policy.Scope = &client.FleetCostScope{AllProjects: true, Partial: true}
+	mock := &costAutopilotMock{policy: policy}
+	output, _, executeError := runCostAutopilotCommand(t, mock, "", "cost", "autopilot", "get", "--all-projects")
+	if executeError != nil {
+		t.Fatalf("cost autopilot get --all-projects failed: %v", executeError)
+	}
+	if len(mock.costScopes) != 1 || mock.costScopes[0] != client.CostProjectScopeAll {
+		t.Fatalf("--all-projects sets the scope to all once before the read, got %q", mock.costScopes)
+	}
+	want := "Clusters of every project of the organisation (partial: only the clusters you may read are listed)"
+	if !strings.Contains(output, want) || strings.Index(output, want) > strings.Index(output, "Clusters (2):") {
+		t.Fatalf("output lacks %q above the cluster list:\n%s", want, output)
+	}
+
+	policy.Scope = &client.FleetCostScope{ProjectID: autopilotPointer("8f1c2d3e-4b5a-4c6d-8e7f-9a0b1c2d3e4f"),
+		ProjectName: autopilotPointer("payments")}
+	mock = &costAutopilotMock{policy: policy}
+	output, _, executeError = runCostAutopilotCommand(t, mock, "", "cost", "autopilot", "get")
+	if executeError != nil {
+		t.Fatalf("cost autopilot get failed: %v", executeError)
+	}
+	if len(mock.costScopes) != 1 || mock.costScopes[0] != "" {
+		t.Fatalf("without --all-projects the read stays in the current project, got %q", mock.costScopes)
+	}
+	if !strings.Contains(output, "Clusters of project payments\n") || strings.Contains(output, "partial") {
+		t.Fatalf("a whole project's list names it and nothing more:\n%s", output)
+	}
+}
+
+// TestAPartialScopeIsSaidEvenWhenItNamesNoProject pins the review finding on
+// ankra-bn86k4.13: a scope the caller's cluster permissions cut short is said
+// on both the autopilot list and the fleet rollup even when the platform
+// names no project for it, since without the line a partial list reads as
+// complete. A scope that is whole and unnamed, or absent, still says nothing.
+func TestAPartialScopeIsSaidEvenWhenItNamesNoProject(t *testing.T) {
+	for _, scenario := range []struct {
+		name          string
+		scope         *client.FleetCostScope
+		wantAutopilot string
+		wantFleet     string
+	}{
+		{"no scope", nil, "", ""},
+		{"whole and unnamed", &client.FleetCostScope{}, "", ""},
+		{"partial and unnamed", &client.FleetCostScope{Partial: true},
+			"Clusters: partial, only the clusters you may read are listed",
+			"Scope: partial, only the clusters you may read are counted, so every figure is a floor"},
+		{"partial and named", &client.FleetCostScope{ProjectName: autopilotPointer("payments"), Partial: true},
+			"Clusters of project payments (partial: only the clusters you may read are listed)",
+			"Scope: project payments (partial: only the clusters you may read are counted, so every figure is a floor)"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			if got := costAutopilotScopeLine(scenario.scope); got != scenario.wantAutopilot {
+				t.Errorf("autopilot line = %q, want %q", got, scenario.wantAutopilot)
+			}
+			if got := fleetCostScopeLine(scenario.scope); got != scenario.wantFleet {
+				t.Errorf("fleet line = %q, want %q", got, scenario.wantFleet)
+			}
+		})
 	}
 }
 
