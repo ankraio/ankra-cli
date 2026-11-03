@@ -322,7 +322,7 @@ func findTicketLink(links client.TicketLinkList, ticketNumber int64, reference s
 		relations = append(relations, match.Relation)
 	}
 	return nil, withExitCode(exitUsage, fmt.Errorf(
-		"T-%d is linked to %s %d times (%s); name the one to remove with --relation or by its link id",
+		"ticket T-%d is linked to %s %d times (%s); name the one to remove with --relation or by its link id",
 		ticketNumber, reference, len(matches), strings.Join(relations, ", ")))
 }
 

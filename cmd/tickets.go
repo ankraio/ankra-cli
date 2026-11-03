@@ -174,7 +174,7 @@ live_symptom_count and symptoms_needing_person_count. Read the children with
 		}
 		renderTicketDecision(cmd, *ticket)
 		if len(unread) > 0 {
-			return fmt.Errorf("T-%d is shown above, but %s could not be read", ticket.TicketNumber, strings.Join(unread, " and "))
+			return fmt.Errorf("ticket T-%d is shown above, but %s could not be read", ticket.TicketNumber, strings.Join(unread, " and "))
 		}
 		return nil
 	},
