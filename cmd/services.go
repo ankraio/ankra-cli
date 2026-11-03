@@ -49,7 +49,7 @@ type APIClient interface {
 	CreateClusterAccessGrant(ctx context.Context, clusterID string, request client.CreateClusterAccessGrantRequest) (*client.CreateClusterAccessGrantResponse, error)
 	DeleteClusterAccessGrant(ctx context.Context, clusterID string, grantID string) (*client.DeleteClusterAccessGrantResponse, error)
 	ElevateClusterAccess(ctx context.Context, clusterID string, request client.ElevateClusterAccessRequest) (*client.CreateClusterAccessGrantResponse, error)
-	GetClusterAccessPolicy(ctx context.Context) (*client.ClusterAccessPolicy, error)
+	GetClusterAccessPolicy(ctx context.Context) (*client.ClusterAccessPolicyRead, error)
 	ProposeClusterAccessPolicy(ctx context.Context, request client.ProposeClusterAccessPolicyRequest) (*client.ClusterAccessPolicyProposal, error)
 	GetClusterAccessPolicyProposal(ctx context.Context, proposalID string) (*client.ClusterAccessPolicyProposal, error)
 	ListClusterAccessPolicyProposals(ctx context.Context, status string) (*client.ClusterAccessPolicyProposalList, error)

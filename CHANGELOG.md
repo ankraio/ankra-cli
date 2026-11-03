@@ -6,6 +6,10 @@
 
 - **`ankra pipeline get -o json|yaml` prints the run as the platform sent it.** The command decoded the run into this CLI's own types and encoded those again, so any field the platform added after the CLI was built was missing from the output, with nothing to say so. Each step's `memory_working_set_peak_bytes`, for example, was absent even though the platform reported it, and a script reading the output concluded it was unset. The output is now the platform's document with `time_saved` added as its last field, so every field the platform sends appears, including ones this CLI does not know about yet. A field the platform does not send is no longer printed as `null` or `""`. `ankra pipeline run --wait` and `ankra pipeline rerun --wait` with `-o json|yaml` print the finished run the same way. In `ankra pipeline get --watch -o json`, each event's `run` and `step` now come from the platform's document too, as the help always said; the run carries no `steps` member, because every step has its own event. The readable `Resources used` section also gives each step's working-set peak beside its memory peak. The working-set peak leaves out page cache, which fills whatever room a step has, so for a step whose memory peak reached its request, it is the closer measure of what the step needed.
 
+### Changed
+
+- **`ankra org access-policy get`, `set`, `proposals` and `proposal` say which organisation they read or proposed for.** Each prints an `Organisation:` line with the organisation's name and id, and `-o json` and `-o yaml` carry `organisation_id` and `organisation_name`. They act on the selected organisation unless `--org` (or `ANKRA_ORG`) names another, and nothing used to show which one answered, so a read made in the wrong organisation looked just like the right one. A proposal id that is not in the organisation read still exits 3, and the message now names the organisation that was searched and points at `--org`. Needs a platform that names the organisation; with an older one the line is left out.
+
 ## v0.57.2 - 2026-11-03
 
 This release makes `ankra cost cluster` show each component at its real

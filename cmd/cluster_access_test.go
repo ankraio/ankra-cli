@@ -16,6 +16,8 @@ type clusterAccessMock struct {
 	elevateRequest  *client.ElevateClusterAccessRequest
 	deletedGrantIDs []string
 	policy          *client.ClusterAccessPolicy
+	// organisation is the organisation the policy read names.
+	organisation client.ClusterAccessPolicyOrganisation
 	// refusal, when set, is what every access call answers instead.
 	refusal error
 }
@@ -39,11 +41,14 @@ func (m *clusterAccessMock) ElevateClusterAccess(ctx context.Context, clusterID 
 	}}, nil
 }
 
-func (m *clusterAccessMock) GetClusterAccessPolicy(ctx context.Context) (*client.ClusterAccessPolicy, error) {
+func (m *clusterAccessMock) GetClusterAccessPolicy(ctx context.Context) (*client.ClusterAccessPolicyRead, error) {
 	if m.refusal != nil {
 		return nil, m.refusal
 	}
-	return m.policy, nil
+	if m.policy == nil {
+		return nil, nil
+	}
+	return &client.ClusterAccessPolicyRead{Policy: *m.policy, ClusterAccessPolicyOrganisation: m.organisation}, nil
 }
 
 // resetAccessFlags clears the package-level flag variables the access
