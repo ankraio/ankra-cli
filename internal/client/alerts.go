@@ -163,12 +163,16 @@ type NotificationRoute struct {
 	ApplicationID    *string `json:"application_id" yaml:"application_id"`
 	ReferencePattern *string `json:"reference_pattern" yaml:"reference_pattern"`
 	DestinationID    string  `json:"destination_id" yaml:"destination_id"`
-	Priority         int     `json:"priority" yaml:"priority"`
-	StopOnMatch      bool    `json:"stop_on_match" yaml:"stop_on_match"`
-	Mode             string  `json:"mode" yaml:"mode"`
-	Enabled          bool    `json:"enabled" yaml:"enabled"`
-	CreatedAt        string  `json:"created_at" yaml:"created_at"`
-	UpdatedAt        string  `json:"updated_at" yaml:"updated_at"`
+	// ProjectID is the project whose notifications the route delivers; nil
+	// means organisation-wide (every project's notifications and the
+	// organisation's own).
+	ProjectID   *string `json:"project_id" yaml:"project_id"`
+	Priority    int     `json:"priority" yaml:"priority"`
+	StopOnMatch bool    `json:"stop_on_match" yaml:"stop_on_match"`
+	Mode        string  `json:"mode" yaml:"mode"`
+	Enabled     bool    `json:"enabled" yaml:"enabled"`
+	CreatedAt   string  `json:"created_at" yaml:"created_at"`
+	UpdatedAt   string  `json:"updated_at" yaml:"updated_at"`
 }
 
 // NotificationRouteList is the GET /api/v1/org/notifications/routes body.
@@ -179,6 +183,11 @@ type NotificationRouteList struct {
 // CreateNotificationRouteRequest is the POST body. Only DestinationID is
 // required; the backend defaults priority to 100, stop_on_match to false,
 // mode to "include", and enabled to true for omitted members.
+//
+// project_id is tri-state on the wire: absent scopes the route to the
+// caller's current project, null makes it organisation-wide, and an id
+// scopes it to that project. ProjectIDSet says whether the member is sent;
+// with it set, a nil ProjectID is sent as null.
 type CreateNotificationRouteRequest struct {
 	DestinationID    string   `json:"destination_id"`
 	Kind             *string  `json:"kind,omitempty"`
@@ -193,6 +202,28 @@ type CreateNotificationRouteRequest struct {
 	StopOnMatch      *bool    `json:"stop_on_match,omitempty"`
 	Mode             *string  `json:"mode,omitempty"`
 	Enabled          *bool    `json:"enabled,omitempty"`
+	ProjectID        *string  `json:"-"`
+	ProjectIDSet     bool     `json:"-"`
+}
+
+// MarshalJSON writes project_id only when ProjectIDSet, as null for an
+// organisation-wide route; every other member keeps its omitempty tag.
+func (request CreateNotificationRouteRequest) MarshalJSON() ([]byte, error) {
+	type plainCreateNotificationRouteRequest CreateNotificationRouteRequest
+	encoded, marshalError := json.Marshal(plainCreateNotificationRouteRequest(request))
+	if marshalError != nil || !request.ProjectIDSet {
+		return encoded, marshalError
+	}
+	var body map[string]json.RawMessage
+	if unmarshalError := json.Unmarshal(encoded, &body); unmarshalError != nil {
+		return nil, unmarshalError
+	}
+	projectID, projectMarshalError := json.Marshal(request.ProjectID)
+	if projectMarshalError != nil {
+		return nil, projectMarshalError
+	}
+	body["project_id"] = projectID
+	return json.Marshal(body)
 }
 
 // UpdateNotificationRouteRequest is the PATCH body. The backend applies
@@ -229,6 +260,9 @@ type PreviewNotificationRoutesRequest struct {
 	// pattern. Reference is concrete: refs/heads/<branch>, pull/<number>.
 	ApplicationID *string `json:"application_id,omitempty"`
 	Reference     *string `json:"reference,omitempty"`
+	// ProjectID evaluates the walk as a notification of that project;
+	// omitted, the backend uses the caller's project scope.
+	ProjectID *string `json:"project_id,omitempty"`
 }
 
 // NotificationRoutePreviewDelivery is one destination the notification
@@ -256,13 +290,15 @@ type NotificationRoutePreviewEvaluation struct {
 // NotificationRoutePreview is the dry-run answer to "this notification would
 // be delivered to: ...".
 type NotificationRoutePreview struct {
-	Kind                string                               `json:"kind" yaml:"kind"`
-	Severity            string                               `json:"severity" yaml:"severity"`
-	ClusterID           *string                              `json:"cluster_id" yaml:"cluster_id"`
-	SourceID            *string                              `json:"source_id" yaml:"source_id"`
-	AlertID             *string                              `json:"alert_id" yaml:"alert_id"`
-	ApplicationID       *string                              `json:"application_id" yaml:"application_id"`
-	Reference           *string                              `json:"reference" yaml:"reference"`
+	Kind          string  `json:"kind" yaml:"kind"`
+	Severity      string  `json:"severity" yaml:"severity"`
+	ClusterID     *string `json:"cluster_id" yaml:"cluster_id"`
+	SourceID      *string `json:"source_id" yaml:"source_id"`
+	AlertID       *string `json:"alert_id" yaml:"alert_id"`
+	ApplicationID *string `json:"application_id" yaml:"application_id"`
+	Reference     *string `json:"reference" yaml:"reference"`
+	// ProjectID is the project the walk evaluated; nil is the organisation.
+	ProjectID           *string                              `json:"project_id" yaml:"project_id"`
 	Routable            bool                                 `json:"routable" yaml:"routable"`
 	RoutableReason      string                               `json:"routable_reason" yaml:"routable_reason"`
 	Deliveries          []NotificationRoutePreviewDelivery   `json:"deliveries" yaml:"deliveries"`

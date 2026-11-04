@@ -511,6 +511,9 @@ type APIClient interface {
 	CommentOnTicket(ticketID string, body string) (*client.TicketEvent, error)
 	TransitionTicket(ticketID string, status string, note string) (*client.Ticket, error)
 	DecideTicket(ticketID string, decision client.TicketDecision) (*client.Ticket, error)
+	ListTicketProjectChannels() (*client.TicketProjectChannelsList, error)
+	SetTicketProjectChannels(projectID string, request client.SetTicketProjectChannelsRequest) (*client.SetTicketProjectChannelsResult, error)
+	RemoveTicketProjectChannels(projectID string) error
 	ListTicketLinks(ticketID string) (*client.TicketLinkList, error)
 	AddTicketLink(ticketID string, link client.TicketLinkRequest) (*client.TicketLink, error)
 	RemoveTicketLink(holderTicketID string, linkID string) error
