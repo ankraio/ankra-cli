@@ -16,18 +16,24 @@ import (
 
 // The project a command acts in (ADR 0022) is decided in this order: the
 // global --project flag, ANKRA_PROJECT, the selection `ankra project switch`
-// saved beside the organisation selection, and otherwise the member's
-// server-side current project, which the platform applies on its own. The
-// first three are sent as X-Ankra-Project-Id on every request of the
-// invocation; the platform ignores the header while the organisation has
-// projects off, so a saved selection never breaks an organisation that
-// turned them off again.
+// saved beside the organisation selection, and otherwise what the platform
+// applies to a bearer token on its own: the token's pin, else the
+// organisation's default project, else the first project a project-only member
+// reaches. A token never follows the member's current project, the pointer the
+// portal moves. The first three are sent as X-Ankra-Project-Id on every request
+// of the invocation; the platform ignores the header while the organisation has
+// projects off, so a saved selection never breaks an organisation that turned
+// them off again.
 
 // projectPinnedExplicitly is true when this invocation's project came from
 // --project or ANKRA_PROJECT. An explicit pin is a statement about which
 // project to use, so the gateway commands never retry a cluster in another
 // project behind its back.
 var projectPinnedExplicitly bool
+
+// projectScopeTokenSource is where this invocation's token came from, which
+// decides whether the saved project selection applies to it.
+var projectScopeTokenSource credentialSource
 
 // envAnkraProject is the environment twin of the global --project flag.
 const envAnkraProject = "ANKRA_PROJECT"
@@ -39,11 +45,47 @@ const envAnkraProject = "ANKRA_PROJECT"
 const annotationIgnoresLocalProject = "ankra.ignores_local_project"
 
 // Where a command's project came from, as `ankra project current` reports it.
+// projectSourceServer is the project the platform resolved for the request
+// that named none, not the project the portal shows.
 const (
 	projectSourceOverride = "override"
 	projectSourceLocal    = "local"
 	projectSourceServer   = "server"
 )
+
+// organisationLevelCommands are the top-level commands that belong to the
+// organisation or to this machine by design (ADR 0022: people, money, tokens,
+// AI providers, support), so a project selection saying nothing about them is
+// not worth a warning. Every other command gets one on stderr when a read says
+// the project was not applied, because not every route scopes by project yet
+// (X-Ankra-Applied-Project, internal/client/project_scope_warning.go).
+var organisationLevelCommands = map[string]bool{
+	"ai":         true,
+	"completion": true,
+	"config":     true,
+	"login":      true,
+	"logout":     true,
+	"org":        true,
+	"plugins":    true,
+	"profile":    true,
+	"project":    true,
+	"secrets":    true,
+	"skills":     true,
+	"support":    true,
+	"tokens":     true,
+	"upgrade":    true,
+}
+
+// commandIsOrganisationLevel reports whether the command sits under one of
+// organisationLevelCommands.
+func commandIsOrganisationLevel(cmd *cobra.Command) bool {
+	for current := cmd; current != nil && current.HasParent(); current = current.Parent() {
+		if !current.Parent().HasParent() {
+			return organisationLevelCommands[current.Name()]
+		}
+	}
+	return false
+}
 
 // SelectedProject is the selection `ankra project switch` saves. The
 // organisation id pins it to the organisation it was made in, so switching
@@ -158,6 +200,7 @@ func projectOverrideValue(cmd *cobra.Command) string {
 // organisation this invocation runs in.
 func applyProjectOverride(cmd *cobra.Command, tokenSource credentialSource) error {
 	projectPinnedExplicitly = false
+	projectScopeTokenSource = tokenSource
 	if override := projectOverrideValue(cmd); override != "" {
 		projectID, err := resolveProjectReferenceToID(override)
 		if err != nil {
@@ -311,7 +354,8 @@ func projectsCommandError(err error) error {
 // resolveTargetProject resolves which project a command acts in and the
 // source of that decision, in the precedence applyProjectOverride applies:
 // the explicit override, then the saved selection (when it still names a
-// project of this organisation), then the server-side current project.
+// project of this organisation), then the project the platform resolves for a
+// request that names none.
 func resolveTargetProject(cmd *cobra.Command) (client.ProjectSummary, string, error) {
 	projects, err := apiClient.ListProjects()
 	if err != nil {
@@ -344,6 +388,24 @@ func resolveTargetProject(cmd *cobra.Command) (client.ProjectSummary, string, er
 		return client.ProjectSummary{}, "", projectsCommandError(fmt.Errorf("reading the current project: %w", currentError))
 	}
 	return *current, projectSourceServer, nil
+}
+
+// projectScopeWarning explains a saved selection that names a project the
+// listing no longer shows. `ankra project current` falls back to the platform's
+// answer then, while every other command still sends the selection and is
+// refused. The saved `ankra login` token is the only one a selection applies
+// to. It returns "" when there is nothing to warn about.
+func projectScopeWarning(source string, tokenSource credentialSource) string {
+	if source != projectSourceServer || tokenSource != sourceConfigFile {
+		return ""
+	}
+	selected, loadError := loadSelectedProject()
+	if loadError != nil || strings.TrimSpace(selected.ProjectID) == "" || !selectedProjectMatchesOrganisation(selected) {
+		return ""
+	}
+	label := projectLabel(client.ProjectSummary{ID: selected.ProjectID, Name: selected.Name, Slug: selected.Slug})
+	return fmt.Sprintf("Warning: the saved project selection %s is not a project you can reach in this organisation, so commands will be refused.\n"+
+		"Run 'ankra project switch <project>' to select one ('ankra project list' shows them).", label)
 }
 
 // selectedProjectIDForLinks is the project a portal link should open in: the
