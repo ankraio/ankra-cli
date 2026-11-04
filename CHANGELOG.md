@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **Turn the Kubernetes Gateway API on for a cluster that already exists.** `ankra cluster gateway-api` shows the platform's plan for a cluster Ankra built: whether the option is recorded, where the Gateway API CRDs come from and whether they are established, what the Traefik and cert-manager values still need, and who moves the enable on next. `ankra cluster gateway-api enable` prints that plan, asks, and turns the option on; it is idempotent, so running it again after the CRDs landed writes the values, and `--wait` follows it to enabled (exit 0), stops when the platform needs a person (exit 1: a conflict in the values, a failed CRD install or apply), and exits 5 when `--timeout` runs out while the enable keeps going. Values you wrote yourself are never changed. Needs a platform with the day-2 route; on an older one the command says so and exits 1.
+
 ## v0.64.0 - 2026-11-04
 
 This release lets you change which projects a registry robot reaches after it is

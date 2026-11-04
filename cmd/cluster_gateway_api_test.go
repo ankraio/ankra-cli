@@ -1,0 +1,597 @@
+package cmd
+
+// `ankra cluster gateway-api status|enable` against a scripted platform: the
+// real client talks to an httptest server that answers the cluster lookup and
+// the per-provider gateway-api route, so the method, path and body each verb
+// sends are pinned on the request itself, not on a mock's arguments.
+
+import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"ankra/internal/client"
+)
+
+// gatewayAPIOtherClusterID is a cluster reached through --cluster rather
+// than the selected one.
+const gatewayAPIOtherClusterID = "44444444-4444-4444-8444-444444444444"
+
+type gatewayAPIRequest struct {
+	method        string
+	path          string
+	authorization string
+	body          string
+}
+
+// gatewayAPIServer is a platform that lists every cluster with one kind and
+// serves the gateway-api route from scripted answers: reads come from gets in
+// order and writes from puts in order, the last of each repeating. A refusal,
+// when set, answers every gateway-api request of its method with it.
+type gatewayAPIServer struct {
+	mutex         sync.Mutex
+	kind          string
+	gets          []client.GatewayAPIStatus
+	puts          []client.GatewayAPIEnableResult
+	getIndex      int
+	putIndex      int
+	requests      []gatewayAPIRequest
+	refusalMethod string
+	refusalStatus int
+	refusalBody   string
+}
+
+func scriptedAnswerIndex(index int, length int) int {
+	if index >= length {
+		return length - 1
+	}
+	return index
+}
+
+func newGatewayAPIServer(t *testing.T, kind string, gets ...client.GatewayAPIStatus) *gatewayAPIServer {
+	t.Helper()
+	recorder := &gatewayAPIServer{kind: kind, gets: gets}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		if request.Method == http.MethodGet && request.URL.Path == "/api/v1/clusters" {
+			// The cluster lookup: the selected cluster is stored as id and
+			// name, so the command asks the platform for its kind.
+			recorder.mutex.Lock()
+			listedKind := recorder.kind
+			recorder.mutex.Unlock()
+			_, _ = writer.Write([]byte(`{"result":[{"id":"` + request.URL.Query().Get("cluster_id") +
+				`","name":"test-cluster","kind":"` + listedKind + `"}],"pagination":{"total_count":1}}`))
+			return
+		}
+		underClusters, hasPrefix := strings.CutPrefix(request.URL.Path, "/api/v1/clusters/")
+		if !hasPrefix || !strings.HasSuffix(underClusters, "/gateway-api") {
+			writer.WriteHeader(http.StatusNotFound)
+			_, _ = writer.Write([]byte(`{"detail":"unscripted route in test"}`))
+			return
+		}
+		raw, _ := io.ReadAll(request.Body)
+		recorded := gatewayAPIRequest{method: request.Method, path: request.URL.Path,
+			authorization: request.Header.Get("Authorization"), body: string(raw)}
+
+		recorder.mutex.Lock()
+		defer recorder.mutex.Unlock()
+		recorder.requests = append(recorder.requests, recorded)
+		if recorder.refusalStatus != 0 && (recorder.refusalMethod == "" || recorder.refusalMethod == request.Method) {
+			writer.WriteHeader(recorder.refusalStatus)
+			_, _ = writer.Write([]byte(recorder.refusalBody))
+			return
+		}
+		switch request.Method {
+		case http.MethodGet:
+			if len(recorder.gets) == 0 {
+				writer.WriteHeader(http.StatusInternalServerError)
+				_, _ = writer.Write([]byte(`{"detail":"no GET scripted in test"}`))
+				return
+			}
+			answer := recorder.gets[scriptedAnswerIndex(recorder.getIndex, len(recorder.gets))]
+			recorder.getIndex++
+			_ = json.NewEncoder(writer).Encode(answer)
+		case http.MethodPut:
+			if len(recorder.puts) == 0 {
+				writer.WriteHeader(http.StatusInternalServerError)
+				_, _ = writer.Write([]byte(`{"detail":"no PUT scripted in test"}`))
+				return
+			}
+			answer := recorder.puts[scriptedAnswerIndex(recorder.putIndex, len(recorder.puts))]
+			recorder.putIndex++
+			_ = json.NewEncoder(writer).Encode(answer)
+		default:
+			writer.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	writeSelectedClusterJSON(t)
+	setMockClient(t, client.New("test-token", server.URL))
+	// Every test answers on a pipe, never a terminal, unless it opts in.
+	previousInteractive := promptIsInteractive
+	promptIsInteractive = func(io.Reader) bool { return false }
+	previousInterval := gatewayAPIPollInterval
+	gatewayAPIPollInterval = time.Millisecond
+	t.Cleanup(func() {
+		promptIsInteractive = previousInteractive
+		gatewayAPIPollInterval = previousInterval
+	})
+	return recorder
+}
+
+func (recorder *gatewayAPIServer) scriptPuts(answers ...client.GatewayAPIEnableResult) {
+	recorder.mutex.Lock()
+	defer recorder.mutex.Unlock()
+	recorder.puts = answers
+}
+
+func (recorder *gatewayAPIServer) refuse(method string, status int, body string) {
+	recorder.mutex.Lock()
+	defer recorder.mutex.Unlock()
+	recorder.refusalMethod, recorder.refusalStatus, recorder.refusalBody = method, status, body
+}
+
+func (recorder *gatewayAPIServer) seen() []gatewayAPIRequest {
+	recorder.mutex.Lock()
+	defer recorder.mutex.Unlock()
+	return append([]gatewayAPIRequest{}, recorder.requests...)
+}
+
+func (recorder *gatewayAPIServer) methods() []string {
+	var methods []string
+	for _, request := range recorder.seen() {
+		methods = append(methods, request.method)
+	}
+	return methods
+}
+
+// gatewayAPIOff is a cluster with the option off: both members managed, the
+// values still to be written, no CRDs on the cluster.
+func gatewayAPIOff() client.GatewayAPIStatus {
+	return client.GatewayAPIStatus{
+		Available: true,
+		Phase:     client.GatewayAPIPhaseOff,
+		CRDs: client.GatewayAPICRDs{State: "absent", Observed: []string{},
+			Missing: []string{"gatewayclasses.gateway.networking.k8s.io"}, AddonApplied: "unknown"},
+		Traefik: client.GatewayAPIMember{Addon: "traefik", Managed: true, Values: client.GatewayAPIValuesAdd,
+			Conflicts: []client.GatewayAPIFinding{}, Applied: "applied"},
+		CertManager: client.GatewayAPIMember{Addon: "cert-manager", Managed: true, Values: client.GatewayAPIValuesAdd,
+			Conflicts: []client.GatewayAPIFinding{}, Applied: "applied"},
+		ResourceIDs: []string{"resource-1"},
+		Applies:     "Recording the option hands the cluster's cloud-provider resource to the reconciler.",
+		Note:        "The Gateway API is off for this cluster: Traefik serves Ingress only.",
+	}
+}
+
+// gatewayAPIRecorded is the standing after the option is recorded, at the
+// given phase, with the CRDs coming from the addon.
+func gatewayAPIRecorded(phase string, note string) client.GatewayAPIStatus {
+	status := gatewayAPIOff()
+	status.Enabled = true
+	status.Phase = phase
+	status.CRDs.Source = "addon"
+	status.Note = note
+	return status
+}
+
+func gatewayAPIEnableAnswer(status client.GatewayAPIStatus, recorded bool, valuesWritten bool) client.GatewayAPIEnableResult {
+	return client.GatewayAPIEnableResult{GatewayAPIStatus: status, Changed: recorded || valuesWritten,
+		Recorded: recorded, ValuesWritten: valuesWritten}
+}
+
+// gatewayAPICommands collects the `cluster gateway-api` tree so a test can
+// put its flags back: the commands are built once in init and shared by the
+// whole package, so a --yes left set would leak into the next test.
+func gatewayAPICommands(t *testing.T) []*cobra.Command {
+	t.Helper()
+	for _, candidate := range clusterCmd.Commands() {
+		if candidate.Name() == "gateway-api" {
+			return append([]*cobra.Command{candidate}, candidate.Commands()...)
+		}
+	}
+	t.Fatalf("the 'cluster gateway-api' command is not registered")
+	return nil
+}
+
+// runGatewayAPI executes the command with input on stdin and returns stdout
+// and stderr apart, so structured output can be checked for being clean.
+func runGatewayAPI(t *testing.T, input string, arguments ...string) (string, string, error) {
+	t.Helper()
+	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(stderr)
+	rootCmd.SetIn(strings.NewReader(input))
+	rootCmd.SetArgs(append([]string{"cluster", "gateway-api"}, arguments...))
+	resetTreeFlags(t, gatewayAPICommands(t)...)
+	t.Cleanup(func() {
+		rootCmd.SetIn(nil)
+		resetTreeFlags(t, gatewayAPICommands(t)...)
+	})
+	runError := rootCmd.Execute()
+	return stdout.String(), stderr.String(), runError
+}
+
+func TestClusterGatewayAPIStatusPrintsThePlanOverTheProviderRoute(t *testing.T) {
+	recorder := newGatewayAPIServer(t, "hetzner", gatewayAPIOff())
+
+	stdout, _, runError := runGatewayAPI(t, "", "status")
+	if runError != nil {
+		t.Fatalf("status failed: %v", runError)
+	}
+	requests := recorder.seen()
+	if len(requests) != 1 || requests[0].method != http.MethodGet ||
+		requests[0].path != "/api/v1/clusters/hetzner/"+testClusterID+"/gateway-api" {
+		t.Fatalf("expected one GET of the selected cluster's option on the hetzner route, got %+v", requests)
+	}
+	if requests[0].authorization != "Bearer test-token" {
+		t.Fatalf("the read must use the bearer route, got Authorization %q", requests[0].authorization)
+	}
+	assertContainsAll(t, stdout, []string{
+		"Gateway API for cluster 'test-cluster' (hetzner):",
+		"State:        off (Traefik serves Ingress only)",
+		"CRDs:         no source recorded yet; the watch sees absent (0 of 1 kinds); not established",
+		"Traefik:      Gateway API settings still to be written (apply applied)",
+		"cert-manager: Gateway API settings still to be written (apply applied)",
+		"The Gateway API is off for this cluster: Traefik serves Ingress only.",
+		"Turn it on with 'ankra cluster gateway-api enable'.",
+	})
+	if strings.Contains(stdout, "Conflicts") {
+		t.Fatalf("a plan without conflicts printed a conflicts section:\n%s", stdout)
+	}
+
+	// Run without a subcommand, the command shows the same plan.
+	bare, _, bareError := runGatewayAPI(t, "")
+	if bareError != nil {
+		t.Fatalf("bare gateway-api failed: %v", bareError)
+	}
+	if bare != stdout {
+		t.Fatalf("the bare command printed something other than status:\n%s\n--- status ---\n%s", bare, stdout)
+	}
+}
+
+func TestClusterGatewayAPIStatusHonoursTheClusterFlag(t *testing.T) {
+	recorder := newGatewayAPIServer(t, "upcloud", gatewayAPIOff())
+
+	if _, _, runError := runGatewayAPI(t, "", "status", "--cluster", gatewayAPIOtherClusterID); runError != nil {
+		t.Fatalf("status --cluster failed: %v", runError)
+	}
+	requests := recorder.seen()
+	if len(requests) != 1 || requests[0].path != "/api/v1/clusters/upcloud/"+gatewayAPIOtherClusterID+"/gateway-api" {
+		t.Fatalf("expected the --cluster id on its own kind's route, got %+v", requests)
+	}
+}
+
+func TestClusterGatewayAPIStatusJSONIsTheResponseBody(t *testing.T) {
+	newGatewayAPIServer(t, "hetzner", gatewayAPIOff())
+
+	stdout, _, runError := runGatewayAPI(t, "", "status", "-o", "json")
+	if runError != nil {
+		t.Fatalf("status -o json failed: %v", runError)
+	}
+	var decoded map[string]any
+	if decodeError := json.Unmarshal([]byte(stdout), &decoded); decodeError != nil {
+		t.Fatalf("structured output is not JSON: %v\n%s", decodeError, stdout)
+	}
+	if decoded["phase"] != client.GatewayAPIPhaseOff || decoded["available"] != true {
+		t.Fatalf("decoded %v, want the platform's phase and availability", decoded)
+	}
+	crds, isObject := decoded["crds"].(map[string]any)
+	if !isObject || crds["state"] != "absent" {
+		t.Fatalf("decoded crds %v, want the platform's reading", decoded["crds"])
+	}
+	if len(decoded) != 11 {
+		t.Fatalf("decoded %d fields %v, want exactly the response's eleven", len(decoded), decoded)
+	}
+}
+
+// A cluster Ankra did not build has no Ankra-managed ingress to serve the
+// Gateway API: its kind is refused before any request to the option's route.
+func TestClusterGatewayAPIRefusesAClusterAnkraDidNotBuild(t *testing.T) {
+	recorder := newGatewayAPIServer(t, "imported", gatewayAPIOff())
+
+	_, _, runError := runGatewayAPI(t, "", "enable", "--yes")
+	if runError == nil {
+		t.Fatal("expected the kind refusal, got success")
+	}
+	if code := exitCodeFor(runError); code != exitUsage {
+		t.Fatalf("exit code = %d, want %d (usage): %v", code, exitUsage, runError)
+	}
+	if !strings.Contains(runError.Error(), "cluster 'test-cluster' does not support the Gateway API option (its kind is imported)") {
+		t.Fatalf("error = %q, want it to name the kind", runError.Error())
+	}
+	if requests := recorder.seen(); len(requests) != 0 {
+		t.Fatalf("a refused kind still reached the option's route: %+v", requests)
+	}
+}
+
+func TestClusterGatewayAPIEnableNeedsConfirmationWithoutATerminal(t *testing.T) {
+	recorder := newGatewayAPIServer(t, "hetzner", gatewayAPIOff())
+
+	stdout, stderr, runError := runGatewayAPI(t, "", "enable")
+	if runError == nil {
+		t.Fatal("expected the confirmation refusal, got success")
+	}
+	if code := exitCodeFor(runError); code != exitUsage {
+		t.Fatalf("exit code = %d, want %d (usage): %v", code, exitUsage, runError)
+	}
+	if !strings.Contains(runError.Error(), "re-run with --yes") {
+		t.Fatalf("error = %q, want it to name --yes", runError.Error())
+	}
+	assertContainsAll(t, stderr, []string{
+		"Turning the Gateway API on for cluster 'test-cluster' (hetzner)",
+		"This will:",
+		"record the option on the cluster",
+		"install the Gateway API CRDs through a gateway-api-crds addon",
+		"write the Gateway API settings into the traefik values once the CRDs are established",
+		"write the Gateway API settings into the cert-manager values once the CRDs are established",
+		"There is no 'disable'",
+	})
+	if stdout != "" {
+		t.Fatalf("the plan must go to stderr, stdout got:\n%s", stdout)
+	}
+	if methods := recorder.methods(); len(methods) != 1 || methods[0] != http.MethodGet {
+		t.Fatalf("expected the plan read and no write, got %v", methods)
+	}
+}
+
+func TestClusterGatewayAPIEnableDeclinedPromptExitsFour(t *testing.T) {
+	recorder := newGatewayAPIServer(t, "hetzner", gatewayAPIOff())
+	promptIsInteractive = func(io.Reader) bool { return true }
+
+	_, stderr, runError := runGatewayAPI(t, "n\n", "enable")
+	if code := exitCodeFor(runError); code != exitCancelled {
+		t.Fatalf("exit code = %d, want %d (cancelled): %v", code, exitCancelled, runError)
+	}
+	if !strings.Contains(stderr, "Turn the Gateway API on for this cluster? [y/N]:") {
+		t.Fatalf("expected the question on stderr, got:\n%s", stderr)
+	}
+	if methods := recorder.methods(); len(methods) != 1 || methods[0] != http.MethodGet {
+		t.Fatalf("a declined prompt still wrote: %v", methods)
+	}
+}
+
+func TestClusterGatewayAPIEnableRecordsTheOptionAndSaysWhatIsNext(t *testing.T) {
+	recorder := newGatewayAPIServer(t, "hetzner", gatewayAPIOff())
+	pending := gatewayAPIRecorded(client.GatewayAPIPhaseCRDsPending,
+		"The CRD addon is not on the cluster yet. The Traefik and cert-manager values are written once the CRDs are established; turn the Gateway API on again then.")
+	recorder.scriptPuts(gatewayAPIEnableAnswer(pending, true, false))
+
+	stdout, stderr, runError := runGatewayAPI(t, "", "enable", "--yes")
+	if runError != nil {
+		t.Fatalf("enable --yes failed: %v", runError)
+	}
+	requests := recorder.seen()
+	if len(requests) != 2 || requests[0].method != http.MethodGet || requests[1].method != http.MethodPut {
+		t.Fatalf("expected the plan read then one write, got %+v", requests)
+	}
+	if requests[1].path != "/api/v1/clusters/hetzner/"+testClusterID+"/gateway-api" || requests[1].body != "" {
+		t.Fatalf("the write must PUT the option's route with no body, got %+v", requests[1])
+	}
+	assertContainsAll(t, stdout, []string{
+		"Gateway API enable for cluster 'test-cluster' (hetzner):",
+		"Recorded:       yes (this call turned the option on)",
+		"Values written: no (not by this call)",
+		"State:        recorded, waiting for the Gateway API CRDs",
+		"CRDs:         from the gateway-api-crds addon;",
+		"turn the Gateway API on again then.",
+		"Follow it to enabled with 'ankra cluster gateway-api enable --wait'",
+	})
+	if !strings.Contains(stderr, "This will:") {
+		t.Fatalf("the plan must still be shown with --yes, stderr:\n%s", stderr)
+	}
+}
+
+func TestClusterGatewayAPIEnableJSONIsTheWriteResponse(t *testing.T) {
+	recorder := newGatewayAPIServer(t, "ovh", gatewayAPIOff())
+	recorder.scriptPuts(gatewayAPIEnableAnswer(gatewayAPIRecorded(client.GatewayAPIPhaseCRDsPending, "pending"), true, false))
+
+	stdout, _, runError := runGatewayAPI(t, "", "enable", "--yes", "-o", "json")
+	if runError != nil {
+		t.Fatalf("enable --yes -o json failed: %v", runError)
+	}
+	var decoded map[string]any
+	if decodeError := json.Unmarshal([]byte(stdout), &decoded); decodeError != nil {
+		t.Fatalf("structured output is not JSON: %v\n%s", decodeError, stdout)
+	}
+	if decoded["recorded"] != true || decoded["values_written"] != false || decoded["phase"] != client.GatewayAPIPhaseCRDsPending {
+		t.Fatalf("decoded %v, want the write's own answer", decoded)
+	}
+}
+
+// The platform writes the values only on an enable call once the CRDs are
+// established, so --wait repeats the enable when the phase says the values
+// are next, and returns once the Gateway API is enabled.
+func TestClusterGatewayAPIEnableWaitRepeatsTheEnableWhenTheValuesAreNext(t *testing.T) {
+	recorder := newGatewayAPIServer(t, "hetzner",
+		gatewayAPIOff(),
+		gatewayAPIRecorded(client.GatewayAPIPhaseCRDsPending, "waiting"),
+		gatewayAPIRecorded(client.GatewayAPIPhaseValuesPending, "The CRDs are established; turning the Gateway API on again writes the Traefik and cert-manager values."),
+		gatewayAPIRecorded(client.GatewayAPIPhaseEnabled, "The Gateway API is on."),
+	)
+	applying := gatewayAPIRecorded(client.GatewayAPIPhaseApplying, "applying")
+	applying.Traefik.Values, applying.CertManager.Values = client.GatewayAPIValuesAlreadyOn, client.GatewayAPIValuesAlreadyOn
+	recorder.scriptPuts(
+		gatewayAPIEnableAnswer(gatewayAPIRecorded(client.GatewayAPIPhaseCRDsPending, "waiting"), true, false),
+		gatewayAPIEnableAnswer(applying, false, true),
+	)
+
+	stdout, stderr, runError := runGatewayAPI(t, "", "enable", "--yes", "--wait", "--timeout", "10s")
+	if runError != nil {
+		t.Fatalf("enable --wait failed: %v\nstderr:\n%s", runError, stderr)
+	}
+	want := []string{http.MethodGet, http.MethodPut, http.MethodGet, http.MethodGet, http.MethodPut, http.MethodGet}
+	if got := recorder.methods(); strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("request sequence = %v, want %v (plan, record, poll, poll finds the values next, repeat the enable, poll finds it enabled)", got, want)
+	}
+	assertContainsAll(t, stderr, []string{
+		"recorded, waiting for the Gateway API CRDs",
+		"CRDs established, values still to be written",
+		"values written, Traefik or cert-manager is applying them",
+		"enabled",
+		"The Gateway API is on for cluster 'test-cluster'.",
+	})
+	assertContainsAll(t, stdout, []string{
+		"Gateway API for cluster 'test-cluster' (hetzner):",
+		"State:        enabled",
+		"The Gateway API is on.",
+	})
+}
+
+func TestClusterGatewayAPIEnableWaitJSONIsTheFinalStanding(t *testing.T) {
+	recorder := newGatewayAPIServer(t, "hetzner", gatewayAPIOff(), gatewayAPIRecorded(client.GatewayAPIPhaseEnabled, "on"))
+	recorder.scriptPuts(gatewayAPIEnableAnswer(gatewayAPIRecorded(client.GatewayAPIPhaseApplying, "applying"), true, true))
+
+	stdout, _, runError := runGatewayAPI(t, "", "enable", "--yes", "--wait", "--timeout", "10s", "-o", "json")
+	if runError != nil {
+		t.Fatalf("enable --wait -o json failed: %v", runError)
+	}
+	var decoded map[string]any
+	if decodeError := json.Unmarshal([]byte(stdout), &decoded); decodeError != nil {
+		t.Fatalf("structured output is not one JSON document: %v\n%s", decodeError, stdout)
+	}
+	if decoded["phase"] != client.GatewayAPIPhaseEnabled {
+		t.Fatalf("decoded phase %v, want the standing the wait ended on", decoded["phase"])
+	}
+}
+
+func TestClusterGatewayAPIEnableWaitStopsWhenThePlatformNeedsAPerson(t *testing.T) {
+	conflict := gatewayAPIRecorded(client.GatewayAPIPhaseConflict,
+		"The option is recorded, but a key in the Traefik or cert-manager values says the opposite of what the Gateway API needs (see conflicts).")
+	conflict.Traefik.Values = client.GatewayAPIValuesConflict
+	conflict.Traefik.Conflicts = []client.GatewayAPIFinding{{Addon: "traefik", Key: "providers.kubernetesGateway.enabled",
+		Outcome: "conflict", Detail: "the values set it to false"}}
+	recorder := newGatewayAPIServer(t, "hetzner", gatewayAPIOff(), conflict)
+	recorder.scriptPuts(gatewayAPIEnableAnswer(gatewayAPIRecorded(client.GatewayAPIPhaseCRDsPending, "waiting"), true, false))
+
+	stdout, _, runError := runGatewayAPI(t, "", "enable", "--yes", "--wait", "--timeout", "10s")
+	if code := exitCodeFor(runError); code != exitError {
+		t.Fatalf("exit code = %d, want %d (the platform needs a person): %v", code, exitError, runError)
+	}
+	if !strings.Contains(runError.Error(), "needs attention (conflict)") {
+		t.Fatalf("error = %q, want it to name the phase", runError.Error())
+	}
+	assertContainsAll(t, stdout, []string{
+		"State:        recorded, held by a conflict in the values",
+		"Traefik:      conflict on 1 key, see below",
+		"Conflicts (nothing is written to these values until they are resolved):",
+		"traefik providers.kubernetesGateway.enabled: the values set it to false",
+	})
+	if got := recorder.methods(); strings.Join(got, " ") != "GET PUT GET" {
+		t.Fatalf("request sequence = %v, want the plan, the record and one poll", got)
+	}
+}
+
+func TestClusterGatewayAPIEnableWaitExpiresWithExitFive(t *testing.T) {
+	recorder := newGatewayAPIServer(t, "hetzner", gatewayAPIOff(), gatewayAPIRecorded(client.GatewayAPIPhaseCRDsPending, "waiting"))
+	recorder.scriptPuts(gatewayAPIEnableAnswer(gatewayAPIRecorded(client.GatewayAPIPhaseCRDsPending, "waiting"), true, false))
+
+	stdout, _, runError := runGatewayAPI(t, "", "enable", "--yes", "--wait", "--timeout", "30ms")
+	if code := exitCodeFor(runError); code != exitWaitTimeout {
+		t.Fatalf("exit code = %d, want %d (wait expired): %v", code, exitWaitTimeout, runError)
+	}
+	if !strings.Contains(runError.Error(), "not enabled for cluster 'test-cluster' after 30ms (phase crds_pending)") {
+		t.Fatalf("error = %q, want the phase it stopped on", runError.Error())
+	}
+	if !strings.Contains(stdout, "State:        recorded, waiting for the Gateway API CRDs") {
+		t.Fatalf("the standing the wait ended on must be printed, got:\n%s", stdout)
+	}
+	if methods := recorder.methods(); len(methods) < 2 || methods[1] != http.MethodPut {
+		t.Fatalf("expected the plan read and the record before polling, got %v", methods)
+	}
+}
+
+func TestClusterGatewayAPIEnableIsANoOpWhenAlreadyEnabled(t *testing.T) {
+	recorder := newGatewayAPIServer(t, "hetzner", gatewayAPIRecorded(client.GatewayAPIPhaseEnabled, "The Gateway API is on."))
+
+	stdout, _, runError := runGatewayAPI(t, "", "enable", "--yes")
+	if runError != nil {
+		t.Fatalf("enable on an enabled cluster failed: %v", runError)
+	}
+	if methods := recorder.methods(); len(methods) != 1 || methods[0] != http.MethodGet {
+		t.Fatalf("an enabled cluster was written to: %v", methods)
+	}
+	assertContainsAll(t, stdout, []string{
+		"The Gateway API is already on for cluster 'test-cluster' (hetzner); nothing to do.",
+		"State:        enabled",
+	})
+}
+
+func TestClusterGatewayAPIRefusesAClusterWithoutAnkraNetworking(t *testing.T) {
+	unavailable := client.GatewayAPIStatus{Available: false,
+		UnavailableReason: "This cluster's ingress was not installed by Ankra (include_networking was off), so there is no Ankra-managed Traefik to serve the Gateway API"}
+	recorder := newGatewayAPIServer(t, "digitalocean", unavailable)
+
+	stdout, _, statusError := runGatewayAPI(t, "", "status")
+	if statusError != nil {
+		t.Fatalf("status failed: %v", statusError)
+	}
+	if !strings.Contains(stdout, "Not available: This cluster's ingress was not installed by Ankra") {
+		t.Fatalf("status must say why the option is not available, got:\n%s", stdout)
+	}
+
+	_, _, enableError := runGatewayAPI(t, "", "enable", "--yes")
+	if code := exitCodeFor(enableError); code != exitBlocked {
+		t.Fatalf("exit code = %d, want %d (blocked, nothing changed): %v", code, exitBlocked, enableError)
+	}
+	for _, request := range recorder.seen() {
+		if request.method == http.MethodPut {
+			t.Fatalf("an unavailable cluster was written to: %+v", request)
+		}
+	}
+}
+
+func TestClusterGatewayAPIRefusalsKeepTheirExitCodes(t *testing.T) {
+	cases := []struct {
+		name     string
+		method   string
+		status   int
+		body     string
+		args     []string
+		wantCode int
+		wantText string
+	}{
+		{name: "a write without clusters.write exits 7", method: http.MethodPut, status: http.StatusForbidden,
+			body: `{"detail":"Forbidden"}`, args: []string{"enable", "--yes"}, wantCode: exitForbidden,
+			wantText: "permission to change cluster settings (clusters.write)"},
+		{name: "a write the platform refuses exits 8 with its sentence", method: http.MethodPut, status: http.StatusConflict,
+			body: `{"detail":"The cluster's cloud provider stack is still being created or removed; turn the Gateway API on once it is up"}`,
+			args: []string{"enable", "--yes"}, wantCode: exitBlocked,
+			wantText: "nothing was changed): The cluster's cloud provider stack is still being created or removed"},
+		{name: "a cluster outside the organisation exits 3", method: http.MethodGet, status: http.StatusNotFound,
+			body: `{"detail":"Cluster not found"}`, args: []string{"status"}, wantCode: exitNotFound,
+			wantText: "not found in this organisation"},
+		{name: "a platform without the route exits 1 and says so", method: http.MethodGet, status: http.StatusNotFound,
+			body: `{"detail":"Not Found"}`, args: []string{"status"}, wantCode: exitError,
+			wantText: "does not offer turning the Gateway API on after create yet"},
+		{name: "a 404 without a detail is reported as unknown", method: http.MethodGet, status: http.StatusNotFound,
+			body: `not json`, args: []string{"status"}, wantCode: exitError,
+			wantText: "answered 404 without saying why"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			recorder := newGatewayAPIServer(t, "scaleway", gatewayAPIOff())
+			recorder.scriptPuts(gatewayAPIEnableAnswer(gatewayAPIRecorded(client.GatewayAPIPhaseCRDsPending, "waiting"), true, false))
+			recorder.refuse(testCase.method, testCase.status, testCase.body)
+
+			_, _, runError := runGatewayAPI(t, "", testCase.args...)
+			if runError == nil {
+				t.Fatal("expected a refusal, got success")
+			}
+			if code := exitCodeFor(runError); code != testCase.wantCode {
+				t.Fatalf("exit code = %d, want %d: %v", code, testCase.wantCode, runError)
+			}
+			if !strings.Contains(runError.Error(), testCase.wantText) {
+				t.Fatalf("error = %q, want it to contain %q", runError.Error(), testCase.wantText)
+			}
+		})
+	}
+}
