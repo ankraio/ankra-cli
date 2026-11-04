@@ -473,7 +473,7 @@ it is deleted again before its secret is shown.`,
 					ignored = append(ignored, ignoredFlags)
 				}
 			}
-			if isSeveralProjects && !registryRobotReachesExactly(created.ProjectAccess, projectNames) {
+			if isSeveralProjects && !registryRobotReachesExactly(created.ProjectAccess, projectNames, registryName != "") {
 				// A platform without robots of several projects ignores the
 				// list and binds the robot to one project: a login that cannot
 				// reach what was asked for.
@@ -523,20 +523,21 @@ const registryProjectFlag = "registry-project"
 const registryRobotMaximumProjects = 20
 
 // registryRobotReachesExactly reports whether a robot's answered access is the
-// projects asked for and no others. A project is matched by the registry's
-// name for it or the member's: they differ on the Ankra registry.
-func registryRobotReachesExactly(access []client.RegistryRobotProjectAccess, projectNames []string) bool {
-	if len(access) != len(projectNames) {
-		return false
-	}
-	for _, projectName := range projectNames {
-		if !slices.ContainsFunc(access, func(grant client.RegistryRobotProjectAccess) bool {
-			return grant.Project == projectName || grant.ProjectName == projectName
-		}) {
-			return false
+// projects asked for and no others, one grant to one project. A member asks by
+// the name the lane addresses a project by: the registry's own on an integrated
+// registry, and the member-facing one on the Ankra registry, whose Project is
+// the organisation-prefixed name on Harbor.
+func registryRobotReachesExactly(access []client.RegistryRobotProjectAccess, projectNames []string, isIntegrated bool) bool {
+	answeredNames := make([]string, 0, len(access))
+	for _, grant := range access {
+		answeredName := grant.ProjectName
+		if isIntegrated {
+			answeredName = grant.Project
 		}
+		answeredNames = append(answeredNames, strings.ToLower(answeredName))
 	}
-	return true
+	slices.Sort(answeredNames)
+	return slices.Equal(answeredNames, slices.Sorted(slices.Values(projectNames)))
 }
 
 // registryProjectFlagValues reads --registry-project, or the deprecated

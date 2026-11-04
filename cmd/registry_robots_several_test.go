@@ -68,6 +68,28 @@ func TestRegistryRobotsCreateRevokesARobotThatDidNotGetEveryProject(t *testing.T
 	}
 }
 
+func TestRegistryRobotReachesExactlyMatchesOneGrantToOneProject(t *testing.T) {
+	cases := []struct {
+		name         string
+		access       []client.RegistryRobotProjectAccess
+		isIntegrated bool
+		want         bool
+	}{
+		{"integrated, by the registry's name", []client.RegistryRobotProjectAccess{{Project: "second"}, {Project: "first"}}, true, true},
+		{"integrated, in another case", []client.RegistryRobotProjectAccess{{Project: "First"}, {Project: "second"}}, true, true},
+		{"integrated, one grant named for both", []client.RegistryRobotProjectAccess{{Project: "first", ProjectName: "second"}, {Project: "third"}}, true, false},
+		{"integrated, the same project twice", []client.RegistryRobotProjectAccess{{Project: "first"}, {Project: "first"}}, true, false},
+		{"Ankra, by the member's name", []client.RegistryRobotProjectAccess{{Project: "org-1", ProjectName: "first"}, {Project: "org-1-second", ProjectName: "second"}}, false, true},
+		{"Ankra, Harbor's name is not the member's", []client.RegistryRobotProjectAccess{{Project: "first", ProjectName: "other"}, {Project: "second", ProjectName: "second"}}, false, false},
+		{"a project more than asked for", []client.RegistryRobotProjectAccess{{Project: "first"}, {Project: "second"}, {Project: "third"}}, true, false},
+	}
+	for _, testCase := range cases {
+		if got := registryRobotReachesExactly(testCase.access, []string{"first", "second"}, testCase.isIntegrated); got != testCase.want {
+			t.Errorf("%s = %v, want %v", testCase.name, got, testCase.want)
+		}
+	}
+}
+
 func TestRegistryRobotsCreateRefusesMoreProjectsThanOneRobotReaches(t *testing.T) {
 	var projectNames []string
 	for projectIndex := range registryRobotMaximumProjects + 1 {
