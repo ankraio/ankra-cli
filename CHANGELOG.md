@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+## v0.60.1 - 2026-11-04
+
+This release fixes `ankra application add --wait` and `ankra application ship`,
+which stopped right after registering an application because the platform now
+reports analysis progress as a list of steps. Installing this release changes
+nothing on any cluster or workload.
+
+### Fixed
+
+- **`ankra application add --wait` no longer fails right after registering the application with `cannot unmarshal array into Go struct field applicationAnalysisState.creation_progress of type string`.** The platform now answers `creation_progress` as a list of steps (or null), not a sentence. `--wait` decodes the list, prints the newest step as a line such as `AI generate files...` or `Fetch repository tree: Found 42 files`, and still ends on the setup pull request or the platform's failure reason. A platform that still sends a sentence is printed as before.
+
+## v0.60.0 - 2026-11-04
+
+This release lets the CLI show and change the AI board's structure: which
+ticket a ticket sits under, what stands under it, and how tickets link to each
+other. `ankra tickets get` shows all of it, and `nest`, `detach`, `links`,
+`link`, `unlink`, `close --duplicate-of` and `create --parent` change it. Ticket
+numbers now also find chat-fix receipts. Installing this release changes nothing
+on any cluster or workload.
+
+### Added
+
+- **`ankra tickets` shows and changes the board's structure.** `ankra tickets get` now says which ticket a ticket sits under and whether that ticket carries its work (a symptom) or it is a sub-ticket of it, how many open symptoms and sub-tickets stand under it and how many of those wait on a person, every ticket directly under it with its role, and its links in both directions, worded as the board words them ("Duplicate of", "Duplicate of this ticket", "Recurrence of", "Came back as"). A part it could not read is said to be unread, never shown as empty, and the command then exits 1 after printing the rest. `-o json` prints the ticket as before, now with `parent_ticket_number`, `parent_ticket_title`, `parent_ticket_status`, `child_role`, `sub_ticket_count`, `open_sub_ticket_count`, `live_symptom_count` and `symptoms_needing_person_count`. New commands: `ankra tickets nest <ticket> --root <ticket>` moves a ticket under a root as a symptom and `detach` stands it on its own again; `links`, `link` and `unlink` list, add and remove links (`unlink` takes a link id or the ticket at the other end, and removes a link another ticket holds through that ticket); `close` closes a ticket with a resolution, and `close --duplicate-of T-42` closes it as a duplicate and links it to the keeper in one step, then names the keeper the platform linked, which can be another ticket when the one named is itself a duplicate or a symptom; `create` files a ticket, and `create --parent T-42` files a sub-ticket. `ankra tickets list` takes `--parent` to list the tickets under one, with their role, and `--top-level`. A refused write prints the platform's sentence and exits 2 when the request named the wrong thing, 3 when the ticket is not in your organisation and 1 when the tickets' state refused it. `close --duplicate-of` needs a platform that accepts `duplicate_of`; on one that does not, the ticket is closed without a link, and the command says so, exits 1 and prints the `ankra tickets link` command that adds it.
+
+### Fixed
+
+- **`ankra tickets get`, `comment`, `decide` and every other ticket command find a chat-fix receipt by its number.** The board leaves receipts (the records of writes a person made through the AI chat or MCP) out of its listing unless asked, and the CLI looked a number up in that listing, so `ankra tickets get T-1298` answered `ticket T-1298 not found` for every receipt, open or closed, while the ticket page and MCP showed it. A number is now looked up with receipts included, by the platform's exact-number search first, so a ticket older than the 2000 most recently updated is found too.
+
+## v0.59.0 - 2026-11-03
+
+This release lets the CLI decide a preserved GitOps path: a file in a cluster's
+GitOps repository that Ankra did not write, which it keeps instead of
+overwriting. `ankra cluster gitops preserved list|show|resolve` shows what
+differs and records which version wins, after previewing what the choice
+discards. Installing this release changes nothing on any cluster or workload.
+
 ### Added
 
 - **`ankra cluster gitops preserved list|show|resolve` decides a preserved GitOps path from the CLI.** A preserved path is a file in a cluster's GitOps repository that Ankra did not write, such as a cluster file edited by hand. Ankra keeps Git's version instead of overwriting it, so its own later changes to that file (a new add-on, a chart version it rolled) never reach Git until someone decides which version wins. These are not merge conflicts, so `ankra cluster gitops conflicts resolve` could not decide them, and a cluster with no conflicts and an undecided preserved path could only be fixed with a hand-built API call. `list` shows each file with when it was detected, its decision, whether its content is withheld and why, and how many differences the platform found. `show <path>` prints those differences key by key, with Git's and Ankra's value where the platform shows them and `(masked)` where it does not. `resolve <path> --keep git|ankra` records the decision: `--keep git` imports Git's version and the cluster changes to match it, and `--keep ankra` (or `--keep cluster`) writes Ankra's version into Git over the edit made there. Before it asks, `resolve` lists what the choice discards: the stacks and add-ons only one version declares, folded into one line each, and the values that change. It also warns when keeping Git's version would drop `encrypted_paths` entries that Ankra declares, which would deploy SOPS ciphertext as the value. It reads the file's two content digests from the platform itself, so a decision covers exactly the versions it showed. It needs `--yes` when there is no terminal to ask on. `--withdraw` removes a recorded decision without changing anything in Git or on the cluster. A file that changed since it was read, a decision someone else already recorded, and Ankra's version over SOPS-encrypted content are each refused with the command to run next. A missing `clusters.write` exits 7, a path that is no longer preserved exits 3, and `-o json` returns the platform's answer. `ankra cluster gitops status` now names these commands instead of the API route. `ankra cluster gitops conflicts list` points at undecided preserved paths when there are no conflicts, and `conflicts resolve` points at `preserved resolve` when it is given a file path. Needs a platform that serves the preserved-path routes to API tokens.

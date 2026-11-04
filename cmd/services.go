@@ -514,6 +514,14 @@ type APIClient interface {
 	ListTicketProjectChannels() (*client.TicketProjectChannelsList, error)
 	SetTicketProjectChannels(projectID string, request client.SetTicketProjectChannelsRequest) (*client.SetTicketProjectChannelsResult, error)
 	RemoveTicketProjectChannels(projectID string) error
+	ListTicketLinks(ticketID string) (*client.TicketLinkList, error)
+	AddTicketLink(ticketID string, link client.TicketLinkRequest) (*client.TicketLink, error)
+	RemoveTicketLink(holderTicketID string, linkID string) error
+	NestTicket(ticketID string, request client.TicketNestRequest) (*client.Ticket, error)
+	DetachTicket(ticketID string, reason string) (*client.Ticket, error)
+	CloseTicket(ticketID string, request client.TicketCloseRequest) (*client.Ticket, error)
+	CreateTicket(request client.TicketCreateRequest) (*client.Ticket, error)
+	CreateSubTicket(parentTicketID string, request client.TicketCreateRequest) (*client.Ticket, error)
 
 	GetAIProviderStatus() (*client.AIProviderStatus, error)
 	SetAIProvider(provider string) (*client.AIProviderStatus, error)

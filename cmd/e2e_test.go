@@ -5299,6 +5299,38 @@ func (m baseMock) RemoveTicketProjectChannels(string) error {
 	return errors.New("not implemented")
 }
 
+func (m baseMock) ListTicketLinks(ticketID string) (*client.TicketLinkList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AddTicketLink(ticketID string, link client.TicketLinkRequest) (*client.TicketLink, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RemoveTicketLink(holderTicketID string, linkID string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) NestTicket(ticketID string, request client.TicketNestRequest) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DetachTicket(ticketID string, reason string) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CloseTicket(ticketID string, request client.TicketCloseRequest) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateTicket(request client.TicketCreateRequest) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateSubTicket(parentTicketID string, request client.TicketCreateRequest) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetBoardIdentity() (*client.BoardIdentity, error) {
 	return nil, errors.New("not implemented")
 }
