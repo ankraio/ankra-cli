@@ -10,9 +10,11 @@ the members who can reach one project, with `ankra org access-gateway set
 --access-project`. `ankra exec`, `ankra cluster exec`, `terminal` and `debug` now act in
 the project you chose.
 
-Scripts have one thing to notice: `ankra org access-gateway get` prints one more
-line, `Project:`. Its `-o json` only gains `project_id`, and leaves it out when a
-zone has no limit. Installing this release changes nothing on any cluster or
+Scripts have two things to notice. With `--project`, `ANKRA_PROJECT` or a saved
+selection, `ankra exec` and the pod terminal commands now act in that project, where
+they used to ignore it. `ankra org access-gateway get` prints one more line,
+`Project:`; its `-o json` only gains `project_id`, and leaves it out when a zone has
+no limit. Installing this release changes nothing on any cluster or
 workload.
 
 ### Added
