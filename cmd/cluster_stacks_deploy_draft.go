@@ -37,7 +37,7 @@ var clusterStacksDeployDraftCmd = &cobra.Command{
 		"draft (what a clone or a stack-profile instantiation leaves behind), or the draft of edits " +
 		"'ankra cluster draft -f' or the stack builder left on a stack that is already deployed.\n\n" +
 		"The draft's contents are deployed exactly as they are stored. Review them first with " +
-		"'ankra cluster stacks list <stack name>', and edit them in the stack builder if the " +
+		"'ankra cluster stacks show-draft <stack name>', and edit them in the stack builder if the " +
 		"clone warned that something has to change before it can come up.\n\n" +
 		"For a stack that is already deployed only the members the draft changes are written; " +
 		"members it does not mention keep running untouched.",
@@ -140,19 +140,9 @@ func selectDeployableDraft(documents []client.ClusterStackDocument, stackName st
 // read in full first, and the read must still be the draft the listing named:
 // a draft that ended in between is reported, never replaced by another.
 func promoteDeployedStackDraft(cmd *cobra.Command, clusterID string, listed client.ClusterStackDocument) (*client.StackWriteResult, error) {
-	draft, readError := apiClient.GetClusterStackDraft(cmd.Context(), clusterID, listed.DraftID())
+	draft, readError := readListedStackDraft(cmd, clusterID, listed)
 	if readError != nil {
-		var draftReadError *client.StackDraftReadError
-		if errors.As(readError, &draftReadError) && draftReadError.IsGone() {
-			return nil, withExitCode(exitNotFound, fmt.Errorf(
-				"stack %q: %w. List the stacks again to see what is pending", listed.Name(), readError))
-		}
-		return nil, fmt.Errorf("reading the draft of stack %q: %w", listed.Name(), readError)
-	}
-	if !strings.EqualFold(draft.Name(), listed.Name()) || draft.DraftID() != listed.DraftID() {
-		return nil, withExitCode(exitError, fmt.Errorf(
-			"the draft read for stack %q answered stack %q, draft %q; nothing was deployed",
-			listed.Name(), draft.Name(), draft.DraftID()))
+		return nil, readError
 	}
 	promoted, promoteError := apiClient.PromoteClusterStackDraft(cmd.Context(), clusterID, draft)
 	if promoteError != nil {
@@ -167,6 +157,28 @@ func promoteDeployedStackDraft(cmd *cobra.Command, clusterID string, listed clie
 		result.Warnings = append(result.Warnings, draftLeftoverWarnings(clusterID, listed)...)
 	}
 	return result, nil
+}
+
+// readListedStackDraft reads in full the draft the listing named. The read must
+// still be that draft: one that ended in between is reported, never replaced by
+// another, so a person is never shown or deployed something they did not ask
+// for.
+func readListedStackDraft(cmd *cobra.Command, clusterID string, listed client.ClusterStackDocument) (client.ClusterStackDocument, error) {
+	draft, readError := apiClient.GetClusterStackDraft(cmd.Context(), clusterID, listed.DraftID())
+	if readError != nil {
+		var draftReadError *client.StackDraftReadError
+		if errors.As(readError, &draftReadError) && draftReadError.IsGone() {
+			return nil, withExitCode(exitNotFound, fmt.Errorf(
+				"stack %q: %w. List the stacks again to see what is pending", listed.Name(), readError))
+		}
+		return nil, fmt.Errorf("reading the draft of stack %q: %w", listed.Name(), readError)
+	}
+	if !strings.EqualFold(draft.Name(), listed.Name()) || draft.DraftID() != listed.DraftID() {
+		return nil, withExitCode(exitError, fmt.Errorf(
+			"the draft read for stack %q answered stack %q, draft %q; nothing was deployed",
+			listed.Name(), draft.Name(), draft.DraftID()))
+	}
+	return draft, nil
 }
 
 // stackWriteResultFromPromote renders the update write's answer in the shape

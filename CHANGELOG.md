@@ -6,6 +6,31 @@
 
 - **`ankra skills install` no longer gets stuck on root-owned skills.** Run under sudo, which is also how `sudo ankra upgrade` refreshes them, it wrote skills owned by root into your home directory, and every later install and refresh then failed with `permission denied`. A personal install under sudo now exits 2 and asks you to run it as yourself, and `sudo ankra upgrade` still replaces the binary but reports the refresh as not done. One assistant failing no longer stops the rest, the command exits non-zero after trying them all, and a permission failure prints the `sudo chown` that repairs it. Installs into a repository with `--dir` are unchanged.
 
+## v0.62.0 - 2026-11-04
+
+This release lets you read a stack's pending draft before you deploy it, which
+matters most for a clone: `ankra cluster stacks show-draft` prints every member
+of the draft with its content decoded. A run that is blocked now says what it is
+waiting for, and `ankra cluster backups status` says why the backup components
+are not running when the platform knows.
+
+Scripts have little to notice. For a blocked run, `ankra runs get` prints one
+more line and `ankra cluster stacks clone --wait` makes its status line longer.
+`ankra cluster backups status` prints one more line when there is a reason to
+give. `-o json` only gains `blocked_detail` and `backup_stack_issue`, and leaves
+both out when they are empty. Installing this release changes nothing on any
+cluster or workload.
+
+### Added
+
+- **`ankra cluster stacks show-draft <stack>` prints a stack's pending draft in full.** Every member, what it waits for, and its content decoded, so a clone's draft can be reviewed before `deploy-draft`. `-o json` carries the same. A draft left a day without an edit is removed, so read it within that day.
+
+### Changed
+
+- **A blocked run says what it is waiting for.** `ankra runs get` shows a `Waiting for:` line, and `ankra cluster stacks clone --wait` adds the same sentence to its status line. A run waiting on a deploy names the `show-draft` and `deploy-draft` commands that move it.
+- **`ankra cluster backups status` says why the backup components are not running**, on a `Why:` line, when the platform knows.
+- **`ankra cluster stacks protect` understands a data plane whose install is blocked.** It says the data plane is not installing and that a capture started now waits until that is fixed.
+
 ## v0.61.0 - 2026-11-04
 
 This release adds `--gateway-api` to the nine self-managed cluster create

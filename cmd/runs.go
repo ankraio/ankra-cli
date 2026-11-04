@@ -133,6 +133,9 @@ func printRunDetail(out io.Writer, run *client.Run) {
 	}
 	if dataRun.BlockedReason != nil && *dataRun.BlockedReason != "" {
 		_, _ = fmt.Fprintf(out, "  Blocked on:    %s\n", *dataRun.BlockedReason)
+		if explanation := explainBlockedDataRun(dataRun); explanation != "" {
+			_, _ = fmt.Fprintf(out, "  Waiting for:   %s\n", explanation)
+		}
 	}
 	printNotCarried(out, dataRun.AssetPlan.NotCarried)
 	if len(dataRun.Steps) == 0 {
