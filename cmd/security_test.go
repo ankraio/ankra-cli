@@ -345,12 +345,16 @@ type securityScopeMock struct {
 	scopes       []string
 	clusterLists []client.SecurityClustersOptions
 	listedPlain  bool
+	clusterPages map[int]*client.SecurityClusterList
 }
 
 func (m *securityScopeMock) SetSecurityProjectScope(scope string) { m.scopes = append(m.scopes, scope) }
 
 func (m *securityScopeMock) ListSecurityClusters(options client.SecurityClustersOptions) (*client.SecurityClusterList, error) {
 	m.clusterLists = append(m.clusterLists, options)
+	if m.clusterPages != nil {
+		return m.clusterPages[options.Page], nil
+	}
 	return m.clusters, nil
 }
 
@@ -402,6 +406,44 @@ func TestSecurityAllProjectsClusterNameThatMatchesNothingIsNotFound(t *testing.T
 	_, executeError := runSecurityCommand(t, mock, "security", "overview", "--all-projects", "--cluster", "nowhere", "-o", "json")
 	if executeError == nil || exitCodeFor(executeError) != exitNotFound {
 		t.Fatalf("error = %v, want not found", executeError)
+	}
+}
+
+func securityClusterPage(totalPages int, clusters ...client.SecurityClusterPosture) *client.SecurityClusterList {
+	list := &client.SecurityClusterList{Result: clusters}
+	list.Pagination.TotalPages = totalPages
+	return list
+}
+
+// A case variant on the first page must not win over the exact name on a later one.
+func TestSecurityAllProjectsClusterNameReadsEveryPage(t *testing.T) {
+	const exactID = "11111111-1111-4111-8111-111111111111"
+	mock := &securityScopeMock{securityMock: securityMock{}, clusterPages: map[int]*client.SecurityClusterList{
+		1: securityClusterPage(2, client.SecurityClusterPosture{ClusterID: "22222222-2222-4222-8222-222222222222", ClusterName: "EDGE"}),
+		2: securityClusterPage(2, client.SecurityClusterPosture{ClusterID: exactID, ClusterName: "edge"}),
+	}}
+	cmd := &cobra.Command{}
+	cmd.Flags().Bool(securityAllProjectsFlag, true, "")
+	setMockClient(t, mock)
+	resolved, resolveError := resolveSecurityClusterID(cmd, "edge")
+	if resolveError != nil || resolved != exactID {
+		t.Fatalf("resolved = %q, %v; want %s", resolved, resolveError, exactID)
+	}
+}
+
+// Two projects may each hold a cluster of the same name: picking one would answer
+// with the wrong cluster's posture.
+func TestSecurityAllProjectsSameClusterNameInTwoProjectsIsAmbiguous(t *testing.T) {
+	mock := &securityScopeMock{securityMock: securityMock{}, clusterPages: map[int]*client.SecurityClusterList{
+		1: securityClusterPage(1,
+			client.SecurityClusterPosture{ClusterID: "11111111-1111-4111-8111-111111111111", ClusterName: "edge"},
+			client.SecurityClusterPosture{ClusterID: "22222222-2222-4222-8222-222222222222", ClusterName: "edge"}),
+	}}
+	cmd := &cobra.Command{}
+	cmd.Flags().Bool(securityAllProjectsFlag, true, "")
+	setMockClient(t, mock)
+	if _, resolveError := resolveSecurityClusterID(cmd, "edge"); resolveError == nil || exitCodeFor(resolveError) != exitUsage {
+		t.Fatalf("error = %v, want an ambiguity refusal", resolveError)
 	}
 }
 

@@ -13,13 +13,21 @@ import (
 // organisation, as costAllProjectsFlag does a fleet cost read.
 const securityAllProjectsFlag = "all-projects"
 
+const (
+	securityClusterLookupPageSize = 100
+	securityClusterLookupMaxPages = 20
+)
+
 // registerSecurityProjectScopeFlag adds --all-projects to Security Center reads
 // and sets the read's scope before the command runs, so a --cluster lookup and
 // every read the command makes answer under the same scope.
 func registerSecurityProjectScopeFlag(commands ...*cobra.Command) {
 	for _, command := range commands {
-		command.Flags().Bool(securityAllProjectsFlag, false, "Read the whole organisation instead of the project you act in")
 		run := command.RunE
+		if run == nil {
+			continue
+		}
+		command.Flags().Bool(securityAllProjectsFlag, false, "Read the whole organisation instead of the project you act in")
 		command.RunE = func(cmd *cobra.Command, args []string) error {
 			applySecurityProjectScope(cmd)
 			return securityScopeRefusal(cmd, run(cmd, args))
@@ -45,7 +53,7 @@ func securityScopeRefusal(cmd *cobra.Command, runError error) error {
 	if runError == nil || !securityReadsAllProjects(cmd) || exitCodeFor(runError) != exitForbidden {
 		return runError
 	}
-	return withExitCode(exitForbidden, fmt.Errorf("--all-projects was refused: a pinned token or a member limited to projects reads only their own project, so leave the flag off: %w", runError))
+	return withExitCode(exitForbidden, fmt.Errorf("--all-projects was refused, most likely because a pinned token or a member limited to projects reads only their own project; if so, leave the flag off: %w", runError))
 }
 
 func securityReadsAllProjects(cmd *cobra.Command) bool {
@@ -60,33 +68,49 @@ func resolveSecurityClusterID(cmd *cobra.Command, nameOrID string) (string, erro
 	if !securityReadsAllProjects(cmd) || isLikelyClusterID(nameOrID) {
 		return resolveClusterID(nameOrID)
 	}
-	list, err := apiClient.ListSecurityClusters(client.SecurityClustersOptions{Search: nameOrID, Page: 1, PageSize: 100})
-	if err != nil {
-		return "", fmt.Errorf("listing clusters: %w", err)
-	}
-	var caseInsensitiveMatches []client.SecurityClusterPosture
-	for _, cluster := range list.Result {
-		if cluster.ClusterName == nameOrID {
-			return cluster.ClusterID, nil
+	var exactMatches, caseInsensitiveMatches []client.SecurityClusterPosture
+	for page := 1; ; page++ {
+		if page > securityClusterLookupMaxPages {
+			return "", fmt.Errorf("more than %d pages of clusters match %q, so it could not be resolved; pass the cluster id instead",
+				securityClusterLookupMaxPages, nameOrID)
 		}
-		if strings.EqualFold(cluster.ClusterName, nameOrID) {
-			caseInsensitiveMatches = append(caseInsensitiveMatches, cluster)
+		list, err := apiClient.ListSecurityClusters(client.SecurityClustersOptions{Search: nameOrID, Page: page, PageSize: securityClusterLookupPageSize})
+		if err != nil {
+			return "", fmt.Errorf("listing clusters: %w", err)
+		}
+		for _, cluster := range list.Result {
+			switch {
+			case cluster.ClusterName == nameOrID:
+				exactMatches = append(exactMatches, cluster)
+			case strings.EqualFold(cluster.ClusterName, nameOrID):
+				caseInsensitiveMatches = append(caseInsensitiveMatches, cluster)
+			}
+		}
+		// A response without a page count ends only on a short page, so a missing
+		// count can never pass for having read everything.
+		isLastPage := len(list.Result) < securityClusterLookupPageSize
+		if list.Pagination.TotalPages > 0 {
+			isLastPage = list.Pagination.TotalPages <= page
+		}
+		if isLastPage {
+			break
 		}
 	}
-	switch len(caseInsensitiveMatches) {
+	matches := exactMatches
+	if len(matches) == 0 {
+		matches = caseInsensitiveMatches
+	}
+	switch len(matches) {
 	case 0:
-		if list.Pagination.TotalPages > 1 {
-			return "", fmt.Errorf("cluster %q was not among the first 100 clusters matching it; pass the cluster id instead", nameOrID)
-		}
 		return "", withExitCode(exitNotFound, fmt.Errorf("cluster %q not found", nameOrID))
 	case 1:
-		return caseInsensitiveMatches[0].ClusterID, nil
+		return matches[0].ClusterID, nil
 	default:
-		candidates := make([]string, 0, len(caseInsensitiveMatches))
-		for _, cluster := range caseInsensitiveMatches {
+		candidates := make([]string, 0, len(matches))
+		for _, cluster := range matches {
 			candidates = append(candidates, fmt.Sprintf("%s (%s)", cluster.ClusterName, cluster.ClusterID))
 		}
-		return "", withExitCode(exitUsage, fmt.Errorf("cluster %q is ambiguous - %d clusters differ from it only by case: %s; pass the cluster id instead",
-			nameOrID, len(caseInsensitiveMatches), strings.Join(candidates, ", ")))
+		return "", withExitCode(exitUsage, fmt.Errorf("cluster %q is ambiguous across projects - %d clusters match: %s; pass the cluster id instead",
+			nameOrID, len(matches), strings.Join(candidates, ", ")))
 	}
 }
