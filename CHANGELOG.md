@@ -9,9 +9,10 @@ made, with `ankra registry robots update`, and limit a private Ankra Cloud zone 
 the members who can reach one project, with `ankra org access-gateway set
 --access-project`.
 
-Scripts have nothing to change: both are new, and `-o json` on `ankra org
-access-gateway get` only gains the project limit when a zone has one. Installing
-this release changes nothing on any cluster or workload.
+Scripts have one thing to notice: `ankra org access-gateway get` prints one more
+line, `Project:`. Its `-o json` only gains `project_id`, and leaves it out when a
+zone has no limit. Installing this release changes nothing on any cluster or
+workload.
 
 ### Added
 
