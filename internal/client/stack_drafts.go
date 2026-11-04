@@ -27,6 +27,7 @@ package client
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -102,6 +103,128 @@ func (document ClusterStackDocument) stringMember(key string) string {
 		return ""
 	}
 	return strings.TrimSpace(*value)
+}
+
+// StackDraftParent is a member another member waits for.
+type StackDraftParent struct {
+	Name string `json:"name" yaml:"name"`
+	Kind string `json:"kind" yaml:"kind"`
+}
+
+// StackDraftMember is one member of a draft as a person reviews it: what it is,
+// what it waits for, and the content it will deploy, decoded from the base64 the
+// API carries it in.
+//
+// HasContent is a separate fact from Content because a read that carried no body
+// is not a member with nothing in it: the listing elides bodies, so an empty
+// string alone would present an unread manifest as a blank one.
+type StackDraftMember struct {
+	Kind           string             `json:"kind" yaml:"kind"`
+	Name           string             `json:"name" yaml:"name"`
+	Namespace      string             `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+	Chart          string             `json:"chart,omitempty" yaml:"chart,omitempty"`
+	Parents        []StackDraftParent `json:"parents" yaml:"parents"`
+	EncryptedPaths []string           `json:"encrypted_paths" yaml:"encrypted_paths"`
+	HasContent     bool               `json:"has_content" yaml:"has_content"`
+	Content        string             `json:"content" yaml:"content"`
+}
+
+// StackDraftReview is a stack draft in the form it is reviewed in before it is
+// deployed.
+type StackDraftReview struct {
+	StackName string             `json:"stack_name" yaml:"stack_name"`
+	DraftID   string             `json:"draft_id" yaml:"draft_id"`
+	Lifecycle string             `json:"lifecycle" yaml:"lifecycle"`
+	Members   []StackDraftMember `json:"members" yaml:"members"`
+}
+
+// stackDraftMemberKinds are the member arrays a stack document holds, in the
+// order a review reads them, with the kind each array's entries are.
+var stackDraftMemberKinds = []struct {
+	arrayName string
+	kind      string
+}{
+	{arrayName: "manifests", kind: "manifest"},
+	{arrayName: "addons", kind: "addon"},
+	{arrayName: "applications", kind: "application"},
+}
+
+// stackDraftMemberEntry is the part of a rendered member a review reads.
+type stackDraftMemberEntry struct {
+	Name           string             `json:"name"`
+	Namespace      *string            `json:"namespace"`
+	ChartName      string             `json:"chart_name"`
+	ChartVersion   string             `json:"chart_version"`
+	ManifestBase64 *string            `json:"manifest_base64"`
+	EncryptedPaths []string           `json:"encrypted_paths"`
+	Parents        []StackDraftParent `json:"parents"`
+	Configuration  *struct {
+		ValuesBase64   *string  `json:"values_base64"`
+		EncryptedPaths []string `json:"encrypted_paths"`
+	} `json:"configuration"`
+}
+
+// reviewMember decodes an entry. Content that will not decode is an error: a
+// review that prints the member blank would pass off an unread body as an empty
+// one, in the one read whose purpose is to see what is about to deploy.
+func (entry stackDraftMemberEntry) reviewMember(kind string) (StackDraftMember, error) {
+	member := StackDraftMember{Kind: kind, Name: entry.Name, Parents: entry.Parents,
+		EncryptedPaths: entry.EncryptedPaths}
+	if member.Parents == nil {
+		member.Parents = []StackDraftParent{}
+	}
+	if member.EncryptedPaths == nil {
+		member.EncryptedPaths = []string{}
+	}
+	if entry.Namespace != nil {
+		member.Namespace = *entry.Namespace
+	}
+	if entry.ChartName != "" {
+		member.Chart = strings.TrimSuffix(entry.ChartName+"@"+entry.ChartVersion, "@")
+	}
+	encodedContent := entry.ManifestBase64
+	if entry.Configuration != nil {
+		encodedContent = entry.Configuration.ValuesBase64
+		if entry.Configuration.EncryptedPaths != nil {
+			member.EncryptedPaths = entry.Configuration.EncryptedPaths
+		}
+	}
+	if encodedContent == nil {
+		return member, nil
+	}
+	content, decodeError := base64.StdEncoding.DecodeString(*encodedContent)
+	if decodeError != nil {
+		return StackDraftMember{}, fmt.Errorf("decoding the content of %s %q: %w", kind, entry.Name, decodeError)
+	}
+	member.HasContent = true
+	member.Content = string(content)
+	return member, nil
+}
+
+// DraftReview decodes the document's members for a person to read. A member
+// list that cannot be decoded is an error rather than an absent list, for the
+// reason reviewMember gives.
+func (document ClusterStackDocument) DraftReview() (StackDraftReview, error) {
+	review := StackDraftReview{StackName: document.Name(), DraftID: document.DraftID(),
+		Lifecycle: document.Lifecycle(), Members: []StackDraftMember{}}
+	for _, memberKind := range stackDraftMemberKinds {
+		raw, present := document[memberKind.arrayName]
+		if !present {
+			continue
+		}
+		var entries []stackDraftMemberEntry
+		if decodeError := json.Unmarshal(raw, &entries); decodeError != nil {
+			return StackDraftReview{}, fmt.Errorf("decoding the stack's %s: %w", memberKind.arrayName, decodeError)
+		}
+		for _, entry := range entries {
+			member, memberError := entry.reviewMember(memberKind.kind)
+			if memberError != nil {
+				return StackDraftReview{}, memberError
+			}
+			review.Members = append(review.Members, member)
+		}
+	}
+	return review, nil
 }
 
 // asDeployableSpec returns the stack object with the render-only state

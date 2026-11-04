@@ -263,6 +263,10 @@ func printProtectFollowUp(out io.Writer, protection *client.StackProtection, wai
 		_, _ = fmt.Fprintf(out, "\nThe backup data plane is still installing on this cluster. "+
 			"A capture started before it is ready waits rather than failing.\n")
 	}
+	if protection.BackupStack == client.BackupStackBlocked {
+		_, _ = fmt.Fprintf(out, "\nThe backup data plane is not installing on this cluster, for the reason in the "+
+			"warnings above. A capture started now waits until that is fixed.\n")
+	}
 	if protection.RunID == nil || *protection.RunID == "" {
 		_, _ = fmt.Fprintf(out, "\nProtection is on. Take a restore point now with "+
 			"'ankra cluster stacks restore-points create %s'.\n", protection.StackName)

@@ -116,6 +116,32 @@ func TestProtectSaysWhenTheBackupStackIsStillInstalling(t *testing.T) {
 	}
 }
 
+func TestProtectSaysWhenTheBackupStackInstallKeepsFailing(t *testing.T) {
+	mock := newBackupLaneMock()
+	reason := "the cluster already uses a resource name the backup stack needs"
+	mock.protection = &client.StackProtection{
+		StackName:   backupTestStack,
+		Policy:      client.BackupPolicy{Enabled: true, Vault: "production-backups"},
+		BackupStack: client.BackupStackBlocked,
+		Warnings:    []string{reason},
+	}
+
+	output, executeError := runBackupCommand(t, mock, "",
+		[]*cobra.Command{clusterStacksProtectCmd},
+		"cluster", "stacks", "protect", backupTestStack, "--cluster", "demo",
+		"--vault", "production-backups")
+
+	if executeError != nil {
+		t.Fatalf("protecting a stack: %v", executeError)
+	}
+	if !strings.Contains(output, reason) || !strings.Contains(output, "not installing") {
+		t.Fatalf("a stuck install must be told apart from one on its way, got:\n%s", output)
+	}
+	if strings.Contains(output, "still installing") {
+		t.Fatalf("a refused install is not progress, got:\n%s", output)
+	}
+}
+
 func TestProtectBackupNowNamesTheRun(t *testing.T) {
 	runID := backupTestRunID
 	restorePointID := backupTestRestorePointID
