@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,8 +25,8 @@ func TestSkillsTableAlignsStyledCellsByTheirPlainWidth(t *testing.T) {
 	var buffer bytes.Buffer
 	style := skillsStyle{isColor: true}
 	style.writeSkillsTable(&buffer, []string{"STATUS", "NAME"}, [][]skillsTableCell{
-		{{plain: "● installed", styled: style.green("● installed")}, plainCell("claude-code")},
-		{{plain: "·", styled: style.dim("·")}, plainCell("cursor")},
+		{paintedCell("● installed", style.green), plainCell("claude-code")},
+		{paintedCell("·", style.dim), plainCell("cursor")},
 	})
 	lines := strings.Split(strings.TrimRight(buffer.String(), "\n"), "\n")
 	if len(lines) != 3 {
@@ -135,4 +136,43 @@ func stripANSI(text string) string {
 		}
 	}
 	return builder.String()
+}
+
+func TestSkillsTableTruncatesAStyledLastColumnWithoutCuttingItsColour(t *testing.T) {
+	var buffer bytes.Buffer
+	style := skillsStyle{isColor: true, width: 40}
+	style.writeSkillsTable(&buffer, []string{"A", "B"}, [][]skillsTableCell{
+		{plainCell("x"), paintedCell(strings.Repeat("word ", 20), style.dim)},
+	})
+	lines := strings.Split(strings.TrimRight(buffer.String(), "\n"), "\n")
+	row := lines[len(lines)-1]
+	if visible := len([]rune(stripANSI(row))); visible > 40 {
+		t.Errorf("styled row is %d columns, wider than the 40-column terminal: %q", visible, row)
+	}
+	if !strings.HasSuffix(row, "…"+ansiReset) {
+		t.Errorf("the colour must wrap the truncated text, closing after the ellipsis: %q", row)
+	}
+}
+
+// One assistant whose skills directory cannot be read must not take the
+// whole overview down with it.
+func TestSkillsOverviewShowsAnUnreadableAssistantInsteadOfFailing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude", "skills"), []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var buffer bytes.Buffer
+	if err := writeSkillsOverview(&buffer); err != nil {
+		t.Fatalf("an unreadable assistant must not fail the overview: %v", err)
+	}
+	if !strings.Contains(buffer.String(), "? unreadable") {
+		t.Errorf("expected the Claude Code row to say it could not be read:\n%s", buffer.String())
+	}
+	if !strings.Contains(buffer.String(), "ankra skills install") {
+		t.Errorf("the overview must still print its commands:\n%s", buffer.String())
+	}
 }

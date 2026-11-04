@@ -117,14 +117,26 @@ func padRight(text string, width int) string {
 	return text + strings.Repeat(" ", width-length)
 }
 
-// skillsTableCell is one cell of an aligned table: plain is measured,
-// styled is printed, so colour codes never skew the columns.
+// skillsTableCell is one cell of an aligned table. The text is measured and
+// truncated before paint applies any colour, so escape codes never skew the
+// columns or get cut in half.
 type skillsTableCell struct {
-	plain  string
-	styled string
+	text  string
+	paint func(string) string
 }
 
-func plainCell(text string) skillsTableCell { return skillsTableCell{plain: text, styled: text} }
+func plainCell(text string) skillsTableCell { return skillsTableCell{text: text} }
+
+func paintedCell(text string, paint func(string) string) skillsTableCell {
+	return skillsTableCell{text: text, paint: paint}
+}
+
+func (cell skillsTableCell) render(text string) string {
+	if cell.paint == nil {
+		return text
+	}
+	return cell.paint(text)
+}
 
 // writeSkillsTable prints rows under a dimmed header with two spaces between
 // columns. The last column is not padded and is truncated to the terminal
@@ -136,7 +148,7 @@ func (style skillsStyle) writeSkillsTable(writer io.Writer, header []string, row
 	}
 	for _, row := range rows {
 		for index, cell := range row {
-			if length := utf8.RuneCountInString(cell.plain); length > widths[index] {
+			if length := utf8.RuneCountInString(cell.text); length > widths[index] {
 				widths[index] = length
 			}
 		}
@@ -155,21 +167,17 @@ func (style skillsStyle) writeSkillsTable(writer io.Writer, header []string, row
 
 	headerCells := make([]skillsTableCell, len(header))
 	for index, title := range header {
-		headerCells[index] = skillsTableCell{plain: title, styled: style.dim(title)}
+		headerCells[index] = paintedCell(title, style.dim)
 	}
 	for _, row := range append([][]skillsTableCell{headerCells}, rows...) {
 		var line strings.Builder
 		for index, cell := range row {
 			if index == len(row)-1 {
-				if lastWidth > 0 && cell.plain == cell.styled {
-					line.WriteString(truncateToWidth(cell.plain, lastWidth))
-				} else {
-					line.WriteString(cell.styled)
-				}
+				line.WriteString(cell.render(truncateToWidth(cell.text, lastWidth)))
 				continue
 			}
-			line.WriteString(cell.styled)
-			line.WriteString(strings.Repeat(" ", widths[index]-utf8.RuneCountInString(cell.plain)+2))
+			line.WriteString(cell.render(cell.text))
+			line.WriteString(strings.Repeat(" ", widths[index]-utf8.RuneCountInString(cell.text)+2))
 		}
 		_, _ = fmt.Fprintln(writer, strings.TrimRight(line.String(), " "))
 	}
@@ -211,15 +219,16 @@ func writeSkillsList(writer io.Writer, entries []skillListEntry, isLong bool) {
 			if index > 0 {
 				_, _ = fmt.Fprintln(writer)
 			}
-			_, _ = fmt.Fprintf(writer, "%s %s\n", skillInstalledMarker(style, entry.Installed), style.bold(entry.Name))
+			marker := installedMarkerCell(style, entry.Installed)
+			_, _ = fmt.Fprintf(writer, "%s %s\n", marker.render(marker.text), style.bold(entry.Name))
 			_, _ = fmt.Fprintf(writer, "  %s\n", entry.Description)
 		}
 	} else {
 		rows := make([][]skillsTableCell, 0, len(entries))
 		for _, entry := range entries {
 			rows = append(rows, []skillsTableCell{
-				{plain: plainMarker(entry.Installed), styled: skillInstalledMarker(style, entry.Installed)},
-				{plain: entry.Name, styled: style.bold(entry.Name)},
+				installedMarkerCell(style, entry.Installed),
+				paintedCell(entry.Name, style.bold),
 				plainCell(skillSummary(entry.Description)),
 			})
 		}
@@ -236,18 +245,11 @@ func writeSkillsList(writer io.Writer, entries []skillListEntry, isLong bool) {
 	}
 }
 
-func plainMarker(isInstalled bool) string {
+func installedMarkerCell(style skillsStyle, isInstalled bool) skillsTableCell {
 	if isInstalled {
-		return "●"
+		return paintedCell("●", style.green)
 	}
-	return "○"
-}
-
-func skillInstalledMarker(style skillsStyle, isInstalled bool) string {
-	if isInstalled {
-		return style.green("●")
-	}
-	return style.dim("○")
+	return paintedCell("○", style.dim)
 }
 
 // writeClientsTable renders 'ankra skills clients' as an aligned table with
@@ -259,18 +261,18 @@ func writeClientsTable(writer io.Writer, entries []clientListEntry) {
 		var status skillsTableCell
 		switch {
 		case entry.Installed:
-			status = skillsTableCell{plain: "● installed", styled: style.green("● installed")}
+			status = paintedCell("● installed", style.green)
 		case entry.Detected:
-			status = skillsTableCell{plain: "○ detected", styled: style.cyan("○ detected")}
+			status = paintedCell("○ detected", style.cyan)
 		default:
-			status = skillsTableCell{plain: "·", styled: style.dim("·")}
+			status = paintedCell("·", style.dim)
 		}
 		rows = append(rows, []skillsTableCell{
 			status,
-			{plain: entry.ID, styled: style.bold(entry.ID)},
+			paintedCell(entry.ID, style.bold),
 			plainCell(entry.DisplayName),
 			plainCell(entry.Directory),
-			{plain: entry.Delivery, styled: style.dim(entry.Delivery)},
+			paintedCell(entry.Delivery, style.dim),
 		})
 	}
 	style.writeSkillsTable(writer, []string{"STATUS", "CLIENT", "ASSISTANT", "INSTALLS TO", "DELIVERY"}, rows)

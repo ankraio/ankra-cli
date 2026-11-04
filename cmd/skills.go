@@ -94,12 +94,17 @@ func writeSkillsOverview(writer io.Writer) error {
 			continue
 		}
 		installedCount, countError := countBundledSkillsIn(target, bundled)
-		if countError != nil {
-			return fmt.Errorf("read the %s skills directory: %w", client.DisplayName, countError)
+		carries, carriesError := false, countError
+		if countError == nil {
+			carries, carriesError = targetCarriesAnkraInstall(target)
 		}
-		carries, carriesError := targetCarriesAnkraInstall(target)
 		if carriesError != nil {
-			return fmt.Errorf("check the %s install: %w", client.DisplayName, carriesError)
+			rows = append(rows, []skillsTableCell{
+				paintedCell(client.DisplayName, style.bold),
+				paintedCell("? unreadable", style.yellow),
+				plainCell(carriesError.Error()),
+			})
+			continue
 		}
 		if !carries {
 			installedCount = 0
@@ -109,21 +114,21 @@ func writeSkillsOverview(writer io.Writer) error {
 		}
 		var status skillsTableCell
 		switch {
-		case installedCount >= len(bundled):
+		case len(bundled) > 0 && installedCount >= len(bundled):
 			text := fmt.Sprintf("● %d/%d", installedCount, len(bundled))
-			status = skillsTableCell{plain: text, styled: style.green(text)}
+			status = paintedCell(text, style.green)
 		case installedCount > 0:
 			text := fmt.Sprintf("◐ %d/%d", installedCount, len(bundled))
-			status = skillsTableCell{plain: text, styled: style.yellow(text)}
+			status = paintedCell(text, style.yellow)
 			needsInstall = true
 		default:
-			status = skillsTableCell{plain: "○ not installed", styled: style.dim("○ not installed")}
+			status = paintedCell("○ not installed", style.dim)
 			needsInstall = true
 		}
 		rows = append(rows, []skillsTableCell{
-			{plain: client.DisplayName, styled: style.bold(client.DisplayName)},
+			paintedCell(client.DisplayName, style.bold),
 			status,
-			{plain: skills.DisplayPath(target.SkillsDirectory), styled: style.dim(skills.DisplayPath(target.SkillsDirectory))},
+			paintedCell(skills.DisplayPath(target.SkillsDirectory), style.dim),
 		})
 	}
 	if len(rows) == 0 {
@@ -152,22 +157,6 @@ func writeSkillsOverview(writer io.Writer) error {
 // countBundledSkillsIn counts the skills this binary carries that are present
 // in a target, as directories or, for packaged clients, as .zip bundles.
 func countBundledSkillsIn(target skills.Target, bundled map[string]bool) (int, error) {
-	if target.Client.Packaged {
-		entries, err := os.ReadDir(target.SkillsDirectory)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return 0, nil
-			}
-			return 0, err
-		}
-		count := 0
-		for _, entry := range entries {
-			if bundled[strings.TrimSuffix(entry.Name(), ".zip")] && strings.HasSuffix(entry.Name(), ".zip") {
-				count++
-			}
-		}
-		return count, nil
-	}
 	names, err := skills.InstalledNames(target)
 	if err != nil {
 		return 0, err
