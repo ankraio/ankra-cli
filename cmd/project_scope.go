@@ -53,6 +53,40 @@ const (
 	projectSourceServer   = "server"
 )
 
+// organisationLevelCommands are the top-level commands that belong to the
+// organisation or to this machine by design (ADR 0022: people, money, tokens,
+// AI providers, support), so a project selection saying nothing about them is
+// not worth a warning. Every other command gets one on stderr when a read says
+// the project was not applied, because not every route scopes by project yet
+// (X-Ankra-Applied-Project, internal/client/project_scope_warning.go).
+var organisationLevelCommands = map[string]bool{
+	"ai":         true,
+	"completion": true,
+	"config":     true,
+	"login":      true,
+	"logout":     true,
+	"org":        true,
+	"plugins":    true,
+	"profile":    true,
+	"project":    true,
+	"secrets":    true,
+	"skills":     true,
+	"support":    true,
+	"tokens":     true,
+	"upgrade":    true,
+}
+
+// commandIsOrganisationLevel reports whether the command sits under one of
+// organisationLevelCommands.
+func commandIsOrganisationLevel(cmd *cobra.Command) bool {
+	for current := cmd; current != nil && current.HasParent(); current = current.Parent() {
+		if !current.Parent().HasParent() {
+			return organisationLevelCommands[current.Name()]
+		}
+	}
+	return false
+}
+
 // SelectedProject is the selection `ankra project switch` saves. The
 // organisation id pins it to the organisation it was made in, so switching
 // organisation never carries a project of the old one along.

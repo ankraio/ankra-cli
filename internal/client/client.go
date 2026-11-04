@@ -56,6 +56,11 @@ type Client struct {
 	// transport the client builds shares it, so the slow-write lane cannot
 	// warn a second time.
 	tokenExpiryWarning *tokenExpiryWarning
+
+	// projectScopeWarning warns, once per invocation, when a read says it did
+	// not apply the selected project. Shared across transports like the expiry
+	// warning.
+	projectScopeWarning *projectScopeWarning
 }
 
 // defaultSlowWriteTimeout is the overall bound for a long synchronous
@@ -80,6 +85,9 @@ type scopeOverrideTransport struct {
 	// lookupEnvironment reads the environment the agent is detected from;
 	// nil is os.Getenv.
 	lookupEnvironment func(string) string
+	// projectScopeWarning hears the response to every request sent with a
+	// project override.
+	projectScopeWarning *projectScopeWarning
 }
 
 func (t *scopeOverrideTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -101,17 +109,22 @@ func (t *scopeOverrideTransport) RoundTrip(req *http.Request) (*http.Response, e
 	if projectID != "" {
 		clone.Header.Set(projectOverrideHeader, projectID)
 	}
-	return t.base.RoundTrip(clone)
+	response, requestError := t.base.RoundTrip(clone)
+	if requestError == nil && t.isAPIRequest(clone.URL) {
+		t.projectScopeWarning.observe(clone, response, projectID)
+	}
+	return response, requestError
 }
 
 // New constructs a Client with the supplied token and a base URL that is
 // expected to already be validated and normalized via NormalizeBaseURL.
 func New(token, baseURL string) *Client {
 	c := &Client{
-		Token:              token,
-		BaseURL:            baseURL,
-		slowWriteTimeout:   defaultSlowWriteTimeout,
-		tokenExpiryWarning: newTokenExpiryWarning(),
+		Token:               token,
+		BaseURL:             baseURL,
+		slowWriteTimeout:    defaultSlowWriteTimeout,
+		tokenExpiryWarning:  newTokenExpiryWarning(),
+		projectScopeWarning: newProjectScopeWarning(),
 	}
 	sharedBase := &http.Transport{
 		ResponseHeaderTimeout: 30 * time.Second,
@@ -124,9 +137,10 @@ func New(token, baseURL string) *Client {
 			base:    &retryTransport{base: sharedBase},
 			warning: c.tokenExpiryWarning,
 		},
-		orgID:     &c.orgOverride,
-		projectID: &c.projectOverride,
-		baseURL:   &c.BaseURL,
+		orgID:               &c.orgOverride,
+		projectID:           &c.projectOverride,
+		baseURL:             &c.BaseURL,
+		projectScopeWarning: c.projectScopeWarning,
 	}
 	c.HTTP = &http.Client{
 		Timeout:   5 * time.Minute,
@@ -192,10 +206,11 @@ func (c *Client) httpClientForSlowWrite() *http.Client {
 		ResponseHeaderTimeout: 0,
 	}
 	slowWriteTransport := &scopeOverrideTransport{
-		base:      &tokenExpiryTransport{base: slowWriteBase, warning: c.tokenExpiryWarning},
-		orgID:     &c.orgOverride,
-		projectID: &c.projectOverride,
-		baseURL:   &c.BaseURL,
+		base:                &tokenExpiryTransport{base: slowWriteBase, warning: c.tokenExpiryWarning},
+		orgID:               &c.orgOverride,
+		projectID:           &c.projectOverride,
+		baseURL:             &c.BaseURL,
+		projectScopeWarning: c.projectScopeWarning,
 	}
 	timeout := c.slowWriteTimeout
 	if timeout <= 0 {
