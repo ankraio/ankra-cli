@@ -14,13 +14,13 @@ import (
 //   - {"detail": [{"name", "kind", "errors": [{"key", "message"}]}]}: the
 //     resource validation result;
 //   - {"detail": [{"loc": [...], "msg", "type"}]}: FastAPI request
-//     validation, where loc is resolved against the submitted stack so the
+//     validation, where loc is resolved against the submitted stacks so the
 //     error names the addon or manifest rather than an index;
 //   - {"detail": "..."}: a plain refusal;
 //   - {"errors": [...]}: any of the above at the top level.
 //
 // It returns nil when the body carries none of them.
-func stackDraftErrorsFromBody(body []byte, stack Stack) []ImportResponseResourceError {
+func stackDraftErrorsFromBody(body []byte, stacks []Stack) []ImportResponseResourceError {
 	var envelope struct {
 		Detail json.RawMessage `json:"detail"`
 		Errors json.RawMessage `json:"errors"`
@@ -28,22 +28,8 @@ func stackDraftErrorsFromBody(body []byte, stack Stack) []ImportResponseResource
 	if decodeError := json.Unmarshal(body, &envelope); decodeError != nil {
 		return nil
 	}
-	resourceErrors := resourceErrorsFromDetail(envelope.Detail, stack)
-	return append(resourceErrors, resourceErrorsFromDetail(envelope.Errors, stack)...)
-}
-
-// stackDraftEmbeddedErrors reads the per-resource errors a successful (2xx)
-// draft response can still carry in its top-level "errors" member. The
-// "detail" member is deliberately not read here: on a success it is not a
-// refusal.
-func stackDraftEmbeddedErrors(body []byte, stack Stack) []ImportResponseResourceError {
-	var envelope struct {
-		Errors json.RawMessage `json:"errors"`
-	}
-	if decodeError := json.Unmarshal(body, &envelope); decodeError != nil {
-		return nil
-	}
-	return resourceErrorsFromDetail(envelope.Errors, stack)
+	resourceErrors := resourceErrorsFromDetail(envelope.Detail, stacks)
+	return append(resourceErrors, resourceErrorsFromDetail(envelope.Errors, stacks)...)
 }
 
 type stackDraftDetailItem struct {
@@ -55,7 +41,7 @@ type stackDraftDetailItem struct {
 	Message string                    `json:"message"`
 }
 
-func resourceErrorsFromDetail(detail json.RawMessage, stack Stack) []ImportResponseResourceError {
+func resourceErrorsFromDetail(detail json.RawMessage, stacks []Stack) []ImportResponseResourceError {
 	trimmed := bytes.TrimSpace(detail)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		return nil
@@ -66,7 +52,7 @@ func resourceErrorsFromDetail(detail json.RawMessage, stack Stack) []ImportRespo
 		if strings.TrimSpace(detailMessage) == "" {
 			return nil
 		}
-		return []ImportResponseResourceError{stackLevelError(stack, "", detailMessage)}
+		return []ImportResponseResourceError{fileLevelError(stacks, detailMessage)}
 	}
 
 	var items []stackDraftDetailItem
@@ -86,11 +72,11 @@ func resourceErrorsFromDetail(detail json.RawMessage, stack Stack) []ImportRespo
 				Name:   item.Name,
 				Kind:   item.Kind,
 				Errors: item.Errors,
-			}, stack))
+			}, stacks))
 		case len(item.Loc) > 0 || item.Msg != "":
-			resourceErrors = append(resourceErrors, resourceErrorFromLocation(item.Loc, item.Msg, stack))
+			resourceErrors = append(resourceErrors, resourceErrorFromLocation(item.Loc, item.Msg, stacks))
 		case item.Message != "":
-			resourceErrors = append(resourceErrors, stackLevelError(stack, "", item.Message))
+			resourceErrors = append(resourceErrors, fileLevelError(stacks, item.Message))
 		}
 	}
 	return resourceErrors
@@ -98,12 +84,12 @@ func resourceErrorsFromDetail(detail json.RawMessage, stack Stack) []ImportRespo
 
 // normalizeResourceError keeps an error that names no individual problem
 // from rendering as a bare resource name.
-func normalizeResourceError(resourceError ImportResponseResourceError, stack Stack) ImportResponseResourceError {
-	if resourceError.Kind == "" && resourceError.Name == "" {
+func normalizeResourceError(resourceError ImportResponseResourceError, stacks []Stack) ImportResponseResourceError {
+	if resourceError.Kind == "" && resourceError.Name == "" && len(stacks) == 1 {
 		resourceError.Kind = "stack"
-		resourceError.Name = stack.Name
+		resourceError.Name = stacks[0].Name
 	}
-	if resourceError.Kind == "" {
+	if resourceError.Kind == "" && resourceError.Name != "" {
 		resourceError.Kind = "resource"
 	}
 	if len(resourceError.Errors) == 0 {
@@ -112,19 +98,23 @@ func normalizeResourceError(resourceError ImportResponseResourceError, stack Sta
 	return resourceError
 }
 
-func stackLevelError(stack Stack, key string, message string) ImportResponseResourceError {
-	return ImportResponseResourceError{
-		Kind:   "stack",
-		Name:   stack.Name,
-		Errors: []ImportResponseErrorItem{{Key: key, Message: message}},
+// fileLevelError is a refusal the platform pinned on nothing. In a one-stack file it
+// is that stack's. In a larger file, naming any stack would be a guess, so it names
+// none.
+func fileLevelError(stacks []Stack, message string) ImportResponseResourceError {
+	resourceError := ImportResponseResourceError{Errors: []ImportResponseErrorItem{{Message: message}}}
+	if len(stacks) == 1 {
+		resourceError.Kind = "stack"
+		resourceError.Name = stacks[0].Name
 	}
+	return resourceError
 }
 
 // resourceErrorFromLocation resolves a FastAPI loc such as
 // ["body", "spec", "stacks", 0, "addons", 1, "registry_name"] to the addon
-// or manifest it points at in the submitted stack, keeping the remaining
+// or manifest it points at in the submitted stacks, keeping the remaining
 // members as the field path.
-func resourceErrorFromLocation(location []any, message string, stack Stack) ImportResponseResourceError {
+func resourceErrorFromLocation(location []any, message string, stacks []Stack) ImportResponseResourceError {
 	if message == "" {
 		message = "invalid value"
 	}
@@ -138,11 +128,21 @@ func resourceErrorFromLocation(location []any, message string, stack Stack) Impo
 	if len(members) > 0 && members[0] == "spec" {
 		members = members[1:]
 	}
+
+	var stack Stack
+	kind, name := "", ""
+	if len(stacks) == 1 {
+		stack = stacks[0]
+		kind, name = "stack", stack.Name
+	}
 	if len(members) >= 2 && members[0] == "stacks" {
+		if index, convertError := strconv.Atoi(members[1]); convertError == nil && index >= 0 && index < len(stacks) {
+			stack = stacks[index]
+			kind, name = "stack", stack.Name
+		}
 		members = members[2:]
 	}
 
-	kind, name := "stack", stack.Name
 	if len(members) >= 2 {
 		if index, convertError := strconv.Atoi(members[1]); convertError == nil {
 			switch members[0] {

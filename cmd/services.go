@@ -45,7 +45,7 @@ type APIClient interface {
 	RollToClusterResourceVersion(ctx context.Context, clusterID, versionID string) (*client.RollToClusterResourceVersionResult, error)
 	ApplyCluster(ctx context.Context, clusterReq client.CreateImportClusterRequest, wait bool) (*client.ImportResponse, bool, error)
 	ValidateCluster(ctx context.Context, spec client.CreateResourceSpec, strictSecrets bool, clusterID string) (*client.ValidateClusterResponse, error)
-	CreateStackDraft(ctx context.Context, clusterID string, stack client.Stack) (*client.StackDraftResult, error)
+	CreateStackDrafts(ctx context.Context, clusterID string, stacks []client.Stack, replace bool) (*client.StackDraftsResult, error)
 	GetClusterKubeToken(ctx context.Context, clusterID string) (*client.KubeToken, error)
 	ListClusterAccessGrants(ctx context.Context, clusterID string) (*client.ListClusterAccessGrantsResponse, error)
 	CreateClusterAccessGrant(ctx context.Context, clusterID string, request client.CreateClusterAccessGrantRequest) (*client.CreateClusterAccessGrantResponse, error)
