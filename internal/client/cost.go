@@ -33,9 +33,13 @@ type FleetProviderCost struct {
 // are short. Note is the platform's own sentence; the CLI words the counts
 // itself. A platform that predates the field, or could not count every
 // cluster, sends none: a nil MonthHours is "not counted", never "whole".
+// HoursMeasured (cluster#5909) is the metered hours a metering pass
+// measured, HoursMetered without the estimated ones; nil from a platform
+// that predates it, which is not known, never "every hour was measured".
 type MonthHours struct {
 	HoursElapsed      int    `json:"hours_elapsed" yaml:"hours_elapsed"`
 	HoursMetered      int    `json:"hours_metered" yaml:"hours_metered"`
+	HoursMeasured     *int   `json:"hours_measured,omitempty" yaml:"hours_measured,omitempty"`
 	HoursEstimated    int    `json:"hours_estimated" yaml:"hours_estimated"`
 	IsShort           bool   `json:"is_short" yaml:"is_short"`
 	ClusterCount      int    `json:"cluster_count" yaml:"cluster_count"`
