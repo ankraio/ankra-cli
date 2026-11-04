@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **One registry robot can reach several projects.** `ankra registry robots create --registry-project` now takes a repeated or comma-separated list of up to 20 projects, so a consumer that installs a chart from one project and pulls its images from another needs one robot and one pull secret. On a Harbor your organisation runs, the `--admin-credential` must be allowed to make system-level robots: a system administrator, or a system-level robot with robot create, read, list and delete at system level that itself holds the access on every project.
+
 ### Fixed
 
 - **`ankra cluster draft` stages a file whole or not at all, and `--replace` discards a stack's existing draft.** The stacks used to be sent one at a time, so a refusal part way through left the earlier stacks staged, and running the command again then failed on those. Now every refusal in the file is reported at once and nothing is staged until the file is clean. A stack that already has a draft is still refused; `--replace` discards that draft, including edits made to it, and stages the file's version. It asks first, needs `--yes` without a terminal, and refuses a draft a data run is still waiting on. This needs a platform that has the whole-file route. On one that does not, the command says so and stages nothing.
