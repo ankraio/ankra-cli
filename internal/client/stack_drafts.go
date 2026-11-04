@@ -184,7 +184,11 @@ func (entry stackDraftMemberEntry) reviewMember(kind string) (StackDraftMember, 
 	}
 	encodedContent := entry.ManifestBase64
 	if entry.Configuration != nil {
-		encodedContent = entry.Configuration.ValuesBase64
+		// The configuration's values replace the manifest body only when it
+		// carries some; a configuration with none leaves the manifest to show.
+		if entry.Configuration.ValuesBase64 != nil {
+			encodedContent = entry.Configuration.ValuesBase64
+		}
 		if entry.Configuration.EncryptedPaths != nil {
 			member.EncryptedPaths = entry.Configuration.EncryptedPaths
 		}

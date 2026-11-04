@@ -540,6 +540,21 @@ func TestDraftReviewDecodesEveryKindOfMember(t *testing.T) {
 	}
 }
 
+// A configuration that carries no values must not mask the manifest body the
+// same member carries.
+func TestDraftReviewKeepsTheManifestWhenTheConfigurationCarriesNoValues(t *testing.T) {
+	document := reviewDocument(t, `{"name":"shop","applications":[
+		{"name":"orders","manifest_base64":"a2luZDogQ2x1c3Rlcgo=","configuration":{"values_base64":null}}]}`)
+
+	review, reviewError := document.DraftReview()
+	if reviewError != nil {
+		t.Fatal(reviewError)
+	}
+	if !review.Members[0].HasContent || review.Members[0].Content != "kind: Cluster\n" {
+		t.Fatalf("the manifest must show when the configuration has no values: %+v", review.Members[0])
+	}
+}
+
 // The listing elides bodies, so a member the read did not carry must not read as
 // one with nothing in it.
 func TestDraftReviewTellsAnUnreadBodyFromAnEmptyOne(t *testing.T) {

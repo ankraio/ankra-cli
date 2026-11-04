@@ -142,6 +142,27 @@ func TestProtectSaysWhenTheBackupStackInstallKeepsFailing(t *testing.T) {
 	}
 }
 
+func TestProtectBlockedWithoutWarningsDoesNotPointAtThem(t *testing.T) {
+	mock := newBackupLaneMock()
+	mock.protection = &client.StackProtection{
+		StackName:   backupTestStack,
+		Policy:      client.BackupPolicy{Enabled: true, Vault: "production-backups"},
+		BackupStack: client.BackupStackBlocked,
+	}
+
+	output, executeError := runBackupCommand(t, mock, "",
+		[]*cobra.Command{clusterStacksProtectCmd},
+		"cluster", "stacks", "protect", backupTestStack, "--cluster", "demo",
+		"--vault", "production-backups")
+
+	if executeError != nil {
+		t.Fatalf("protecting a stack: %v", executeError)
+	}
+	if !strings.Contains(output, "not installing") || strings.Contains(output, "warnings above") {
+		t.Fatalf("with no warning printed there is no reason above to point at, got:\n%s", output)
+	}
+}
+
 func TestProtectBackupNowNamesTheRun(t *testing.T) {
 	runID := backupTestRunID
 	restorePointID := backupTestRestorePointID

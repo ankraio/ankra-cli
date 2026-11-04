@@ -264,8 +264,12 @@ func printProtectFollowUp(out io.Writer, protection *client.StackProtection, wai
 			"A capture started before it is ready waits rather than failing.\n")
 	}
 	if protection.BackupStack == client.BackupStackBlocked {
-		_, _ = fmt.Fprintf(out, "\nThe backup data plane is not installing on this cluster, for the reason in the "+
-			"warnings above. A capture started now waits until that is fixed.\n")
+		reason := "."
+		if len(protection.Warnings) > 0 {
+			reason = ", for the reason in the warnings above."
+		}
+		_, _ = fmt.Fprintf(out, "\nThe backup data plane is not installing on this cluster%s "+
+			"A capture started now waits until that is fixed.\n", reason)
 	}
 	if protection.RunID == nil || *protection.RunID == "" {
 		_, _ = fmt.Fprintf(out, "\nProtection is on. Take a restore point now with "+
