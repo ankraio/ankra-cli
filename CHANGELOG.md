@@ -6,7 +6,8 @@
 
 This release adds `ankra cluster stacks redeploy`, which re-runs a stack's members from
 the terminal, with `--force` to get past a manifest conflict. That used to be reachable
-only from the portal.
+only from the portal. The embedded agent skills now cover robots that reach several
+projects, and what changing a robot's projects does to its secret.
 
 Scripts have nothing to change: the command is new. Installing this release changes
 nothing on any cluster or workload.
