@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v0.60.1 - 2026-11-04
+
+This release fixes `ankra application add --wait` and `ankra application ship`,
+which stopped right after registering an application because the platform now
+reports analysis progress as a list of steps. Installing this release changes
+nothing on any cluster or workload.
+
 ### Fixed
 
 - **`ankra application add --wait` no longer fails right after registering the application with `cannot unmarshal array into Go struct field applicationAnalysisState.creation_progress of type string`.** The platform now answers `creation_progress` as a list of steps (or null), not a sentence. `--wait` decodes the list, prints the newest step as a line such as `AI generate files...` or `Fetch repository tree: Found 42 files`, and still ends on the setup pull request or the platform's failure reason. A platform that still sends a sentence is printed as before.
