@@ -42,6 +42,9 @@ var invocation = struct {
 	sync.RWMutex
 	version string
 	command string
+	// organisationLevel marks a command that answers for the organisation by
+	// design, so it never warns that a selected project was not applied.
+	organisationLevel bool
 }{version: "dev"}
 
 // SetVersion records the CLI version the User-Agent names.
@@ -65,6 +68,21 @@ func SetInvocationCommand(commandPath string) {
 	invocation.Lock()
 	defer invocation.Unlock()
 	invocation.command = strings.Join(fields, " ")
+}
+
+// SetInvocationOrganisationLevel records that this invocation's command belongs
+// to the organisation by design, and so never warns that a selected project was
+// not applied.
+func SetInvocationOrganisationLevel(isOrganisationLevel bool) {
+	invocation.Lock()
+	defer invocation.Unlock()
+	invocation.organisationLevel = isOrganisationLevel
+}
+
+func invocationIsOrganisationLevel() bool {
+	invocation.RLock()
+	defer invocation.RUnlock()
+	return invocation.organisationLevel
 }
 
 func invocationState() (string, string) {

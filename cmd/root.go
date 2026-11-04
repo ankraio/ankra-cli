@@ -65,7 +65,13 @@ runs under a coding agent (Claude Code, Codex, Cursor, Gemini CLI, ...) it
 also names the agent and a digest of the agent's session (never the session
 id), so your organisation's audit log shows which agent ran what. Set
 ANKRA_AGENT=<name>[/<version>] to name an agent the CLI does not detect.
-DO_NOT_TRACK=1 or ANKRA_TELEMETRY=off sends the User-Agent only.`,
+DO_NOT_TRACK=1 or ANKRA_TELEMETRY=off sends the User-Agent only.
+
+When a project is selected (--project, ANKRA_PROJECT or 'ankra project switch')
+and the platform says a read did not apply it, the CLI warns once on stderr,
+because that answer may cover the whole organisation. Commands that belong to
+the organisation by design never warn. ANKRA_PROJECT_SCOPE_WARNING=off silences
+the warning.`,
 	SilenceUsage:      true,
 	PersistentPreRunE: persistentPreRunE,
 }
@@ -281,6 +287,7 @@ func persistentPreRunE(cmd *cobra.Command, _ []string) error {
 	// platform's side (client attribution), so the requests an agent makes
 	// can be read as the commands it ran.
 	client.SetInvocationCommand(cmd.CommandPath())
+	client.SetInvocationOrganisationLevel(commandIsOrganisationLevel(cmd))
 	if !commandRequiresAuth(cmd) || commandDryRunSkipsAuth(cmd) {
 		return nil
 	}

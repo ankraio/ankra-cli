@@ -22,6 +22,10 @@ import (
 // invocation; the platform ignores the header while the organisation has
 // projects off, so a saved selection never breaks an organisation that
 // turned them off again.
+//
+// Not every route scopes by project yet. The platform says what it applied
+// (X-Ankra-Applied-Project), and the client warns on stderr when a read says it
+// did not (internal/client/project_scope_warning.go).
 
 // projectPinnedExplicitly is true when this invocation's project came from
 // --project or ANKRA_PROJECT. An explicit pin is a statement about which
@@ -44,6 +48,38 @@ const (
 	projectSourceLocal    = "local"
 	projectSourceServer   = "server"
 )
+
+// organisationLevelCommands are the top-level commands that belong to the
+// organisation or to this machine by design (ADR 0022: people, money, tokens,
+// AI providers, support), so a project selection saying nothing about them is
+// not worth a warning.
+var organisationLevelCommands = map[string]bool{
+	"ai":         true,
+	"completion": true,
+	"config":     true,
+	"login":      true,
+	"logout":     true,
+	"org":        true,
+	"plugins":    true,
+	"profile":    true,
+	"project":    true,
+	"secrets":    true,
+	"skills":     true,
+	"support":    true,
+	"tokens":     true,
+	"upgrade":    true,
+}
+
+// commandIsOrganisationLevel reports whether the command sits under one of
+// organisationLevelCommands.
+func commandIsOrganisationLevel(cmd *cobra.Command) bool {
+	for current := cmd; current != nil && current.HasParent(); current = current.Parent() {
+		if !current.Parent().HasParent() {
+			return organisationLevelCommands[current.Name()]
+		}
+	}
+	return false
+}
 
 // SelectedProject is the selection `ankra project switch` saves. The
 // organisation id pins it to the organisation it was made in, so switching
