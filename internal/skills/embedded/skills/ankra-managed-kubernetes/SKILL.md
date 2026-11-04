@@ -150,7 +150,10 @@ ankra cluster managed import  --provider eks --credential-id <id> \
 is nothing to run against the cluster**. EKS is the one provider where the install touches the
 cluster's access: EKS only admits the identity that created a cluster, so Ankra adds an access entry
 for the connected role (tagged `managed-by=ankra-agent-install`, with `AmazonEKSClusterAdminPolicy`
-at cluster scope) and deletes it when the install ends. An entry the customer made is left alone,
+at cluster scope) and deletes it when the install ends. If AWS refuses the delete, the step fails,
+says the agent is in, and runs again until the entry is gone. The CloudFormation role allows this
+with `eks:*`; a hand-written role needs `eks:CreateAccessEntry`, `eks:DescribeAccessEntry`,
+`eks:AssociateAccessPolicy` and `eks:DeleteAccessEntry`. An entry the customer made is left alone,
 and a `CONFIG_MAP` cluster's authentication mode is never changed: map the role in `aws-auth`, or
 switch the mode to `API_AND_CONFIG_MAP`, which AWS does not let you undo.
 
