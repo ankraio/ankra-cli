@@ -46,8 +46,11 @@ changes.
 
 Which project a command acts in: the global --project <id|slug> flag (or
 ANKRA_PROJECT) for one invocation, else the selection 'ankra project switch'
-saves on this machine, else the current project the platform remembers for
-you (the one the portal shows). 'ankra project current' says which applies.
+saves on this machine (used with the 'ankra login' token only), else the
+organisation's default project, or the first project you can reach when you are
+assigned to specific projects only. A token pinned to a project always acts in
+it. Switching project in the portal never moves the CLI. 'ankra project current'
+says which applies.
 
 Not to be confused with 'ankra registry projects', which are the projects of
 the organisation's container registry (a Harbor concept).
@@ -82,7 +85,7 @@ type currentProjectOutput struct {
 
 var projectCurrentCmd = &cobra.Command{
 	Use:   "current",
-	Short: "Show the project this CLI acts in, and why (flag, saved selection or the platform's current project)",
+	Short: "Show the project this CLI acts in, and why (flag, saved selection or the token's default)",
 	Args:  cobra.NoArgs,
 	Example: `  ankra project current
   ankra project current -o json
@@ -91,6 +94,9 @@ var projectCurrentCmd = &cobra.Command{
 		project, source, err := resolveTargetProject(cmd)
 		if err != nil {
 			return err
+		}
+		if warning := projectScopeWarning(source, projectScopeTokenSource); warning != "" {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), warning)
 		}
 		if rendered, err := renderStructured(cmd, currentProjectOutput{Project: project, Source: source}); rendered || err != nil {
 			return err

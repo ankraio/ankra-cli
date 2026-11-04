@@ -393,6 +393,42 @@ func TestProjectCurrentReportsWhereTheProjectCameFrom(t *testing.T) {
 	})
 }
 
+func TestProjectScopeWarningNamesAnUnreachableSavedSelection(t *testing.T) {
+	const otherOrganisationID = "7b2fedb6-4d79-45fd-b71a-044a2cfddce7"
+	stale := SelectedProject{ProjectID: projectTestEdgeID, Slug: "edge", OrganisationID: projectTestOrganisationID}
+	for _, testCase := range []struct {
+		name        string
+		selection   *SelectedProject
+		source      string
+		tokenSource credentialSource
+		wantWarning bool
+	}{
+		{name: "a selection the listing no longer shows", selection: &stale, source: projectSourceServer, tokenSource: sourceConfigFile, wantWarning: true},
+		{name: "no selection", source: projectSourceServer, tokenSource: sourceConfigFile},
+		{name: "a selection in use", selection: &stale, source: projectSourceLocal, tokenSource: sourceConfigFile},
+		{name: "an explicit override", selection: &stale, source: projectSourceOverride, tokenSource: sourceConfigFile},
+		{name: "a token the selection does not apply to", selection: &stale, source: projectSourceServer, tokenSource: sourceEnv},
+		{name: "a selection of another organisation", selection: &SelectedProject{ProjectID: projectTestEdgeID, OrganisationID: otherOrganisationID}, source: projectSourceServer, tokenSource: sourceConfigFile},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			withTempHome(t)
+			setMockClient(t, &projectsMock{organisation: projectTestOrganisationID})
+			if testCase.selection != nil {
+				if err := saveSelectedProject(*testCase.selection); err != nil {
+					t.Fatal(err)
+				}
+			}
+			warning := projectScopeWarning(testCase.source, testCase.tokenSource)
+			if testCase.wantWarning != (warning != "") {
+				t.Fatalf("warning = %q, want a warning: %t", warning, testCase.wantWarning)
+			}
+			if testCase.wantWarning && !strings.Contains(warning, "edge") {
+				t.Fatalf("warning = %q, want it to name the selection", warning)
+			}
+		})
+	}
+}
+
 func TestGlobalProjectFlagScopesTheWholeInvocation(t *testing.T) {
 	t.Run("a slug is resolved once and sent as the id", func(t *testing.T) {
 		mock := &projectsMock{projects: twoProjects(), fleet: &client.FleetCloudCost{Currency: "eur"}}
