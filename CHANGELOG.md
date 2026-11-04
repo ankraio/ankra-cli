@@ -31,6 +31,7 @@ Installing this release changes nothing on any cluster or workload.
 
 ### Added
 
+- **Change which projects a registry robot reaches after it is made.** `ankra registry robots update <name> --registry-project a,b` replaces the list: projects it keeps keep their access, and ones it gains get `--scope`, pull by default. Where the registry can change the robot in place its login and secret keep working. On Harbor a robot admin credential never can, so such a change needs `--new-secret`, which replaces the robot and shows the new secret once.
 - **One registry robot can reach several projects.** `ankra registry robots create --registry-project` now takes a repeated or comma-separated list of up to 20 projects, so a consumer that installs a chart from one project and pulls its images from another needs one robot and one pull secret. On a Harbor your organisation runs, the `--admin-credential` must be allowed to make system-level robots: a system administrator, or a system-level robot with robot create, read, list and delete at system level that itself holds the access on every project.
 
 ### Fixed

@@ -18,6 +18,12 @@ import (
 type registryRobotsMock struct {
 	baseMock
 	createRequest *client.CreateRegistryRobotRequest
+	// updateRequest is the projects change the command sent; updated answers it
+	// and updateFail refuses it instead.
+	updateRequest *client.UpdateRegistryRobotProjectsRequest
+	updated       *client.RegistryRobotProjectsUpdated
+	updateFail    error
+	current       *client.RegistryRobot
 	rotated       string
 	deleted       string
 	fail          error
@@ -177,6 +183,9 @@ func (mock *registryRobotsMock) ListRegistryRobots(context.Context) (*client.Reg
 }
 
 func (mock *registryRobotsMock) GetRegistryRobot(_ context.Context, robotName string) (*client.RegistryRobot, error) {
+	if mock.current != nil {
+		return mock.current, nil
+	}
 	if mock.list != nil {
 		for _, robot := range mock.list.Robots {
 			if robot.Name == robotName {
@@ -192,6 +201,15 @@ func (mock *registryRobotsMock) RotateRegistryRobotSecret(_ context.Context, rob
 	mock.rotated = robotName
 	return &client.RegistryRobotWithSecret{RegistryRobot: registryRobotFixture(), Secret: "r0tated",
 		DockerLogin: "docker login ...", Warning: mock.warning}, nil
+}
+
+func (mock *registryRobotsMock) UpdateRegistryRobotProjects(_ context.Context, _ string,
+	request client.UpdateRegistryRobotProjectsRequest) (*client.RegistryRobotProjectsUpdated, error) {
+	mock.updateRequest = &request
+	if mock.updateFail != nil {
+		return nil, mock.updateFail
+	}
+	return mock.updated, nil
 }
 
 func (mock *registryRobotsMock) DeleteRegistryRobot(_ context.Context, robotName string) error {
