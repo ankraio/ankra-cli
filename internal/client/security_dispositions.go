@@ -36,7 +36,7 @@ func (c *Client) ListSecurityFindingOccurrences(options SecurityOccurrencesOptio
 	if options.ClusterID != "" {
 		query.Set("cluster_id", options.ClusterID)
 	}
-	requestURL := securityURL(c.BaseURL, "/findings/"+neturl.PathEscape(strings.TrimSpace(options.FindingID))+"/occurrences", query)
+	requestURL := c.securityScopedURL(securityURL(c.BaseURL, "/findings/"+neturl.PathEscape(strings.TrimSpace(options.FindingID))+"/occurrences", query))
 	var list SecurityOccurrenceList
 	if err := c.getJSON(requestURL, &list); err != nil {
 		return nil, fmt.Errorf("security finding occurrences request failed: %w", err)
@@ -119,7 +119,7 @@ func (c *Client) ListSecurityWorkloads(options SecurityFindingsOptions) (*Securi
 		query.Set("namespace", options.Namespace)
 	}
 	var list SecurityWorkloadList
-	if err := c.getJSON(securityURL(c.BaseURL, "/workloads", query), &list); err != nil {
+	if err := c.getJSON(c.securityScopedURL(securityURL(c.BaseURL, "/workloads", query)), &list); err != nil {
 		return nil, fmt.Errorf("security workloads request failed: %w", err)
 	}
 	if list.Result == nil {
@@ -207,7 +207,7 @@ func (c *Client) ListSecurityDispositions(options SecurityDispositionsOptions) (
 		}
 	}
 	var list SecurityDispositionList
-	if err := c.getJSON(securityURL(c.BaseURL, "/vulnerability-dispositions", query), &list); err != nil {
+	if err := c.getJSON(c.securityScopedURL(securityURL(c.BaseURL, "/vulnerability-dispositions", query)), &list); err != nil {
 		return nil, fmt.Errorf("security dispositions request failed: %w", err)
 	}
 	if list.Result == nil {
