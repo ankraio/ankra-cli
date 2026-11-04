@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -56,12 +57,27 @@ func TestRegistryRobotsCreateOnSeveralProjectsStatesPermissionsOnEach(t *testing
 // login cannot reach what was asked for, so it is revoked before its secret is
 // shown.
 func TestRegistryRobotsCreateRevokesARobotThatDidNotGetEveryProject(t *testing.T) {
-	mock := &registryRobotsMock{created: severalProjectsRobot("harbor", "first")}
-	output, runError := runRegistryCommand(t, mock, "", "robots", "create", "reader",
-		"--registry", "harbor", "--admin-credential", "admin", "--registry-project", "first,second")
-	if runError == nil || mock.deleted != "reader" || strings.Contains(output, "s3cret") ||
-		!strings.Contains(runError.Error(), "--registry-project") {
-		t.Fatalf("error=%v deleted=%q\n%s", runError, mock.deleted, output)
+	for _, answered := range [][]string{{"first"}, {"first", "third"}} {
+		mock := &registryRobotsMock{created: severalProjectsRobot("harbor", answered...)}
+		output, runError := runRegistryCommand(t, mock, "", "robots", "create", "reader",
+			"--registry", "harbor", "--admin-credential", "admin", "--registry-project", "first,second")
+		if runError == nil || mock.deleted != mock.created.Name || strings.Contains(output, "s3cret") ||
+			!strings.Contains(runError.Error(), "--registry-project") {
+			t.Fatalf("answered %v: error=%v deleted=%q\n%s", answered, runError, mock.deleted, output)
+		}
+	}
+}
+
+func TestRegistryRobotsCreateRefusesMoreProjectsThanOneRobotReaches(t *testing.T) {
+	var projectNames []string
+	for projectIndex := range registryRobotMaximumProjects + 1 {
+		projectNames = append(projectNames, fmt.Sprintf("project-%d", projectIndex))
+	}
+	mock := &registryRobotsMock{}
+	_, usageError := runRegistryCommand(t, mock, "", "robots", "create", "reader", "--registry", "harbor",
+		"--admin-credential", "admin", "--registry-project", strings.Join(projectNames, ","))
+	if exitCodeFor(usageError) != exitUsage || mock.createRequest != nil {
+		t.Fatalf("error=%v request=%+v", usageError, mock.createRequest)
 	}
 }
 

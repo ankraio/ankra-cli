@@ -412,6 +412,10 @@ it is deleted again before its secret is shown.`,
 					"the robot is bound to ('ankra registry projects list --registry %s --admin-credential %s' shows them)",
 					registryName, adminCredentialName))
 			}
+			if len(projectNames) > registryRobotMaximumProjects {
+				return withExitCode(exitUsage, fmt.Errorf("--registry-project names %d projects; one robot reaches at most %d",
+					len(projectNames), registryRobotMaximumProjects))
+			}
 			isSeveralProjects := len(projectNames) > 1
 			projectName := ""
 			if len(projectNames) == 1 {
@@ -469,7 +473,7 @@ it is deleted again before its secret is shown.`,
 					ignored = append(ignored, ignoredFlags)
 				}
 			}
-			if isSeveralProjects && len(created.ProjectAccess) != len(projectNames) {
+			if isSeveralProjects && !registryRobotReachesExactly(created.ProjectAccess, projectNames) {
 				// A platform without robots of several projects ignores the
 				// list and binds the robot to one project: a login that cannot
 				// reach what was asked for.
@@ -513,6 +517,27 @@ it is deleted again before its secret is shown.`,
 // 0022); the old spelling is kept for one minor as a deprecated local flag
 // that shadows the global one on this command.
 const registryProjectFlag = "registry-project"
+
+// registryRobotMaximumProjects is the platform's ceiling on the projects one
+// robot reaches.
+const registryRobotMaximumProjects = 20
+
+// registryRobotReachesExactly reports whether a robot's answered access is the
+// projects asked for and no others. A project is matched by the registry's
+// name for it or the member's: they differ on the Ankra registry.
+func registryRobotReachesExactly(access []client.RegistryRobotProjectAccess, projectNames []string) bool {
+	if len(access) != len(projectNames) {
+		return false
+	}
+	for _, projectName := range projectNames {
+		if !slices.ContainsFunc(access, func(grant client.RegistryRobotProjectAccess) bool {
+			return grant.Project == projectName || grant.ProjectName == projectName
+		}) {
+			return false
+		}
+	}
+	return true
+}
 
 // registryProjectFlagValues reads --registry-project, or the deprecated
 // --project when only that was passed, lower-cased, without blanks or repeats.
