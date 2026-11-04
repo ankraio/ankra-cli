@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Changed
+
+- **`ankra skills` is easier to read.** Run on its own, `ankra skills` now
+  shows which assistants on this machine have the skills (with a count such as
+  `25/25`, or `1/25` for a partial install) and the commands to go further,
+  instead of only printing help. `ankra skills list` shows one line per skill
+  with what it covers, fitted to the terminal; `--long` (`-l`) brings back the
+  full descriptions. `ankra skills clients` is an aligned table with the
+  install state first. `install` and `uninstall` print a short checklist per
+  assistant (`✓ skills 25 installed`) rather than one line per skill. Output is
+  coloured on a terminal and plain when piped or when `NO_COLOR` is set; `-o
+  json|yaml` is unchanged.
+- **`ankra skills clients` no longer reports an assistant as installed only
+  because it shares a skills directory with another one.** GitHub Copilot,
+  Windsurf, Cline and the generic AGENTS.md client share `~/.ankra/skills`, so
+  installing for Zed used to mark all of them installed; each now counts only
+  once its own instructions file carries the Ankra block, matching what
+  `ankra upgrade` and `ankra skills uninstall` already did. The `installed`
+  field in `-o json` follows the same rule.
+
 ## v0.60.1 - 2026-11-04
 
 This release fixes `ankra application add --wait` and `ankra application ship`,
