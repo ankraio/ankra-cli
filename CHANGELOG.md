@@ -22,6 +22,10 @@
   `ankra upgrade` and `ankra skills uninstall` already did. The `installed`
   field in `-o json` follows the same rule.
 
+### Fixed
+
+- **`ankra application add --wait` no longer fails right after registering the application with `cannot unmarshal array into Go struct field applicationAnalysisState.creation_progress of type string`.** The platform now answers `creation_progress` as a list of steps (or null), not a sentence. `--wait` decodes the list, prints the newest step as a line such as `AI generate files...` or `Fetch repository tree: Found 42 files`, and still ends on the setup pull request or the platform's failure reason. A platform that still sends a sentence is printed as before.
+
 ## v0.60.0 - 2026-11-04
 
 This release lets the CLI show and change the AI board's structure: which
