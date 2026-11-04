@@ -11,6 +11,8 @@ package cmd
 // runner time (step-seconds), not wall-clock time.
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -22,13 +24,68 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// pipelineGetOutput is `ankra pipeline get -o json|yaml`: the run detail
-// exactly as before, with time_saved added after its last field. TimeSaved is
-// null when the platform has nothing to say (older than the route, or the
-// read failed and said so on stderr).
+// pipelineGetOutput is `ankra pipeline get -o json|yaml`: the run detail as
+// the platform answered it, with time_saved added after its last field.
+// TimeSaved is null when the platform has nothing to say (older than the
+// route, or the read failed and said so on stderr).
+//
+// Its own RawDocument shadows the run detail's: it is the platform's run
+// document with time_saved appended, so structured output prints every field
+// the platform sent, the ones this CLI does not declare included
+// (ankra-ga9b8k). When the detail carries no document (a test mock) it stays
+// empty and the struct below is encoded instead, as before.
 type pipelineGetOutput struct {
+	client.RawDocument       `json:"-" yaml:"-"`
 	client.PipelineRunDetail `yaml:",inline"`
 	TimeSaved                *client.PipelineRunTimeSaved `json:"time_saved" yaml:"time_saved"`
+}
+
+// newPipelineGetOutput pairs the run detail with its time saved, carrying the
+// platform's document with time_saved added when the detail kept one.
+func newPipelineGetOutput(detail client.PipelineRunDetail,
+	timeSaved *client.PipelineRunTimeSaved) pipelineGetOutput {
+	output := pipelineGetOutput{PipelineRunDetail: detail, TimeSaved: timeSaved}
+	if document := appendJSONObjectMember(detail.RawJSON(), "time_saved", timeSaved); document != nil {
+		output.RawDocument = client.NewRawDocument(document)
+	}
+	return output
+}
+
+// appendJSONObjectMember is document, a JSON object, with key set to value as
+// its last member; every member before it is the platform's, byte for byte
+// and in its order. A document that already has key is returned unchanged:
+// the platform's own answer wins over the CLI's second read, and a key never
+// appears twice. It is nil when document is empty or not a JSON object, and
+// the caller then encodes its struct.
+func appendJSONObjectMember(document json.RawMessage, key string, value any) json.RawMessage {
+	trimmed := bytes.TrimSpace(document)
+	if len(trimmed) < 2 || trimmed[0] != '{' || trimmed[len(trimmed)-1] != '}' || !json.Valid(trimmed) {
+		return nil
+	}
+	var members map[string]json.RawMessage
+	if decodeError := json.Unmarshal(trimmed, &members); decodeError != nil {
+		return nil
+	}
+	if _, isPresent := members[key]; isPresent {
+		return append(json.RawMessage(nil), trimmed...)
+	}
+	encodedKey, keyError := json.Marshal(key)
+	encodedValue, valueError := json.Marshal(value)
+	if keyError != nil || valueError != nil {
+		return nil
+	}
+	body := bytes.TrimSpace(trimmed[1 : len(trimmed)-1])
+	var appended bytes.Buffer
+	appended.WriteByte('{')
+	if len(body) > 0 {
+		appended.Write(body)
+		appended.WriteByte(',')
+	}
+	appended.Write(encodedKey)
+	appended.WriteByte(':')
+	appended.Write(encodedValue)
+	appended.WriteByte('}')
+	return appended.Bytes()
 }
 
 // readPipelineRunTimeSaved reads a run's time saved for `pipeline get`. It
@@ -52,7 +109,7 @@ func renderPipelineGet(command *cobra.Command, format outputFormat, detail *clie
 	timeSaved *client.PipelineRunTimeSaved, selector client.PipelineSelector) error {
 	out := command.OutOrStdout()
 	if format != outputDefault {
-		return encodeStructured(out, format, pipelineGetOutput{PipelineRunDetail: *detail, TimeSaved: timeSaved})
+		return encodeStructured(out, format, newPipelineGetOutput(*detail, timeSaved))
 	}
 	printPipelineRunDetail(out, *detail, selector)
 	printPipelineRunTimeSaved(out, timeSaved)

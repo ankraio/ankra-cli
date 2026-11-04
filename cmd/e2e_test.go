@@ -119,6 +119,14 @@ func (m baseMock) ResolveAllClusterGitopsConflicts(context.Context, string, stri
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListClusterGitopsPreservedPaths(context.Context, string) (*client.GitopsPreservedPathList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ResolveClusterGitopsPreservedPath(context.Context, string, client.GitopsPreservedPathDecision) (*client.GitopsPreservedPathResolution, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) DeleteCluster(ctx context.Context, name string) error {
 	return errors.New("not implemented")
 }
@@ -185,7 +193,7 @@ func (m baseMock) ElevateClusterAccess(ctx context.Context, clusterID string, re
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) GetClusterAccessPolicy(ctx context.Context) (*client.ClusterAccessPolicy, error) {
+func (m baseMock) GetClusterAccessPolicy(ctx context.Context) (*client.ClusterAccessPolicyRead, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -5276,6 +5284,50 @@ func (m baseMock) TransitionTicket(ticketID string, status string, note string) 
 }
 
 func (m baseMock) DecideTicket(ticketID string, decision client.TicketDecision) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListTicketProjectChannels() (*client.TicketProjectChannelsList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetTicketProjectChannels(string, client.SetTicketProjectChannelsRequest) (*client.SetTicketProjectChannelsResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RemoveTicketProjectChannels(string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) ListTicketLinks(ticketID string) (*client.TicketLinkList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AddTicketLink(ticketID string, link client.TicketLinkRequest) (*client.TicketLink, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RemoveTicketLink(holderTicketID string, linkID string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) NestTicket(ticketID string, request client.TicketNestRequest) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DetachTicket(ticketID string, reason string) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CloseTicket(ticketID string, request client.TicketCloseRequest) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateTicket(request client.TicketCreateRequest) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateSubTicket(parentTicketID string, request client.TicketCreateRequest) (*client.Ticket, error) {
 	return nil, errors.New("not implemented")
 }
 

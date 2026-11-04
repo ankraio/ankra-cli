@@ -33,6 +33,8 @@ type APIClient interface {
 	ListClusterGitopsConflicts(ctx context.Context, clusterID string) (*client.GitopsConflictList, error)
 	ResolveClusterGitopsConflict(ctx context.Context, clusterID string, resourceKey string, keep string) (*client.GitopsConflictResolution, error)
 	ResolveAllClusterGitopsConflicts(ctx context.Context, clusterID string, keep string) (*client.GitopsConflictResolution, error)
+	ListClusterGitopsPreservedPaths(ctx context.Context, clusterID string) (*client.GitopsPreservedPathList, error)
+	ResolveClusterGitopsPreservedPath(ctx context.Context, clusterID string, decision client.GitopsPreservedPathDecision) (*client.GitopsPreservedPathResolution, error)
 	DeleteCluster(ctx context.Context, name string) error
 	TriggerReconcile(ctx context.Context, clusterID string) (*client.TriggerReconcileResult, error)
 	ProvisionCluster(ctx context.Context, clusterID string) (*client.ProvisionClusterResult, error)
@@ -49,7 +51,7 @@ type APIClient interface {
 	CreateClusterAccessGrant(ctx context.Context, clusterID string, request client.CreateClusterAccessGrantRequest) (*client.CreateClusterAccessGrantResponse, error)
 	DeleteClusterAccessGrant(ctx context.Context, clusterID string, grantID string) (*client.DeleteClusterAccessGrantResponse, error)
 	ElevateClusterAccess(ctx context.Context, clusterID string, request client.ElevateClusterAccessRequest) (*client.CreateClusterAccessGrantResponse, error)
-	GetClusterAccessPolicy(ctx context.Context) (*client.ClusterAccessPolicy, error)
+	GetClusterAccessPolicy(ctx context.Context) (*client.ClusterAccessPolicyRead, error)
 	ProposeClusterAccessPolicy(ctx context.Context, request client.ProposeClusterAccessPolicyRequest) (*client.ClusterAccessPolicyProposal, error)
 	GetClusterAccessPolicyProposal(ctx context.Context, proposalID string) (*client.ClusterAccessPolicyProposal, error)
 	ListClusterAccessPolicyProposals(ctx context.Context, status string) (*client.ClusterAccessPolicyProposalList, error)
@@ -509,6 +511,17 @@ type APIClient interface {
 	CommentOnTicket(ticketID string, body string) (*client.TicketEvent, error)
 	TransitionTicket(ticketID string, status string, note string) (*client.Ticket, error)
 	DecideTicket(ticketID string, decision client.TicketDecision) (*client.Ticket, error)
+	ListTicketProjectChannels() (*client.TicketProjectChannelsList, error)
+	SetTicketProjectChannels(projectID string, request client.SetTicketProjectChannelsRequest) (*client.SetTicketProjectChannelsResult, error)
+	RemoveTicketProjectChannels(projectID string) error
+	ListTicketLinks(ticketID string) (*client.TicketLinkList, error)
+	AddTicketLink(ticketID string, link client.TicketLinkRequest) (*client.TicketLink, error)
+	RemoveTicketLink(holderTicketID string, linkID string) error
+	NestTicket(ticketID string, request client.TicketNestRequest) (*client.Ticket, error)
+	DetachTicket(ticketID string, reason string) (*client.Ticket, error)
+	CloseTicket(ticketID string, request client.TicketCloseRequest) (*client.Ticket, error)
+	CreateTicket(request client.TicketCreateRequest) (*client.Ticket, error)
+	CreateSubTicket(parentTicketID string, request client.TicketCreateRequest) (*client.Ticket, error)
 
 	GetAIProviderStatus() (*client.AIProviderStatus, error)
 	SetAIProvider(provider string) (*client.AIProviderStatus, error)

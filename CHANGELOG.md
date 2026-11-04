@@ -6,6 +6,101 @@
 
 - **`--gateway-api` on the self-managed cluster create commands.** `ankra cluster hetzner create`, and the OVHcloud, UpCloud, DigitalOcean, Scaleway, AWS, Ankra Cloud, Proxmox and Morpheus create commands, take `--gateway-api` to have the networking stack's Traefik also serve the Kubernetes Gateway API next to Ingress. The cluster gets the Gateway API CRDs, a GatewayClass named `traefik` and a shared Gateway named `traefik-gateway`, and external-dns publishes HTTPRoute hostnames the way it publishes Ingress ones. It is off by default, and a create without it sends the same request as before. It needs the networking stack: `--gateway-api` together with `--include-networking=false` (or `--external-cloud-provider=false`, which turns networking off) exits 2 before anything is sent. It is chosen at create time only for now, and needs a platform that accepts the option.
 
+### Changed
+
+- **`ankra skills` is easier to read.** Run on its own, `ankra skills` now
+  shows which assistants on this machine have the skills (with a count such as
+  `25/25`, or `1/25` for a partial install) and the commands to go further,
+  instead of only printing help. `ankra skills list` shows one line per skill
+  with what it covers, fitted to the terminal; `--long` (`-l`) brings back the
+  full descriptions. `ankra skills clients` is an aligned table with the
+  install state first. `install` and `uninstall` print a short checklist per
+  assistant (`✓ skills 25 installed`) rather than one line per skill. Output is
+  coloured on a terminal and plain when piped or when `NO_COLOR` is set; `-o
+  json|yaml` is unchanged.
+- **`ankra skills clients` no longer reports an assistant as installed only
+  because it shares a skills directory with another one.** GitHub Copilot,
+  Windsurf, Cline and the generic AGENTS.md client share `~/.ankra/skills`, so
+  installing for Zed used to mark all of them installed; each now counts only
+  once its own instructions file carries the Ankra block, matching what
+  `ankra upgrade` and `ankra skills uninstall` already did. The `installed`
+  field in `-o json` follows the same rule.
+
+## v0.60.1 - 2026-11-04
+
+This release fixes `ankra application add --wait` and `ankra application ship`,
+which stopped right after registering an application because the platform now
+reports analysis progress as a list of steps. Installing this release changes
+nothing on any cluster or workload.
+
+### Fixed
+
+- **`ankra application add --wait` no longer fails right after registering the application with `cannot unmarshal array into Go struct field applicationAnalysisState.creation_progress of type string`.** The platform now answers `creation_progress` as a list of steps (or null), not a sentence. `--wait` decodes the list, prints the newest step as a line such as `AI generate files...` or `Fetch repository tree: Found 42 files`, and still ends on the setup pull request or the platform's failure reason. A platform that still sends a sentence is printed as before.
+
+## v0.60.0 - 2026-11-04
+
+This release lets the CLI show and change the AI board's structure: which
+ticket a ticket sits under, what stands under it, and how tickets link to each
+other. `ankra tickets get` shows all of it, and `nest`, `detach`, `links`,
+`link`, `unlink`, `close --duplicate-of` and `create --parent` change it. Ticket
+numbers now also find chat-fix receipts. Installing this release changes nothing
+on any cluster or workload.
+
+### Added
+
+- **`ankra tickets` shows and changes the board's structure.** `ankra tickets get` now says which ticket a ticket sits under and whether that ticket carries its work (a symptom) or it is a sub-ticket of it, how many open symptoms and sub-tickets stand under it and how many of those wait on a person, every ticket directly under it with its role, and its links in both directions, worded as the board words them ("Duplicate of", "Duplicate of this ticket", "Recurrence of", "Came back as"). A part it could not read is said to be unread, never shown as empty, and the command then exits 1 after printing the rest. `-o json` prints the ticket as before, now with `parent_ticket_number`, `parent_ticket_title`, `parent_ticket_status`, `child_role`, `sub_ticket_count`, `open_sub_ticket_count`, `live_symptom_count` and `symptoms_needing_person_count`. New commands: `ankra tickets nest <ticket> --root <ticket>` moves a ticket under a root as a symptom and `detach` stands it on its own again; `links`, `link` and `unlink` list, add and remove links (`unlink` takes a link id or the ticket at the other end, and removes a link another ticket holds through that ticket); `close` closes a ticket with a resolution, and `close --duplicate-of T-42` closes it as a duplicate and links it to the keeper in one step, then names the keeper the platform linked, which can be another ticket when the one named is itself a duplicate or a symptom; `create` files a ticket, and `create --parent T-42` files a sub-ticket. `ankra tickets list` takes `--parent` to list the tickets under one, with their role, and `--top-level`. A refused write prints the platform's sentence and exits 2 when the request named the wrong thing, 3 when the ticket is not in your organisation and 1 when the tickets' state refused it. `close --duplicate-of` needs a platform that accepts `duplicate_of`; on one that does not, the ticket is closed without a link, and the command says so, exits 1 and prints the `ankra tickets link` command that adds it.
+
+### Fixed
+
+- **`ankra tickets get`, `comment`, `decide` and every other ticket command find a chat-fix receipt by its number.** The board leaves receipts (the records of writes a person made through the AI chat or MCP) out of its listing unless asked, and the CLI looked a number up in that listing, so `ankra tickets get T-1298` answered `ticket T-1298 not found` for every receipt, open or closed, while the ticket page and MCP showed it. A number is now looked up with receipts included, by the platform's exact-number search first, so a ticket older than the 2000 most recently updated is found too.
+
+## v0.59.0 - 2026-11-03
+
+This release lets the CLI decide a preserved GitOps path: a file in a cluster's
+GitOps repository that Ankra did not write, which it keeps instead of
+overwriting. `ankra cluster gitops preserved list|show|resolve` shows what
+differs and records which version wins, after previewing what the choice
+discards. Installing this release changes nothing on any cluster or workload.
+
+### Added
+
+- **`ankra cluster gitops preserved list|show|resolve` decides a preserved GitOps path from the CLI.** A preserved path is a file in a cluster's GitOps repository that Ankra did not write, such as a cluster file edited by hand. Ankra keeps Git's version instead of overwriting it, so its own later changes to that file (a new add-on, a chart version it rolled) never reach Git until someone decides which version wins. These are not merge conflicts, so `ankra cluster gitops conflicts resolve` could not decide them, and a cluster with no conflicts and an undecided preserved path could only be fixed with a hand-built API call. `list` shows each file with when it was detected, its decision, whether its content is withheld and why, and how many differences the platform found. `show <path>` prints those differences key by key, with Git's and Ankra's value where the platform shows them and `(masked)` where it does not. `resolve <path> --keep git|ankra` records the decision: `--keep git` imports Git's version and the cluster changes to match it, and `--keep ankra` (or `--keep cluster`) writes Ankra's version into Git over the edit made there. Before it asks, `resolve` lists what the choice discards: the stacks and add-ons only one version declares, folded into one line each, and the values that change. It also warns when keeping Git's version would drop `encrypted_paths` entries that Ankra declares, which would deploy SOPS ciphertext as the value. It reads the file's two content digests from the platform itself, so a decision covers exactly the versions it showed. It needs `--yes` when there is no terminal to ask on. `--withdraw` removes a recorded decision without changing anything in Git or on the cluster. A file that changed since it was read, a decision someone else already recorded, and Ankra's version over SOPS-encrypted content are each refused with the command to run next. A missing `clusters.write` exits 7, a path that is no longer preserved exits 3, and `-o json` returns the platform's answer. `ankra cluster gitops status` now names these commands instead of the API route. `ankra cluster gitops conflicts list` points at undecided preserved paths when there are no conflicts, and `conflicts resolve` points at `preserved resolve` when it is given a file path. Needs a platform that serves the preserved-path routes to API tokens.
+- **Notification routes show and choose their project.** Since the platform delivers a project's notifications only through that project's routes (and organisation-wide ones), `ankra alerts routes list` gains a Project column (the project's name where the CLI can list projects, its id otherwise, or `organisation-wide`), the route detail printed by `create` and `update` shows it, and `-o json` carries `project_id` (`null` for an organisation-wide route). `ankra alerts routes create` takes the global `--project <id|slug|name>` as the route's project and a new `--organisation-wide` for a route that delivers every project's notifications and the organisation's own; with neither it still lands in your current project, as before, and the help now says so. `ankra alerts routes preview --project <project>` evaluates the notification as one of that project's and prints which project the walk used. Needs a platform with project-aware notification routing.
+- **`ankra tickets settings projects list|set|remove` gives a project its own AI board channels.** A ticket of a project with a channel of its own now opens its board thread in that Slack channel or Teams conversation instead of the organisation's. `list` shows the projects that bind channels; `set <project> --slack-channel C123 --teams-conversation 19:...` binds them, changing only the providers passed, and `--clear-slack` / `--clear-teams` drop one so it falls back to the organisation's channel; `remove <project>` asks first and drops both. Changing them needs an organisation admin, and a project outside the organisation exits 3.
+
+## v0.58.0 - 2026-11-03
+
+This release makes `ankra cluster stacks clone --with-data` say why no data
+was carried instead of blaming an old platform, and warns that deploying the
+draft it left would start its databases empty. `ankra org access-policy`
+commands now name the organisation they read or proposed for.
+
+`ankra pipeline get -o json|yaml` now prints the run as the platform sent it.
+Scripts reading `-o json` get more fields, and a field the platform does not
+send is left out rather than printed as `null` or `""`. **Scripts reading
+`-o yaml` need new key names:** the old output used lowercased field names
+under `pipelinerun` (`pipelinerun.runid`, `queuereason`), and the keys are now
+the same snake_case names as `-o json` at the top level (`run_id`,
+`queue_reason`). Installing this release changes nothing on any cluster or
+workload.
+
+### Fixed
+
+- **`ankra cluster stacks clone --with-data` says why no data was carried.** When the platform cloned a stack's configuration but could carry none of the selected data, the command exited nonzero claiming the platform predated clone-with-data, even though the platform had answered with its reasons in `data_warnings` (for example, a database whose owning member the clone could not rewrite). Those reasons were only visible with `-o json`. The error now lists them, names the draft that was created, and warns that deploying that draft would start its databases empty. The printed result above it no longer says `Stack cloned successfully!` or suggests `deploy-draft`, which contradicted that warning. The old diagnosis is kept only for a platform that names no run and gives no reason.
+- **`ankra pipeline get -o json|yaml` prints the run as the platform sent it.** The command decoded the run into this CLI's own types and encoded those again, so any field the platform added after the CLI was built was missing from the output, with nothing to say so. Each step's `memory_working_set_peak_bytes`, for example, was absent even though the platform reported it, and a script reading the output concluded it was unset. The output is now the platform's document with `time_saved` added as its last field, so every field the platform sends appears, including ones this CLI does not know about yet. A field the platform does not send is no longer printed as `null` or `""`. `ankra pipeline run --wait` and `ankra pipeline rerun --wait` with `-o json|yaml` print the finished run the same way. In `ankra pipeline get --watch -o json`, each event's `run` and `step` now come from the platform's document too, as the help always said; the run carries no `steps` member, because every step has its own event. The readable `Resources used` section also gives each step's working-set peak beside its memory peak. The working-set peak leaves out page cache, which fills whatever room a step has, so for a step whose memory peak reached its request, it is the closer measure of what the step needed.
+
+### Changed
+
+- **`ankra org access-policy get`, `set`, `proposals` and `proposal` say which organisation they read or proposed for.** Each prints an `Organisation:` line with the organisation's name and id, and `-o json` and `-o yaml` carry `organisation_id` and `organisation_name`. They act on the selected organisation unless `--org` (or `ANKRA_ORG`) names another, and nothing used to show which one answered, so a read made in the wrong organisation looked just like the right one. A proposal id that is not in the organisation read still exits 3, and the message now names the organisation that was searched and points at `--org`. Needs a platform that names the organisation; with an older one the line is left out.
+
+## v0.57.2 - 2026-11-03
+
+This release makes `ankra cost cluster` show each component at its real
+monthly figure, so a part that costs less than a cent an hour no longer reads
+`0.00` and the components add up to the run rate once the platform sends
+monthly figures. Installing this release changes nothing on any cluster or
+workload.
+
 ### Fixed
 
 - **`ankra cost cluster` shows a component under a cent an hour at its real monthly figure.** The run rate by component multiplied each whole-cent hourly figure by 730, so a part that costs less than a cent an hour, such as a stopped cluster's volumes, read `0.00` a month, and the components could miss the monthly run rate by a few cents. Once the platform sends each component over a month, computed from its full-precision hourly price, the table reads those figures, and the compute, storage, network, control plane and bastion lines add up to the run rate. On a platform that does not send them yet, the table reads as before. `-o json` and `-o yaml` print the platform's response as sent, unchanged.

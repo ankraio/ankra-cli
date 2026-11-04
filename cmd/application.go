@@ -355,10 +355,10 @@ const applicationAnalysisDefaultTimeout = 15 * time.Minute
 // applicationAnalysisState is the part of an application read that says
 // whether Ankra has finished looking at the repository, and what it produced.
 type applicationAnalysisState struct {
-	AnalysisStatus   string `json:"analysis_status"`
-	ErrorMessage     string `json:"error_message"`
-	PullRequestURL   string `json:"pull_request_url"`
-	CreationProgress string `json:"creation_progress"`
+	AnalysisStatus   string                      `json:"analysis_status"`
+	ErrorMessage     string                      `json:"error_message"`
+	PullRequestURL   string                      `json:"pull_request_url"`
+	CreationProgress applicationCreationProgress `json:"creation_progress"`
 }
 
 // waitForApplicationAnalysis follows the analysis `application add` starts,
@@ -399,7 +399,7 @@ func waitForApplicationAnalysis(command *cobra.Command, applicationID string) er
 		if unmarshalError := json.Unmarshal(payload, &state); unmarshalError != nil {
 			return fmt.Errorf("reading the analysis of application %s: %w", applicationID, unmarshalError)
 		}
-		if progress := strings.TrimSpace(state.CreationProgress); progress != "" && progress != reportedProgress {
+		if progress := state.CreationProgress.Summary(); progress != "" && progress != reportedProgress {
 			_, _ = fmt.Fprintf(errorOutput, "  %s\n", progress)
 			reportedProgress = progress
 		}
