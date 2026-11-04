@@ -47,6 +47,8 @@ func (m baseMock) ProjectOverride() string { return "" }
 
 func (m baseMock) SetCostProjectScope(string) {}
 
+func (m baseMock) SetSecurityProjectScope(string) {}
+
 func (m baseMock) ListProjects() ([]client.ProjectSummary, error) {
 	return nil, errors.New("not implemented")
 }

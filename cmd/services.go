@@ -14,6 +14,7 @@ type APIClient interface {
 	SetProjectOverride(projectID string)
 	ProjectOverride() string
 	SetCostProjectScope(scope string)
+	SetSecurityProjectScope(scope string)
 
 	ListProjects() ([]client.ProjectSummary, error)
 	GetCurrentProject() (*client.ProjectSummary, error)

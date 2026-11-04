@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **`ankra security` reads take `--all-projects`.** The platform now answers Security Center reads for the project you act in, so a script that read the whole organisation narrows to one project unless it asks otherwise. `--all-projects` reads every project, like `ankra cost --all-projects`, and `--cluster` then takes the name of a cluster in any project. A pinned token or a member limited to projects is refused. The compliance frameworks, report and export stay the organisation's and do not take the flag, nor do `history` and `report-schedule`.
+
 ## v0.63.0 - 2026-11-04
 
 This release makes `ankra cluster draft` safe to run again on the same file: a
