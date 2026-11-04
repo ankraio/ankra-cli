@@ -419,7 +419,7 @@ type SecurityClusterBenchmarks struct {
 // GetSecurityClusterBenchmarks reads one cluster's benchmark compliance.
 func (c *Client) GetSecurityClusterBenchmarks(clusterID string) (*SecurityClusterBenchmarks, error) {
 	var benchmarks SecurityClusterBenchmarks
-	if err := c.getSecurityLiveJSON(fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/security/compliance", c.BaseURL, neturl.PathEscape(strings.TrimSpace(clusterID))), &benchmarks); err != nil {
+	if err := c.getSecurityLiveJSON(c.securityScopedURL(fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/security/compliance", c.BaseURL, neturl.PathEscape(strings.TrimSpace(clusterID)))), &benchmarks); err != nil {
 		return nil, fmt.Errorf("cluster benchmark compliance request failed: %w", err)
 	}
 	if benchmarks.Benchmarks == nil {
@@ -487,7 +487,7 @@ func (c *Client) GetSecurityBenchmarkResources(options SecurityBenchmarkResource
 	requestURL := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/security/compliance/checks/%s/resources",
 		c.BaseURL, neturl.PathEscape(strings.TrimSpace(options.ClusterID)), neturl.PathEscape(strings.TrimSpace(options.CheckID)))
 	var resources SecurityBenchmarkResources
-	if err := c.getSecurityLiveJSON(clusterScopedURL(requestURL, query), &resources); err != nil {
+	if err := c.getSecurityLiveJSON(c.securityScopedURL(clusterScopedURL(requestURL, query)), &resources); err != nil {
 		return nil, fmt.Errorf("cluster benchmark resources request failed: %w", err)
 	}
 	if resources.Resources == nil {
@@ -553,7 +553,7 @@ type SecurityClusterPolicyViolations struct {
 // GetSecurityClusterPolicyViolations reads one cluster's policy posture.
 func (c *Client) GetSecurityClusterPolicyViolations(clusterID string) (*SecurityClusterPolicyViolations, error) {
 	var violations SecurityClusterPolicyViolations
-	if err := c.getSecurityLiveJSON(fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/security/policy-violations", c.BaseURL, neturl.PathEscape(strings.TrimSpace(clusterID))), &violations); err != nil {
+	if err := c.getSecurityLiveJSON(c.securityScopedURL(fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/security/policy-violations", c.BaseURL, neturl.PathEscape(strings.TrimSpace(clusterID)))), &violations); err != nil {
 		return nil, fmt.Errorf("cluster policy violations request failed: %w", err)
 	}
 	if violations.Policies == nil {
@@ -603,7 +603,7 @@ type SecurityClusterNetworkExposure struct {
 // over-privilege report.
 func (c *Client) GetSecurityClusterNetworkExposure(clusterID string) (*SecurityClusterNetworkExposure, error) {
 	var exposure SecurityClusterNetworkExposure
-	if err := c.getSecurityLiveJSON(fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/security/network-policy-overprivilege", c.BaseURL, neturl.PathEscape(strings.TrimSpace(clusterID))), &exposure); err != nil {
+	if err := c.getSecurityLiveJSON(c.securityScopedURL(fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/security/network-policy-overprivilege", c.BaseURL, neturl.PathEscape(strings.TrimSpace(clusterID)))), &exposure); err != nil {
 		return nil, fmt.Errorf("cluster network exposure request failed: %w", err)
 	}
 	if exposure.Findings == nil {
@@ -697,7 +697,7 @@ func (c *Client) GetSecurityAddonPosture(clusterID string, addonName string) (*S
 	var posture SecurityAddonPosture
 	requestURL := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/addons/%s/security",
 		c.BaseURL, neturl.PathEscape(strings.TrimSpace(clusterID)), neturl.PathEscape(strings.TrimSpace(addonName)))
-	if err := c.getJSON(requestURL, &posture); err != nil {
+	if err := c.getJSON(c.securityScopedURL(requestURL), &posture); err != nil {
 		return nil, fmt.Errorf("add-on security posture request failed: %w", err)
 	}
 	if posture.TopActionableFindings == nil {

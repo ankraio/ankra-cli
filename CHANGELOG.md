@@ -2,19 +2,22 @@
 
 ## Unreleased
 
-## v0.65.0 - 2026-11-04
+## v0.65.0 - 2026-11-05
 
 This release adds `ankra cluster stacks redeploy`, which re-runs a stack's members from
 the terminal, with `--force` to get past a manifest conflict. That used to be reachable
 only from the portal. The embedded agent skills now cover robots that reach several
 projects, and what changing a robot's projects does to its secret.
 
-Scripts have nothing to change: the command is new. Installing this release changes
-nothing on any cluster or workload.
+Scripts have one thing to notice. The platform now answers Security Center reads for
+the project you act in, so a script that read the whole organisation narrows to one
+project unless it passes the new `--all-projects`. Installing this release changes nothing
+on any cluster or workload.
 
 ### Added
 
 - **`ankra cluster stacks redeploy <stack> [--force]` re-runs a stack's members from the terminal.** It prints the operations it started and every member it skipped, with the reason, and `-o json` gives the same result as JSON. `--force` is for a manifest whose apply failed with an error reading `conflict with "<manager>"`: the manifests this redeploy re-runs apply with server-side apply force-conflicts for this redeploy only, overwriting the conflicting fields on the live objects with the stack's values. The output names the manifests it forced, and says so when it forced none, because a manifest the redeploy does not re-run is not touched. That cannot be undone, and nothing is stored on the stack, so `--force` states the consequence and asks first; `--yes` answers it, and without a terminal `--yes` is required (exit 2 otherwise, nothing sent). It needs `clusters.write` on the cluster on top of `stacks.deploy`, and a token scoped without `clusters.write` is refused. Until now this was possible only from the portal's operation page. A platform that predates the route says so and exits 1 instead of reporting the stack missing.
+- **`ankra security` reads take `--all-projects`.** The platform now answers Security Center reads for the project you act in, so a script that read the whole organisation narrows to one project unless it asks otherwise. `--all-projects` reads every project, like `ankra cost --all-projects`, and `--cluster` then takes the name of a cluster in any project. A pinned token or a member limited to projects is refused. The compliance frameworks, report and export stay the organisation's and do not take the flag, nor do `history` and `report-schedule`.
 
 ## v0.64.0 - 2026-11-04
 

@@ -112,7 +112,7 @@ func securityClusterIDFromFlag(cmd *cobra.Command) (string, error) {
 	if strings.TrimSpace(clusterFlag) == "" {
 		return "", withExitCode(exitUsage, fmt.Errorf("--cluster is required"))
 	}
-	return resolveClusterID(clusterFlag)
+	return resolveSecurityClusterID(cmd, clusterFlag)
 }
 
 var securityStackStatusText = map[string]string{
@@ -363,6 +363,7 @@ func renderSecurityPod(cmd *cobra.Command, posture *client.SecurityPodPosture) {
 
 func init() {
 	securityCmd.AddCommand(securityStacksCmd, securityStackCmd, securityPodCmd)
+	registerSecurityProjectScopeFlag(securityStacksCmd, securityStackCmd, securityPodCmd)
 	registerStructuredOutputFlags(securityStacksCmd, securityStackCmd, securityPodCmd)
 	securityStacksCmd.Flags().String("cluster", "", "The cluster (name or id); required")
 	securityStackCmd.Flags().String("cluster", "", "The cluster (name or id); required")
