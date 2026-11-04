@@ -33,6 +33,28 @@ type applicationResourceMock struct {
 	deploymentsAppID string
 	workflowRunID    int64
 	deleteCalls      int
+
+	// clusters is the organisation's cluster listing, which a --cluster
+	// NAME is resolved against; an id short-circuits without reading it.
+	clusters          []client.ClusterListItem
+	clusterListCalls  int
+	platformClusterID string
+}
+
+func (mock *applicationResourceMock) ListClusters(page int, pageSize int) (*client.ClusterListResponse, error) {
+	mock.clusterListCalls++
+	return &client.ClusterListResponse{
+		Result:     mock.clusters,
+		Pagination: client.Pagination{TotalPages: 1, Page: page, PageSize: pageSize},
+	}, nil
+}
+
+func (mock *applicationResourceMock) GetApplicationExistingPlatform(requestContext context.Context, applicationID string, clusterID string) (json.RawMessage, error) {
+	mock.platformClusterID = clusterID
+	if mock.fail != nil {
+		return nil, mock.fail
+	}
+	return mock.payload, nil
 }
 
 func (mock *applicationResourceMock) GetApplicationDeployments(requestContext context.Context, applicationID string) (json.RawMessage, error) {
@@ -170,7 +192,7 @@ func TestApplicationDeployMapsRequest(t *testing.T) {
 	mockClient := &applicationResourceMock{payload: json.RawMessage(`{"status":"queued"}`)}
 	_, executeError := runApplicationCommand(t, mockClient,
 		"deploy", testApplicationID,
-		"--cluster", "cluster-1",
+		"--cluster", testClusterID,
 		"--namespace", "prod",
 		"--mode", "high_availability",
 		"--set", "replicas=3",
@@ -183,11 +205,84 @@ func TestApplicationDeployMapsRequest(t *testing.T) {
 		t.Fatalf("DeployApplication calls = %d, want 1", mockClient.deployCalls)
 	}
 	request := mockClient.deployRequest
-	if request.ClusterID != "cluster-1" || request.Namespace != "prod" || request.DeployMode != "high_availability" {
+	if request.ClusterID != testClusterID || request.Namespace != "prod" || request.DeployMode != "high_availability" {
 		t.Errorf("deploy request = %+v", request)
 	}
 	if request.Inputs["replicas"] != "3" || request.Inputs["image.tag"] != "v2" {
 		t.Errorf("deploy inputs = %+v", request.Inputs)
+	}
+}
+
+// TestApplicationDeployResolvesAClusterName pins --cluster to what every other
+// cluster-scoped command takes: the cluster's name, resolved to its id before
+// the deploy is asked for. Forwarded verbatim, a name reached the deploy
+// route's uuid column and came back as a bare 500 (ankra-8zh5fg: `--cluster
+// moyai-dev`, 2026-10-09).
+func TestApplicationDeployResolvesAClusterName(t *testing.T) {
+	mockClient := &applicationResourceMock{
+		payload:  json.RawMessage(`{"status":"queued"}`),
+		clusters: []client.ClusterListItem{{ID: testClusterID, Name: "moyai-dev"}},
+	}
+	_, executeError := runApplicationCommand(t, mockClient, "deploy", testApplicationID, "--cluster", "moyai-dev")
+	if executeError != nil {
+		t.Fatalf("deploy error = %v", executeError)
+	}
+	if mockClient.deployCalls != 1 || mockClient.deployRequest.ClusterID != testClusterID {
+		t.Fatalf("DeployApplication calls = %d with cluster %q, want 1 with %s",
+			mockClient.deployCalls, mockClient.deployRequest.ClusterID, testClusterID)
+	}
+}
+
+// TestApplicationDeployPassesAClusterIDWithoutAListing keeps a scripted caller
+// that already holds the id at one request: an id is not looked up.
+func TestApplicationDeployPassesAClusterIDWithoutAListing(t *testing.T) {
+	mockClient := &applicationResourceMock{payload: json.RawMessage(`{"status":"queued"}`)}
+	if _, executeError := runApplicationCommand(t, mockClient, "deploy", testApplicationID,
+		"--cluster", testClusterID); executeError != nil {
+		t.Fatalf("deploy error = %v", executeError)
+	}
+	if mockClient.clusterListCalls != 0 {
+		t.Errorf("ListClusters calls = %d, want 0 for an id", mockClient.clusterListCalls)
+	}
+	if mockClient.deployRequest.ClusterID != testClusterID {
+		t.Errorf("deploy cluster = %q, want %s", mockClient.deployRequest.ClusterID, testClusterID)
+	}
+}
+
+// TestApplicationDeployRefusesAnUnknownClusterName answers a name no cluster
+// carries - "production" on 2026-11-04 was an environment, not a cluster -
+// with the not-found exit code and never asks for the deploy.
+func TestApplicationDeployRefusesAnUnknownClusterName(t *testing.T) {
+	mockClient := &applicationResourceMock{
+		clusters: []client.ClusterListItem{{ID: testClusterID, Name: "moyai-dev"}},
+	}
+	_, executeError := runApplicationCommand(t, mockClient, "deploy", testApplicationID, "--cluster", "production")
+	if exitCodeFor(executeError) != exitNotFound {
+		t.Fatalf("exit code = %d, want %d: %v", exitCodeFor(executeError), exitNotFound, executeError)
+	}
+	if !strings.Contains(executeError.Error(), `cluster "production" not found`) ||
+		!strings.Contains(executeError.Error(), "ankra cluster list") {
+		t.Errorf("error = %q, want it to name the cluster and say how to find one", executeError)
+	}
+	if mockClient.deployCalls != 0 {
+		t.Errorf("DeployApplication calls = %d, want 0", mockClient.deployCalls)
+	}
+}
+
+// TestApplicationPlatformResolvesAClusterName gives the platform detection the
+// same --cluster as deploy: a name is resolved, where it used to reach the
+// route as a non-uuid and come back as "could not check".
+func TestApplicationPlatformResolvesAClusterName(t *testing.T) {
+	mockClient := &applicationResourceMock{
+		payload:  json.RawMessage(`{"existing_platform":null,"error":null}`),
+		clusters: []client.ClusterListItem{{ID: testClusterID, Name: "moyai-dev"}},
+	}
+	if _, executeError := runApplicationCommand(t, mockClient, "platform", testApplicationID,
+		"--cluster", "moyai-dev"); executeError != nil {
+		t.Fatalf("platform error = %v", executeError)
+	}
+	if mockClient.platformClusterID != testClusterID {
+		t.Errorf("platform cluster = %q, want %s", mockClient.platformClusterID, testClusterID)
 	}
 }
 

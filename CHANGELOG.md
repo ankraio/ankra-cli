@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ankra application deploy --cluster` and `ankra application platform --cluster` take the cluster's name.** Like every other cluster-scoped command, the name `ankra cluster list` shows now resolves to the cluster's id before the request is sent. Before, the name went to the platform as written and the deploy failed with an internal server error; a name no cluster carries now exits 3 (not found) and nothing is deployed. An id is still sent as it is, with no extra request.
+
 ## v0.62.0 - 2026-11-04
 
 This release lets you read a stack's pending draft before you deploy it, which
