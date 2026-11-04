@@ -143,6 +143,14 @@ type RegistryRobotProjectGrant struct {
 	Permissions []string `json:"permissions,omitempty"`
 }
 
+// UpdateRegistryRobotProjectsRequest is every project a robot should reach from
+// now on. AllowNewSecret lets the platform replace the robot when the registry
+// cannot change it in place, which gives it a new secret and can change its login.
+type UpdateRegistryRobotProjectsRequest struct {
+	Projects       []RegistryRobotProjectGrant `json:"projects"`
+	AllowNewSecret bool                        `json:"allow_new_secret"`
+}
+
 // RegistryRobotProjectAccess is one project a robot reaches, as the platform
 // answers it.
 type RegistryRobotProjectAccess struct {
@@ -228,6 +236,33 @@ func (c *Client) RotateRegistryRobotSecret(ctx context.Context, robotName string
 		return nil, fmt.Errorf("parse response: %w", unmarshalError)
 	}
 	return &rotated, nil
+}
+
+// RegistryRobotProjectsUpdated is a robot after its projects changed. With
+// SecretChanged it was replaced and Secret is the only copy of its new secret;
+// without it, its login and secret still work and Secret is empty.
+type RegistryRobotProjectsUpdated struct {
+	RegistryRobotWithSecret
+	SecretChanged bool `json:"secret_changed" yaml:"secret_changed"`
+}
+
+// UpdateRegistryRobotProjects changes which projects a robot reaches.
+func (c *Client) UpdateRegistryRobotProjects(ctx context.Context, robotName string,
+	request UpdateRegistryRobotProjectsRequest) (*RegistryRobotProjectsUpdated, error) {
+	encoded, marshalError := json.Marshal(request)
+	if marshalError != nil {
+		return nil, fmt.Errorf("encode request: %w", marshalError)
+	}
+	body, requestError := c.doRegistryRobotRequest(ctx, http.MethodPut,
+		registryRobotsAPIPath+"/"+url.PathEscape(robotName)+"/projects", encoded, http.StatusOK)
+	if requestError != nil {
+		return nil, requestError
+	}
+	var updated RegistryRobotProjectsUpdated
+	if unmarshalError := json.Unmarshal(body, &updated); unmarshalError != nil {
+		return nil, fmt.Errorf("parse response: %w", unmarshalError)
+	}
+	return &updated, nil
 }
 
 // DeleteRegistryRobot deletes the robot on the registry and the credential

@@ -403,6 +403,7 @@ type APIClient interface {
 	ListRegistryRobots(requestContext context.Context) (*client.RegistryRobotList, error)
 	GetRegistryRobot(requestContext context.Context, robotName string) (*client.RegistryRobot, error)
 	RotateRegistryRobotSecret(requestContext context.Context, robotName string) (*client.RegistryRobotWithSecret, error)
+	UpdateRegistryRobotProjects(requestContext context.Context, robotName string, updateRequest client.UpdateRegistryRobotProjectsRequest) (*client.RegistryRobotProjectsUpdated, error)
 	DeleteRegistryRobot(requestContext context.Context, robotName string) error
 	ListRegistryProjects(requestContext context.Context) (*client.RegistryProjectList, error)
 	ListIntegratedRegistryProjects(requestContext context.Context, registryName string,
