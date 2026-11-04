@@ -7,7 +7,8 @@
 This release lets you change which projects a registry robot reaches after it is
 made, with `ankra registry robots update`, and limit a private Ankra Cloud zone to
 the members who can reach one project, with `ankra org access-gateway set
---access-project`.
+--access-project`. `ankra exec`, `ankra cluster exec`, `terminal` and `debug` now act in
+the project you chose.
 
 Scripts have one thing to notice: `ankra org access-gateway get` prints one more
 line, `Project:`. Its `-o json` only gains `project_id`, and leaves it out when a
@@ -18,6 +19,12 @@ workload.
 
 - **Change which projects a registry robot reaches after it is made.** `ankra registry robots update <name> --registry-project a,b` replaces the list: projects it keeps keep their access, and ones it gains get `--scope`, pull by default. Where the registry can change the robot in place its login and secret keep working. On Harbor a robot admin credential never can, so such a change needs `--new-secret`, which replaces the robot and shows the new secret once.
 - **Limit a private Ankra Cloud zone to one project's members.** `ankra org access-gateway set <zone> --mode organisation --access-project <slug, name or id>` admits only the members who can reach that project, and `get` shows it. Leaving the flag out keeps the zone's current limit, so re-running `set` to change roles cannot widen access; `--access-project ""` removes it. With `--mode public` a project is refused rather than ignored.
+
+### Fixed
+
+- **`ankra cluster exec`, `terminal` and `debug` act in the project you chose.** A pod terminal did not send the project, so with `--project`, `ANKRA_PROJECT` or a saved `ankra project switch`, a cluster outside the organisation's default project closed the connection without saying why. It works now, and a project you cannot reach is refused.
+- **`ankra exec` and the routing shims honour the project.** `--project`, `ANKRA_PROJECT` and the saved selection used to be ignored, so `ankra exec --check` looked for the repository in the default project only. It now looks in the project you chose, and answers no for a repository connected in another project, which makes a shim run the tool on this machine. The workspace itself still has no project on the platform.
+- **The project help says what happens with no selection.** It said the CLI follows the project the portal shows. It does not: without a selection a token acts in its pinned project or the organisation's default, and switching project in the portal never moves the CLI. `ankra project current` also warns when the saved selection names a project you can no longer reach, since other commands will be refused.
 
 ## v0.63.0 - 2026-11-04
 
@@ -52,9 +59,6 @@ Installing this release changes nothing on any cluster or workload.
 
 ### Fixed
 
-- **`ankra cluster exec`, `terminal` and `debug` act in the project you chose.** A pod terminal did not send the project, so with `--project`, `ANKRA_PROJECT` or a saved `ankra project switch`, a cluster outside the organisation's default project closed the connection without saying why. It works now, and a project you cannot reach is refused.
-- **`ankra exec` and the routing shims honour the project.** `--project`, `ANKRA_PROJECT` and the saved selection used to be ignored, so `ankra exec --check` looked for the repository in the default project only. It now looks in the project you chose, and answers no for a repository connected in another project, which makes a shim run the tool on this machine. The workspace itself still has no project on the platform.
-- **The project help says what happens with no selection.** It said the CLI follows the project the portal shows. It does not: without a selection a token acts in its pinned project or the organisation's default, and switching project in the portal never moves the CLI. `ankra project current` also warns when the saved selection names a project you can no longer reach, since other commands will be refused.
 - **`ankra pipeline logs` no longer exits 0 when the log stream breaks. This changes the exit status a script sees.** A stream that dropped under a running step used to print `Log stream fault: ...` and `Log stream ended.` and exit 0, so automation reading the exit status stopped collecting the log of a build that was still running. Without `--follow` the command now exits 1, says the output is incomplete, and gives the `--follow --replay` command that reads all of it again. A stream that closes under a running step with no fault at all exits the same way. With `--follow` it reconnects after the last line it printed, waiting 2 seconds and doubling to 30 after each failed connection, and exits 1 with the same message once 10 connections in a row fail; a connection that carried a line or stayed up for 30 seconds starts that count again. A stream that breaks as the step concludes is finished from the platform's retained log stream, so no section is lost, and exits 0 only if that replay finishes. A replay that breaks off, which used to exit 0, now exits 1. Reading a step that finished normally still exits 0, and nothing here touches the step itself: a broken log stream is not a failed build. Stderr now says `Log stream interrupted (...)` where it said `Log stream fault: ...`, so a script matching that text has to change too.
 - **`ankra pipeline logs` reads a step whose log failed to archive.** A step log whose upload failed used to stop the command with the archive's error, even while the platform's retained log stream still held the output. The command now says why the archive was not read and replays that stream, as it already did for a log still being archived. A step with no retained stream still reports the archive's error.
 - **`ankra cluster draft` stages a file whole or not at all, and `--replace` discards a stack's existing draft.** The stacks used to be sent one at a time, so a refusal part way through left the earlier stacks staged, and running the command again then failed on those. Now every refusal in the file is reported at once and nothing is staged until the file is clean. A stack that already has a draft is still refused; `--replace` discards that draft, including edits made to it, and stages the file's version. It asks first, needs `--yes` without a terminal, and refuses a draft a data run is still waiting on. This needs a platform that has the whole-file route. On one that does not, the command says so and stages nothing.
