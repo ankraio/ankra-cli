@@ -1264,6 +1264,10 @@ func (m baseMock) RenameStack(ctx context.Context, clusterID, stackName, newName
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) RedeployStack(ctx context.Context, clusterID, stackName string, force bool) (*client.RedeployStackResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetStackHistory(clusterID, stackName string) (*client.GetStackHistoryResponse, error) {
 	return nil, errors.New("not implemented")
 }
