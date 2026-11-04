@@ -388,6 +388,69 @@ func TestCreateNotificationRoute_SendsOnlySetMembers(t *testing.T) {
 	}
 }
 
+func TestCreateNotificationRoute_ProjectIDIsTriState(t *testing.T) {
+	routeBody := map[string]interface{}{
+		"id": "route-9", "organisation_id": "org-1", "destination_id": "dest-1", "project_id": "project-core",
+		"priority": 100, "mode": "include", "enabled": true,
+	}
+	cases := []struct {
+		name          string
+		request       CreateNotificationRouteRequest
+		wantPresent   bool
+		wantProjectID interface{}
+	}{
+		{"absent keeps the caller's current project", CreateNotificationRouteRequest{DestinationID: "dest-1"}, false, nil},
+		{"null is organisation-wide", CreateNotificationRouteRequest{DestinationID: "dest-1", ProjectIDSet: true}, true, nil},
+		{"an id names the project", CreateNotificationRouteRequest{DestinationID: "dest-1", ProjectID: strPtr("project-core"), ProjectIDSet: true}, true, "project-core"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			recorder, handler := recordAlertsRequest(t, http.StatusOK, routeBody)
+			testClient := newTestClient(t, handler)
+			route, createError := testClient.CreateNotificationRoute(testCase.request)
+			if createError != nil {
+				t.Fatalf("CreateNotificationRoute: %v", createError)
+			}
+			body := recorder.decodedBody(t)
+			value, present := body["project_id"]
+			if present != testCase.wantPresent || value != testCase.wantProjectID {
+				t.Errorf("project_id present=%t value=%v, want present=%t value=%v (body %v)",
+					present, value, testCase.wantPresent, testCase.wantProjectID, body)
+			}
+			if body["destination_id"] != "dest-1" {
+				t.Errorf("the other members must survive the custom marshal, body = %v", body)
+			}
+			if _, priorityPresent := body["priority"]; priorityPresent {
+				t.Errorf("omitempty members must stay omitted, body = %v", body)
+			}
+			if route.ProjectID == nil || *route.ProjectID != "project-core" {
+				t.Errorf("route project_id = %v, want project-core", route.ProjectID)
+			}
+		})
+	}
+}
+
+func TestPreviewNotificationRoutes_SendsAndReadsProjectID(t *testing.T) {
+	recorder, handler := recordAlertsRequest(t, http.StatusOK, map[string]interface{}{
+		"kind": "pipeline_run_failed", "severity": "warning", "project_id": "project-core", "routable": true,
+	})
+	testClient := newTestClient(t, handler)
+
+	preview, previewError := testClient.PreviewNotificationRoutes(PreviewNotificationRoutesRequest{
+		Kind: "pipeline_run_failed", Severity: "warning", ProjectID: strPtr("project-core"),
+	})
+	if previewError != nil {
+		t.Fatalf("PreviewNotificationRoutes: %v", previewError)
+	}
+	recorder.assert(t, http.MethodPost, "/api/v1/org/notifications/routes/preview")
+	if body := recorder.decodedBody(t); body["project_id"] != "project-core" {
+		t.Errorf("body = %v", body)
+	}
+	if preview.ProjectID == nil || *preview.ProjectID != "project-core" {
+		t.Errorf("preview project_id = %v", preview.ProjectID)
+	}
+}
+
 func TestCreateNotificationRoute_UnknownDestinationIs404WithDetail(t *testing.T) {
 	_, handler := recordAlertsRequest(t, http.StatusNotFound,
 		map[string]string{"detail": "Destination dest-x not found in this organisation."})

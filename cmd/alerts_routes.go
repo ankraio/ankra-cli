@@ -46,14 +46,16 @@ var alertsRoutesListCmd = &cobra.Command{
 			_, _ = fmt.Fprintln(out, "No notification routes found.")
 			return nil
 		}
+		projectNames := routeProjectNames()
 		writer := table.NewWriter()
 		writer.SetOutputMirror(out)
 		writer.SetStyle(table.StyleRounded)
-		writer.AppendHeader(table.Row{"ID", "Priority", "Kind", "Severity", "Cluster", "Destination", "Mode", "Enabled"})
+		writer.AppendHeader(table.Row{"ID", "Priority", "Project", "Kind", "Severity", "Cluster", "Destination", "Mode", "Enabled"})
 		for _, route := range list.Items {
 			writer.AppendRow(table.Row{
 				route.ID,
 				route.Priority,
+				renderRouteProject(route.ProjectID, projectNames),
 				renderRouteKindFilter(route),
 				valueOrAny(route.Severity),
 				valueOrAny(route.ClusterID),
@@ -87,11 +89,28 @@ notification kinds; severities are critical, warning, and info.
 runs, image gates, previews); --reference-pattern to the branches, tags or
 pull requests a glob matches. "main" matches pushes to main and never a pull
 request targeting main; "pull/*" matches every pull request; "release/*" one
-path segment and "release/**" any depth; "refs/tags/v*" tags.`,
+path segment and "release/**" any depth; "refs/tags/v*" tags.
+
+A route belongs to a project and delivers only that project's notifications
+(those about its tickets, applications, pipeline runs, clusters and the
+rest). With neither --project nor --organisation-wide the route is created in
+your current project ('ankra project current'; a project-pinned token always
+uses its pin). The global --project <id|slug|name> creates it in that
+project. --organisation-wide creates a route that delivers every project's
+notifications and the organisation's own (billing and the like); it needs
+alerts.manage at organisation scope. Move an existing route with
+'ankra project move --kind notification_route --id <route-id> --to <project>'.
+
+  ankra alerts routes create --destination-id <core-slack-id> --project core
+  ankra alerts routes create --destination-id <ops-slack-id> --organisation-wide --severity critical`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if validationError := validateRouteFilterFlags(cmd); validationError != nil {
 			return validationError
+		}
+		projectID, projectIDSet, projectError := routeProjectScopeFlags(cmd)
+		if projectError != nil {
+			return projectError
 		}
 		kinds, kindsNegated := routeKindFilterFlags(cmd)
 		request := client.CreateNotificationRouteRequest{
@@ -107,6 +126,8 @@ path segment and "release/**" any depth; "refs/tags/v*" tags.`,
 			StopOnMatch:      changedBoolFlag(cmd, "stop-on-match"),
 			Mode:             changedStringFlag(cmd, "mode"),
 			Enabled:          enabledFromFlags(cmd),
+			ProjectID:        projectID,
+			ProjectIDSet:     projectIDSet,
 		}
 		applicationID, applicationError := routeApplicationFlag(cmd)
 		if applicationError != nil {
@@ -232,7 +253,11 @@ without the alert id the preview cannot tell you which rule that affects.
   ankra alerts routes preview --kind alert_trigger_fired --severity critical --alert-id <alert-id>
   ankra alerts routes preview --kind gitops_sync_failed --severity warning --cluster-id <cluster-id> -o json
   ankra alerts routes preview --kind pipeline_run_failed --severity warning --application cadence --reference refs/heads/main
-  ankra alerts routes preview --kind pipeline_run_failed --severity warning --application cadence --reference pull/55`,
+  ankra alerts routes preview --kind pipeline_run_failed --severity warning --application cadence --reference pull/55
+  ankra alerts routes preview --kind pipeline_run_failed --severity warning --project core
+
+--project resolves the notification as one of that project's: only routes of
+that project and organisation-wide routes take part in the walk.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if validationError := validatePreviewFlags(cmd); validationError != nil {
@@ -242,6 +267,10 @@ without the alert id the preview cannot tell you which rule that affects.
 		if applicationError != nil {
 			return applicationError
 		}
+		var previewProjectID *string
+		if projectID, isProjectFlagSet := globalProjectFlagID(cmd); isProjectFlagSet {
+			previewProjectID = &projectID
+		}
 		preview, previewError := apiClient.PreviewNotificationRoutes(client.PreviewNotificationRoutesRequest{
 			Kind:          mustFlagString(cmd, "kind"),
 			Severity:      mustFlagString(cmd, "severity"),
@@ -250,6 +279,7 @@ without the alert id the preview cannot tell you which rule that affects.
 			AlertID:       changedStringFlag(cmd, "alert-id"),
 			ApplicationID: applicationID,
 			Reference:     changedStringFlag(cmd, "reference"),
+			ProjectID:     previewProjectID,
 		})
 		if previewError != nil {
 			return fmt.Errorf("previewing notification routes: %w", previewError)
@@ -277,6 +307,10 @@ func validatePreviewFlags(cmd *cobra.Command) error {
 }
 
 func printNotificationRoutePreview(out io.Writer, preview *client.NotificationRoutePreview) {
+	if preview.ProjectID != nil && *preview.ProjectID != "" {
+		_, _ = fmt.Fprintf(out, "Evaluated as a notification of project %s.\n\n",
+			renderRouteProject(preview.ProjectID, routeProjectNames()))
+	}
 	if !preview.Routable {
 		_, _ = fmt.Fprintf(out, "%s\n\n", preview.RoutableReason)
 	}
@@ -449,8 +483,74 @@ func valueOrAny(value *string) string {
 	return *value
 }
 
+// routeProjectScopeFlags resolves --project / --organisation-wide into the
+// tri-state project_id of a create body: not set (the caller's current
+// project), set to nil (organisation-wide), or set to a project id.
+// --project is the global flag: the root resolves its id, slug or name once
+// and scopes the invocation to it, and this sends that id explicitly too so
+// the route's project never depends on how the backend reads the scope.
+func routeProjectScopeFlags(cmd *cobra.Command) (*string, bool, error) {
+	projectID, isProjectFlagSet := globalProjectFlagID(cmd)
+	organisationWide, _ := cmd.Flags().GetBool("organisation-wide")
+	if organisationWide && isProjectFlagSet {
+		return nil, false, withExitCode(exitUsage,
+			errors.New("--project and --organisation-wide are mutually exclusive: a route belongs to one project or to the whole organisation"))
+	}
+	if organisationWide {
+		return nil, true, nil
+	}
+	if isProjectFlagSet {
+		return &projectID, true, nil
+	}
+	return nil, false, nil
+}
+
+// globalProjectFlagID returns the project id the global --project flag
+// resolved to, and whether the flag was passed on this command line.
+// ANKRA_PROJECT scopes the invocation as well but is not read here as an
+// explicit choice of the route's project.
+func globalProjectFlagID(cmd *cobra.Command) (string, bool) {
+	projectFlag := cmd.Root().PersistentFlags().Lookup("project")
+	if projectFlag == nil || !projectFlag.Changed {
+		return "", false
+	}
+	projectID := strings.TrimSpace(apiClient.ProjectOverride())
+	if projectID == "" {
+		return "", false
+	}
+	return projectID, true
+}
+
+// routeProjectNames maps project ids to names for the human views. It is a
+// best effort: a token that may not list projects (a project-pinned one, for
+// instance) gets an empty map and the views show the id instead.
+func routeProjectNames() map[string]string {
+	names := map[string]string{}
+	projects, listError := apiClient.ListProjects()
+	if listError != nil {
+		return names
+	}
+	for _, project := range projects {
+		names[strings.ToLower(project.ID)] = project.Name
+	}
+	return names
+}
+
+// renderRouteProject renders a route's project scope: the project's name
+// when known (with the id), the id otherwise, or "organisation-wide".
+func renderRouteProject(projectID *string, projectNames map[string]string) string {
+	if projectID == nil || *projectID == "" {
+		return "organisation-wide"
+	}
+	if name := projectNames[strings.ToLower(*projectID)]; name != "" {
+		return name + " (" + *projectID + ")"
+	}
+	return *projectID
+}
+
 func printNotificationRoute(out io.Writer, route *client.NotificationRoute) {
 	_, _ = fmt.Fprintf(out, "ID:            %s\n", route.ID)
+	_, _ = fmt.Fprintf(out, "Project:       %s\n", renderRouteProject(route.ProjectID, routeProjectNames()))
 	_, _ = fmt.Fprintf(out, "Destination:   %s\n", route.DestinationID)
 	_, _ = fmt.Fprintf(out, "Priority:      %d\n", route.Priority)
 	_, _ = fmt.Fprintf(out, "Kind:          %s\n", renderRouteKindFilter(*route))
@@ -486,6 +586,7 @@ func init() {
 	alertsRoutesCreateCmd.Flags().String("destination-id", "", "Destination to deliver to (see 'ankra alerts destinations list')")
 	registerRouteFilterFlags(alertsRoutesCreateCmd)
 	alertsRoutesCreateCmd.Flags().Bool("disabled", false, "Create the route disabled")
+	alertsRoutesCreateCmd.Flags().Bool("organisation-wide", false, "Create an organisation-wide route that delivers every project's notifications (not with --project)")
 	_ = alertsRoutesCreateCmd.MarkFlagRequired("destination-id")
 
 	alertsRoutesUpdateCmd.Flags().String("destination-id", "", "Re-point the route at another destination")
