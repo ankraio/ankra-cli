@@ -490,6 +490,153 @@ func TestClusterGatewayAPIEnableWaitStopsWhenThePlatformNeedsAPerson(t *testing.
 	}
 }
 
+// The verdict does not depend on --wait: when the write's own answer is a
+// phase the platform holds for a person, `enable --yes` exits 1 with the same
+// message the --wait path gives, so a script is not told "turned on" because
+// it did not ask to follow.
+func TestClusterGatewayAPIEnableWithoutWaitExitsOneWhenThePlatformNeedsAPerson(t *testing.T) {
+	for _, phase := range []string{
+		client.GatewayAPIPhaseConflict, client.GatewayAPIPhaseCRDsFailed,
+		client.GatewayAPIPhaseApplyFailed, client.GatewayAPIPhaseNoPlatformNetworking,
+	} {
+		t.Run(phase, func(t *testing.T) {
+			held := gatewayAPIRecorded(phase, "the platform's note for "+phase)
+			if phase == client.GatewayAPIPhaseConflict {
+				held.Traefik.Values = client.GatewayAPIValuesConflict
+				held.Traefik.Conflicts = []client.GatewayAPIFinding{{Addon: "traefik", Key: "providers.kubernetesGateway.enabled",
+					Outcome: "conflict", Detail: "the values set it to false"}}
+			}
+			recorder := newGatewayAPIServer(t, "hetzner", gatewayAPIOff())
+			recorder.scriptPuts(gatewayAPIEnableAnswer(held, true, false))
+
+			stdout, stderr, runError := runGatewayAPI(t, "", "enable", "--yes")
+			if code := exitCodeFor(runError); code != exitError {
+				t.Fatalf("exit code = %d, want %d (the platform needs a person): %v", code, exitError, runError)
+			}
+			want := "needs attention (" + phase + "): the platform's note for " + phase
+			if !strings.Contains(runError.Error(), want) {
+				t.Fatalf("error = %q, want it to carry %q", runError.Error(), want)
+			}
+			if !strings.Contains(stderr, want) {
+				t.Fatalf("the verdict must reach stderr, got:\n%s", stderr)
+			}
+			if !strings.Contains(stdout, "Recorded:       yes (this call turned the option on)") {
+				t.Fatalf("the write's answer must still be printed, got:\n%s", stdout)
+			}
+			if strings.Contains(stdout, "Follow it to enabled") {
+				t.Fatalf("a phase that needs a person must not be given the --wait hint, got:\n%s", stdout)
+			}
+			if got := recorder.methods(); strings.Join(got, " ") != "GET PUT" {
+				t.Fatalf("request sequence = %v, want the plan and the record only", got)
+			}
+		})
+	}
+}
+
+// gatewayAPIPushFailed is a values write the platform took but could not
+// push: the values are in the database and the apply is moving, the GitOps
+// repository does not carry them.
+func gatewayAPIPushFailed() client.GatewayAPIEnableResult {
+	applying := gatewayAPIRecorded(client.GatewayAPIPhaseApplying, "Traefik is applying the values.")
+	applying.Traefik.Values, applying.CertManager.Values = client.GatewayAPIValuesAlreadyOn, client.GatewayAPIValuesAlreadyOn
+	answer := gatewayAPIEnableAnswer(applying, false, true)
+	commit, operation := "0123abcd", "op-1"
+	pushFailure := "git push to origin was refused: the deploy key is read-only; the commit is kept and pushed on the next sync"
+	answer.CommitSHA, answer.OperationID, answer.GitPushFailure = &commit, &operation, &pushFailure
+	return answer
+}
+
+// A values write whose GitOps push failed exits 1 without --wait: the answer
+// is still printed (and -o json is still the one document), the failure text
+// reaches stderr, and the --wait hint is withheld because the next step is a
+// person's.
+func TestClusterGatewayAPIEnableWithoutWaitExitsOneWhenTheGitOpsPushFailed(t *testing.T) {
+	recorder := newGatewayAPIServer(t, "hetzner", gatewayAPIRecorded(client.GatewayAPIPhaseValuesPending, "values next"))
+	recorder.scriptPuts(gatewayAPIPushFailed())
+
+	stdout, stderr, runError := runGatewayAPI(t, "", "enable", "--yes")
+	if code := exitCodeFor(runError); code != exitError {
+		t.Fatalf("exit code = %d, want %d (the GitOps push failed): %v", code, exitError, runError)
+	}
+	assertContainsAll(t, stderr, []string{
+		"the Gateway API values for cluster 'test-cluster' reached the platform, but the GitOps push failed:",
+		"git push to origin was refused: the deploy key is read-only",
+	})
+	assertContainsAll(t, stdout, []string{
+		"Values written: yes (this call wrote the Traefik and cert-manager values)",
+		"GitOps commit:  0123abcd",
+		"GitOps push:    git push to origin was refused",
+		"State:        values written, Traefik or cert-manager is applying them",
+	})
+	if strings.Contains(stdout, "Follow it to enabled") {
+		t.Fatalf("a failed push must not be given the --wait hint, got:\n%s", stdout)
+	}
+
+	recorder = newGatewayAPIServer(t, "hetzner", gatewayAPIRecorded(client.GatewayAPIPhaseValuesPending, "values next"))
+	recorder.scriptPuts(gatewayAPIPushFailed())
+	stdout, _, runError = runGatewayAPI(t, "", "enable", "--yes", "-o", "json")
+	if code := exitCodeFor(runError); code != exitError {
+		t.Fatalf("-o json exit code = %d, want %d (the verdict travels on the exit code): %v", code, exitError, runError)
+	}
+	var decoded map[string]any
+	if decodeError := json.Unmarshal([]byte(stdout), &decoded); decodeError != nil {
+		t.Fatalf("structured output is not one JSON document: %v\n%s", decodeError, stdout)
+	}
+	if decoded["values_written"] != true || decoded["git_push_failure"] == nil {
+		t.Fatalf("decoded %v, want the write's own answer with its push failure", decoded)
+	}
+	if got := recorder.methods(); strings.Join(got, " ") != "GET PUT" {
+		t.Fatalf("request sequence = %v, want the plan and the write only", got)
+	}
+}
+
+// With --wait the push failure is a verdict too, whether it comes back on the
+// first enable or on the one the wait repeats when the values are next: the
+// follow stops there instead of reporting "enabled" for values the repository
+// does not carry.
+func TestClusterGatewayAPIEnableWaitExitsOneWhenTheGitOpsPushFailed(t *testing.T) {
+	t.Run("on the first enable", func(t *testing.T) {
+		recorder := newGatewayAPIServer(t, "hetzner",
+			gatewayAPIRecorded(client.GatewayAPIPhaseValuesPending, "values next"),
+			gatewayAPIRecorded(client.GatewayAPIPhaseEnabled, "on"))
+		recorder.scriptPuts(gatewayAPIPushFailed())
+
+		stdout, stderr, runError := runGatewayAPI(t, "", "enable", "--yes", "--wait", "--timeout", "10s")
+		if code := exitCodeFor(runError); code != exitError {
+			t.Fatalf("exit code = %d, want %d (the GitOps push failed): %v", code, exitError, runError)
+		}
+		if !strings.Contains(stderr, "git push to origin was refused: the deploy key is read-only") {
+			t.Fatalf("the failure text must reach stderr, got:\n%s", stderr)
+		}
+		if !strings.Contains(stdout, "State:        values written, Traefik or cert-manager is applying them") {
+			t.Fatalf("the standing the wait stopped on must be printed, got:\n%s", stdout)
+		}
+		if got := recorder.methods(); strings.Join(got, " ") != "GET PUT" {
+			t.Fatalf("request sequence = %v, want the plan and the write, no poll after a failed push", got)
+		}
+	})
+	t.Run("on the repeated enable", func(t *testing.T) {
+		recorder := newGatewayAPIServer(t, "hetzner",
+			gatewayAPIOff(),
+			gatewayAPIRecorded(client.GatewayAPIPhaseValuesPending, "values next"),
+			gatewayAPIRecorded(client.GatewayAPIPhaseEnabled, "on"))
+		recorder.scriptPuts(
+			gatewayAPIEnableAnswer(gatewayAPIRecorded(client.GatewayAPIPhaseCRDsPending, "waiting"), true, false),
+			gatewayAPIPushFailed())
+
+		_, stderr, runError := runGatewayAPI(t, "", "enable", "--yes", "--wait", "--timeout", "10s")
+		if code := exitCodeFor(runError); code != exitError {
+			t.Fatalf("exit code = %d, want %d (the GitOps push failed): %v", code, exitError, runError)
+		}
+		if !strings.Contains(stderr, "reached the platform, but the GitOps push failed: git push to origin was refused") {
+			t.Fatalf("the failure text must reach stderr, got:\n%s", stderr)
+		}
+		if got := recorder.methods(); strings.Join(got, " ") != "GET PUT GET PUT" {
+			t.Fatalf("request sequence = %v, want plan, record, the poll that finds the values next, the repeated enable, and nothing after the failed push", got)
+		}
+	})
+}
+
 func TestClusterGatewayAPIEnableWaitExpiresWithExitFive(t *testing.T) {
 	recorder := newGatewayAPIServer(t, "hetzner", gatewayAPIOff(), gatewayAPIRecorded(client.GatewayAPIPhaseCRDsPending, "waiting"))
 	recorder.scriptPuts(gatewayAPIEnableAnswer(gatewayAPIRecorded(client.GatewayAPIPhaseCRDsPending, "waiting"), true, false))

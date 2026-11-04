@@ -138,10 +138,12 @@ The enable is idempotent and resumable. Without --wait it records the option
 and returns at once, saying what is next; run it again later to write the
 values once the CRDs are established, or check with 'status'. With --wait it
 follows the phase, repeats the enable when the values are next, and returns
-once the Gateway API is enabled (exit 0), when the platform needs a person
-(exit 1: a conflict, a failed CRD install or apply, or no Ankra-installed
-networking), or when --timeout runs out (exit 5; the enable keeps going, run
-it again to keep following).`,
+once the Gateway API is enabled (exit 0) or when --timeout runs out (exit 5;
+the enable keeps going, run it again to keep following). With or without
+--wait, the command exits 1 when the platform needs a person: a conflict in
+the values, a failed CRD install or apply, no Ankra-installed networking, or
+a values write whose GitOps push failed (the values reached the platform, the
+repository does not carry them yet). The reason goes to stderr.`,
 		Example: `  ankra cluster gateway-api enable
   ankra cluster gateway-api enable --cluster prod --yes
   ankra cluster gateway-api enable --cluster prod --yes --wait --timeout 30m`,
@@ -271,15 +273,25 @@ func runClusterGatewayAPIEnable(command *cobra.Command) error {
 	}
 
 	if !wait {
+		// The verdict does not depend on --wait: the write's own answer can
+		// already say a person must act, and a script reading exit 0 as
+		// "turned on" would be wrong. The answer stays the one document on
+		// stdout; the verdict travels on the exit code and stderr.
+		verdict := gatewayAPIEnableVerdict(target, result)
 		if format != outputDefault {
-			return encodeStructured(command.OutOrStdout(), format, result)
+			if encodeError := encodeStructured(command.OutOrStdout(), format, result); encodeError != nil {
+				return encodeError
+			}
+			return verdict
 		}
 		out := command.OutOrStdout()
 		_, _ = fmt.Fprintf(out, "Gateway API enable for cluster '%s' (%s):\n\n", target.cluster.Name, target.provider)
 		printGatewayAPIEnableResult(out, result)
 		printGatewayAPIStatus(out, &result.GatewayAPIStatus)
-		printGatewayAPINextStep(out, &result.GatewayAPIStatus)
-		return nil
+		if verdict == nil {
+			printGatewayAPINextStep(out, &result.GatewayAPIStatus)
+		}
+		return verdict
 	}
 
 	final, waitError := followGatewayAPIEnable(command, target, result, timeout)
@@ -314,6 +326,12 @@ func followGatewayAPIEnable(command *cobra.Command, target gatewayAPITarget,
 	defer cancel()
 	errOut := command.ErrOrStderr()
 	status := &first.GatewayAPIStatus
+	// A values write whose GitOps push failed is a verdict on its own,
+	// whatever phase the platform reads next: following it to enabled would
+	// report a repository that does not carry what the cluster runs.
+	if pushError := gatewayAPIPushVerdict(target, first); pushError != nil {
+		return status, pushError
+	}
 	lastReported := ""
 	enabledThisPoll := false
 	for {
@@ -328,9 +346,7 @@ func followGatewayAPIEnable(command *cobra.Command, target gatewayAPITarget,
 		case client.GatewayAPIPhaseConflict, client.GatewayAPIPhaseCRDsFailed,
 			client.GatewayAPIPhaseApplyFailed, client.GatewayAPIPhaseNoPlatformNetworking:
 			_, _ = fmt.Fprintln(errOut)
-			return status, withExitCode(exitError, fmt.Errorf(
-				"the Gateway API enable for cluster '%s' needs attention (%s): %s",
-				target.cluster.Name, status.Phase, status.Note))
+			return status, gatewayAPIPhaseVerdict(target, status)
 		case client.GatewayAPIPhaseValuesPending:
 			if !enabledThisPoll {
 				enabledThisPoll = true
@@ -344,6 +360,10 @@ func followGatewayAPIEnable(command *cobra.Command, target gatewayAPITarget,
 					return status, gatewayAPIRouteError(enableError, target, true)
 				}
 				status = &result.GatewayAPIStatus
+				if pushError := gatewayAPIPushVerdict(target, result); pushError != nil {
+					_, _ = fmt.Fprintln(errOut)
+					return status, pushError
+				}
 				continue
 			}
 		}
@@ -367,6 +387,45 @@ func followGatewayAPIEnable(command *cobra.Command, target gatewayAPITarget,
 		}
 		status = next
 	}
+}
+
+// gatewayAPIEnableVerdict is the verdict of one enable call, the same with
+// and without --wait: nil when the enable is done or moving on its own, exit
+// 1 when a person must act. That is a values write whose GitOps push failed,
+// and the phases the platform holds for a person (a conflict in the values, a
+// failed CRD install or apply, no Ankra-installed networking). The error
+// carries the platform's own wording, so it reaches stderr with the verdict.
+func gatewayAPIEnableVerdict(target gatewayAPITarget, result *client.GatewayAPIEnableResult) error {
+	if pushError := gatewayAPIPushVerdict(target, result); pushError != nil {
+		return pushError
+	}
+	return gatewayAPIPhaseVerdict(target, &result.GatewayAPIStatus)
+}
+
+// gatewayAPIPushVerdict is exit 1 when the values reached the platform but
+// the GitOps push failed or was deferred: the cluster is moving on them while
+// the repository does not carry them, which a caller reading exit 0 as
+// "committed" would never learn. The failure text is the stack write's own.
+func gatewayAPIPushVerdict(target gatewayAPITarget, result *client.GatewayAPIEnableResult) error {
+	if result == nil || result.GitPushFailure == nil || *result.GitPushFailure == "" {
+		return nil
+	}
+	return withExitCode(exitError, fmt.Errorf(
+		"the Gateway API values for cluster '%s' reached the platform, but the GitOps push failed: %s",
+		target.cluster.Name, *result.GitPushFailure))
+}
+
+// gatewayAPIPhaseVerdict is exit 1 for the phases the platform holds for a
+// person; every other phase is either done or moving on its own.
+func gatewayAPIPhaseVerdict(target gatewayAPITarget, status *client.GatewayAPIStatus) error {
+	switch status.Phase {
+	case client.GatewayAPIPhaseConflict, client.GatewayAPIPhaseCRDsFailed,
+		client.GatewayAPIPhaseApplyFailed, client.GatewayAPIPhaseNoPlatformNetworking:
+		return withExitCode(exitError, fmt.Errorf(
+			"the Gateway API enable for cluster '%s' needs attention (%s): %s",
+			target.cluster.Name, status.Phase, status.Note))
+	}
+	return nil
 }
 
 // gatewayAPIWaitExpired is the exit-5 verdict: the enable is still moving on
