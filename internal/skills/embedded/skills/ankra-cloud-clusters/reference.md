@@ -83,8 +83,8 @@ Two traps that cost a rebuild:
 
 Same concepts, different names. `--name`, `--credential-id`, `--ssh-key-credential-id`,
 `--distribution`, `--kubernetes-version`, `--control-plane-count`, `--worker-count`,
-`--etcd-topology`, `--etcd-node-count`, `--include-networking` and `--include-dns` are common to
-every provider. `--gitops-repository`, `--gitops-credential-name` and `--gitops-branch` exist on
+`--etcd-topology`, `--etcd-node-count`, `--include-networking`, `--include-dns` and `--gateway-api`
+are common to every provider. `--gitops-repository`, `--gitops-credential-name` and `--gitops-branch` exist on
 Hetzner, DigitalOcean, OVH, UpCloud, AWS and Ankra Cloud (not Scaleway, Proxmox or Morpheus);
 `--external-cloud-provider` only on Hetzner, DigitalOcean, OVH and UpCloud.
 
