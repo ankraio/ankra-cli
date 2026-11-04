@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **One registry robot can reach several projects.** `ankra registry robots create --registry-project` now takes a repeated or comma-separated list of up to 20 projects, so a consumer that installs a chart from one project and pulls its images from another needs one robot and one pull secret. On a Harbor your organisation runs, the `--admin-credential` must be allowed to make system-level robots: a system administrator, or a system-level robot with robot create, read, list and delete at system level that itself holds the access on every project.
+
 ### Fixed
 
 - **`ankra application deploy --cluster` and `ankra application platform --cluster` take the cluster's name.** Like every other cluster-scoped command, the name `ankra cluster list` shows now resolves to the cluster's id before the request is sent. Before, the name went to the platform as written and the deploy failed with an internal server error; a name no cluster carries now exits 3 (not found) and nothing is deployed. An id is still sent as it is, with no extra request.
