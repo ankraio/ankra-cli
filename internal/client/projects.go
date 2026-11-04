@@ -195,7 +195,8 @@ func (c *Client) ListProjects() ([]ProjectSummary, error) {
 }
 
 // GetCurrentProject returns the project this request acts in: the token's
-// pin, the X-Ankra-Project-Id override, or the member's current project.
+// pin, the X-Ankra-Project-Id override, or the organisation's default project
+// (for a project-only member, the first project they reach).
 // GET /api/v1/org/projects/current
 func (c *Client) GetCurrentProject() (*ProjectSummary, error) {
 	var project ProjectSummary
@@ -251,7 +252,8 @@ func (c *Client) DeleteProject(projectID string) (*DeleteProjectResponse, error)
 }
 
 // SwitchProject moves the caller's server-side current project, the pointer
-// the portal and the CLI share. A token pinned to a project cannot switch.
+// the portal follows; a token never does, so the CLI saves its own selection
+// beside this. A token pinned to a project cannot switch.
 // POST /api/v1/org/projects/switch
 func (c *Client) SwitchProject(projectID string) (*SwitchProjectResponse, error) {
 	var response SwitchProjectResponse

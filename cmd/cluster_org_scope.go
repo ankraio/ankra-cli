@@ -73,7 +73,7 @@ func lookUpClusterInScope(clusterID string) clusterLookup {
 // findClusterInOrganisationProjects asks every other project of the
 // organisation in scope for a cluster ID the project in scope does not have.
 // The platform reads a cluster inside one project (the X-Ankra-Project-Id
-// override, else the member's current project), so a cluster in a sibling
+// override, else the token's pin or default), so a cluster in a sibling
 // project answers 404 exactly like a cluster of another organisation. The
 // project that has it stays set as this invocation's override, so the token
 // mint that follows runs in the same project; on a miss the previous project

@@ -36,8 +36,8 @@ type Client struct {
 	orgOverride string
 
 	// projectOverride, when non-empty, is sent as the projectOverrideHeader
-	// on every request so commands act in a project other than the member's
-	// current one.
+	// on every request so commands act in a project other than the one the
+	// platform resolves for the token: its pin, else the default project.
 	projectOverride string
 
 	// costProjectScope, when non-empty, is sent as ?project_id= on the fleet
