@@ -2,13 +2,30 @@
 
 ## Unreleased
 
-- `ankra cluster stacks show-draft <stack>` prints a stack's pending draft in
-  full: every member, what it waits for, and its content decoded, so a clone's
-  draft can be reviewed before `deploy-draft`. `-o json` carries the same.
-- `ankra runs get` and `ankra cluster stacks clone --wait` say what a blocked
-  run is waiting for, and `ankra cluster backups status` says why the backup
-  components are not running when the platform knows. `ankra cluster stacks
-  protect` understands a data plane whose install keeps failing.
+## v0.62.0 - 2026-11-04
+
+This release lets you read a stack's pending draft before you deploy it, which
+matters most for a clone: `ankra cluster stacks show-draft` prints every member
+of the draft with its content decoded. A run that is blocked now says what it is
+waiting for, and `ankra cluster backups status` says why the backup components
+are not running when the platform knows.
+
+Scripts have little to notice. For a blocked run, `ankra runs get` prints one
+more line and `ankra cluster stacks clone --wait` makes its status line longer.
+`ankra cluster backups status` prints one more line when there is a reason to
+give. `-o json` only gains `blocked_detail` and `backup_stack_issue`, and leaves
+both out when they are empty. Installing this release changes nothing on any
+cluster or workload.
+
+### Added
+
+- **`ankra cluster stacks show-draft <stack>` prints a stack's pending draft in full.** Every member, what it waits for, and its content decoded, so a clone's draft can be reviewed before `deploy-draft`. `-o json` carries the same. A draft left a day without an edit is removed, so read it within that day.
+
+### Changed
+
+- **A blocked run says what it is waiting for.** `ankra runs get` shows a `Waiting for:` line, and `ankra cluster stacks clone --wait` adds the same sentence to its status line. A run waiting on a deploy names the `show-draft` and `deploy-draft` commands that move it.
+- **`ankra cluster backups status` says why the backup components are not running**, on a `Why:` line, when the platform knows.
+- **`ankra cluster stacks protect` understands a data plane whose install is blocked.** It says the data plane is not installing and that a capture started now waits until that is fixed.
 
 ## v0.61.0 - 2026-11-04
 
