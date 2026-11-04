@@ -33,6 +33,7 @@ import (
 	"fmt"
 	"net/http"
 	neturl "net/url"
+	"slices"
 	"strings"
 )
 
@@ -189,8 +190,12 @@ func (entry stackDraftMemberEntry) reviewMember(kind string) (StackDraftMember, 
 		if entry.Configuration.ValuesBase64 != nil {
 			encodedContent = entry.Configuration.ValuesBase64
 		}
-		if entry.Configuration.EncryptedPaths != nil {
-			member.EncryptedPaths = entry.Configuration.EncryptedPaths
+		// Both lists name content that is stored encrypted, so a review
+		// shows their union rather than letting one hide the other.
+		for _, path := range entry.Configuration.EncryptedPaths {
+			if !slices.Contains(member.EncryptedPaths, path) {
+				member.EncryptedPaths = append(member.EncryptedPaths, path)
+			}
 		}
 	}
 	if encodedContent == nil {

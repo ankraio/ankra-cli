@@ -555,6 +555,21 @@ func TestDraftReviewKeepsTheManifestWhenTheConfigurationCarriesNoValues(t *testi
 	}
 }
 
+// Entry-level and configuration-level encrypted paths both name encrypted
+// content, so neither may hide the other.
+func TestDraftReviewUnionsEncryptedPaths(t *testing.T) {
+	document := reviewDocument(t, `{"name":"shop","addons":[{"name":"db","encrypted_paths":["a.key","shared"],
+		"configuration":{"values_base64":"eDogMQo=","encrypted_paths":["shared","b.key"]}}]}`)
+
+	review, reviewError := document.DraftReview()
+	if reviewError != nil {
+		t.Fatal(reviewError)
+	}
+	if got := strings.Join(review.Members[0].EncryptedPaths, ","); got != "a.key,shared,b.key" {
+		t.Fatalf("expected the union in order, got %q", got)
+	}
+}
+
 // The listing elides bodies, so a member the read did not carry must not read as
 // one with nothing in it.
 func TestDraftReviewTellsAnUnreadBodyFromAnEmptyOne(t *testing.T) {
