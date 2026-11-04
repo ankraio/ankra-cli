@@ -7,14 +7,18 @@
 This release makes `ankra cluster draft` safe to run again on the same file: a
 file is staged whole or not at all, and `--replace` swaps a stack's existing
 draft for the file's version. It needs a platform with the whole-file route,
-which platform.ankra.app has had since 2026-11-04. One registry robot can now
-reach several projects. `ankra application deploy` and `ankra application
+which platform.ankra.app has had since 2026-11-04. `ankra pipeline logs` no
+longer exits 0 when the log stream breaks. One registry robot can now reach
+several projects. `ankra application deploy` and `ankra application
 platform` take a cluster's name, `ankra skills install` no longer leaves
 root-owned skills behind when run under sudo, `ankra cost events` stops printing
 a move it cannot attribute as an event's own, and `ankra cost` says how many of
 a day's hours were measured and how many estimated.
 
-Scripts have more to notice than usual. A failed `ankra cluster draft` exits 3
+Scripts have more to notice than usual. `ankra pipeline logs` exits 1 when the
+stream breaks or closes under a running step, or when a replay breaks off, where
+it used to exit 0, and with `--follow` it exits 1 after 10 failed connections in
+a row. A failed `ankra cluster draft` exits 3
 when the cluster is missing and 7 when your role may not write, where it used
 to exit 1, and a 404 now fails where it used to print "no changes" and succeed.
 `ankra application deploy --cluster` with a name no cluster carries exits 3. A
@@ -31,6 +35,8 @@ Installing this release changes nothing on any cluster or workload.
 
 ### Fixed
 
+- **`ankra pipeline logs` no longer exits 0 when the log stream breaks. This changes the exit status a script sees.** A stream that dropped under a running step used to print `Log stream fault: ...` and `Log stream ended.` and exit 0, so automation reading the exit status stopped collecting the log of a build that was still running. Without `--follow` the command now exits 1, says the output is incomplete, and gives the `--follow --replay` command that reads all of it again. A stream that closes under a running step with no fault at all exits the same way. With `--follow` it reconnects after the last line it printed, waiting 2 seconds and doubling to 30 after each failed connection, and exits 1 with the same message once 10 connections in a row fail; a connection that carried a line or stayed up for 30 seconds starts that count again. A stream that breaks as the step concludes is finished from the platform's retained log stream, so no section is lost, and exits 0 only if that replay finishes. A replay that breaks off, which used to exit 0, now exits 1. Reading a step that finished normally still exits 0, and nothing here touches the step itself: a broken log stream is not a failed build. Stderr now says `Log stream interrupted (...)` where it said `Log stream fault: ...`, so a script matching that text has to change too.
+- **`ankra pipeline logs` reads a step whose log failed to archive.** A step log whose upload failed used to stop the command with the archive's error, even while the platform's retained log stream still held the output. The command now says why the archive was not read and replays that stream, as it already did for a log still being archived. A step with no retained stream still reports the archive's error.
 - **`ankra cluster draft` stages a file whole or not at all, and `--replace` discards a stack's existing draft.** The stacks used to be sent one at a time, so a refusal part way through left the earlier stacks staged, and running the command again then failed on those. Now every refusal in the file is reported at once and nothing is staged until the file is clean. A stack that already has a draft is still refused; `--replace` discards that draft, including edits made to it, and stages the file's version. It asks first, needs `--yes` without a terminal, and refuses a draft a data run is still waiting on. This needs a platform that has the whole-file route. On one that does not, the command says so and stages nothing.
 - **A failed `ankra cluster draft` keeps its exit code, and a 404 is no longer read as "no changes".** A missing cluster now exits 3 and a role that may not write exits 7, where every failure used to exit 1. A 404 used to print "no changes" and succeed, with nothing staged. `-o json` keeps its one entry per stack, and adds `replaced_draft_id` when a replace discarded a draft.
 - **`ankra skills install` no longer gets stuck on root-owned skills.** Run under sudo, which is also how `sudo ankra upgrade` refreshes them, it wrote skills owned by root into your home directory, and every later install and refresh then failed with `permission denied`. A personal install under sudo now exits 2 and asks you to run it as yourself, and `sudo ankra upgrade` still replaces the binary but reports the refresh as not done. One assistant failing no longer stops the rest, the command exits non-zero after trying them all, and a permission failure prints the `sudo chown` that repairs it. Installs into a repository with `--dir` are unchanged.
