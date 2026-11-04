@@ -89,8 +89,20 @@ func writeSkillsOverview(writer io.Writer) error {
 	rows := make([][]skillsTableCell, 0)
 	needsInstall := false
 	for _, client := range skills.Clients() {
+		unreadable := func(reason error) {
+			rows = append(rows, []skillsTableCell{
+				paintedCell(client.DisplayName, style.bold),
+				paintedCell("? unreadable", style.yellow),
+				plainCell(reason.Error()),
+			})
+			needsInstall = true
+		}
+		if client.Layout(skills.ScopePersonal).Skills == "" {
+			continue
+		}
 		target, targetError := skills.ResolveTarget(client, skills.ScopePersonal, home)
 		if targetError != nil {
+			unreadable(targetError)
 			continue
 		}
 		installedCount, countError := countBundledSkillsIn(target, bundled)
@@ -99,11 +111,7 @@ func writeSkillsOverview(writer io.Writer) error {
 			carries, carriesError = targetCarriesAnkraInstall(target)
 		}
 		if carriesError != nil {
-			rows = append(rows, []skillsTableCell{
-				paintedCell(client.DisplayName, style.bold),
-				paintedCell("? unreadable", style.yellow),
-				plainCell(carriesError.Error()),
-			})
+			unreadable(carriesError)
 			continue
 		}
 		if !carries {
