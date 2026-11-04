@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ankra skills install` no longer gets stuck on root-owned skills.** Run under sudo, which is also how `sudo ankra upgrade` refreshes them, it wrote skills owned by root into your home directory, and every later install and refresh then failed with `permission denied`. A personal install under sudo now exits 2 and asks you to run it as yourself, and `sudo ankra upgrade` still replaces the binary but reports the refresh as not done. One assistant failing no longer stops the rest, the command exits non-zero after trying them all, and a permission failure prints the `sudo chown` that repairs it. Installs into a repository with `--dir` are unchanged.
+
 ## v0.61.0 - 2026-11-04
 
 This release adds `--gateway-api` to the nine self-managed cluster create
