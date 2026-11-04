@@ -31,6 +31,7 @@ type CreateMorpheusClusterRequest struct {
 	EtcdPlanID         *int64  `json:"etcd_plan_id,omitempty"`
 	CNI                string  `json:"cni,omitempty"`
 	IncludeNetworking  bool    `json:"include_networking"`
+	GatewayAPI         bool    `json:"gateway_api,omitempty"`
 	IncludeDNS         bool    `json:"include_dns"`
 	Environment        *string `json:"environment,omitempty"`
 	Criticality        *string `json:"criticality,omitempty"`

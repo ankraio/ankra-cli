@@ -39,6 +39,7 @@ type CreateUpcloudClusterRequest struct {
 	EtcdPlan              string   `json:"etcd_plan,omitempty"`
 	ExternalCloudProvider bool     `json:"external_cloud_provider"`
 	IncludeNetworking     bool     `json:"include_networking"`
+	GatewayAPI            bool     `json:"gateway_api,omitempty"`
 	IncludeDNS            bool     `json:"include_dns"`
 	GitopsCredentialName  *string  `json:"gitops_credential_name,omitempty"`
 	GitopsRepository      *string  `json:"gitops_repository,omitempty"`

@@ -43,6 +43,10 @@ var hetznerCreateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		gatewayAPI, err := resolveGatewayAPI(cmd, includeNetworking)
+		if err != nil {
+			return err
+		}
 		includeDNS, _ := cmd.Flags().GetBool("include-dns")
 		gitopsCredentialName, _ := cmd.Flags().GetString("gitops-credential-name")
 		gitopsRepository, _ := cmd.Flags().GetString("gitops-repository")
@@ -71,6 +75,7 @@ var hetznerCreateCmd = &cobra.Command{
 			EtcdServerType:         etcdServerType,
 			ExternalCloudProvider:  externalCloudProvider,
 			IncludeNetworking:      includeNetworking,
+			GatewayAPI:             gatewayAPI,
 			IncludeDNS:             includeDNS,
 		}
 		if kubeVersion != "" {
@@ -684,6 +689,7 @@ func init() {
 	hetznerCreateCmd.Flags().Bool("external-cloud-provider", true, "Install the Hetzner CCM and CSI (cloud-provider=external) for LoadBalancers and persistent volumes (default on; pass --external-cloud-provider=false to skip, which also disables --include-networking)")
 	hetznerCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager for ingress (default on; pass --include-networking=false to skip). Requires --external-cloud-provider (the ingress LoadBalancer is provisioned by the cloud controller manager)")
 	registerIncludeDNSFlag(hetznerCreateCmd)
+	registerGatewayAPIFlag(hetznerCreateCmd)
 	registerClusterClassificationFlags(hetznerCreateCmd)
 	hetznerCreateCmd.Flags().String("gitops-credential-name", "", "GitOps GitHub credential name; when set with --gitops-repository, the generated hcloud stack is committed to Git (optional)")
 	hetznerCreateCmd.Flags().String("gitops-repository", "", "GitOps repository (e.g. org/repo) to commit the generated stack to (optional)")

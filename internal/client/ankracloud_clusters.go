@@ -81,6 +81,7 @@ type CreateAnkraCloudClusterRequest struct {
 	GitopsRepository          *string               `json:"gitops_repository,omitempty"`
 	GitopsBranch              *string               `json:"gitops_branch,omitempty"`
 	IncludeNetworking         *bool                 `json:"include_networking,omitempty"`
+	GatewayAPI                bool                  `json:"gateway_api,omitempty"`
 	IncludeDNS                *bool                 `json:"include_dns,omitempty"`
 	RetentionPolicy           string                `json:"retention_policy,omitempty"`
 	BastionDiskGibibytes      int                   `json:"bastion_disk_gibibytes,omitempty"`
