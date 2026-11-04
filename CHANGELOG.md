@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## v0.63.0 - 2026-11-04
+
+This release makes `ankra cluster draft` safe to run again on the same file: a
+file is staged whole or not at all, and `--replace` swaps a stack's existing
+draft for the file's version. It needs a platform with the whole-file route,
+which platform.ankra.app has had since 2026-11-04. `ankra application deploy`
+and `ankra application platform` now take a cluster's name, `ankra skills
+install` no longer leaves root-owned skills behind when run under sudo, and
+`ankra cost events` stops printing a move it cannot attribute as an event's own.
+
+Scripts have more to notice than usual. A failed `ankra cluster draft` exits 3
+when the cluster is missing and 7 when your role may not write, where it used
+to exit 1, and a 404 now fails where it used to print "no changes" and succeed.
+`ankra application deploy --cluster` with a name no cluster carries exits 3. A
+personal `ankra skills install` under sudo exits 2. An `ankra cost events` row
+whose move is unknown reads differently. `-o json` only gains
+`replaced_draft_id`, and leaves it out when no draft was replaced. Installing
+this release changes nothing on any cluster or workload.
+
 ### Fixed
 
 - **`ankra cluster draft` stages a file whole or not at all, and `--replace` discards a stack's existing draft.** The stacks used to be sent one at a time, so a refusal part way through left the earlier stacks staged, and running the command again then failed on those. Now every refusal in the file is reported at once and nothing is staged until the file is clean. A stack that already has a draft is still refused; `--replace` discards that draft, including edits made to it, and stages the file's version. It asks first, needs `--yes` without a terminal, and refuses a draft a data run is still waiting on. This needs a platform that has the whole-file route. On one that does not, the command says so and stages nothing.
