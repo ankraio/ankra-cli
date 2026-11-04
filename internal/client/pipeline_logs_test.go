@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -110,6 +112,56 @@ func TestStreamPipelineStepLogsSurfacesTheRelaysErrorFrame(t *testing.T) {
 	}
 	if _, stillOpen := <-events; stillOpen {
 		t.Fatal("channel stayed open after the relay's error frame")
+	}
+}
+
+// TestStreamPipelineStepLogsSurfacesABrokenConnectionAsAFault forces the break
+// the reports were filed against, on a real server rather than a staged frame:
+// the handler aborts after writing a line, which over HTTP/2 resets the stream
+// with INTERNAL_ERROR ("stream error: stream ID N; INTERNAL_ERROR; received
+// from peer") and over HTTP/1.1 cuts the chunked body. cmd/pipeline_logs.go
+// decides the exit status from this event, so a break that closed the channel
+// without one would read as a stream that ended cleanly.
+func TestStreamPipelineStepLogsSurfacesABrokenConnectionAsAFault(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(w, "data: {\"stream\":\"stdout\",\"line\":\"compiling\",\"seq\":7}\n\n")
+		w.(http.Flusher).Flush()
+		panic(http.ErrAbortHandler)
+	})
+	for _, testCase := range []struct {
+		name        string
+		enableHTTP2 bool
+		wantFault   string
+	}{
+		{name: "an HTTP/2 stream reset", enableHTTP2: true, wantFault: "INTERNAL_ERROR"},
+		{name: "a cut HTTP/1.1 body", enableHTTP2: false, wantFault: "unexpected EOF"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			server := httptest.NewUnstartedServer(handler)
+			server.EnableHTTP2 = testCase.enableHTTP2
+			server.StartTLS()
+			t.Cleanup(server.Close)
+			testClient := &Client{Token: testToken, BaseURL: server.URL, HTTP: server.Client(), StreamingHTTP: server.Client()}
+
+			events, streamError := testClient.StreamPipelineStepLogs(context.Background(),
+				PipelineSelector{ApplicationID: "app-1"}, "run-1", "step-1", StepLogStreamOptions{})
+			if streamError != nil {
+				t.Fatalf("StreamPipelineStepLogs error = %v", streamError)
+			}
+			line, ok := <-events
+			if !ok || line.Type != "line" || line.Line != "compiling" || line.Seq != 7 {
+				t.Fatalf("first event = %+v, ok = %v, want the line written before the break", line, ok)
+			}
+			fault, ok := <-events
+			if !ok || fault.Type != "error" || !strings.Contains(fault.Error, testCase.wantFault) {
+				t.Fatalf("second event = %+v, ok = %v, want a fault naming %q", fault, ok, testCase.wantFault)
+			}
+			if _, stillOpen := <-events; stillOpen {
+				t.Fatal("channel stayed open after the fault")
+			}
+		})
 	}
 }
 
