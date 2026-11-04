@@ -86,11 +86,23 @@ type ObjectCostWaste struct {
 // stopped or unpriced hour, the cluster's creation day), so Cents is a floor
 // of the day, never its whole and never a drop in spend
 // (ankra-bn86k4.4.8). Absent from a platform that predates it.
+//
+// HoursMetered counts every hour with a figure, an hour a later metering
+// pass filled in included (cluster#5909). HoursMeasured is the hours a
+// metering pass measured, HoursEstimated the ones filled in (in Cents, never
+// measured) and HoursMissing the ended hours with no figure at all. Behind
+// several clusters each is one cluster's worst (the fewest measured, the
+// most estimated or missing), so they need not add up to 24 and none is
+// worked out from the others. All three are nil from a platform or a row
+// that predates them: not known, never "every hour was measured".
 type ObjectCostDay struct {
 	Date            string       `json:"date" yaml:"date"`
 	Cents           *int64       `json:"cents" yaml:"cents"`
 	Partial         OptionalBool `json:"partial,omitzero" yaml:"partial,omitempty"`
 	HoursMetered    *int         `json:"hours_metered,omitempty" yaml:"hours_metered,omitempty"`
+	HoursMeasured   *int         `json:"hours_measured,omitempty" yaml:"hours_measured,omitempty"`
+	HoursEstimated  *int         `json:"hours_estimated,omitempty" yaml:"hours_estimated,omitempty"`
+	HoursMissing    *int         `json:"hours_missing,omitempty" yaml:"hours_missing,omitempty"`
 	Incomplete      OptionalBool `json:"incomplete,omitzero" yaml:"incomplete,omitempty"`
 	ClustersMetered int          `json:"clusters_metered" yaml:"clusters_metered"`
 	ClustersTotal   int          `json:"clusters_total" yaml:"clusters_total"`

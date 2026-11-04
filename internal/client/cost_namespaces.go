@@ -25,11 +25,15 @@ type NamespaceCostHistory struct {
 
 // NamespaceCostBucket is one day or hour of the window. AttributedHours is
 // how many of its Hours the metering attributed to namespaces; with none,
-// every namespace's value for the bucket is unknown.
+// every namespace's value for the bucket is unknown. EstimatedHours
+// (cluster#5909) is how many of AttributedHours no metering pass ran for: a
+// later pass filled them in, so their allocation is an estimate, never a
+// measurement. Nil from a platform that predates it: not known.
 type NamespaceCostBucket struct {
 	Start           time.Time `json:"start"`
 	Hours           int       `json:"hours"`
 	AttributedHours int       `json:"attributed_hours"`
+	EstimatedHours  *int      `json:"estimated_hours,omitempty"`
 }
 
 // NamespaceCostSeries is one namespace's allocation per bucket, in minor

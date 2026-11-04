@@ -403,7 +403,21 @@ func costMonthHours(hours *client.MonthHours) (line string, short bool) {
 	} else {
 		line = fmt.Sprintf("Month so far covers all %s %s.", costCount(hours.HoursElapsed), unit)
 	}
-	if estimated > 0 {
+	switch {
+	case estimated > 0 && hours.HoursMeasured != nil:
+		// How the covered hours divide once the platform counts the measured
+		// ones (cluster#5909, ankra-bn86k4.4.8.4.2).
+		measured := min(max(*hours.HoursMeasured, 0), metered)
+		estimatedWord := "hours"
+		if estimated == 1 {
+			estimatedWord = "hour"
+		}
+		line += fmt.Sprintf(" Of the covered hours, %s measured and %s estimated: no metering ran for the estimated %s, so the next reading was copied.",
+			costCountOf(measured, "was", "were"), costCount(estimated), estimatedWord)
+	case estimated > 0:
+		// A platform that predates hours_measured: the measured hours are
+		// unknown, so only the estimated ones are named, never "the rest
+		// were measured".
 		estimates := "are estimates"
 		if estimated == 1 {
 			estimates = "is an estimate"
