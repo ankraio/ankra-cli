@@ -24,7 +24,6 @@ const (
 	ansiReset  = "\033[0m"
 	ansiBold   = "\033[1m"
 	ansiDim    = "\033[2m"
-	ansiRed    = "\033[31m"
 	ansiGreen  = "\033[32m"
 	ansiYellow = "\033[33m"
 	ansiCyan   = "\033[36m"
@@ -53,7 +52,6 @@ func (style skillsStyle) paint(code, text string) string {
 
 func (style skillsStyle) bold(text string) string   { return style.paint(ansiBold, text) }
 func (style skillsStyle) dim(text string) string    { return style.paint(ansiDim, text) }
-func (style skillsStyle) red(text string) string    { return style.paint(ansiRed, text) }
 func (style skillsStyle) green(text string) string  { return style.paint(ansiGreen, text) }
 func (style skillsStyle) yellow(text string) string { return style.paint(ansiYellow, text) }
 func (style skillsStyle) cyan(text string) string   { return style.paint(ansiCyan, text) }
