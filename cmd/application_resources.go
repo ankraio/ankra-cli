@@ -245,25 +245,26 @@ func newApplicationDeployCommand() *cobra.Command {
 		Short: "Deploy an application to a cluster",
 		Long: `Deploy a packaged application to a target cluster.
 
-The cluster is identified by ID. Use --set key=value (repeatable) to pass
-deploy inputs declared by the application's chart.
+--cluster takes the cluster's name, as ankra cluster list shows it, or its ID.
+Use --set key=value (repeatable) to pass deploy inputs declared by the
+application's chart.
 
 --environment names the environment the deployment belongs to.
 --follow-branches gives that environment a branch rule from the start, so
 pushes to matching branches deploy to it: for example main for production and
 develop for development. It needs --environment.`,
-		Example: `  ankra application deploy <app-id> --cluster <cluster-id>
-  ankra application deploy <app-id> --cluster <cluster-id> --namespace prod --set replicas=3
-  ankra application deploy <app-id> --cluster <cluster-id> --environment production --follow-branches main
-  ankra application deploy <app-id> --cluster <cluster-id> --environment development --follow-branches develop`,
+		Example: `  ankra application deploy <app-id> --cluster <cluster>
+  ankra application deploy <app-id> --cluster <cluster> --namespace prod --set replicas=3
+  ankra application deploy <app-id> --cluster <cluster> --environment production --follow-branches main
+  ankra application deploy <app-id> --cluster <cluster> --environment development --follow-branches develop`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
-			clusterID, _ := command.Flags().GetString("cluster")
-			clusterID = strings.TrimSpace(clusterID)
-			if clusterID == "" {
+			clusterReference, _ := command.Flags().GetString("cluster")
+			clusterReference = strings.TrimSpace(clusterReference)
+			if clusterReference == "" {
 				return withExitCode(exitUsage, errors.New("--cluster is required"))
 			}
 			namespace, _ := command.Flags().GetString("namespace")
@@ -291,6 +292,10 @@ develop for development. It needs --environment.`,
 			if resolveError != nil {
 				return resolveError
 			}
+			clusterID, clusterError := resolveClusterArg(clusterReference)
+			if clusterError != nil {
+				return clusterError
+			}
 			payload, deployError := apiClient.DeployApplication(command.Context(), applicationID,
 				client.DeployApplicationRequest{
 					ClusterID:       clusterID,
@@ -306,7 +311,7 @@ develop for development. It needs --environment.`,
 			return renderApplicationPayload(command, payload)
 		},
 	}
-	deployCommand.Flags().String("cluster", "", "Target cluster ID (required)")
+	deployCommand.Flags().String("cluster", "", "Target cluster name or ID (required)")
 	deployCommand.Flags().String("namespace", "", "Target namespace (defaults to the platform default)")
 	deployCommand.Flags().String("mode", "", "Deploy mode: quick or high_availability")
 	deployCommand.Flags().StringArray("set", nil, "Deploy input as key=value (repeatable)")
@@ -325,14 +330,18 @@ func newApplicationPlatformCommand() *cobra.Command {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
-			clusterID, _ := command.Flags().GetString("cluster")
-			clusterID = strings.TrimSpace(clusterID)
-			if clusterID == "" {
+			clusterReference, _ := command.Flags().GetString("cluster")
+			clusterReference = strings.TrimSpace(clusterReference)
+			if clusterReference == "" {
 				return withExitCode(exitUsage, errors.New("--cluster is required"))
 			}
 			applicationID, resolveError := resolveApplicationArgument(command, arguments)
 			if resolveError != nil {
 				return resolveError
+			}
+			clusterID, clusterError := resolveClusterArg(clusterReference)
+			if clusterError != nil {
+				return clusterError
 			}
 			payload, platformError := apiClient.GetApplicationExistingPlatform(command.Context(), applicationID, clusterID)
 			if platformError != nil {
@@ -341,7 +350,7 @@ func newApplicationPlatformCommand() *cobra.Command {
 			return renderApplicationPayload(command, payload)
 		},
 	}
-	platformCommand.Flags().String("cluster", "", "Target cluster ID (required)")
+	platformCommand.Flags().String("cluster", "", "Target cluster name or ID (required)")
 	registerStructuredOutputFlags(platformCommand)
 	return platformCommand
 }

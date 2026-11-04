@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- **`ankra application deploy --cluster` and `ankra application platform --cluster` take the cluster's name.** Like every other cluster-scoped command, the name `ankra cluster list` shows now resolves to the cluster's id before the request is sent. Before, the name went to the platform as written and the deploy failed with an internal server error; a name no cluster carries now exits 3 (not found) and nothing is deployed. An id is still sent as it is, with no extra request.
 - **`ankra cost events` no longer prints a window's move as a node-count change's own when the platform cannot say what the nodes moved.** A change in node count alone, in a window whose run rate went against that count, did not make the move by itself when the cluster's node types were not recorded for both hours: nodes of another type, or another spot and on-demand mix, may or may not have caused it. The platform marks such an event `node_types_unknown`, and the CLI printed the window's move as if it were the event's, for example `+$110.88 (node types unknown)`. The row now reads `unknown (node types not recorded; went the other way: +$110.88)`, with the platform's note under it, and `ankra cost events --help` explains it. A node-count change whose nodes were only added across a falling run rate, or only removed across a rising one, reads `unknown (went the other way: ...)` like a start or stop does. A platform that does not send the status yet is unaffected.
 
 ## v0.62.0 - 2026-11-04
