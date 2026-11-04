@@ -22,6 +22,10 @@ workload.
 - **Change which projects a registry robot reaches after it is made.** `ankra registry robots update <name> --registry-project a,b` replaces the list: projects it keeps keep their access, and ones it gains get `--scope`, pull by default. Where the registry can change the robot in place its login and secret keep working. On Harbor a robot admin credential never can, so such a change needs `--new-secret`, which replaces the robot and shows the new secret once.
 - **Limit a private Ankra Cloud zone to one project's members.** `ankra org access-gateway set <zone> --mode organisation --access-project <slug, name or id>` admits only the members who can reach that project, and `get` shows it. Leaving the flag out keeps the zone's current limit, so re-running `set` to change roles cannot widen access; `--access-project ""` removes it. With `--mode public` a project is refused rather than ignored.
 
+### Changed
+
+- **A read warns when the platform did not apply the project you selected.** Some commands, such as `security`, `alerts` and `services`, accept `--project` but can answer for the whole organisation. When the platform says it did not apply the project, the CLI now says so on stderr, so `-o json` output stays clean. Set `ANKRA_PROJECT_SCOPE_WARNING=off` to silence it. It needs a platform that sends the answer, and stays quiet otherwise.
+
 ### Fixed
 
 - **`ankra cluster exec`, `terminal` and `debug` act in the project you chose.** A pod terminal did not send the project, so with `--project`, `ANKRA_PROJECT` or a saved `ankra project switch`, a cluster outside the organisation's default project closed the connection without saying why. It works now, and a project you cannot reach is refused.
