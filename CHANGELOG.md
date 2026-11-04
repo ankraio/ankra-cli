@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- **`ankra skills install` no longer gets stuck on root-owned skills.** Run under sudo, which is also how `sudo ankra upgrade` refreshes them, it wrote skills owned by root into your home directory, and every later install and refresh then failed with `permission denied`. A personal install under sudo now exits 2 and asks you to run it as yourself, and `sudo ankra upgrade` still replaces the binary but reports the refresh as not done. One assistant failing no longer stops the rest, the command exits non-zero after trying them all, and a permission failure prints the `sudo chown` that repairs it. Installs into a repository with `--dir` are unchanged.
 - **`ankra application deploy --cluster` and `ankra application platform --cluster` take the cluster's name.** Like every other cluster-scoped command, the name `ankra cluster list` shows now resolves to the cluster's id before the request is sent. Before, the name went to the platform as written and the deploy failed with an internal server error; a name no cluster carries now exits 3 (not found) and nothing is deployed. An id is still sent as it is, with no extra request.
 
 ## v0.62.0 - 2026-11-04

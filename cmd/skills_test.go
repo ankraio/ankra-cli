@@ -4,6 +4,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -569,6 +571,92 @@ func TestSkillsInstallSharesOneLibraryAcrossClients(t *testing.T) {
 	}
 	if !dirExists(filepath.Join(project, ".ankra", "skills", "ankra-cli")) {
 		t.Error("the shared library was not populated")
+	}
+}
+
+// One client whose skills cannot be replaced must not stop the others, and the
+// error must carry the command that repairs it, since retrying cannot help.
+func TestSkillsInstallContinuesPastAClientItCannotWrite(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the directory mode this test relies on")
+	}
+	project := t.TempDir()
+	blockedDirectory := filepath.Join(project, ".claude", "skills")
+	if err := os.MkdirAll(blockedDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(blockedDirectory, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(blockedDirectory, 0o755) })
+
+	c := skillsTestCmdFor(t, newSkillsInstallTestCmd(), project, "claude-code,cursor")
+	var installError error
+	output := captureStdout(t, func() {
+		installError = skillsInstallCmd.RunE(c, nil)
+	})
+	if installError == nil {
+		t.Fatal("expected the blocked client to fail the install")
+	}
+	message := installError.Error()
+	for _, expected := range []string{"Claude Code", "permission denied", "sudo chown -R", blockedDirectory} {
+		if !strings.Contains(message, expected) {
+			t.Errorf("error is missing %q:\n%s", expected, message)
+		}
+	}
+	if !dirExists(filepath.Join(project, ".cursor", "skills", "ankra-cli")) {
+		t.Error("the client after the blocked one was not installed")
+	}
+	if strings.Contains(output, "skills ready") {
+		t.Errorf("a partial install must not report success:\n%s", output)
+	}
+}
+
+// A failure outside the skills directory, such as the rule file, must point the
+// repair at the path that failed, and other failures must not suggest a repair.
+func TestExplainInstallFailure(t *testing.T) {
+	target := skills.Target{
+		Client:          skills.Client{DisplayName: "Claude Code"},
+		SkillsDirectory: "/home/person/.claude/skills",
+	}
+	insideError := &fs.PathError{Op: "unlinkat", Path: "/home/person/.claude/skills/ankra-cli/SKILL.md", Err: fs.ErrPermission}
+	if message := explainInstallFailure(target, insideError).Error(); !strings.Contains(message, `"/home/person/.claude/skills"`) {
+		t.Errorf("expected the skills directory as the repair path:\n%s", message)
+	}
+	outsideError := &fs.PathError{Op: "open", Path: "/home/person/.claude/CLAUDE.md", Err: fs.ErrPermission}
+	if message := explainInstallFailure(target, outsideError).Error(); !strings.Contains(message, `"/home/person/.claude/CLAUDE.md"`) {
+		t.Errorf("expected the failing path as the repair path:\n%s", message)
+	}
+	otherError := explainInstallFailure(target, errors.New("disk full"))
+	if message := otherError.Error(); strings.Contains(message, "sudo") || !strings.Contains(message, "Claude Code: disk full") {
+		t.Errorf("a non-permission failure must not suggest a repair:\n%s", message)
+	}
+}
+
+func TestRefusePersonalInstallUnderSudo(t *testing.T) {
+	personal := []skills.Target{{Scope: skills.ScopePersonal}}
+	project := []skills.Target{{Scope: skills.ScopeProject}}
+	cases := []struct {
+		name            string
+		targets         []skills.Target
+		effectiveUserID int
+		sudoUser        string
+		shouldRefuse    bool
+	}{
+		{"personal install under sudo", personal, 0, "person", true},
+		{"personal install as the person", personal, 501, "", false},
+		{"root's own login", personal, 0, "", false},
+		{"sudo from root", personal, 0, "root", false},
+		{"sudo user dropped to a normal user", personal, 501, "person", false},
+		{"repository install under sudo", project, 0, "person", false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			refusal := refusePersonalInstallUnderSudo(testCase.targets, testCase.effectiveUserID, testCase.sudoUser)
+			if (refusal != nil) != testCase.shouldRefuse {
+				t.Errorf("refusal = %v, should refuse = %v", refusal, testCase.shouldRefuse)
+			}
+		})
 	}
 }
 

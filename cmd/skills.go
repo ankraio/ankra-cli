@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -306,6 +307,9 @@ mutations and asks for confirmation.`,
 		if err != nil {
 			return err
 		}
+		if refusal := refusePersonalInstallUnderSudo(targets, os.Geteuid(), os.Getenv("SUDO_USER")); refusal != nil {
+			return refusal
+		}
 		options := skillsInstallOptions{}
 		options.force, _ = cmd.Flags().GetBool("force")
 		noRules, _ := cmd.Flags().GetBool("no-rules")
@@ -319,13 +323,17 @@ mutations and asks for confirmation.`,
 		// report every skill as "already present, use --force", which is both
 		// noise and wrong advice.
 		writtenDirectories := make(map[string]string)
+		var failures []error
 		for index, target := range targets {
 			if index > 0 {
 				fmt.Println()
 			}
-			if err := installForTarget(fsys, target, args, options, writtenDirectories); err != nil {
-				return err
+			if installError := installForTarget(fsys, target, args, options, writtenDirectories); installError != nil {
+				failures = append(failures, explainInstallFailure(target, installError))
 			}
+		}
+		if len(failures) > 0 {
+			return errors.Join(failures...)
 		}
 		style := newSkillsStyle(os.Stdout)
 		fmt.Printf("\n%s Ankra skills ready in %s.\n", style.green("✓"), pluralize(len(targets), "assistant", "assistants"))
@@ -413,6 +421,39 @@ read-only commands and anything unparseable pass through unchanged.`,
 type skillsInstallOptions struct {
 	force bool
 	skills.InstallOptions
+}
+
+// refusePersonalInstallUnderSudo stops a personal install run through sudo.
+// It would leave root-owned skills in the person's home directory, and their
+// own later installs and `ankra upgrade` refreshes could then not replace them.
+func refusePersonalInstallUnderSudo(targets []skills.Target, effectiveUserID int, sudoUser string) error {
+	if effectiveUserID != 0 || sudoUser == "" || sudoUser == "root" {
+		return nil
+	}
+	for _, target := range targets {
+		if target.Scope == skills.ScopePersonal {
+			return withExitCode(exitUsage, fmt.Errorf(
+				"not installing skills under sudo: they would be owned by root and block later installs for %s. Run it as yourself: ankra skills install --force",
+				sudoUser))
+		}
+	}
+	return nil
+}
+
+// explainInstallFailure names the client that failed and, when the cause is
+// file permissions, gives the command that repairs them. Retrying the same
+// install cannot succeed until that has been run.
+func explainInstallFailure(target skills.Target, installError error) error {
+	if !errors.Is(installError, fs.ErrPermission) {
+		return fmt.Errorf("%s: %w", target.Client.DisplayName, installError)
+	}
+	repairPath := target.SkillsDirectory
+	var pathError *fs.PathError
+	if errors.As(installError, &pathError) && !strings.HasPrefix(pathError.Path, target.SkillsDirectory+string(os.PathSeparator)) {
+		repairPath = pathError.Path
+	}
+	return fmt.Errorf("%s: %w\nAn earlier run under sudo can leave these files owned by root. Repair them, then run the install again without sudo:\n  sudo chown -R \"$(id -un)\" %q",
+		target.Client.DisplayName, installError, repairPath)
 }
 
 // installForTarget installs the selected skills and the client's supporting
