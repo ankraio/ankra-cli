@@ -364,21 +364,24 @@ func (m *securityScopeMock) ListClusters(int, int) (*client.ClusterListResponse,
 }
 
 func TestSecurityFindingsAllProjectsSetsTheScopeBeforeTheRead(t *testing.T) {
-	mock := &securityScopeMock{securityMock: securityMock{findings: &client.SecurityFindingList{}}}
-	if _, executeError := runSecurityCommand(t, mock, "security", "findings", "--all-projects", "-o", "json"); executeError != nil {
-		t.Fatalf("security findings --all-projects: %v", executeError)
-	}
-	if len(mock.scopes) != 1 || mock.scopes[0] != client.CostProjectScopeAll {
-		t.Fatalf("--all-projects sets the scope to all once, got %q", mock.scopes)
-	}
-
-	mock = &securityScopeMock{securityMock: securityMock{findings: &client.SecurityFindingList{}}}
-	if _, executeError := runSecurityCommand(t, mock, "security", "findings", "-o", "json"); executeError != nil {
-		t.Fatal(executeError)
-	}
-	if len(mock.scopes) != 1 || mock.scopes[0] != "" {
-		t.Fatalf("without --all-projects the read stays in the current project, got %q", mock.scopes)
-	}
+	t.Run("with the flag", func(t *testing.T) {
+		mock := &securityScopeMock{securityMock: securityMock{findings: &client.SecurityFindingList{}}}
+		if _, executeError := runSecurityCommand(t, mock, "security", "findings", "--all-projects", "-o", "json"); executeError != nil {
+			t.Fatalf("security findings --all-projects: %v", executeError)
+		}
+		if len(mock.scopes) != 1 || mock.scopes[0] != client.CostProjectScopeAll {
+			t.Fatalf("--all-projects sets the scope to all once, got %q", mock.scopes)
+		}
+	})
+	t.Run("without the flag", func(t *testing.T) {
+		mock := &securityScopeMock{securityMock: securityMock{findings: &client.SecurityFindingList{}}}
+		if _, executeError := runSecurityCommand(t, mock, "security", "findings", "-o", "json"); executeError != nil {
+			t.Fatal(executeError)
+		}
+		if len(mock.scopes) != 1 || mock.scopes[0] != "" {
+			t.Fatalf("without --all-projects the read stays in the current project, got %q", mock.scopes)
+		}
+	})
 }
 
 func TestSecurityAllProjectsResolvesAClusterNameAcrossProjects(t *testing.T) {
