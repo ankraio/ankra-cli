@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- **`ankra cluster draft` stages a file whole or not at all, and `--replace` discards a stack's existing draft.** The stacks used to be sent one at a time, so a refusal part way through left the earlier stacks staged, and running the command again then failed on those. Now every refusal in the file is reported at once and nothing is staged until the file is clean. A stack that already has a draft is still refused; `--replace` discards that draft, including edits made to it, and stages the file's version. It asks first, needs `--yes` without a terminal, and refuses a draft a data run is still waiting on. This needs a platform that has the whole-file route. On one that does not, the command says so and stages nothing.
+- **A failed `ankra cluster draft` keeps its exit code, and a 404 is no longer read as "no changes".** A missing cluster now exits 3 and a role that may not write exits 7, where every failure used to exit 1. A 404 used to print "no changes" and succeed, with nothing staged. `-o json` keeps its one entry per stack, and adds `replaced_draft_id` when a replace discarded a draft.
 - **`ankra application deploy --cluster` and `ankra application platform --cluster` take the cluster's name.** Like every other cluster-scoped command, the name `ankra cluster list` shows now resolves to the cluster's id before the request is sent. Before, the name went to the platform as written and the deploy failed with an internal server error; a name no cluster carries now exits 3 (not found) and nothing is deployed. An id is still sent as it is, with no extra request.
 
 ## v0.62.0 - 2026-11-04
