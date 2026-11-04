@@ -37,6 +37,26 @@ func TestRegistryRobotsUpdateKeepsWhatItHoldsAndGivesNewProjectsTheScope(t *test
 	}
 }
 
+func TestRegistryRobotsUpdateKeepsAccessWhateverCaseThePlatformAnswers(t *testing.T) {
+	grants := registryRobotUpdatedGrants(&client.RegistryRobot{Registry: "harbor", ProjectAccess: []client.RegistryRobotProjectAccess{
+		{Project: "First", Scope: client.RegistryRobotScopePush},
+	}}, []string{"first"}, client.RegistryRobotScopePull)
+	if len(grants) != 1 || grants[0].Scope != client.RegistryRobotScopePush {
+		t.Fatalf("grants = %+v", grants)
+	}
+}
+
+// Without the access it holds, every project would read as new and be reset.
+func TestRegistryRobotsUpdateRefusesARobotWhoseAccessItCannotRead(t *testing.T) {
+	robot := updatableRobot()
+	robot.ProjectAccess = nil
+	mock := &registryRobotsMock{current: robot}
+	_, runError := runRegistryCommand(t, mock, "", "robots", "update", "consumer", "--registry-project", "first")
+	if runError == nil || !strings.Contains(runError.Error(), "cannot be kept") || mock.updateRequest != nil {
+		t.Fatalf("error=%v request=%+v", runError, mock.updateRequest)
+	}
+}
+
 func TestRegistryRobotsUpdateSaysHowToAcceptANewSecret(t *testing.T) {
 	mock := &registryRobotsMock{current: updatableRobot(), updateFail: errors.New("This change needs a new secret: confirm it")}
 	_, runError := runRegistryCommand(t, mock, "", "robots", "update", "consumer", "--registry-project", "first")

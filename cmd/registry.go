@@ -1006,6 +1006,12 @@ A Google Artifact Registry robot cannot be changed this way yet.`,
 			if currentError != nil {
 				return currentError
 			}
+			if len(current.ProjectAccess) == 0 {
+				// Empty means unknown, not nothing: going ahead would read every project as
+				// new and quietly reset what the robot holds to --scope.
+				return fmt.Errorf("the platform did not say what robot %q holds on each project, so its access cannot be kept; "+
+					"upgrade the platform, or make a new robot", robotName)
+			}
 			allowNewSecret, _ := command.Flags().GetBool("new-secret")
 			if allowNewSecret {
 				yes, _ := command.Flags().GetBool("yes")
@@ -1063,7 +1069,7 @@ func registryRobotUpdatedGrants(current *client.RegistryRobot, projectNames []st
 			if current.Registry != "" {
 				name = held.Project
 			}
-			if name != projectName {
+			if strings.ToLower(name) != projectName {
 				continue
 			}
 			grant.Scope = held.Scope
