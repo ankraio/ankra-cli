@@ -22,10 +22,6 @@ import (
 // invocation; the platform ignores the header while the organisation has
 // projects off, so a saved selection never breaks an organisation that
 // turned them off again.
-//
-// Not every route scopes by project yet. The platform says what it applied
-// (X-Ankra-Applied-Project), and the client warns on stderr when a read says it
-// did not (internal/client/project_scope_warning.go).
 
 // projectPinnedExplicitly is true when this invocation's project came from
 // --project or ANKRA_PROJECT. An explicit pin is a statement about which
@@ -52,7 +48,9 @@ const (
 // organisationLevelCommands are the top-level commands that belong to the
 // organisation or to this machine by design (ADR 0022: people, money, tokens,
 // AI providers, support), so a project selection saying nothing about them is
-// not worth a warning.
+// not worth a warning. Every other command gets one on stderr when a read says
+// the project was not applied, because not every route scopes by project yet
+// (X-Ankra-Applied-Project, internal/client/project_scope_warning.go).
 var organisationLevelCommands = map[string]bool{
 	"ai":         true,
 	"completion": true,

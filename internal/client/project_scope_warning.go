@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -22,22 +23,22 @@ const appliedProjectNone = "none"
 // ANKRA_TELEMETRY=off silences attribution.
 const envProjectScopeWarning = "ANKRA_PROJECT_SCOPE_WARNING"
 
-// organisationLevelPathPrefixes are the routes that belong to the organisation
-// by design (ADR 0022: people, money, the Harbor project, AI providers, support
-// tickets), which a project-scoped command can still read in passing, such as
-// resolving the current organisation. A route answering for the organisation
-// here is not news.
-var organisationLevelPathPrefixes = []string{
-	"/api/v1/org/account",
-	"/api/v1/org/ai-settings",
-	"/api/v1/org/billing",
-	"/api/v1/org/organisation",
-	"/api/v1/org/projects",
-	"/api/v1/org/registry-projects",
-	"/api/v1/org/registry-robots",
-	"/api/v1/org/registry-storage",
-	"/api/v1/org/secret-slots",
-	"/api/v1/org/support",
+// organisationLevelAreas are the /api/v1/org/<area> route families that belong
+// to the organisation by design (ADR 0022: people, money, the Harbor project, AI
+// providers, support tickets), which a project-scoped command can still read in
+// passing, such as resolving the current organisation. A route answering for
+// the organisation here is not news.
+var organisationLevelAreas = []string{
+	"account",
+	"ai-settings",
+	"billing",
+	"organisation",
+	"projects",
+	"registry-projects",
+	"registry-robots",
+	"registry-storage",
+	"secret-slots",
+	"support",
 }
 
 // projectScopeWarning prints, at most once per invocation, a one-line stderr
@@ -55,10 +56,13 @@ func newProjectScopeWarning() *projectScopeWarning {
 }
 
 // observe warns when a successful read sent with a project override says the
-// project was not applied. A write is never warned about: the platform only
-// answers none on a read.
+// project was not applied. A write is never warned about: the platform answers
+// none only on a read, and this does not rest on that.
 func (warning *projectScopeWarning) observe(request *http.Request, response *http.Response, projectID string) {
 	if warning == nil || request == nil || response == nil || projectID == "" {
+		return
+	}
+	if request.Method != http.MethodGet && request.Method != http.MethodHead {
 		return
 	}
 	if !strings.EqualFold(strings.TrimSpace(response.Header.Get(AppliedProjectHeader)), appliedProjectNone) {
@@ -87,10 +91,9 @@ func projectScopeWarningLine(method string, path string, projectID string) strin
 }
 
 func pathIsOrganisationLevel(path string) bool {
-	for _, prefix := range organisationLevelPathPrefixes {
-		if path == prefix || strings.HasPrefix(path, prefix+"/") {
-			return true
-		}
+	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	if len(segments) < 4 || segments[0] != "api" || segments[1] != "v1" || segments[2] != "org" {
+		return false
 	}
-	return false
+	return slices.Contains(organisationLevelAreas, segments[3])
 }

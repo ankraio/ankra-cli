@@ -95,6 +95,19 @@ func TestProjectScopeWarningStaysQuiet(t *testing.T) {
 	}
 }
 
+// The contract is a read's, whatever a write's response happens to carry.
+func TestProjectScopeWarningIgnoresAWrite(t *testing.T) {
+	testClient, output := projectWarningClient(t, answering(t, http.StatusAccepted, appliedProjectNone))
+	response, requestError := testClient.httpClientForSlowWrite().Post(testClient.BaseURL+"/api/v1/org/alerts", "application/json", nil)
+	if requestError != nil {
+		t.Fatalf("POST error = %v", requestError)
+	}
+	_ = response.Body.Close()
+	if output.Len() != 0 {
+		t.Fatalf("want no warning on a write, got %q", output.String())
+	}
+}
+
 // A route only sharing a prefix's first letters is not organisation-level.
 func TestProjectScopeWarningMatchesWholePathSegments(t *testing.T) {
 	testClient, output := projectWarningClient(t, answering(t, http.StatusOK, appliedProjectNone))
