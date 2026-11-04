@@ -38,11 +38,23 @@ func TestRegistryRobotsUpdateKeepsWhatItHoldsAndGivesNewProjectsTheScope(t *test
 }
 
 func TestRegistryRobotsUpdateKeepsAccessWhateverCaseThePlatformAnswers(t *testing.T) {
-	grants := registryRobotUpdatedGrants(&client.RegistryRobot{Registry: "harbor", ProjectAccess: []client.RegistryRobotProjectAccess{
+	grants, grantsError := registryRobotUpdatedGrants(&client.RegistryRobot{Registry: "harbor", ProjectAccess: []client.RegistryRobotProjectAccess{
 		{Project: "First", Scope: client.RegistryRobotScopePush},
 	}}, []string{"first"}, client.RegistryRobotScopePull)
-	if len(grants) != 1 || grants[0].Scope != client.RegistryRobotScopePush {
-		t.Fatalf("grants = %+v", grants)
+	if grantsError != nil || len(grants) != 1 || grants[0].Scope != client.RegistryRobotScopePush {
+		t.Fatalf("grants = %+v, %v", grants, grantsError)
+	}
+}
+
+// The platform reads a project with neither a preset nor permissions as push,
+// so a kept project whose access is not stated must not be sent that way.
+func TestRegistryRobotsUpdateRefusesAKeptProjectWhoseAccessIsNotStated(t *testing.T) {
+	robot := updatableRobot()
+	robot.ProjectAccess = []client.RegistryRobotProjectAccess{{Project: "first"}}
+	mock := &registryRobotsMock{current: robot}
+	_, runError := runRegistryCommand(t, mock, "", "robots", "update", "consumer", "--registry-project", "first,second")
+	if runError == nil || !strings.Contains(runError.Error(), "cannot be kept") || mock.updateRequest != nil {
+		t.Fatalf("error=%v request=%+v", runError, mock.updateRequest)
 	}
 }
 

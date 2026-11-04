@@ -5199,7 +5199,7 @@ func (m baseMock) RotateRegistryRobotSecret(requestContext context.Context, robo
 }
 
 func (m baseMock) UpdateRegistryRobotProjects(requestContext context.Context, robotName string, updateRequest client.UpdateRegistryRobotProjectsRequest) (*client.RegistryRobotProjectsUpdated, error) {
-	return nil, nil
+	return nil, errors.New("not implemented")
 }
 
 func (m baseMock) DeleteRegistryRobot(requestContext context.Context, robotName string) error {

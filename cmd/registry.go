@@ -1012,6 +1012,10 @@ A Google Artifact Registry robot cannot be changed this way yet.`,
 				return fmt.Errorf("the platform did not say what robot %q holds on each project, so its access cannot be kept; "+
 					"upgrade the platform, or make a new robot", robotName)
 			}
+			grants, grantsError := registryRobotUpdatedGrants(current, projectNames, scope)
+			if grantsError != nil {
+				return grantsError
+			}
 			allowNewSecret, _ := command.Flags().GetBool("new-secret")
 			if allowNewSecret {
 				yes, _ := command.Flags().GetBool("yes")
@@ -1022,7 +1026,7 @@ A Google Artifact Registry robot cannot be changed this way yet.`,
 				}
 			}
 			updated, updateError := apiClient.UpdateRegistryRobotProjects(command.Context(), robotName, client.UpdateRegistryRobotProjectsRequest{
-				Projects:       registryRobotUpdatedGrants(current, projectNames, scope),
+				Projects:       grants,
 				AllowNewSecret: allowNewSecret,
 			})
 			if updateError != nil {
@@ -1059,8 +1063,10 @@ A Google Artifact Registry robot cannot be changed this way yet.`,
 }
 
 // registryRobotUpdatedGrants states every project asked for: one the robot
-// already reaches keeps what it holds there, and any other gets scope.
-func registryRobotUpdatedGrants(current *client.RegistryRobot, projectNames []string, scope string) []client.RegistryRobotProjectGrant {
+// already reaches keeps what it holds there, and any other gets scope. A kept
+// project the platform states neither a preset nor permissions for is refused:
+// the platform reads a project with neither as push, which would widen it.
+func registryRobotUpdatedGrants(current *client.RegistryRobot, projectNames []string, scope string) ([]client.RegistryRobotProjectGrant, error) {
 	grants := make([]client.RegistryRobotProjectGrant, 0, len(projectNames))
 	for _, projectName := range projectNames {
 		grant := client.RegistryRobotProjectGrant{Project: projectName, Scope: scope}
@@ -1074,13 +1080,17 @@ func registryRobotUpdatedGrants(current *client.RegistryRobot, projectNames []st
 			}
 			grant.Scope = held.Scope
 			if held.Scope != client.RegistryRobotScopePush && held.Scope != client.RegistryRobotScopePull {
+				if len(held.Permissions) == 0 {
+					return nil, fmt.Errorf("the platform did not say what robot %q holds on project %q, so its access cannot be kept",
+						current.Name, projectName)
+				}
 				grant.Scope = ""
 				grant.Permissions = held.Permissions
 			}
 		}
 		grants = append(grants, grant)
 	}
-	return grants
+	return grants, nil
 }
 
 func newRegistryRobotsRotateCommand() *cobra.Command {
