@@ -7,10 +7,11 @@
 This release makes `ankra cluster draft` safe to run again on the same file: a
 file is staged whole or not at all, and `--replace` swaps a stack's existing
 draft for the file's version. It needs a platform with the whole-file route,
-which platform.ankra.app has had since 2026-11-04. `ankra application deploy`
-and `ankra application platform` now take a cluster's name, `ankra skills
-install` no longer leaves root-owned skills behind when run under sudo, and
-`ankra cost events` stops printing a move it cannot attribute as an event's own.
+which platform.ankra.app has had since 2026-11-04. One registry robot can now
+reach several projects. `ankra application deploy` and `ankra application
+platform` take a cluster's name, `ankra skills install` no longer leaves
+root-owned skills behind when run under sudo, and `ankra cost events` stops
+printing a move it cannot attribute as an event's own.
 
 Scripts have more to notice than usual. A failed `ankra cluster draft` exits 3
 when the cluster is missing and 7 when your role may not write, where it used
@@ -18,8 +19,12 @@ to exit 1, and a 404 now fails where it used to print "no changes" and succeed.
 `ankra application deploy --cluster` with a name no cluster carries exits 3. A
 personal `ankra skills install` under sudo exits 2. An `ankra cost events` row
 whose move is unknown reads differently. `-o json` only gains
-`replaced_draft_id`, and leaves it out when no draft was replaced. Installing
-this release changes nothing on any cluster or workload.
+`replaced_draft_id` and `project_access`, and leaves each out when it is empty.
+Installing this release changes nothing on any cluster or workload.
+
+### Added
+
+- **One registry robot can reach several projects.** `ankra registry robots create --registry-project` now takes a repeated or comma-separated list of up to 20 projects, so a consumer that installs a chart from one project and pulls its images from another needs one robot and one pull secret. On a Harbor your organisation runs, the `--admin-credential` must be allowed to make system-level robots: a system administrator, or a system-level robot with robot create, read, list and delete at system level that itself holds the access on every project.
 
 ### Fixed
 
