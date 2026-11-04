@@ -60,6 +60,20 @@ the wrong move for a bad manifest: fix the definition, then re-apply. `--attenti
 hides failures a later run already cleared. Retry and cancel need the `executions.operate`
 permission on the cluster; the refusal names it.
 
+`ankra cluster stacks redeploy <stack>` re-runs the members a redeploy of the stack picks. The
+result lists the operations it started and every member it skipped, with the reason. When a manifest's apply failed with an error reading
+`conflict with "<manager>"`, another field manager holds those fields on the live object.
+`before-first-apply` is Kubernetes' name for fields written before Ankra's first server-side
+apply, not another controller, though the value may still be one a person set. Ask the person
+before `ankra cluster stacks redeploy <stack> --force --yes` (`--yes` answers the command's own
+confirmation, which has no terminal to ask on in an agent): the manifests it re-runs apply with
+server-side apply force-conflicts for that redeploy only, and the conflicting live fields are
+overwritten with the stack's values, which cannot be undone. Check that the manifest that failed
+is listed under `forced_resource_ids` before saying the conflict was taken back: a manifest the
+redeploy does not re-run is not forced. Force needs `clusters.write` on the
+cluster on top of `stacks.deploy`. The MCP tool `redeploy_stack` takes the same `force`
+argument.
+
 `ankra cluster addons values <addon>` shows the values an addon is actually deployed with - the
 place to spot a placeholder or a SOPS value that was never declared in `encrypted_paths` and
 shipped as ciphertext.
@@ -177,6 +191,7 @@ containers only.
 | Ready but unreachable | Port, ingress path, probe path | Chart values / ingress manifest |
 | Deployed too early, dependency missing | Stack ordering | `parents` edges - see `ankra-stacks-addons` |
 | Execution failed before any pod existed | Platform / manifest | The stack or addon definition |
+| Apply failed with `conflict with "<manager>"` | Field ownership | Ask, then `ankra cluster stacks redeploy <stack> --force --yes` |
 
 ## Rules
 
