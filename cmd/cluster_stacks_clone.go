@@ -404,12 +404,37 @@ func reportSettledCloneRun(out io.Writer, run *client.Run) error {
 	return nil
 }
 
+// explainBlockedDataRun says what a parked run is waiting for, or the empty
+// string when nothing beyond its reason is known. The platform's own sentence
+// wins, because it names this run's cause. Failing that, a run waiting on a
+// deploy says how to give it one: with a database clone that is a person's
+// move, and the reason on its own reads like something still in progress.
+func explainBlockedDataRun(dataRun *client.DataRun) string {
+	if dataRun.BlockedDetail != "" {
+		return dataRun.BlockedDetail
+	}
+	if dataRun.BlockedReason == nil || *dataRun.BlockedReason != client.DataRunBlockedAwaitingDeploy {
+		return ""
+	}
+	stackName := dataRun.TargetStackName
+	if stackName == "" {
+		stackName = "<stack>"
+	}
+	return fmt.Sprintf("the target stack has not come up. If it is still a draft, review it with "+
+		"'ankra cluster stacks show-draft %[1]s' and deploy it with 'ankra cluster stacks deploy-draft %[1]s' "+
+		"on the target cluster; the run finishes once the data is back.", stackName)
+}
+
 // cloneBlockedReason is the platform's own wording for why a run parked,
-// relayed verbatim. The two a clone produces are the ordinary ones -
-// the target's agent has not connected yet, and the deploy step is planned
-// but undispatched - and both are answers a person acts on.
+// relayed verbatim, followed by what it means when that is known. The ones a
+// clone produces are the ordinary ones - the target's agent has not connected
+// yet, and the target stack has not come up - and both are answers a person
+// acts on.
 func cloneBlockedReason(run *client.Run) string {
 	if run.DataRun != nil && run.DataRun.BlockedReason != nil && *run.DataRun.BlockedReason != "" {
+		if explanation := explainBlockedDataRun(run.DataRun); explanation != "" {
+			return *run.DataRun.BlockedReason + " - " + explanation
+		}
 		return *run.DataRun.BlockedReason
 	}
 	if run.ErrorExcerpt != nil && *run.ErrorExcerpt != "" {

@@ -123,6 +123,7 @@ type ClusterBackupsRollup struct {
 type ClusterBackupsPage struct {
 	ClusterID        string               `json:"cluster_id" yaml:"cluster_id"`
 	BackupStackState string               `json:"backup_stack_state" yaml:"backup_stack_state"`
+	BackupStackIssue string               `json:"backup_stack_issue,omitempty" yaml:"backup_stack_issue,omitempty"`
 	Rollup           ClusterBackupsRollup `json:"rollup" yaml:"rollup"`
 	Stacks           []StackBackupsRow    `json:"stacks" yaml:"stacks"`
 	NextCursor       *string              `json:"next_cursor" yaml:"next_cursor"`

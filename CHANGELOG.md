@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `ankra cluster stacks show-draft <stack>` prints a stack's pending draft in
+  full: every member, what it waits for, and its content decoded, so a clone's
+  draft can be reviewed before `deploy-draft`. `-o json` carries the same.
+- `ankra runs get` and `ankra cluster stacks clone --wait` say what a blocked
+  run is waiting for, and `ankra cluster backups status` says why the backup
+  components are not running when the platform knows. `ankra cluster stacks
+  protect` understands a data plane whose install keeps failing.
+
 ## v0.61.0 - 2026-11-04
 
 This release adds `--gateway-api` to the nine self-managed cluster create

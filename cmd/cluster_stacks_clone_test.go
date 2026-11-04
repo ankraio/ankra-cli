@@ -423,6 +423,25 @@ func TestStacksCloneWaitReportsAwaitingDeploy(t *testing.T) {
 	if !strings.Contains(stripANSICodes(output), "awaiting_deploy") {
 		t.Fatalf("the parked reason must be shown, got:\n%s", output)
 	}
+	if !strings.Contains(stripANSICodes(output), "show-draft") {
+		t.Fatalf("a run waiting on a person must say how to act, got:\n%s", output)
+	}
+}
+
+func TestABlockedRunPrefersThePlatformsOwnSentence(t *testing.T) {
+	detail := "the cluster already uses a resource name the backup stack needs"
+	reason := "awaiting_backup_stack"
+	got := cloneBlockedReason(&client.Run{DataRun: &client.DataRun{BlockedReason: &reason, BlockedDetail: detail}})
+	if got != reason+" - "+detail {
+		t.Fatalf("the reason and the platform's sentence must both be shown, got %q", got)
+	}
+}
+
+func TestABlockedRunWithNothingMoreToSayKeepsItsReason(t *testing.T) {
+	reason := "pending_agent"
+	if got := cloneBlockedReason(&client.Run{DataRun: &client.DataRun{BlockedReason: &reason}}); got != reason {
+		t.Fatalf("no explanation was invented, got %q", got)
+	}
 }
 
 func TestStacksCloneWaitFailsWhenTheRunFails(t *testing.T) {
