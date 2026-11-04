@@ -169,7 +169,7 @@ func (m baseMock) ValidateCluster(ctx context.Context, spec client.CreateResourc
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) CreateStackDraft(ctx context.Context, clusterID string, stack client.Stack) (*client.StackDraftResult, error) {
+func (m baseMock) CreateStackDrafts(ctx context.Context, clusterID string, stacks []client.Stack, replace bool) (*client.StackDraftsResult, error) {
 	return nil, errors.New("not implemented")
 }
 
