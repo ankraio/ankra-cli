@@ -91,7 +91,12 @@ type pipelineLaneMock struct {
 	streamStepID  string
 	streamOptions []client.StepLogStreamOptions
 	streamEvents  []client.PipelineLogEvent
-	streamError   error
+	// streamEventsByCall, when set, is served one entry per
+	// StreamPipelineStepLogs call in order and takes precedence over
+	// streamEvents, so a test can stage a connection that faults and the
+	// resumed one after it. The last entry answers every call after it.
+	streamEventsByCall [][]client.PipelineLogEvent
+	streamError        error
 	// streamNeverEnds serves streamEvents and then holds the channel open
 	// until the caller cancels, the way a platform that ignores follow=false
 	// keeps a concluded step's connection alive on keepalives.
@@ -243,11 +248,28 @@ func (mock *pipelineLaneMock) StreamPipelineStepLogs(ctx context.Context, select
 	if mock.streamError != nil {
 		return nil, mock.streamError
 	}
-	events := make(chan client.PipelineLogEvent, len(mock.streamEvents))
-	for _, event := range mock.streamEvents {
-		events <- event
+	served := mock.streamEvents
+	if mock.streamEventsByCall != nil {
+		index := len(mock.streamOptions) - 1
+		if index >= len(mock.streamEventsByCall) {
+			index = len(mock.streamEventsByCall) - 1
+		}
+		served = mock.streamEventsByCall[index]
 	}
-	if !mock.streamNeverEnds {
+	events := make(chan client.PipelineLogEvent, len(served))
+	endsOnFault := false
+	for _, event := range served {
+		events <- event
+		if event.Type == "error" {
+			// The real client closes its channel after one error frame
+			// (client.StreamPipelineStepLogs), even on a connection that
+			// would otherwise stay open, so a staged fault ends the
+			// connection here too.
+			endsOnFault = true
+			break
+		}
+	}
+	if !mock.streamNeverEnds || endsOnFault {
 		close(events)
 		return events, nil
 	}
