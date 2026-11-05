@@ -214,8 +214,9 @@ func resolveGatewayAPITarget(command *cobra.Command) (gatewayAPITarget, error) {
 	}
 }
 
-// gatewayAPIContext bounds one request by the command's own context, so an
-// interrupted command stops the request instead of waiting it out.
+// gatewayAPIContext bounds one request by its parent (the command's context,
+// or the follow's deadline inside --wait), so a cancelled parent stops the
+// request instead of waiting it out.
 func gatewayAPIContext(parent context.Context) (context.Context, context.CancelFunc) {
 	if parent == nil {
 		parent = context.Background()
@@ -406,7 +407,7 @@ func followGatewayAPIEnable(command *cobra.Command, target gatewayAPITarget,
 				}
 				if deadline.Err() != nil {
 					_, _ = fmt.Fprintln(errOut)
-					return status, gatewayAPIWaitExpired(target, status, timeout)
+					return status, gatewayAPIFollowStopped(deadline, target, status, timeout)
 				}
 				// A passing fault leaves the values next: the reading after
 				// the pause finds them so, and the enable is repeated then.
@@ -424,7 +425,7 @@ func followGatewayAPIEnable(command *cobra.Command, target gatewayAPITarget,
 			select {
 			case <-deadline.Done():
 				_, _ = fmt.Fprintln(errOut)
-				return status, gatewayAPIWaitExpired(target, status, timeout)
+				return status, gatewayAPIFollowStopped(deadline, target, status, timeout)
 			case <-time.After(gatewayAPIPollInterval):
 			}
 			requestContext, cancelRequest := gatewayAPIContext(deadline)
@@ -437,7 +438,7 @@ func followGatewayAPIEnable(command *cobra.Command, target gatewayAPITarget,
 			}
 			if deadline.Err() != nil {
 				_, _ = fmt.Fprintln(errOut)
-				return status, gatewayAPIWaitExpired(target, status, timeout)
+				return status, gatewayAPIFollowStopped(deadline, target, status, timeout)
 			}
 			if stopError := faults.record(getError, false); stopError != nil {
 				_, _ = fmt.Fprintln(errOut)
@@ -571,6 +572,25 @@ func gatewayAPIPhaseVerdict(target gatewayAPITarget, status *client.GatewayAPISt
 			target.cluster.Name, status.Phase, status.Note))
 	}
 	return nil
+}
+
+// gatewayAPIFollowStopped is the verdict when the follow's deadline context
+// ends. It is exit 5 only when --timeout ran out. When the command's own
+// context was cancelled instead, it is exit 1 carrying the cancellation, so
+// a stopped follow is never reported as an expired --timeout. The CLI's root
+// runs commands under context.Background() today (Execute in root.go), so an
+// interrupt ends the process before this sees it; the distinction is for
+// anything that runs the command under a cancellable context.
+func gatewayAPIFollowStopped(deadline context.Context, target gatewayAPITarget,
+	status *client.GatewayAPIStatus, timeout time.Duration) error {
+	if cancelled := deadline.Err(); errors.Is(cancelled, context.Canceled) {
+		return withExitCode(exitError, fmt.Errorf(
+			"stopped following the Gateway API enable for cluster '%s': %w. "+
+				"The option is recorded and the enable keeps going on the platform; "+
+				"run 'ankra cluster gateway-api enable --wait' again to keep following it",
+			target.cluster.Name, cancelled))
+	}
+	return gatewayAPIWaitExpired(target, status, timeout)
 }
 
 // gatewayAPIWaitExpired is the exit-5 verdict: the enable is still moving on

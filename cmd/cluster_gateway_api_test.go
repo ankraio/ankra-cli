@@ -7,7 +7,9 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -836,6 +838,38 @@ func TestClusterGatewayAPIEnableWaitRefusedRepeatSaysTheOptionStaysRecorded(t *t
 	}
 	if got := recorder.methods(); strings.Join(got, " ") != "GET PUT GET PUT" {
 		t.Fatalf("request sequence = %v, want the plan, the record, the poll that finds the values next and the refused repeat", got)
+	}
+}
+
+// A follow whose command context is cancelled is not reported as an expired
+// --timeout: exit 1 carrying the cancellation, not exit 5, whether it stops
+// in the pause between reads or on the enable it repeats. The follow is
+// called directly with its own command, because a cancelled context set on
+// the shared command tree would stay on it for the tests after this one.
+func TestClusterGatewayAPIFollowCancelledIsNotATimeout(t *testing.T) {
+	for _, phase := range []string{client.GatewayAPIPhaseCRDsPending, client.GatewayAPIPhaseValuesPending} {
+		t.Run(phase, func(t *testing.T) {
+			newGatewayAPIServer(t, "hetzner", gatewayAPIRecorded(client.GatewayAPIPhaseEnabled, "on"))
+			cancelled, cancel := context.WithCancel(context.Background())
+			cancel()
+			command := &cobra.Command{}
+			command.SetContext(cancelled)
+			command.SetErr(new(bytes.Buffer))
+			target := gatewayAPITarget{cluster: client.ClusterListItem{ID: testClusterID, Name: "test-cluster", Kind: "hetzner"}, provider: "hetzner"}
+			first := gatewayAPIEnableAnswer(gatewayAPIRecorded(phase, "moving"), true, false)
+
+			_, followError := followGatewayAPIEnable(command, target, &first, time.Minute)
+			if code := exitCodeFor(followError); code != exitError {
+				t.Fatalf("exit code = %d, want %d (cancelled, not a timeout): %v", code, exitError, followError)
+			}
+			if !errors.Is(followError, context.Canceled) {
+				t.Fatalf("error = %v, want it to carry context.Canceled", followError)
+			}
+			if !strings.Contains(followError.Error(), "stopped following the Gateway API enable for cluster 'test-cluster'") ||
+				strings.Contains(followError.Error(), "after 1m0s") {
+				t.Fatalf("error = %q, want the stopped follow, not the timeout's wording", followError.Error())
+			}
+		})
 	}
 }
 
