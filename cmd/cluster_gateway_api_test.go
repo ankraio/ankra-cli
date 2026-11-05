@@ -803,6 +803,42 @@ func TestClusterGatewayAPIEnableWaitStopsAtOnceOnARefusal(t *testing.T) {
 	}
 }
 
+// A 409 on the enable the wait repeats comes after the first enable recorded
+// the option, so it is not the first enable's "nothing was changed" (exit 8):
+// it exits 1 with the platform's sentence, says the option stays recorded,
+// and says how to resume.
+func TestClusterGatewayAPIEnableWaitRefusedRepeatSaysTheOptionStaysRecorded(t *testing.T) {
+	recorder := newGatewayAPIServer(t, "hetzner",
+		gatewayAPIOff(),
+		gatewayAPIRecorded(client.GatewayAPIPhaseValuesPending, "values next"))
+	recorder.scriptPuts(gatewayAPIEnableAnswer(gatewayAPIRecorded(client.GatewayAPIPhaseCRDsPending, "waiting"), true, false))
+	refusal := "The platform's view of the cluster's CustomResourceDefinitions is not fresh enough to tell whether the Gateway API CRDs are already installed"
+	recorder.failAt(http.MethodPut, gatewayAPIFault{status: http.StatusConflict, body: `{"detail":"` + refusal + `"}`}, 1)
+
+	_, stderr, runError := runGatewayAPI(t, "", "enable", "--yes", "--wait", "--timeout", "10s")
+	if code := exitCodeFor(runError); code != exitError {
+		t.Fatalf("exit code = %d, want %d (the option is recorded, the repeated enable was refused): %v", code, exitError, runError)
+	}
+	for _, want := range []string{
+		"the platform refused the repeated Gateway API enable for cluster 'test-cluster': " + refusal,
+		"The option stays recorded from the first enable",
+		"run 'ankra cluster gateway-api enable --wait' again to resume",
+	} {
+		if !strings.Contains(runError.Error(), want) {
+			t.Fatalf("error = %q, want it to contain %q", runError.Error(), want)
+		}
+	}
+	if strings.Contains(runError.Error(), "nothing was changed") {
+		t.Fatalf("a refusal after the option was recorded must not say nothing was changed: %q", runError.Error())
+	}
+	if strings.Contains(stderr, "trying again") {
+		t.Fatalf("a refusal was tried again:\n%s", stderr)
+	}
+	if got := recorder.methods(); strings.Join(got, " ") != "GET PUT GET PUT" {
+		t.Fatalf("request sequence = %v, want the plan, the record, the poll that finds the values next and the refused repeat", got)
+	}
+}
+
 // --timeout bounds --wait: without it the value would be a bound the command
 // never applies, so it is refused before any request, as is a timeout that
 // is not positive.

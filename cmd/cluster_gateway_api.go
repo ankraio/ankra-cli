@@ -158,6 +158,7 @@ Exit codes:
      Ankra-installed Traefik and cert-manager to write into, or a values
      write whose GitOps push failed (the values reached the platform, the
      repository does not carry them yet). The reason goes to stderr. Also
+     a refusal of the enable --wait repeats (the option stays recorded),
      any request that failed, five failed requests in a row during --wait
      (the enable keeps going), and a platform without this route
   2  no terminal to confirm on and no --yes, --timeout without --wait, or a
@@ -170,8 +171,8 @@ Exit codes:
   7  your role lacks clusters.write
   8  the platform cannot take the option and nothing was changed: the
      cluster has no Ankra-managed ingress to serve it (the plan reads "not
-     available"), or the platform refused the enable, for example while the
-     cluster's cloud provider stack is still being created`,
+     available"), or the platform refused this run's first enable, for
+     example while the cluster's cloud provider stack is still being created`,
 		Example: `  ankra cluster gateway-api enable
   ankra cluster gateway-api enable --cluster prod --yes
   ankra cluster gateway-api enable --cluster prod --yes --wait --timeout 30m`,
@@ -462,13 +463,20 @@ type gatewayAPIFollowFaults struct {
 }
 
 // record decides what one failed request does to the follow. A refusal ends
-// it with the route's own verdict (gatewayAPIRouteError). A passing fault is
-// reported on stderr and tried again on the next poll, until the
+// it with the route's own verdict (gatewayAPIRouteError), except a 409 on the
+// repeated enable (gatewayAPIRepeatRefused). A passing fault is reported on
+// stderr and tried again on the next poll, until the
 // gatewayAPIFollowFaultBudget-th in a row, which ends it with exit 1 saying
 // the enable keeps going on the platform and how to keep following it: the
 // option is recorded by then, so a lost connection is not a failed enable.
+// It runs only inside the follow, so a write here is always the enable the
+// wait repeats once the first one has recorded the option.
 func (faults *gatewayAPIFollowFaults) record(fault error, writing bool) error {
 	if !gatewayAPIFaultIsPassing(fault) {
+		var unexpected *client.UnexpectedResponseError
+		if writing && errors.As(fault, &unexpected) && unexpected.StatusCode == http.StatusConflict {
+			return gatewayAPIRepeatRefused(faults.target, unexpected)
+		}
 		return gatewayAPIRouteError(fault, faults.target, writing)
 	}
 	faults.count++
@@ -481,6 +489,24 @@ func (faults *gatewayAPIFollowFaults) record(fault error, writing bool) error {
 	}
 	_, _ = fmt.Fprintf(faults.errOut, "  a request to the platform failed (%v); trying again on the next poll\n", fault)
 	return nil
+}
+
+// gatewayAPIRepeatRefused is the verdict on a 409 refusal of the enable the
+// wait repeats. The first enable's 409 exits 8 because nothing was changed
+// (gatewayAPIRouteError), but by this point that enable recorded the option,
+// so saying "nothing was changed" would understate where the cluster stands.
+// The option stays recorded and the enable can be resumed, as with the
+// phases the platform holds for a person, so this exits 1 with the
+// platform's sentence and how to resume.
+func gatewayAPIRepeatRefused(target gatewayAPITarget, refusal *client.UnexpectedResponseError) error {
+	reason := refusal.Detail
+	if reason == "" {
+		reason = refusal.Error()
+	}
+	return withExitCode(exitError, fmt.Errorf(
+		"the platform refused the repeated Gateway API enable for cluster '%s': %s. "+
+			"The option stays recorded from the first enable; once that is resolved, "+
+			"run 'ankra cluster gateway-api enable --wait' again to resume", target.cluster.Name, reason))
 }
 
 // gatewayAPIFaultIsPassing reports whether a failed request is worth another
