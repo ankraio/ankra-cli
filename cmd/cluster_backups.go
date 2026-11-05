@@ -38,6 +38,11 @@ The verdict has three values, not two: "unknown" is a stack Ankra could not
 assess - its inventory has not landed, or its backup settings could not be
 read - and it is deliberately not reported as unprotected.
 
+A stack running CloudNativePG databases is judged on whether its backups can
+actually be taken, not only on its policy. When that decides the verdict, the
+platform's sentence saying what was observed, or what could not be confirmed,
+and what to do is printed after the table.
+
 Examples:
   ankra cluster backups status
   ankra cluster backups status --cluster production
@@ -108,6 +113,13 @@ func describeBackupStackState(state string) string {
 		return "not running - nothing is being captured; check the ankra-backup stack"
 	case client.ClusterBackupStackAbsent:
 		return "not installed - Ankra installs it once a stack here is protected and a vault is ready"
+	case client.ClusterBackupStackUnknown:
+		// The stack resource is up and the barman-cloud plugin's state could
+		// not be established. That is a question left open, not a finding: it
+		// does not say captures stopped, and it must not read as if nothing on
+		// the cluster is protected. The Why: line below carries the platform's
+		// reason.
+		return "up, but whether its barman-cloud plugin is running could not be confirmed"
 	default:
 		// A state this build does not know is said to be unrecognised rather
 		// than printed bare: a lone word reads as a verdict this command
@@ -144,6 +156,41 @@ func describeProtection(row client.StackBackupsRow) string {
 		return client.ProtectionStateUnknown
 	default:
 		return row.ProtectionState
+	}
+}
+
+// describeBackupPathDetailLead names the stack a backup path sentence belongs
+// to, in the header's own words for the verdict: "could not be assessed" is
+// what the summary line calls an unknown stack.
+func describeBackupPathDetailLead(row client.StackBackupsRow) string {
+	switch row.ProtectionState {
+	case client.ProtectionStateUnprotected:
+		return fmt.Sprintf("Why %s is unprotected", row.StackName)
+	case client.ProtectionStateUnknown:
+		return fmt.Sprintf("Why %s could not be assessed", row.StackName)
+	default:
+		return row.StackName
+	}
+}
+
+// printBackupPathDetails prints, after the table, the platform's sentence
+// behind each verdict the CloudNativePG backup path decided: what was
+// observed or could not be confirmed, the databases concerned, and what to do.
+// It is too long for a cell, and the reason code in the row is not something a
+// person can act on alone. The sentence is printed as the platform sent it,
+// beside nothing but the stack's name, the way the header prints Why: for the
+// backup stack.
+func printBackupPathDetails(out io.Writer, rows []client.StackBackupsRow) {
+	printedAny := false
+	for _, row := range rows {
+		if strings.TrimSpace(row.BackupPathDetail) == "" {
+			continue
+		}
+		if !printedAny {
+			_, _ = fmt.Fprintln(out)
+			printedAny = true
+		}
+		_, _ = fmt.Fprintf(out, "%s: %s\n", describeBackupPathDetailLead(row), row.BackupPathDetail)
 	}
 }
 
@@ -228,6 +275,7 @@ func printClusterBackups(out io.Writer, clusterName string, page *client.Cluster
 		})
 	}
 	writer.Render()
+	printBackupPathDetails(out, page.Stacks)
 }
 
 func orDash(value string) string {

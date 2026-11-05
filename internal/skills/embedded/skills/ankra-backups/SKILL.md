@@ -167,7 +167,31 @@ ankra application backups shop                             # per deployment of o
 
 One row per stack: `protected`, `unprotected` (with the reason - `no_policy` is the one you owe,
 `no_data_assets` has nothing to carry) or `unknown` (Ankra could not assess it - not the same as
-unprotected), with the last run and the next one. For an application, `ankra application protect
+unprotected), with the last run and the next one.
+
+**On a stack running CloudNativePG databases, a policy over a ready vault is no longer enough to
+read `protected`.** The platform also checks the path the backup takes - the barman-cloud plugin
+and each database's write-ahead log archive - and `protected` has to be earned from that evidence:
+
+| Reason | Verdict | Means |
+| --- | --- | --- |
+| `barman_plugin_not_running` | unprotected | the barman-cloud plugin is observed not running, so the stack's database backups cannot be taken |
+| `archiving_failing` | unprotected | a CloudNativePG Cluster reports its write-ahead log archive failing; its data is not reaching the vault |
+| `barman_plugin_unverified` | unknown | whether the plugin is running could not be established |
+| `archiving_unreported` | unknown | the plugin runs, but a Cluster has not reported on its archive, or could not be read |
+
+After the table, each of those rows gets the platform's sentence naming the databases concerned and
+what to do (`Why shop is unprotected: ...`, `backup_path_detail` in `-o json`). Act on that
+sentence rather than re-deriving it. The other reasons you can meet: `vault_not_ready`,
+`selection_excludes_databases` and `selection_carries_no_data` (unprotected); `policy_unreadable`,
+`vault_unresolved` and `data_assets_unknown` (unknown).
+
+The header's `Backup components:` line is the cluster's backup data plane: `ready`, `installing`,
+`not running`, `not installed`, or `up, but whether its barman-cloud plugin is running could not be
+confirmed`. That last one is an open question about the plugin, not a statement that nothing is
+protected; the `Why:` line under it gives the platform's reason.
+
+For an application, `ankra application protect
 <app> --cluster <cluster> [--vault ...] [--backup-now]` and `ankra application backup <app>
 --cluster <cluster> --note ... --wait` act on the stack behind that deployment; `protect` rewrites
 the whole policy, so restate `--schedule`, `--retention` and `--include-pvc` when re-running it.
