@@ -191,17 +191,26 @@ func TestClusterNodeGroupRemoveNodeUnknownNodeExitsNotFound(t *testing.T) {
 
 // A platform that does not serve the route answers the router's bare 404;
 // that is not a missing node, so it is said plainly and exits 1.
+// A platform without the route answers its router's 404: {"detail":
+// "Not Found"} from the cluster API (routeAbsentDetail), or a body with no
+// detail at all from anything in front of it. Neither is the node being
+// gone, so both exit 1 and say the route is missing.
 func TestClusterNodeGroupRemoveNodeOnAPlatformWithoutTheRouteExitsError(t *testing.T) {
-	mock := newRemoveNodeMock("hetzner")
-	mock.result = nil
-	mock.err = client.NewUnexpectedResponseError(http.StatusNotFound, "request failed: status 404: 404 page not found")
-	_, err := runConfirmCommand(t, mock, "", removeNodeResets,
-		"cluster", "node-group", "remove-node", testClusterID, "opensearch", "depict-opensearch-0", "--yes")
-	if err == nil || exitCodeFor(err) != exitError {
-		t.Fatalf("expected exit %d for a platform without the route, got %v (exit %d)", exitError, err, exitCodeFor(err))
-	}
-	if !strings.Contains(err.Error(), "does not serve node removal yet") {
-		t.Errorf("the error must say the platform lacks the route, got %v", err)
+	for name, routeAbsent := range map[string]error{
+		"router 404 with the API's detail": &client.UnexpectedResponseError{StatusCode: http.StatusNotFound, Detail: routeAbsentDetail},
+		"bare 404 with no detail":          client.NewUnexpectedResponseError(http.StatusNotFound, "request failed: status 404: 404 page not found"),
+	} {
+		mock := newRemoveNodeMock("hetzner")
+		mock.result = nil
+		mock.err = routeAbsent
+		_, err := runConfirmCommand(t, mock, "", removeNodeResets,
+			"cluster", "node-group", "remove-node", testClusterID, "opensearch", "depict-opensearch-0", "--yes")
+		if err == nil || exitCodeFor(err) != exitError {
+			t.Fatalf("%s: expected exit %d for a platform without the route, got %v (exit %d)", name, exitError, err, exitCodeFor(err))
+		}
+		if !strings.Contains(err.Error(), "does not serve node removal yet") {
+			t.Errorf("%s: the error must say the platform lacks the route, got %v", name, err)
+		}
 	}
 }
 

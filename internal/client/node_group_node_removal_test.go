@@ -79,8 +79,24 @@ func TestRemoveNodeGroupNodeKeepsTheNotFound(t *testing.T) {
 	}
 }
 
-// A platform that does not serve the route answers the router's bare 404,
-// which carries no detail, so a caller can tell it from a missing node.
+// The cluster API's router answers an unknown route with {"detail":
+// "Not Found"} (observed on the production platform), which reaches the
+// caller as that detail, distinct from the node-not-found reason.
+func TestRemoveNodeGroupNodeKeepsTheRoutersNotFoundDetail(t *testing.T) {
+	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		jsonResponse(t, writer, http.StatusNotFound, map[string]any{"detail": "Not Found"})
+	})
+
+	_, _, removeError := client.RemoveNodeGroupNode(context.Background(), "hetzner", "cluster-1", "opensearch",
+		"prod-opensearch-0", DrainOptions{}, false)
+	var unexpected *UnexpectedResponseError
+	if !errors.As(removeError, &unexpected) || unexpected.StatusCode != http.StatusNotFound || unexpected.Detail != "Not Found" {
+		t.Fatalf("expected the router's 404 with detail %q, got %v", "Not Found", removeError)
+	}
+}
+
+// Anything in front of the API that answers a bare 404 carries no detail at
+// all, so a caller can tell it from a missing node too.
 func TestRemoveNodeGroupNodeLeavesARouterNotFoundWithoutADetail(t *testing.T) {
 	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
 		http.NotFound(writer, request)
