@@ -105,7 +105,13 @@ last apply of each, and the note saying who moves the enable on next.
 Reading Gateway API objects on the cluster afterwards takes the singular kind:
 'ankra cluster get resources gatewayclass --group gateway.networking.k8s.io'.
 
--o json prints the platform's answer as it is.`,
+-o json prints the platform's answer as it is.
+
+Exit codes: 0 when the plan was read, whatever it says (including "not
+available"); 2 for a cluster Ankra did not build; 3 when the cluster is not in
+the selected organisation; 6 when the credentials are missing, expired or
+rejected; 7 when your role cannot read the cluster's settings; 1 for any other
+failure, including a platform without this route.`,
 		Example: `  ankra cluster gateway-api status
   ankra cluster gateway-api status --cluster prod -o json`,
 		Args: cobra.NoArgs,
@@ -138,12 +144,34 @@ The enable is idempotent and resumable. Without --wait it records the option
 and returns at once, saying what is next; run it again later to write the
 values once the CRDs are established, or check with 'status'. With --wait it
 follows the phase, repeats the enable when the values are next, and returns
-once the Gateway API is enabled (exit 0) or when --timeout runs out (exit 5;
-the enable keeps going, run it again to keep following). With or without
---wait, the command exits 1 when the platform needs a person: a conflict in
-the values, a failed CRD install or apply, no Ankra-installed networking, or
-a values write whose GitOps push failed (the values reached the platform, the
-repository does not carry them yet). The reason goes to stderr.`,
+once the Gateway API is enabled. A passing platform fault while it follows (a
+5xx, a dropped connection, one request timing out) is tried again on the next
+poll; five in a row end the follow. --timeout bounds --wait and is refused
+without it. The verdict is the same with or without --wait.
+
+Exit codes:
+  0  the Gateway API is on, or (without --wait) the option is recorded and
+     the enable is moving: waiting for the CRDs, the values next, or
+     Traefik and cert-manager applying them
+  1  the option is recorded but the platform needs a person: a conflict in
+     the values, a failed CRD install or apply, a networking stack with no
+     Ankra-installed Traefik and cert-manager to write into, or a values
+     write whose GitOps push failed (the values reached the platform, the
+     repository does not carry them yet). The reason goes to stderr. Also
+     any request that failed, five failed requests in a row during --wait
+     (the enable keeps going), and a platform without this route
+  2  no terminal to confirm on and no --yes, --timeout without --wait, or a
+     cluster Ankra did not build
+  3  the cluster is not in the selected organisation
+  4  the confirmation was declined
+  5  --wait ran out of --timeout; the enable keeps going, run it again to
+     keep following it
+  6  the credentials are missing, expired or rejected: run 'ankra login'
+  7  your role lacks clusters.write
+  8  the platform cannot take the option and nothing was changed: the
+     cluster has no Ankra-managed ingress to serve it (the plan reads "not
+     available"), or the platform refused the enable, for example while the
+     cluster's cloud provider stack is still being created`,
 		Example: `  ankra cluster gateway-api enable
   ankra cluster gateway-api enable --cluster prod --yes
   ankra cluster gateway-api enable --cluster prod --yes --wait --timeout 30m`,
@@ -154,7 +182,7 @@ repository does not carry them yet). The reason goes to stderr.`,
 	}
 	command.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt (required when stdin is not a terminal)")
 	command.Flags().Bool("wait", false, "Follow the enable until the Gateway API is enabled, the platform needs a person, or --timeout runs out")
-	command.Flags().Duration("timeout", gatewayAPIDefaultWaitTimeout, "How long --wait follows the enable before giving up (exit 5)")
+	command.Flags().Duration("timeout", gatewayAPIDefaultWaitTimeout, "How long --wait follows the enable before giving up (exit 5); refused without --wait")
 	registerStructuredOutputFlags(command)
 	return command
 }
@@ -235,6 +263,17 @@ func runClusterGatewayAPIEnable(command *cobra.Command) error {
 	}
 	wait, _ := command.Flags().GetBool("wait")
 	timeout, _ := command.Flags().GetDuration("timeout")
+	if command.Flags().Changed("timeout") {
+		// A timeout without --wait would read as a bound the command never
+		// applies, so it is refused before any request rather than ignored
+		// (as `pipeline` does, pipelineWaitTimeoutFromFlags).
+		if !wait {
+			return withExitCode(exitUsage, errors.New("--timeout bounds --wait: pass it with --wait, or drop it"))
+		}
+		if timeout <= 0 {
+			return withExitCode(exitUsage, fmt.Errorf("--timeout must be a positive duration, got %s", timeout))
+		}
+	}
 	target, targetError := resolveGatewayAPITarget(command)
 	if targetError != nil {
 		return targetError
@@ -317,9 +356,10 @@ func runClusterGatewayAPIEnable(command *cobra.Command) error {
 // phase a person has to act on, or the deadline. The platform writes the
 // values only on an enable call once the CRDs are established, so a
 // values_pending reading repeats the enable (once per poll) rather than
-// waiting for a write nobody will make. Progress goes to stderr so -o json
-// stays one document; the standing the wait ended on is returned with the
-// verdict.
+// waiting for a write nobody will make. A request that fails on a passing
+// fault is tried again on the next poll (gatewayAPIFollowFaults); a refusal
+// ends the follow at once. Progress goes to stderr so -o json stays one
+// document; the standing the wait ended on is returned with the verdict.
 func followGatewayAPIEnable(command *cobra.Command, target gatewayAPITarget,
 	first *client.GatewayAPIEnableResult, timeout time.Duration) (*client.GatewayAPIStatus, error) {
 	deadline, cancel := context.WithTimeout(gatewayAPICommandContext(command), timeout)
@@ -332,6 +372,7 @@ func followGatewayAPIEnable(command *cobra.Command, target gatewayAPITarget,
 	if pushError := gatewayAPIPushVerdict(target, first); pushError != nil {
 		return status, pushError
 	}
+	faults := gatewayAPIFollowFaults{target: target, errOut: errOut}
 	lastReported := ""
 	enabledThisPoll := false
 	for {
@@ -353,40 +394,118 @@ func followGatewayAPIEnable(command *cobra.Command, target gatewayAPITarget,
 				requestContext, cancelRequest := gatewayAPIContext(deadline)
 				result, enableError := apiClient.EnableClusterGatewayAPI(requestContext, target.provider, target.cluster.ID)
 				cancelRequest()
-				if enableError != nil {
-					if deadline.Err() != nil {
-						return status, gatewayAPIWaitExpired(target, status, timeout)
+				if enableError == nil {
+					faults.count = 0
+					status = &result.GatewayAPIStatus
+					if pushError := gatewayAPIPushVerdict(target, result); pushError != nil {
+						_, _ = fmt.Fprintln(errOut)
+						return status, pushError
 					}
-					return status, gatewayAPIRouteError(enableError, target, true)
+					continue
 				}
-				status = &result.GatewayAPIStatus
-				if pushError := gatewayAPIPushVerdict(target, result); pushError != nil {
+				if deadline.Err() != nil {
 					_, _ = fmt.Fprintln(errOut)
-					return status, pushError
+					return status, gatewayAPIWaitExpired(target, status, timeout)
 				}
-				continue
+				// A passing fault leaves the values next: the reading after
+				// the pause finds them so, and the enable is repeated then.
+				if stopError := faults.record(enableError, true); stopError != nil {
+					_, _ = fmt.Fprintln(errOut)
+					return status, stopError
+				}
 			}
 		}
 
-		select {
-		case <-deadline.Done():
-			_, _ = fmt.Fprintln(errOut)
-			return status, gatewayAPIWaitExpired(target, status, timeout)
-		case <-time.After(gatewayAPIPollInterval):
-		}
-		enabledThisPoll = false
-		requestContext, cancelRequest := gatewayAPIContext(deadline)
-		next, getError := apiClient.GetClusterGatewayAPI(requestContext, target.provider, target.cluster.ID)
-		cancelRequest()
-		if getError != nil {
+		// Pause, then read the standing again until a reading comes back. A
+		// passing fault is read again after the next pause; a refusal, the
+		// fault budget or the deadline ends the follow.
+		for {
+			select {
+			case <-deadline.Done():
+				_, _ = fmt.Fprintln(errOut)
+				return status, gatewayAPIWaitExpired(target, status, timeout)
+			case <-time.After(gatewayAPIPollInterval):
+			}
+			requestContext, cancelRequest := gatewayAPIContext(deadline)
+			next, getError := apiClient.GetClusterGatewayAPI(requestContext, target.provider, target.cluster.ID)
+			cancelRequest()
+			if getError == nil {
+				faults.count = 0
+				status = next
+				break
+			}
 			if deadline.Err() != nil {
 				_, _ = fmt.Fprintln(errOut)
 				return status, gatewayAPIWaitExpired(target, status, timeout)
 			}
-			return status, gatewayAPIRouteError(getError, target, false)
+			if stopError := faults.record(getError, false); stopError != nil {
+				_, _ = fmt.Fprintln(errOut)
+				return status, stopError
+			}
 		}
-		status = next
+		enabledThisPoll = false
 	}
+}
+
+// gatewayAPIFollowFaultBudget is how many requests in a row --wait lets fail
+// on a passing fault before it stops following. The client already retries
+// each read for a few seconds on a gateway-style answer; at the default poll
+// interval this rides out a platform restart of about a minute.
+const gatewayAPIFollowFaultBudget = 5
+
+// gatewayAPIFollowFaults counts the requests in a row that failed on a
+// passing fault while --wait follows the enable.
+type gatewayAPIFollowFaults struct {
+	target gatewayAPITarget
+	errOut io.Writer
+	count  int
+}
+
+// record decides what one failed request does to the follow. A refusal ends
+// it with the route's own verdict (gatewayAPIRouteError). A passing fault is
+// reported on stderr and tried again on the next poll, until the
+// gatewayAPIFollowFaultBudget-th in a row, which ends it with exit 1 saying
+// the enable keeps going on the platform and how to keep following it: the
+// option is recorded by then, so a lost connection is not a failed enable.
+func (faults *gatewayAPIFollowFaults) record(fault error, writing bool) error {
+	if !gatewayAPIFaultIsPassing(fault) {
+		return gatewayAPIRouteError(fault, faults.target, writing)
+	}
+	faults.count++
+	if faults.count >= gatewayAPIFollowFaultBudget {
+		return withExitCode(exitError, fmt.Errorf(
+			"stopped following the Gateway API enable for cluster '%s' after %d failed requests in a row (last: %w). "+
+				"The option is recorded and the enable keeps going on the platform; run 'ankra cluster gateway-api enable --wait' "+
+				"again to keep following it, or check with 'ankra cluster gateway-api status'",
+			faults.target.cluster.Name, faults.count, fault))
+	}
+	_, _ = fmt.Fprintf(faults.errOut, "  a request to the platform failed (%v); trying again on the next poll\n", fault)
+	return nil
+}
+
+// gatewayAPIFaultIsPassing reports whether a failed request is worth another
+// poll: the platform answered 5xx, 408 or 429, the connection failed, or the
+// one request timed out. A refusal is the platform's answer and is not tried
+// again: a rejected login, a role without the permission, a billing
+// restriction, a 404, a 409 or any other 4xx. Nor is an interrupted command.
+func gatewayAPIFaultIsPassing(fault error) bool {
+	if fault == nil || errors.Is(fault, context.Canceled) || errors.Is(fault, client.ErrUnauthorized) {
+		return false
+	}
+	var denied *client.PermissionDeniedError
+	var restricted *client.BillingRestrictedError
+	if errors.As(fault, &denied) || errors.As(fault, &restricted) {
+		return false
+	}
+	var unexpected *client.UnexpectedResponseError
+	if errors.As(fault, &unexpected) {
+		return unexpected.StatusCode >= http.StatusInternalServerError ||
+			unexpected.StatusCode == http.StatusRequestTimeout ||
+			unexpected.StatusCode == http.StatusTooManyRequests
+	}
+	// Anything else never reached a platform answer: a connection refused,
+	// reset or timed out, or a body that did not parse.
+	return true
 }
 
 // gatewayAPIEnableVerdict is the verdict of one enable call, the same with
@@ -496,8 +615,16 @@ func gatewayAPIEnableExplanation(target gatewayAPITarget, plan *client.GatewayAP
 				member.Addon, len(member.Conflicts), gatewayAPIKeyWord(len(member.Conflicts))))
 		case member.Values == client.GatewayAPIValuesAlreadyOn:
 			now = append(now, fmt.Sprintf("leave the %s values as they are (they carry the settings already)", member.Addon))
-		default:
+		case member.Values == client.GatewayAPIValuesAdd:
 			now = append(now, fmt.Sprintf("write the Gateway API settings into the %s values once the CRDs are established", member.Addon))
+		case member.Values == "":
+			// The status prints this as "values not reported": what is not
+			// known is not presented as a planned write.
+			now = append(now, fmt.Sprintf("decide on the %s values once the CRDs are established "+
+				"(the platform did not report what they need, so this plan cannot say whether they are written)", member.Addon))
+		default:
+			now = append(now, fmt.Sprintf("decide on the %s values once the CRDs are established "+
+				"(the platform reads them as %q, which this CLI does not know)", member.Addon, member.Values))
 		}
 	}
 	lines = append(lines, "", "This will:")

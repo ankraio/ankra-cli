@@ -32,10 +32,18 @@ type gatewayAPIRequest struct {
 	body          string
 }
 
+// gatewayAPIFault is one scripted failure of a gateway-api request.
+type gatewayAPIFault struct {
+	status int
+	body   string
+}
+
 // gatewayAPIServer is a platform that lists every cluster with one kind and
 // serves the gateway-api route from scripted answers: reads come from gets in
 // order and writes from puts in order, the last of each repeating. A refusal,
-// when set, answers every gateway-api request of its method with it.
+// when set, answers every gateway-api request of its method with it. A fault
+// answers one request of a method, by its position among that method's
+// requests (0 is the first), without using up a scripted answer.
 type gatewayAPIServer struct {
 	mutex         sync.Mutex
 	kind          string
@@ -47,6 +55,8 @@ type gatewayAPIServer struct {
 	refusalMethod string
 	refusalStatus int
 	refusalBody   string
+	faults        map[string]map[int]gatewayAPIFault
+	positions     map[string]int
 }
 
 func scriptedAnswerIndex(index int, length int) int {
@@ -58,7 +68,8 @@ func scriptedAnswerIndex(index int, length int) int {
 
 func newGatewayAPIServer(t *testing.T, kind string, gets ...client.GatewayAPIStatus) *gatewayAPIServer {
 	t.Helper()
-	recorder := &gatewayAPIServer{kind: kind, gets: gets}
+	recorder := &gatewayAPIServer{kind: kind, gets: gets,
+		faults: map[string]map[int]gatewayAPIFault{}, positions: map[string]int{}}
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		if request.Method == http.MethodGet && request.URL.Path == "/api/v1/clusters" {
@@ -87,6 +98,13 @@ func newGatewayAPIServer(t *testing.T, kind string, gets ...client.GatewayAPISta
 		if recorder.refusalStatus != 0 && (recorder.refusalMethod == "" || recorder.refusalMethod == request.Method) {
 			writer.WriteHeader(recorder.refusalStatus)
 			_, _ = writer.Write([]byte(recorder.refusalBody))
+			return
+		}
+		position := recorder.positions[request.Method]
+		recorder.positions[request.Method]++
+		if fault, scripted := recorder.faults[request.Method][position]; scripted {
+			writer.WriteHeader(fault.status)
+			_, _ = writer.Write([]byte(fault.body))
 			return
 		}
 		switch request.Method {
@@ -138,6 +156,18 @@ func (recorder *gatewayAPIServer) refuse(method string, status int, body string)
 	recorder.mutex.Lock()
 	defer recorder.mutex.Unlock()
 	recorder.refusalMethod, recorder.refusalStatus, recorder.refusalBody = method, status, body
+}
+
+// failAt answers the method's requests at these positions with the fault.
+func (recorder *gatewayAPIServer) failAt(method string, fault gatewayAPIFault, positions ...int) {
+	recorder.mutex.Lock()
+	defer recorder.mutex.Unlock()
+	if recorder.faults[method] == nil {
+		recorder.faults[method] = map[int]gatewayAPIFault{}
+	}
+	for _, position := range positions {
+		recorder.faults[method][position] = fault
+	}
 }
 
 func (recorder *gatewayAPIServer) seen() []gatewayAPIRequest {
@@ -653,6 +683,175 @@ func TestClusterGatewayAPIEnableWaitExpiresWithExitFive(t *testing.T) {
 	}
 	if methods := recorder.methods(); len(methods) < 2 || methods[1] != http.MethodPut {
 		t.Fatalf("expected the plan read and the record before polling, got %v", methods)
+	}
+}
+
+// gatewayAPIServerFault is a platform answering 500 for one request: the
+// client's transport does not retry it, so the follow sees it.
+var gatewayAPIServerFault = gatewayAPIFault{status: http.StatusInternalServerError, body: `{"detail":"Internal Server Error"}`}
+
+// A passing fault while --wait follows the enable, on a read or on the enable
+// the wait repeats when the values are next, is tried again on the next poll
+// instead of ending a follow whose enable keeps going on the platform.
+func TestClusterGatewayAPIEnableWaitRidesOutAPassingFault(t *testing.T) {
+	t.Run("on a read", func(t *testing.T) {
+		recorder := newGatewayAPIServer(t, "hetzner", gatewayAPIOff(), gatewayAPIRecorded(client.GatewayAPIPhaseEnabled, "on"))
+		recorder.scriptPuts(gatewayAPIEnableAnswer(gatewayAPIRecorded(client.GatewayAPIPhaseCRDsPending, "waiting"), true, false))
+		recorder.failAt(http.MethodGet, gatewayAPIServerFault, 1, 2)
+
+		stdout, stderr, runError := runGatewayAPI(t, "", "enable", "--yes", "--wait", "--timeout", "10s")
+		if runError != nil {
+			t.Fatalf("enable --wait failed on a passing fault: %v\nstderr:\n%s", runError, stderr)
+		}
+		if got := recorder.methods(); strings.Join(got, " ") != "GET PUT GET GET GET" {
+			t.Fatalf("request sequence = %v, want the plan, the record, two failed polls and the poll that finds it enabled", got)
+		}
+		if count := strings.Count(stderr, "trying again on the next poll"); count != 2 {
+			t.Fatalf("want each passing fault reported once on stderr, got %d:\n%s", count, stderr)
+		}
+		if !strings.Contains(stdout, "State:        enabled") {
+			t.Fatalf("the standing the wait ended on must be printed, got:\n%s", stdout)
+		}
+	})
+	t.Run("on the repeated enable", func(t *testing.T) {
+		recorder := newGatewayAPIServer(t, "hetzner",
+			gatewayAPIOff(),
+			gatewayAPIRecorded(client.GatewayAPIPhaseValuesPending, "values next"),
+			gatewayAPIRecorded(client.GatewayAPIPhaseValuesPending, "values next"),
+			gatewayAPIRecorded(client.GatewayAPIPhaseEnabled, "on"))
+		applying := gatewayAPIRecorded(client.GatewayAPIPhaseApplying, "applying")
+		applying.Traefik.Values, applying.CertManager.Values = client.GatewayAPIValuesAlreadyOn, client.GatewayAPIValuesAlreadyOn
+		recorder.scriptPuts(
+			gatewayAPIEnableAnswer(gatewayAPIRecorded(client.GatewayAPIPhaseCRDsPending, "waiting"), true, false),
+			gatewayAPIEnableAnswer(applying, false, true))
+		recorder.failAt(http.MethodPut, gatewayAPIServerFault, 1)
+
+		_, stderr, runError := runGatewayAPI(t, "", "enable", "--yes", "--wait", "--timeout", "10s")
+		if runError != nil {
+			t.Fatalf("enable --wait failed on a passing fault: %v\nstderr:\n%s", runError, stderr)
+		}
+		want := "GET PUT GET PUT GET PUT GET"
+		if got := recorder.methods(); strings.Join(got, " ") != want {
+			t.Fatalf("request sequence = %v, want %s (the failed repeated enable is repeated after the next poll)", got, want)
+		}
+	})
+}
+
+// Five passing faults in a row end the follow with exit 1, and the message
+// says what the timeout's message says: the option is recorded, the enable
+// keeps going on the platform, and how to keep following it.
+func TestClusterGatewayAPIEnableWaitStopsAfterTheFaultBudgetAndSaysTheEnableKeepsGoing(t *testing.T) {
+	recorder := newGatewayAPIServer(t, "hetzner", gatewayAPIOff())
+	recorder.scriptPuts(gatewayAPIEnableAnswer(gatewayAPIRecorded(client.GatewayAPIPhaseCRDsPending, "waiting"), true, false))
+	recorder.failAt(http.MethodGet, gatewayAPIServerFault, 1, 2, 3, 4, 5, 6)
+
+	stdout, stderr, runError := runGatewayAPI(t, "", "enable", "--yes", "--wait", "--timeout", "10s")
+	if code := exitCodeFor(runError); code != exitError {
+		t.Fatalf("exit code = %d, want %d: %v", code, exitError, runError)
+	}
+	for _, want := range []string{
+		"stopped following the Gateway API enable for cluster 'test-cluster' after 5 failed requests in a row",
+		"Internal Server Error",
+		"The option is recorded and the enable keeps going on the platform",
+		"run 'ankra cluster gateway-api enable --wait' again to keep following it",
+	} {
+		if !strings.Contains(runError.Error(), want) {
+			t.Fatalf("error = %q, want it to contain %q", runError.Error(), want)
+		}
+	}
+	if count := strings.Count(stderr, "trying again on the next poll"); count != gatewayAPIFollowFaultBudget-1 {
+		t.Fatalf("want %d faults tried again before the follow stops, got %d:\n%s", gatewayAPIFollowFaultBudget-1, count, stderr)
+	}
+	if !strings.Contains(stdout, "State:        recorded, waiting for the Gateway API CRDs") {
+		t.Fatalf("the standing the wait stopped on must be printed, got:\n%s", stdout)
+	}
+	if got := recorder.methods(); strings.Join(got, " ") != "GET PUT GET GET GET GET GET" {
+		t.Fatalf("request sequence = %v, want the plan, the record and five failed polls", got)
+	}
+}
+
+// A refusal while --wait follows is the platform's answer, not a passing
+// fault: it ends the follow at once with its own exit code.
+func TestClusterGatewayAPIEnableWaitStopsAtOnceOnARefusal(t *testing.T) {
+	cases := []struct {
+		name     string
+		fault    gatewayAPIFault
+		wantCode int
+	}{
+		{name: "a cluster gone from the organisation exits 3",
+			fault: gatewayAPIFault{status: http.StatusNotFound, body: `{"detail":"Cluster not found"}`}, wantCode: exitNotFound},
+		{name: "a role that cannot read the cluster exits 7",
+			fault: gatewayAPIFault{status: http.StatusForbidden, body: `{"detail":"Forbidden"}`}, wantCode: exitForbidden},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			recorder := newGatewayAPIServer(t, "hetzner", gatewayAPIOff(), gatewayAPIRecorded(client.GatewayAPIPhaseEnabled, "on"))
+			recorder.scriptPuts(gatewayAPIEnableAnswer(gatewayAPIRecorded(client.GatewayAPIPhaseCRDsPending, "waiting"), true, false))
+			recorder.failAt(http.MethodGet, testCase.fault, 1)
+
+			_, stderr, runError := runGatewayAPI(t, "", "enable", "--yes", "--wait", "--timeout", "10s")
+			if code := exitCodeFor(runError); code != testCase.wantCode {
+				t.Fatalf("exit code = %d, want %d: %v", code, testCase.wantCode, runError)
+			}
+			if strings.Contains(stderr, "trying again") {
+				t.Fatalf("a refusal was tried again:\n%s", stderr)
+			}
+			if got := recorder.methods(); strings.Join(got, " ") != "GET PUT GET" {
+				t.Fatalf("request sequence = %v, want the plan, the record and the refused poll", got)
+			}
+		})
+	}
+}
+
+// --timeout bounds --wait: without it the value would be a bound the command
+// never applies, so it is refused before any request, as is a timeout that
+// is not positive.
+func TestClusterGatewayAPIEnableRefusesATimeoutItWouldNotApply(t *testing.T) {
+	cases := []struct {
+		arguments []string
+		wantText  string
+	}{
+		{arguments: []string{"enable", "--yes", "--timeout", "30m"}, wantText: "--timeout bounds --wait: pass it with --wait"},
+		{arguments: []string{"enable", "--yes", "--wait", "--timeout", "0s"}, wantText: "--timeout must be a positive duration, got 0s"},
+	}
+	for _, testCase := range cases {
+		t.Run(strings.Join(testCase.arguments, " "), func(t *testing.T) {
+			recorder := newGatewayAPIServer(t, "hetzner", gatewayAPIOff())
+			recorder.scriptPuts(gatewayAPIEnableAnswer(gatewayAPIRecorded(client.GatewayAPIPhaseCRDsPending, "waiting"), true, false))
+
+			_, _, runError := runGatewayAPI(t, "", testCase.arguments...)
+			if code := exitCodeFor(runError); code != exitUsage {
+				t.Fatalf("exit code = %d, want %d (usage): %v", code, exitUsage, runError)
+			}
+			if !strings.Contains(runError.Error(), testCase.wantText) {
+				t.Fatalf("error = %q, want it to contain %q", runError.Error(), testCase.wantText)
+			}
+			if requests := recorder.seen(); len(requests) != 0 {
+				t.Fatalf("a refused --timeout still reached the option's route: %+v", requests)
+			}
+		})
+	}
+}
+
+// A member whose values state the platform did not report is kept unknown in
+// the plan, the way 'status' prints "values not reported", rather than shown
+// as a planned write.
+func TestClusterGatewayAPIEnablePlanKeepsAnUnreportedValuesStateUnknown(t *testing.T) {
+	plan := gatewayAPIOff()
+	plan.CertManager.Values = ""
+	newGatewayAPIServer(t, "hetzner", plan)
+
+	_, stderr, runError := runGatewayAPI(t, "", "enable")
+	if code := exitCodeFor(runError); code != exitUsage {
+		t.Fatalf("exit code = %d, want %d (no terminal to confirm on): %v", code, exitUsage, runError)
+	}
+	assertContainsAll(t, stderr, []string{
+		"write the Gateway API settings into the traefik values once the CRDs are established",
+		"decide on the cert-manager values once the CRDs are established (the platform did not report what they need, " +
+			"so this plan cannot say whether they are written)",
+	})
+	if strings.Contains(stderr, "write the Gateway API settings into the cert-manager values") {
+		t.Fatalf("an unreported values state was shown as a planned write:\n%s", stderr)
 	}
 }
 
