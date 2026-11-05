@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## v0.65.0 - 2026-11-05
+
+This release adds `ankra cluster stacks redeploy`, which re-runs a stack's members from
+the terminal, with `--force` to get past a manifest conflict. That used to be reachable
+only from the portal. The embedded agent skills now cover robots that reach several
+projects, and what changing a robot's projects does to its secret.
+
+Scripts have one thing to notice. The platform now answers Security Center reads for
+the project you act in, so a script that read the whole organisation narrows to one
+project unless it passes the new `--all-projects`. Installing this release changes nothing
+on any cluster or workload.
+
+### Added
+
+- **`ankra cluster stacks redeploy <stack> [--force]` re-runs a stack's members from the terminal.** It prints the operations it started and every member it skipped, with the reason, and `-o json` gives the same result as JSON. `--force` is for a manifest whose apply failed with an error reading `conflict with "<manager>"`: the manifests this redeploy re-runs apply with server-side apply force-conflicts for this redeploy only, overwriting the conflicting fields on the live objects with the stack's values. The output names the manifests it forced, and says so when it forced none, because a manifest the redeploy does not re-run is not touched. That cannot be undone, and nothing is stored on the stack, so `--force` states the consequence and asks first; `--yes` answers it, and without a terminal `--yes` is required (exit 2 otherwise, nothing sent). It needs `clusters.write` on the cluster on top of `stacks.deploy`, and a token scoped without `clusters.write` is refused. Until now this was possible only from the portal's operation page. A platform that predates the route says so and exits 1 instead of reporting the stack missing.
 - **`ankra security` reads take `--all-projects`.** The platform now answers Security Center reads for the project you act in, so a script that read the whole organisation narrows to one project unless it asks otherwise. `--all-projects` reads every project, like `ankra cost --all-projects`, and `--cluster` then takes the name of a cluster in any project. A pinned token or a member limited to projects is refused. The compliance frameworks, report and export stay the organisation's and do not take the flag, nor do `history` and `report-schedule`.
 
 ## v0.64.0 - 2026-11-04
@@ -23,6 +38,10 @@ workload.
 
 - **Change which projects a registry robot reaches after it is made.** `ankra registry robots update <name> --registry-project a,b` replaces the list: projects it keeps keep their access, and ones it gains get `--scope`, pull by default. Where the registry can change the robot in place its login and secret keep working. On Harbor a robot admin credential never can, so such a change needs `--new-secret`, which replaces the robot and shows the new secret once.
 - **Limit a private Ankra Cloud zone to one project's members.** `ankra org access-gateway set <zone> --mode organisation --access-project <slug, name or id>` admits only the members who can reach that project, and `get` shows it. Leaving the flag out keeps the zone's current limit, so re-running `set` to change roles cannot widen access; `--access-project ""` removes it. With `--mode public` a project is refused rather than ignored.
+
+### Changed
+
+- **A read warns when the platform did not apply the project you selected.** Some commands, such as `security`, `alerts` and `services`, accept `--project` but can answer for the whole organisation. When the platform says it did not apply the project, the CLI now says so on stderr, so `-o json` output stays clean. Set `ANKRA_PROJECT_SCOPE_WARNING=off` to silence it. It needs a platform that sends the answer, and stays quiet otherwise.
 
 ### Fixed
 
@@ -60,7 +79,6 @@ Installing this release changes nothing on any cluster or workload.
 ### Added
 
 - **One registry robot can reach several projects.** `ankra registry robots create --registry-project` now takes a repeated or comma-separated list of up to 20 projects, so a consumer that installs a chart from one project and pulls its images from another needs one robot and one pull secret. On a Harbor your organisation runs, the `--admin-credential` must be allowed to make system-level robots: a system administrator, or a system-level robot with robot create, read, list and delete at system level that itself holds the access on every project.
-- **`ankra cluster stacks redeploy <stack> [--force]` re-runs a stack's members from the terminal.** It prints the operations it started and every member it skipped, with the reason, and `-o json` gives the same result as JSON. `--force` is for a manifest whose apply failed with an error reading `conflict with "<manager>"`: the manifests this redeploy re-runs apply with server-side apply force-conflicts for this redeploy only, overwriting the conflicting fields on the live objects with the stack's values. The output names the manifests it forced, and says so when it forced none, because a manifest the redeploy does not re-run is not touched. That cannot be undone, and nothing is stored on the stack, so `--force` states the consequence and asks first; `--yes` answers it, and without a terminal `--yes` is required (exit 2 otherwise, nothing sent). It needs `clusters.write` on the cluster on top of `stacks.deploy`, and a token scoped without `clusters.write` is refused. Until now this was possible only from the portal's operation page. A platform that predates the route says so and exits 1 instead of reporting the stack missing.
 
 ### Fixed
 
