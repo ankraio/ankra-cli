@@ -1868,6 +1868,14 @@ func (m baseMock) SetClusterHostedLogShipping(context.Context, string, bool) (*c
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetClusterGatewayAPI(context.Context, string, string) (*client.GatewayAPIStatus, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) EnableClusterGatewayAPI(context.Context, string, string) (*client.GatewayAPIEnableResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetControlPlaneHeal(context.Context, string) (*client.ControlPlaneHeal, error) {
 	return nil, errors.New("not implemented")
 }

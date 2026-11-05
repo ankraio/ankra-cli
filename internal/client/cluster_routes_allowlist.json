@@ -5,6 +5,7 @@
   "/api/v1/clusters/%s/%s/bastion/instance-type  (internal/client/bastion.go)",
   "/api/v1/clusters/%s/%s/control-plane  (internal/client/control_plane.go)",
   "/api/v1/clusters/%s/%s/control-plane/instance-type  (internal/client/control_plane.go)",
+  "/api/v1/clusters/%s/%s/gateway-api  (internal/client/gateway_api.go)",
   "/api/v1/clusters/%s/%s/nodes  (internal/client/cluster_nodes.go)",
   "/api/v1/clusters/%s/%s/nodes/%s  (internal/client/cluster_nodes.go)",
   "/api/v1/clusters/%s/%s/nodes/%s/cloud-init-log  (internal/client/cluster_nodes.go)",

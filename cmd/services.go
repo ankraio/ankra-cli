@@ -609,6 +609,8 @@ type APIClient interface {
 	UpdateAgentResources(ctx context.Context, clusterID string, update client.AgentResourcesUpdate) (*client.AgentResources, error)
 	GetClusterHostedLogs(ctx context.Context, clusterID string) (*client.ClusterHostedLogs, error)
 	SetClusterHostedLogShipping(ctx context.Context, clusterID string, enabled bool) (*client.ClusterHostedLogs, error)
+	GetClusterGatewayAPI(ctx context.Context, provider string, clusterID string) (*client.GatewayAPIStatus, error)
+	EnableClusterGatewayAPI(ctx context.Context, provider string, clusterID string) (*client.GatewayAPIEnableResult, error)
 	GetControlPlaneHeal(ctx context.Context, clusterID string) (*client.ControlPlaneHeal, error)
 	SetControlPlaneHeal(ctx context.Context, clusterID string, enabled bool) (*client.ControlPlaneHeal, error)
 	GetStateSnapshotRetention(ctx context.Context, clusterID string) (*client.StateSnapshotRetention, error)
