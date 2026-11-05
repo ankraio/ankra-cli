@@ -280,6 +280,139 @@ func TestClusterBackupsStatusSaysWhenItDoesNotRecogniseTheDataPlaneState(t *test
 	}
 }
 
+// The unknown data-plane state is the backup stack up while the barman-cloud
+// plugin a CloudNativePG stack depends on could not be confirmed running
+// (ankra-t5wgj3). It is worded as what could not be confirmed: never as the
+// unrecognised-state fallback, and never as "nothing is protected", which the
+// platform did not say (ankra-z2tfp4).
+func TestClusterBackupsStatusWordsTheUnknownDataPlaneStateAsWhatCouldNotBeConfirmed(t *testing.T) {
+	mock := newClusterBackupsMock()
+	mock.page = sampleClusterBackupsPage()
+	mock.page.BackupStackState = client.ClusterBackupStackUnknown
+	mock.page.BackupStackIssue = "Ankra could not confirm that the barman-cloud plugin is running on this cluster."
+
+	output, executeError := runClusterBackups(t, mock, "cluster", "backups", "status", "--cluster", "demo")
+	if executeError != nil {
+		t.Fatalf("reading the cluster's backups: %v", executeError)
+	}
+	stripped := stripANSICodes(output)
+	for _, expected := range []string{
+		"Backup components: up, but whether its barman-cloud plugin is running could not be confirmed",
+		"Why: " + mock.page.BackupStackIssue,
+	} {
+		if !strings.Contains(stripped, expected) {
+			t.Errorf("expected the unknown state to contain %q, got:\n%s", expected, stripped)
+		}
+	}
+	for _, forbidden := range []string{
+		"does not recognise that state",
+		"nothing is being captured",
+		"nothing is protected",
+		"not installed",
+	} {
+		if strings.Contains(stripped, forbidden) {
+			t.Errorf("the unknown state must not read %q, got:\n%s", forbidden, stripped)
+		}
+	}
+}
+
+// Each verdict the CloudNativePG backup path decides carries the platform's
+// sentence naming what was observed, or what could not be confirmed, and what
+// to do. The row keeps the reason code; the sentence is printed after the
+// table, verbatim, for the stack it belongs to (ankra-z2tfp4).
+func TestClusterBackupsStatusPrintsTheReasonAndTheSentenceForEachBackupPathVerdict(t *testing.T) {
+	for _, testCase := range []struct {
+		reason    string
+		row       client.StackBackupsRow
+		wantCell  string
+		wantLines string
+	}{
+		{
+			reason: "barman_plugin_not_running",
+			row: client.StackBackupsRow{
+				StackName: "billing", Stateful: true,
+				ProtectionState:   client.ProtectionStateUnprotected,
+				UnprotectedReason: "barman_plugin_not_running",
+				BackupPathDetail: "The barman-cloud plugin has no available replica. " +
+					"Restart its Deployment in the cnpg-system namespace.",
+			},
+			wantCell:  "unprotected (barman_plugin_not_running)",
+			wantLines: "Why billing is unprotected: The barman-cloud plugin has no available replica.",
+		},
+		{
+			reason: "archiving_failing",
+			row: client.StackBackupsRow{
+				StackName: "orders", Stateful: true,
+				ProtectionState:   client.ProtectionStateUnprotected,
+				UnprotectedReason: "archiving_failing",
+				BackupPathDetail: "CloudNativePG cluster 'orders/orders-db' reports that its write-ahead log " +
+					"archive is failing, so its data is not reaching the backup vault.",
+			},
+			wantCell:  "unprotected (archiving_failing)",
+			wantLines: "Why orders is unprotected: CloudNativePG cluster 'orders/orders-db' reports",
+		},
+		{
+			reason: "barman_plugin_unverified",
+			row: client.StackBackupsRow{
+				StackName: "shop", Stateful: true,
+				ProtectionState:  client.ProtectionStateUnknown,
+				UnknownReason:    "barman_plugin_unverified",
+				BackupPathDetail: "Ankra could not confirm that the barman-cloud plugin is running on this cluster.",
+			},
+			wantCell:  "unknown (barman_plugin_unverified)",
+			wantLines: "Why shop could not be assessed: Ankra could not confirm that the barman-cloud plugin",
+		},
+		{
+			reason: "archiving_unreported",
+			row: client.StackBackupsRow{
+				StackName: "users", Stateful: true,
+				ProtectionState:  client.ProtectionStateUnknown,
+				UnknownReason:    "archiving_unreported",
+				BackupPathDetail: "CloudNativePG cluster 'users/users-db' has not reported on its write-ahead log archive.",
+			},
+			wantCell:  "unknown (archiving_unreported)",
+			wantLines: "Why users could not be assessed: CloudNativePG cluster 'users/users-db' has not reported",
+		},
+	} {
+		t.Run(testCase.reason, func(t *testing.T) {
+			mock := newClusterBackupsMock()
+			mock.page = sampleClusterBackupsPage()
+			// A row with no sentence beside it, so the test also pins that a
+			// verdict the backup path did not decide prints no Why line.
+			mock.page.Stacks = []client.StackBackupsRow{
+				testCase.row,
+				{
+					StackName: "analytics", Stateful: true,
+					ProtectionState: client.ProtectionStateUnprotected, UnprotectedReason: "no_policy",
+					DataAssetCount: 1, DataAssetCountKnown: true,
+				},
+			}
+
+			output, executeError := runClusterBackups(t, mock,
+				"cluster", "backups", "status", "--cluster", "demo")
+			if executeError != nil {
+				t.Fatalf("reading the cluster's backups: %v", executeError)
+			}
+			stripped := stripANSICodes(output)
+			if !strings.Contains(stripped, testCase.wantCell) {
+				t.Errorf("expected the row to read %q, got:\n%s", testCase.wantCell, stripped)
+			}
+			if !strings.Contains(stripped, testCase.wantLines) {
+				t.Errorf("expected the sentence line %q, got:\n%s", testCase.wantLines, stripped)
+			}
+			// The sentence is the platform's, whole: the CLI neither trims nor
+			// rewords it.
+			if !strings.Contains(stripped, testCase.row.BackupPathDetail) {
+				t.Errorf("expected the platform's sentence verbatim %q, got:\n%s",
+					testCase.row.BackupPathDetail, stripped)
+			}
+			if strings.Contains(stripped, "Why analytics") {
+				t.Errorf("a row with no sentence printed a Why line:\n%s", stripped)
+			}
+		})
+	}
+}
+
 func TestClusterBackupsStatusRendersStructuredOutputVerbatim(t *testing.T) {
 	mock := newClusterBackupsMock()
 	mock.page = sampleClusterBackupsPage()
