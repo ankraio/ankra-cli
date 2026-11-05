@@ -228,7 +228,7 @@ type SecurityPodPosture struct {
 func (c *Client) ListClusterSecurityStacks(clusterID string) (*SecurityClusterStackList, error) {
 	var list SecurityClusterStackList
 	endpoint := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/security/stacks", c.BaseURL, neturl.PathEscape(clusterID))
-	if err := c.getJSON(endpoint, &list); err != nil {
+	if err := c.getJSON(c.securityScopedURL(endpoint), &list); err != nil {
 		return nil, fmt.Errorf("cluster security stacks request failed: %w", err)
 	}
 	if list.Stacks == nil {
@@ -242,7 +242,7 @@ func (c *Client) GetStackSecurity(clusterID string, stackName string) (*Security
 	var posture SecurityStackPosture
 	endpoint := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/%s/security",
 		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(stackName))
-	if err := c.getJSON(endpoint, &posture); err != nil {
+	if err := c.getJSON(c.securityScopedURL(endpoint), &posture); err != nil {
 		return nil, fmt.Errorf("stack security request failed: %w", err)
 	}
 	if posture.Members == nil {
@@ -257,7 +257,7 @@ func (c *Client) ListStackSecurityWorkloads(clusterID string, stackName string) 
 	var list SecurityStackWorkloadList
 	endpoint := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/%s/security/workloads",
 		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(stackName))
-	if err := c.getJSON(endpoint, &list); err != nil {
+	if err := c.getJSON(c.securityScopedURL(endpoint), &list); err != nil {
 		return nil, fmt.Errorf("stack security workloads request failed: %w", err)
 	}
 	if list.Result == nil {
@@ -271,7 +271,7 @@ func (c *Client) GetPodSecurity(clusterID string, namespace string, podName stri
 	var posture SecurityPodPosture
 	endpoint := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/security/pods/%s/%s",
 		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(namespace), neturl.PathEscape(podName))
-	if err := c.getJSON(endpoint, &posture); err != nil {
+	if err := c.getJSON(c.securityScopedURL(endpoint), &posture); err != nil {
 		return nil, fmt.Errorf("pod security request failed: %w", err)
 	}
 	if posture.Containers == nil {

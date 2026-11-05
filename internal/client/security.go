@@ -349,7 +349,7 @@ func (c *Client) GetSecurityOverview(options SecurityOverviewOptions) (*Security
 		query.Set("addon_slug", options.AddonSlug)
 	}
 	var overview SecurityOverview
-	if err := c.getJSON(securityURL(c.BaseURL, "/overview", query), &overview); err != nil {
+	if err := c.getJSON(c.securityScopedURL(securityURL(c.BaseURL, "/overview", query)), &overview); err != nil {
 		return nil, fmt.Errorf("security overview request failed: %w", err)
 	}
 	return &overview, nil
@@ -390,7 +390,7 @@ func (c *Client) ListSecurityFindings(options SecurityFindingsOptions) (*Securit
 		query.Set("order", options.Order)
 	}
 	var list SecurityFindingList
-	if err := c.getJSON(securityURL(c.BaseURL, "/findings", query), &list); err != nil {
+	if err := c.getJSON(c.securityScopedURL(securityURL(c.BaseURL, "/findings", query)), &list); err != nil {
 		return nil, fmt.Errorf("security findings request failed: %w", err)
 	}
 	if list.Result == nil {
@@ -402,7 +402,7 @@ func (c *Client) ListSecurityFindings(options SecurityFindingsOptions) (*Securit
 // GetSecurityFinding reads one finding with its current occurrences.
 func (c *Client) GetSecurityFinding(findingID string) (*SecurityFindingDetail, error) {
 	var detail SecurityFindingDetail
-	requestURL := securityURL(c.BaseURL, "/findings/"+neturl.PathEscape(findingID), neturl.Values{})
+	requestURL := c.securityScopedURL(securityURL(c.BaseURL, "/findings/"+neturl.PathEscape(findingID), neturl.Values{}))
 	if err := c.getJSON(requestURL, &detail); err != nil {
 		return nil, fmt.Errorf("security finding request failed: %w", err)
 	}
@@ -429,7 +429,7 @@ func (c *Client) ListSecurityClusters(options SecurityClustersOptions) (*Securit
 		query.Set("order", options.Order)
 	}
 	var list SecurityClusterList
-	if err := c.getJSON(securityURL(c.BaseURL, "/clusters", query), &list); err != nil {
+	if err := c.getJSON(c.securityScopedURL(securityURL(c.BaseURL, "/clusters", query)), &list); err != nil {
 		return nil, fmt.Errorf("security clusters request failed: %w", err)
 	}
 	if list.Result == nil {
@@ -443,7 +443,7 @@ func (c *Client) ListSecurityClusters(options SecurityClustersOptions) (*Securit
 // lists stay nil so -o json prints the document as the platform sent it.
 func (c *Client) GetSecurityClusterAccessPosture(clusterID string) (*SecurityClusterAccessPosture, error) {
 	var posture SecurityClusterAccessPosture
-	requestURL := securityURL(c.BaseURL, "/clusters/"+neturl.PathEscape(strings.TrimSpace(clusterID))+"/access-posture", neturl.Values{})
+	requestURL := c.securityScopedURL(securityURL(c.BaseURL, "/clusters/"+neturl.PathEscape(strings.TrimSpace(clusterID))+"/access-posture", neturl.Values{}))
 	if err := c.getJSON(requestURL, &posture); err != nil {
 		return nil, fmt.Errorf("cluster access posture request failed: %w", err)
 	}
@@ -570,7 +570,7 @@ type SecurityAdvisory struct {
 // GetSecurityAdvisory reads the platform's advisory page for one CVE.
 func (c *Client) GetSecurityAdvisory(cveID string) (*SecurityAdvisory, error) {
 	var advisory SecurityAdvisory
-	requestURL := securityURL(c.BaseURL, "/advisories/"+neturl.PathEscape(cveID), neturl.Values{})
+	requestURL := c.securityScopedURL(securityURL(c.BaseURL, "/advisories/"+neturl.PathEscape(cveID), neturl.Values{}))
 	if err := c.getJSON(requestURL, &advisory); err != nil {
 		return nil, fmt.Errorf("security advisory request failed: %w", err)
 	}

@@ -45,6 +45,10 @@ type Client struct {
 	// reconciliation, budgets): a project id, or CostProjectScopeAll.
 	costProjectScope string
 
+	// securityProjectScope, when non-empty, is sent as ?project_id= on the
+	// Security Center reads that take it (securityScopedURL).
+	securityProjectScope string
+
 	// slowWriteTimeout bounds the writes that do their whole job on the
 	// request path (see slow_write.go). They drop the response-header
 	// deadline, so this is the only thing standing between a wedged server
@@ -184,14 +188,34 @@ func (c *Client) SetCostProjectScope(scope string) {
 // costScopedURL appends the cost project scope to a fleet cost read's URL,
 // after any query the path already carries.
 func (c *Client) costScopedURL(target string) string {
-	if c.costProjectScope == "" {
+	return withProjectScope(target, c.costProjectScope)
+}
+
+// withProjectScope appends ?project_id=scope to a URL; an empty scope leaves it
+// as it came.
+func withProjectScope(target string, scope string) string {
+	if scope == "" {
 		return target
 	}
 	separator := "?"
 	if strings.Contains(target, "?") {
 		separator = "&"
 	}
-	return target + separator + "project_id=" + url.QueryEscape(c.costProjectScope)
+	return target + separator + "project_id=" + url.QueryEscape(scope)
+}
+
+// SetSecurityProjectScope sets the ?project_id= the Security Center reads send,
+// under the fleet cost reads' rules: CostProjectScopeAll for the whole
+// organisation, or an empty string to leave the read in the caller's current
+// project. The organisation's compliance documents and every write send none.
+func (c *Client) SetSecurityProjectScope(scope string) {
+	c.securityProjectScope = scope
+}
+
+// securityScopedURL appends the security project scope to a Security Center
+// read's URL, after any query the path already carries.
+func (c *Client) securityScopedURL(target string) string {
+	return withProjectScope(target, c.securityProjectScope)
 }
 
 // httpClientForSlowWrite returns a client for synchronous writes that can

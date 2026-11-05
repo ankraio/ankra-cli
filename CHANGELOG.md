@@ -6,22 +6,52 @@
 
 - **Turn the Kubernetes Gateway API on for a cluster that already exists.** `ankra cluster gateway-api` shows the platform's plan for a cluster Ankra built: whether the option is recorded, where the Gateway API CRDs come from and whether they are established, what the Traefik and cert-manager values still need, and who moves the enable on next. `ankra cluster gateway-api enable` prints that plan, asks, and turns the option on; it is idempotent, so running it again after the CRDs landed writes the values, and `--wait` follows it to enabled (exit 0) and exits 5 when `--timeout` runs out while the enable keeps going. With or without `--wait` it exits 1, with the reason on stderr, when the platform needs a person: a conflict in the values, a failed CRD install or apply, no Ankra-installed networking, or a values write the platform took but could not push to the GitOps repository. Values you wrote yourself are never changed. Needs a platform with the day-2 route; on an older one the command says so and exits 1.
 
+## v0.65.0 - 2026-11-05
+
+This release adds `ankra cluster stacks redeploy`, which re-runs a stack's members from
+the terminal, with `--force` to get past a manifest conflict. That used to be reachable
+only from the portal. The embedded agent skills now cover robots that reach several
+projects, and what changing a robot's projects does to its secret.
+
+Scripts have one thing to notice. The platform now answers Security Center reads for
+the project you act in, so a script that read the whole organisation narrows to one
+project unless it passes the new `--all-projects`. Installing this release changes nothing
+on any cluster or workload.
+
+### Added
+
+- **`ankra cluster stacks redeploy <stack> [--force]` re-runs a stack's members from the terminal.** It prints the operations it started and every member it skipped, with the reason, and `-o json` gives the same result as JSON. `--force` is for a manifest whose apply failed with an error reading `conflict with "<manager>"`: the manifests this redeploy re-runs apply with server-side apply force-conflicts for this redeploy only, overwriting the conflicting fields on the live objects with the stack's values. The output names the manifests it forced, and says so when it forced none, because a manifest the redeploy does not re-run is not touched. That cannot be undone, and nothing is stored on the stack, so `--force` states the consequence and asks first; `--yes` answers it, and without a terminal `--yes` is required (exit 2 otherwise, nothing sent). It needs `clusters.write` on the cluster on top of `stacks.deploy`, and a token scoped without `clusters.write` is refused. Until now this was possible only from the portal's operation page. A platform that predates the route says so and exits 1 instead of reporting the stack missing.
+- **`ankra security` reads take `--all-projects`.** The platform now answers Security Center reads for the project you act in, so a script that read the whole organisation narrows to one project unless it asks otherwise. `--all-projects` reads every project, like `ankra cost --all-projects`, and `--cluster` then takes the name of a cluster in any project. A pinned token or a member limited to projects is refused. The compliance frameworks, report and export stay the organisation's and do not take the flag, nor do `history` and `report-schedule`.
+
 ## v0.64.0 - 2026-11-04
 
 This release lets you change which projects a registry robot reaches after it is
 made, with `ankra registry robots update`, and limit a private Ankra Cloud zone to
 the members who can reach one project, with `ankra org access-gateway set
---access-project`.
+--access-project`. `ankra exec`, `ankra cluster exec`, `terminal` and `debug` now act in
+the project you chose.
 
-Scripts have one thing to notice: `ankra org access-gateway get` prints one more
-line, `Project:`. Its `-o json` only gains `project_id`, and leaves it out when a
-zone has no limit. Installing this release changes nothing on any cluster or
+Scripts have two things to notice. With `--project`, `ANKRA_PROJECT` or a saved
+selection, `ankra exec` and the pod terminal commands now act in that project, where
+they used to ignore it. `ankra org access-gateway get` prints one more line,
+`Project:`; its `-o json` only gains `project_id`, and leaves it out when a zone has
+no limit. Installing this release changes nothing on any cluster or
 workload.
 
 ### Added
 
 - **Change which projects a registry robot reaches after it is made.** `ankra registry robots update <name> --registry-project a,b` replaces the list: projects it keeps keep their access, and ones it gains get `--scope`, pull by default. Where the registry can change the robot in place its login and secret keep working. On Harbor a robot admin credential never can, so such a change needs `--new-secret`, which replaces the robot and shows the new secret once.
 - **Limit a private Ankra Cloud zone to one project's members.** `ankra org access-gateway set <zone> --mode organisation --access-project <slug, name or id>` admits only the members who can reach that project, and `get` shows it. Leaving the flag out keeps the zone's current limit, so re-running `set` to change roles cannot widen access; `--access-project ""` removes it. With `--mode public` a project is refused rather than ignored.
+
+### Changed
+
+- **A read warns when the platform did not apply the project you selected.** Some commands, such as `security`, `alerts` and `services`, accept `--project` but can answer for the whole organisation. When the platform says it did not apply the project, the CLI now says so on stderr, so `-o json` output stays clean. Set `ANKRA_PROJECT_SCOPE_WARNING=off` to silence it. It needs a platform that sends the answer, and stays quiet otherwise.
+
+### Fixed
+
+- **`ankra cluster exec`, `terminal` and `debug` act in the project you chose.** A pod terminal did not send the project, so with `--project`, `ANKRA_PROJECT` or a saved `ankra project switch`, a cluster outside the organisation's default project closed the connection without saying why. It works now, and a project you cannot reach is refused.
+- **`ankra exec` and the routing shims honour the project.** `--project`, `ANKRA_PROJECT` and the saved selection used to be ignored, so `ankra exec --check` looked for the repository in the default project only. It now looks in the project you chose, and answers no for a repository connected in another project, which makes a shim run the tool on this machine. The workspace itself still has no project on the platform.
+- **The project help says what happens with no selection.** It said the CLI follows the project the portal shows. It does not: without a selection a token acts in its pinned project or the organisation's default, and switching project in the portal never moves the CLI. `ankra project current` also warns when the saved selection names a project you can no longer reach, since other commands will be refused.
 
 ## v0.63.0 - 2026-11-04
 
@@ -56,9 +86,6 @@ Installing this release changes nothing on any cluster or workload.
 
 ### Fixed
 
-- **`ankra cluster exec`, `terminal` and `debug` act in the project you chose.** A pod terminal did not send the project, so with `--project`, `ANKRA_PROJECT` or a saved `ankra project switch`, a cluster outside the organisation's default project closed the connection without saying why. It works now, and a project you cannot reach is refused.
-- **`ankra exec` and the routing shims honour the project.** `--project`, `ANKRA_PROJECT` and the saved selection used to be ignored, so `ankra exec --check` looked for the repository in the default project only. It now looks in the project you chose, and answers no for a repository connected in another project, which makes a shim run the tool on this machine. The workspace itself still has no project on the platform.
-- **The project help says what happens with no selection.** It said the CLI follows the project the portal shows. It does not: without a selection a token acts in its pinned project or the organisation's default, and switching project in the portal never moves the CLI. `ankra project current` also warns when the saved selection names a project you can no longer reach, since other commands will be refused.
 - **`ankra pipeline logs` no longer exits 0 when the log stream breaks. This changes the exit status a script sees.** A stream that dropped under a running step used to print `Log stream fault: ...` and `Log stream ended.` and exit 0, so automation reading the exit status stopped collecting the log of a build that was still running. Without `--follow` the command now exits 1, says the output is incomplete, and gives the `--follow --replay` command that reads all of it again. A stream that closes under a running step with no fault at all exits the same way. With `--follow` it reconnects after the last line it printed, waiting 2 seconds and doubling to 30 after each failed connection, and exits 1 with the same message once 10 connections in a row fail; a connection that carried a line or stayed up for 30 seconds starts that count again. A stream that breaks as the step concludes is finished from the platform's retained log stream, so no section is lost, and exits 0 only if that replay finishes. A replay that breaks off, which used to exit 0, now exits 1. Reading a step that finished normally still exits 0, and nothing here touches the step itself: a broken log stream is not a failed build. Stderr now says `Log stream interrupted (...)` where it said `Log stream fault: ...`, so a script matching that text has to change too.
 - **`ankra pipeline logs` reads a step whose log failed to archive.** A step log whose upload failed used to stop the command with the archive's error, even while the platform's retained log stream still held the output. The command now says why the archive was not read and replays that stream, as it already did for a log still being archived. A step with no retained stream still reports the archive's error.
 - **`ankra cluster draft` stages a file whole or not at all, and `--replace` discards a stack's existing draft.** The stacks used to be sent one at a time, so a refusal part way through left the earlier stacks staged, and running the command again then failed on those. Now every refusal in the file is reported at once and nothing is staged until the file is clean. A stack that already has a draft is still refused; `--replace` discards that draft, including edits made to it, and stages the file's version. It asks first, needs `--yes` without a terminal, and refuses a draft a data run is still waiting on. This needs a platform that has the whole-file route. On one that does not, the command says so and stages nothing.

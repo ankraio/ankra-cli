@@ -14,6 +14,7 @@ type APIClient interface {
 	SetProjectOverride(projectID string)
 	ProjectOverride() string
 	SetCostProjectScope(scope string)
+	SetSecurityProjectScope(scope string)
 
 	ListProjects() ([]client.ProjectSummary, error)
 	GetCurrentProject() (*client.ProjectSummary, error)
@@ -288,6 +289,7 @@ type APIClient interface {
 	PromoteClusterStackDraft(ctx context.Context, clusterID string, document client.ClusterStackDocument) (*client.PatchStackResult, error)
 	DeleteStack(ctx context.Context, clusterID, stackName string) (*client.DeleteStackResult, error)
 	RenameStack(ctx context.Context, clusterID, stackName, newName string) (*client.RenameStackResult, error)
+	RedeployStack(ctx context.Context, clusterID, stackName string, force bool) (*client.RedeployStackResult, error)
 	GetStackHistory(clusterID, stackName string) (*client.GetStackHistoryResponse, error)
 	GetStackAddonResourceID(clusterID, stackName, addonName string) (string, error)
 	CloneStackToCluster(ctx context.Context, targetClusterID string, cloneReq client.CloneStackToClusterRequest) (*client.CloneStackToClusterResult, error)

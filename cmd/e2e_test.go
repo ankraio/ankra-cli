@@ -47,6 +47,8 @@ func (m baseMock) ProjectOverride() string { return "" }
 
 func (m baseMock) SetCostProjectScope(string) {}
 
+func (m baseMock) SetSecurityProjectScope(string) {}
+
 func (m baseMock) ListProjects() ([]client.ProjectSummary, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1261,6 +1263,10 @@ func (m baseMock) DeleteStack(ctx context.Context, clusterID, stackName string) 
 }
 
 func (m baseMock) RenameStack(ctx context.Context, clusterID, stackName, newName string) (*client.RenameStackResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RedeployStack(ctx context.Context, clusterID, stackName string, force bool) (*client.RedeployStackResult, error) {
 	return nil, errors.New("not implemented")
 }
 
