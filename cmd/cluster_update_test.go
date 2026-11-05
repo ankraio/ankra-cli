@@ -200,15 +200,6 @@ func TestClusterUpdateStructuredOutputStaysParseable(t *testing.T) {
 	}
 }
 
-const importClusterWithEnvironment = `apiVersion: v1
-kind: ImportCluster
-metadata:
-  name: so-infrastructure
-  environment: development
-spec:
-  stacks: []
-`
-
 func writeImportClusterWithEnvironment(t *testing.T, contents string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "so-infrastructure.yaml")
