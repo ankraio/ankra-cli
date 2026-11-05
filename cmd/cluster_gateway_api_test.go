@@ -773,17 +773,25 @@ func TestClusterGatewayAPIEnableWaitStopsAfterTheFaultBudgetAndSaysTheEnableKeep
 }
 
 // A refusal while --wait follows is the platform's answer, not a passing
-// fault: it ends the follow at once with its own exit code.
+// fault: it ends the follow at once with its own exit code. So does an
+// answer that arrived whole but does not decode, a broken contract that
+// retrying would only report as "the enable keeps going".
 func TestClusterGatewayAPIEnableWaitStopsAtOnceOnARefusal(t *testing.T) {
 	cases := []struct {
 		name     string
 		fault    gatewayAPIFault
 		wantCode int
+		wantText string
 	}{
 		{name: "a cluster gone from the organisation exits 3",
-			fault: gatewayAPIFault{status: http.StatusNotFound, body: `{"detail":"Cluster not found"}`}, wantCode: exitNotFound},
+			fault: gatewayAPIFault{status: http.StatusNotFound, body: `{"detail":"Cluster not found"}`}, wantCode: exitNotFound,
+			wantText: "not found in this organisation"},
 		{name: "a role that cannot read the cluster exits 7",
-			fault: gatewayAPIFault{status: http.StatusForbidden, body: `{"detail":"Forbidden"}`}, wantCode: exitForbidden},
+			fault: gatewayAPIFault{status: http.StatusForbidden, body: `{"detail":"Forbidden"}`}, wantCode: exitForbidden,
+			wantText: "reading the Gateway API standing of cluster 'test-cluster'"},
+		{name: "an answer that does not decode exits 1",
+			fault: gatewayAPIFault{status: http.StatusOK, body: `<html>maintenance</html>`}, wantCode: exitError,
+			wantText: "reading the Gateway API standing of cluster 'test-cluster': parse response"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -794,6 +802,9 @@ func TestClusterGatewayAPIEnableWaitStopsAtOnceOnARefusal(t *testing.T) {
 			_, stderr, runError := runGatewayAPI(t, "", "enable", "--yes", "--wait", "--timeout", "10s")
 			if code := exitCodeFor(runError); code != testCase.wantCode {
 				t.Fatalf("exit code = %d, want %d: %v", code, testCase.wantCode, runError)
+			}
+			if !strings.Contains(runError.Error(), testCase.wantText) {
+				t.Fatalf("error = %q, want it to contain %q", runError.Error(), testCase.wantText)
 			}
 			if strings.Contains(stderr, "trying again") {
 				t.Fatalf("a refusal was tried again:\n%s", stderr)

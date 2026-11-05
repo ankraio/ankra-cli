@@ -20,6 +20,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -514,9 +515,18 @@ func gatewayAPIRepeatRefused(target gatewayAPITarget, refusal *client.Unexpected
 // poll: the platform answered 5xx, 408 or 429, the connection failed, or the
 // one request timed out. A refusal is the platform's answer and is not tried
 // again: a rejected login, a role without the permission, a billing
-// restriction, a 404, a 409 or any other 4xx. Nor is an interrupted command.
+// restriction, a 404, a 409 or any other 4xx. Nor is an interrupted command,
+// nor an answer that arrived whole but does not decode: that is a broken
+// contract, and retrying it would only spend the budget and then claim the
+// enable keeps going. A body cut short by a dropped connection fails while
+// it is read, not while it is decoded, so it stays a passing fault.
 func gatewayAPIFaultIsPassing(fault error) bool {
 	if fault == nil || errors.Is(fault, context.Canceled) || errors.Is(fault, client.ErrUnauthorized) {
+		return false
+	}
+	var syntaxError *json.SyntaxError
+	var typeError *json.UnmarshalTypeError
+	if errors.As(fault, &syntaxError) || errors.As(fault, &typeError) {
 		return false
 	}
 	var denied *client.PermissionDeniedError
@@ -530,8 +540,8 @@ func gatewayAPIFaultIsPassing(fault error) bool {
 			unexpected.StatusCode == http.StatusRequestTimeout ||
 			unexpected.StatusCode == http.StatusTooManyRequests
 	}
-	// Anything else never reached a platform answer: a connection refused,
-	// reset or timed out, or a body that did not parse.
+	// Anything else never reached a whole platform answer: a connection
+	// refused, reset or timed out, or a body cut short while it was read.
 	return true
 }
 
