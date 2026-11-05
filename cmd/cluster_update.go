@@ -68,9 +68,13 @@ testing is graded as development and local as disposable. --criticality
 overrides it. An environment of your own leaves the reporting level as it is
 unless --criticality is given.
 
-The environment is not part of an ImportCluster file: 'ankra cluster apply'
-never changes it on an existing cluster, so a value set here stays until it
-is changed here or in the portal.
+An ImportCluster file can declare the environment too, as metadata.environment:
+'ankra cluster apply' creates a new cluster with it, and changes an existing
+cluster's to it when the two differ, so a value set here stays until it is
+changed here, in the portal, or by applying a file that declares another.
+The platform's own GitOps sync never changes an existing cluster's environment.
+Who chose the label is recorded from the credential either way: your own
+token records you, a service account records automation.
 
 The cluster is given by name or id; without one, the selected cluster is
 updated.`,

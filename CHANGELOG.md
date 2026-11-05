@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ankra cluster apply` now honours `metadata.environment`.** A cluster file that declares what the cluster is for used to be warned about and ignored, so a cluster imported from a file declaring `environment: production` was recorded with a default label nobody had confirmed. Apply now sends the declared environment when it creates the cluster, and changes an existing cluster's environment to it when the two differ, using the same route as `ankra cluster update`. The platform records who chose it from your credential: your own token records you, a service account records automation. A file whose environment already matches is applied without re-sending it, so a re-apply is not counted as a new confirmation. If the platform refuses the change (only a person can move a cluster off production), apply exits 1 and says the configuration itself was applied. A blank or over-long `metadata.environment` is now refused before anything is sent. `metadata.criticality` is still not read; the warning now suggests the full `ankra cluster update` command, `--environment` included.
+
 ## v0.66.0 - 2026-11-05
 
 This release adds `ankra cluster gateway-api`, which turns the Kubernetes Gateway API on for a

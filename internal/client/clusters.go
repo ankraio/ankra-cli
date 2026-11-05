@@ -475,8 +475,15 @@ type CreateResourceSpec struct {
 }
 
 type CreateImportClusterRequest struct {
-	Name        string             `json:"name"`
-	Description string             `json:"description,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// Environment is the file's metadata.environment, what the cluster is
+	// for; omitted when the file declares none. The platform applies it only
+	// when this import creates the cluster, recording who chose it from the
+	// credential (a person's own token: the person; a service account:
+	// automation). An existing cluster's label is changed through
+	// SetClusterEnvironment instead.
+	Environment *string            `json:"environment,omitempty"`
 	Spec        CreateResourceSpec `json:"spec"`
 	// AllowRepoint acknowledges that moving the cluster to a different GitOps
 	// repository or branch prunes whatever the new source does not define.
