@@ -96,6 +96,26 @@ func TestClusterNodeGroupRemoveNodeSendsTheNamedNodeToTheClustersKind(t *testing
 	}
 }
 
+// A removal the platform created no operation for has two causes the CLI
+// cannot tell apart (a node change already in flight, or a stopped cluster),
+// so the message names both rather than asserting one.
+func TestClusterNodeGroupRemoveNodeWithoutAnOperationNamesBothCauses(t *testing.T) {
+	mock := newRemoveNodeMock("hetzner")
+	mock.result.OperationID = nil
+	var runError error
+	stdout := captureStdout(t, func() {
+		_, runError = runConfirmCommand(t, mock, "", removeNodeResets,
+			"cluster", "node-group", "remove-node", testClusterID, "opensearch", "depict-opensearch-0", "--yes")
+	})
+	if runError != nil {
+		t.Fatalf("remove-node failed: %v", runError)
+	}
+	if strings.Contains(stdout, "ankra cluster operations list") ||
+		!strings.Contains(stdout, "node change already in progress") || !strings.Contains(stdout, "stopped cluster is started") {
+		t.Errorf("a removal without an operation must name no operation and both causes:\n%s", stdout)
+	}
+}
+
 func TestClusterNodeGroupRemoveNodeForceDrainSaysTheBudgetsAreBypassed(t *testing.T) {
 	mock := newRemoveNodeMock("hetzner")
 	output, err := runConfirmCommand(t, mock, "n\n", removeNodeResets,

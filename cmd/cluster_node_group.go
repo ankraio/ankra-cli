@@ -774,7 +774,8 @@ Examples:
 		if result.OperationID != nil {
 			fmt.Printf("Follow the drain and delete with: %s\n", followOperationCommand(*result.OperationID))
 		} else {
-			fmt.Println("The platform starts the drain and delete once the cluster's current node change has finished.")
+			fmt.Println("No operation was started for it yet: the platform starts the drain and delete on the cluster's next reconcile, " +
+				"after a node change already in progress or once a stopped cluster is started.")
 		}
 		return nil
 	},
