@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## v0.66.0 - 2026-11-05
+
+This release adds `ankra cluster gateway-api`, which turns the Kubernetes Gateway API on for a
+cluster Ankra already built, or shows where that stands. Until now you could only choose the
+option when you created the cluster. The platform has served the route the command uses since
+2026-11-05; on an older platform the command says so and exits 1.
+
+Nothing else changed: existing commands keep their output and exit codes. Installing this release
+changes nothing on any cluster or workload.
+
 ### Added
 
 - **Turn the Kubernetes Gateway API on for a cluster that already exists.** `ankra cluster gateway-api` shows the platform's plan for a cluster Ankra built: whether the option is recorded, where the Gateway API CRDs come from and whether they are established, what the Traefik and cert-manager values still need, and who moves the enable on next. `ankra cluster gateway-api enable` prints that plan, asks, and turns the option on; it is idempotent, so running it again after the CRDs landed writes the values, and `--wait` follows it to enabled (exit 0) and exits 5 when `--timeout` runs out while the enable keeps going. A passing platform fault during `--wait` (a 5xx, a dropped connection) is tried again on the next poll instead of ending the follow; five in a row exit 1 and say the enable keeps going. With or without `--wait` it exits 1, with the reason on stderr, when the option is recorded but the platform needs a person: a conflict in the values, a failed CRD install or apply, a networking stack with no Ankra-installed Traefik and cert-manager to write into, a values write the platform took but could not push to the GitOps repository, or a refusal of the enable `--wait` repeats. It exits 8 with nothing changed when the platform cannot take the option at all, as on a cluster whose ingress Ankra did not install, and 2 for `--timeout` without `--wait`. `enable --help` lists every exit code. Values you wrote yourself are never changed. Needs a platform with the day-2 route; on an older one the command says so and exits 1.
