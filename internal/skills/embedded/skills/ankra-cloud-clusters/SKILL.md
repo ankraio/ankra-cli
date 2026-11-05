@@ -206,7 +206,13 @@ listener `web` that admits routes from every namespace. cert-manager and externa
 Gateways and HTTPRoutes too, so an HTTPRoute host under the generated subdomain gets its record.
 The custom-zone external-dns reads only Ingress and Service, so HTTPRoute hosts on your own
 domains need a record you create. It needs the networking stack: without it the CLI exits 2 and
-the API answers 400. Choose it at create time.
+the API answers 400. Choose it at create time, or turn it on later for a cluster that already
+exists (CLI v0.66.0+): `ankra cluster gateway-api status --cluster <c>` shows the platform's
+plan, and `ankra cluster gateway-api enable --cluster <c> --yes --wait` records the option,
+installs the CRDs (or uses the ones the cluster already has), then writes the Traefik and
+cert-manager values in one stack write. Values you wrote yourself are never changed: a key that
+says the opposite is reported as a conflict (exit 1), and nothing is written until you decide.
+There is no disable: to stop the shared Gateway, set `gateway.enabled: false` in Traefik's values.
 
 - Listener ports are Traefik entry-point container ports: `8000` (`web`, served on 80) and `8443`
   (`websecure`, served on 443). An HTTPRoute on the shared Gateway uses `parentRefs` name
