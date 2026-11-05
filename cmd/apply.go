@@ -366,20 +366,54 @@ func planDeclaredEnvironmentChange(importRequest client.CreateImportClusterReque
 		return nil, fmt.Errorf("looking up cluster %q to compare its environment with metadata.environment: %w",
 			importRequest.Name, lookupError)
 	}
-	if cluster.Environment == *importRequest.Environment {
-		return nil, nil
+	return compareDeclaredEnvironment(cluster, *importRequest.Environment), nil
+}
+
+// compareDeclaredEnvironment is the plan for one reading of the cluster: nil
+// when its label already is the declared one, else the change, marked chosen
+// unless the label is the platform's own default.
+func compareDeclaredEnvironment(cluster client.ClusterListItem, declared string) *declaredEnvironmentChange {
+	if sameEnvironmentLabel(cluster.Environment, declared) {
+		return nil
 	}
 	change := &declaredEnvironmentChange{
 		clusterID:   cluster.ID,
 		clusterName: cluster.Name,
 		from:        cluster.Environment,
-		to:          *importRequest.Environment,
-		criticality: presetEnvironmentReportingLevels[*importRequest.Environment],
+		to:          declared,
+		criticality: presetEnvironmentReportingLevels[declared],
 	}
 	if cluster.EnvironmentSource != environmentSourceDefault {
 		change.chosenBy = describeEnvironmentChooser(cluster.EnvironmentSource)
 	}
-	return change, nil
+	return change
+}
+
+// sameEnvironmentLabel compares a stored label with a declared one. A declared
+// preset arrives lower-cased, so a stored preset in other casing ('Production'
+// from an older writer) is the same label, not a change to send: sending it
+// would record a fresh choice and, on a chosen label, warn about a difference
+// nobody can see. A name of your own is compared exactly, as typed.
+func sameEnvironmentLabel(stored string, declared string) bool {
+	if _, isPreset := presetEnvironmentReportingLevels[declared]; isPreset {
+		return strings.EqualFold(stored, declared)
+	}
+	return stored == declared
+}
+
+// rereadDeclaredEnvironmentChange plans the change again from the cluster as
+// it is now. The first reading was taken before the apply, which can run for
+// minutes under --wait, and a person may choose the label meanwhile; reading
+// again right before the write shrinks that window to one request. It cannot
+// close it: the platform's environment route takes no expected source to
+// compare against.
+func rereadDeclaredEnvironmentChange(change *declaredEnvironmentChange) (*declaredEnvironmentChange, error) {
+	cluster, lookupError := apiClient.GetCluster(change.clusterName)
+	if lookupError != nil {
+		return nil, fmt.Errorf("the configuration was applied, but cluster %q kept its environment %s instead of %q (metadata.environment): reading it again before the change failed: %w",
+			change.clusterName, describeEnvironmentLabel(change.from), change.to, lookupError)
+	}
+	return compareDeclaredEnvironment(cluster, change.to), nil
 }
 
 // describeEnvironmentChooser says who chose a stored label, for the warning.
@@ -409,6 +443,16 @@ func applyDeclaredEnvironment(cmd *cobra.Command, change *declaredEnvironmentCha
 	if change == nil {
 		return nil
 	}
+	if change.chosenBy == "" {
+		current, rereadError := rereadDeclaredEnvironmentChange(change)
+		if rereadError != nil {
+			return rereadError
+		}
+		if current == nil {
+			return nil
+		}
+		change = current
+	}
 	if change.chosenBy != "" {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
 			"warning: metadata.environment is %q but cluster '%s' keeps its environment %s: %s, and a cluster file sets the environment only where nobody has. To change it: ankra cluster update %s --environment %s\n",
@@ -416,7 +460,7 @@ func applyDeclaredEnvironment(cmd *cobra.Command, change *declaredEnvironmentCha
 			shellWordOrQuoted(change.clusterName), shellWordOrQuoted(change.to))
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 	defer cancel()
 	result, updateError := apiClient.SetClusterEnvironment(ctx, change.clusterID, change.to, change.criticality)
 	if updateError != nil {

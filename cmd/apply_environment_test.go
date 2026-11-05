@@ -12,25 +12,36 @@ import (
 	"ankra/internal/client"
 )
 
-// applyEnvironmentMock answers the three calls an apply that declares an
+// applyEnvironmentMock answers the calls an apply that declares an
 // environment makes, and records their order: the cluster read, the apply,
-// then the environment change.
+// the read again, then the environment change. storedAfterApply and
+// lookupErrorAfterApply stand for the cluster as it is once the apply ran,
+// for a label somebody chose or a read that failed in between.
 type applyEnvironmentMock struct {
 	baseMock
-	stored         *client.ClusterListItem
-	lookupError    error
-	importResponse *client.ImportResponse
-	submitted      bool
-	updateError    error
-	events         []string
-	applied        []client.CreateImportClusterRequest
-	updates        []clusterUpdateCall
+	stored                *client.ClusterListItem
+	lookupError           error
+	storedAfterApply      *client.ClusterListItem
+	lookupErrorAfterApply error
+	importResponse        *client.ImportResponse
+	submitted             bool
+	updateError           error
+	events                []string
+	applied               []client.CreateImportClusterRequest
+	updates               []clusterUpdateCall
 }
 
 func (mock *applyEnvironmentMock) GetCluster(name string) (client.ClusterListItem, error) {
+	afterApply := len(mock.applied) > 0
 	mock.events = append(mock.events, "lookup")
+	if afterApply && mock.lookupErrorAfterApply != nil {
+		return client.ClusterListItem{}, mock.lookupErrorAfterApply
+	}
 	if mock.lookupError != nil {
 		return client.ClusterListItem{}, mock.lookupError
+	}
+	if afterApply && mock.storedAfterApply != nil {
+		return *mock.storedAfterApply, nil
 	}
 	if mock.stored != nil && mock.stored.Name == name {
 		return *mock.stored, nil
@@ -177,11 +188,69 @@ func TestApplyChangesAnUnchosenEnvironmentToTheDeclaredOne(t *testing.T) {
 	if fmt.Sprint(mock.updates) != fmt.Sprint(want) {
 		t.Fatalf("environment changes = %+v, want %+v", mock.updates, want)
 	}
-	if strings.Join(mock.events, ",") != "lookup,apply,environment" {
-		t.Errorf("calls ran in the order %v; the cluster is read before the apply and changed after it", mock.events)
+	if strings.Join(mock.events, ",") != "lookup,apply,lookup,environment" {
+		t.Errorf("calls ran in the order %v; the cluster is read before the apply, read again after it, then changed",
+			mock.events)
 	}
 	if !strings.Contains(commandOutput, "changed from 'development' to 'staging'") {
 		t.Errorf("the change must be reported:\n%s", commandOutput)
+	}
+}
+
+// An apply under --wait can run for minutes. A label somebody chose while it
+// ran is read again right before the write and left, with the same warning
+// as a label chosen before.
+func TestApplyLeavesALabelChosenWhileTheApplyRan(t *testing.T) {
+	mock := &applyEnvironmentMock{
+		stored:           storedEdgeCluster("development", "default"),
+		storedAfterApply: storedEdgeCluster("production", "person"),
+	}
+	commandOutput, _, executeError := runApplyCommand(t, mock, applyEnvironmentDocument("  environment: staging\n"),
+		"--wait")
+	if executeError != nil {
+		t.Fatalf("a label left as somebody chose it is not a failure: %v", executeError)
+	}
+	if len(mock.updates) != 0 {
+		t.Fatalf("overwrote a label chosen during the apply: %+v", mock.updates)
+	}
+	if !strings.Contains(commandOutput, "keeps its environment 'production': a person chose it") {
+		t.Errorf("the warning must name the label as it is now:\n%s", commandOutput)
+	}
+}
+
+// A second read that fails stops the change and says the configuration was
+// applied, with exit 1 so a script never reads the cluster as matching.
+func TestApplyReportsASecondReadThatFails(t *testing.T) {
+	mock := &applyEnvironmentMock{
+		stored:                storedEdgeCluster("development", "default"),
+		lookupErrorAfterApply: errors.New("platform unavailable"),
+	}
+	_, _, executeError := runApplyCommand(t, mock, applyEnvironmentDocument("  environment: staging\n"))
+	if executeError == nil || !strings.Contains(executeError.Error(), "reading it again before the change failed") ||
+		!strings.Contains(executeError.Error(), "the configuration was applied") {
+		t.Fatalf("want the failed second read reported, got %v", executeError)
+	}
+	if exitCodeFor(executeError) != exitError {
+		t.Errorf("exit code = %d, want %d", exitCodeFor(executeError), exitError)
+	}
+	if len(mock.updates) != 0 {
+		t.Errorf("changed the environment without a second read: %+v", mock.updates)
+	}
+}
+
+// A declared preset is the same label as a stored one in other casing: no
+// change is sent and no warning claims a difference nobody can see.
+func TestApplyTreatsAPresetInOtherCasingAsTheSameLabel(t *testing.T) {
+	for _, source := range []string{"default", "person"} {
+		mock := &applyEnvironmentMock{stored: storedEdgeCluster("Production", source)}
+		commandOutput, _, executeError := runApplyCommand(t, mock, applyEnvironmentDocument("  environment: production\n"))
+		if executeError != nil {
+			t.Fatalf("%s: apply failed: %v", source, executeError)
+		}
+		if len(mock.updates) != 0 || strings.Contains(commandOutput, "warning: metadata.environment") {
+			t.Errorf("%s: treated 'Production' as a different label: changes %+v, output:\n%s", source, mock.updates,
+				commandOutput)
+		}
 	}
 }
 
