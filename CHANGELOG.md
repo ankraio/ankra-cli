@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **Remove one chosen node from a node group.** `ankra cluster node-group remove-node <cluster> <group> <node>` retires the node you name, such as one on a failing host, and lowers the group's count by one so nothing recreates it. A scale-down still picks its own nodes; this is the way to pick one yourself. Name the node by its server name, the providerID its Kubernetes node reports, or its node id from `ankra cluster nodes list`. The node is drained through its PodDisruptionBudgets before its server is deleted, and a refused drain keeps it in service (and schedulable again) with the reason on the cluster; `--force-drain` removes it anyway. The command asks before it deletes anything (`--yes` skips the prompt, declining exits 4), a node the cluster does not have exits 3, and `-o json` prints the node, the group's counts and the operation to follow. It needs a platform that serves the route (ankraio/cluster#5995); an older platform answers 404 without a reason, and the command says the platform does not serve node removal yet and exits 1, so a script never reads it as a node that is already gone.
+
 ## v0.66.0 - 2026-11-05
 
 This release adds `ankra cluster gateway-api`, which turns the Kubernetes Gateway API on for a

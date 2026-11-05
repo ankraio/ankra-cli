@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -685,6 +686,117 @@ Examples:
 	},
 }
 
+var clusterNodeGroupRemoveNodeCmd = &cobra.Command{
+	Use:   "remove-node <cluster_id|name> <group_name> <node>",
+	Short: "Remove one chosen node from a node group",
+	Long: `Remove one named worker from its node group and delete its server. The
+group's node count drops by one, so nothing recreates the node.
+
+A scale-down picks the nodes it removes itself; remove-node is the way to
+retire a particular one, such as a node on a failing host. <node> is the
+node's name (its server name, which on most providers is also its Kubernetes
+node name), the providerID its Kubernetes node reports, or its node id from
+'ankra cluster nodes list'. A node that is already cordoned is removed the
+same way, but a refused drain makes the node it keeps schedulable again:
+cordon it again if it must stay out of service.
+
+` + guardedDrainHelp + `
+
+The platform refuses a control plane, a node of another group, a node
+already being removed, and a removal that would take an autoscaling group
+below its min count. A node the cluster does not have exits 3.
+
+Examples:
+  ankra cluster node-group remove-node <cluster_id> opensearch prod-opensearch-0
+  ankra cluster node-group remove-node <cluster_id> opensearch prod-opensearch-0 --wait -o json
+  ankra cluster node-group remove-node <cluster_id> workers hcloud://168428300 --force-drain --yes`,
+	Args: cobra.ExactArgs(3),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		clusterID, resolveError := resolveClusterArg(args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+		groupName, nodeReference := args[1], args[2]
+		yes, _ := cmd.Flags().GetBool("yes")
+		drainOptions := drainOptionsFromFlags(cmd)
+		kind, kindError := resolveNodeGroupClusterKind(args[0], clusterID)
+		if kindError != nil {
+			return kindError
+		}
+
+		consequence := "This drains the node and deletes its server!"
+		if drainOptions.ForceDrain {
+			consequence = "This deletes the node's server without honouring its PodDisruptionBudgets!"
+		}
+		if err := confirmPrompt(
+			cmd.InOrStdin(), cmd.OutOrStdout(),
+			fmt.Sprintf("Remove node %q from node group %q of cluster %s? %s [y/N]: ",
+				nodeReference, groupName, clusterTarget(args[0], clusterID), consequence),
+			yes,
+		); err != nil {
+			return err
+		}
+
+		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
+		if err != nil {
+			return err
+		}
+		defer cancelRequestContext()
+
+		result, accepted, removeError := apiClient.RemoveNodeGroupNode(requestContext, kind, clusterID, groupName,
+			nodeReference, drainOptions, wait)
+		if removeError != nil {
+			return removeNodeGroupNodeError(wait, removeError)
+		}
+		if accepted != nil {
+			submitted := newNodeGroupSubmittedResult("Node removal", clusterID)
+			if accepted.OperationID != "" {
+				submitted.OperationID = accepted.OperationID
+			}
+			if handled, err := renderStructured(cmd, submitted); err != nil {
+				return err
+			} else if handled {
+				return nil
+			}
+			printNodeGroupWriteSubmitted("Node removal", clusterID)
+			if accepted.OperationID != "" {
+				fmt.Printf("Follow the drain and delete with: %s\n", followOperationCommand(accepted.OperationID))
+			}
+			return nil
+		}
+		if handled, err := renderStructured(cmd, result); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+		fmt.Printf("Node '%s' is being removed from node group '%s' (%d -> %d nodes).\n",
+			result.NodeName, result.GroupName, result.PreviousCount, result.NewCount)
+		if result.OperationID != nil {
+			fmt.Printf("Follow the drain and delete with: %s\n", followOperationCommand(*result.OperationID))
+		} else {
+			fmt.Println("The platform starts the drain and delete once the cluster's current node change has finished.")
+		}
+		return nil
+	},
+}
+
+// removeNodeGroupNodeError wraps a remove-node failure for the terminal. A
+// platform that predates the route answers the router's bare 404, which is
+// not "the node does not exist": it is said plainly and exits 1, rather than
+// the not-found code a script would read as the node being gone already. The
+// platform's own 404 for a node the cluster does not have carries its reason
+// and exits 3.
+func removeNodeGroupNodeError(wait bool, removeError error) error {
+	var unexpected *client.UnexpectedResponseError
+	if errors.As(removeError, &unexpected) && unexpected.StatusCode == http.StatusNotFound &&
+		(unexpected.Detail == "" || unexpected.Detail == routeAbsentDetail) {
+		return withExitCode(exitError, errors.New(
+			"removing node from node group: this Ankra platform does not serve node removal yet (the route answered 404); "+
+				"check the selected organisation with 'ankra org current' and try again once the platform has it"))
+	}
+	return asyncWriteError("removing node from node group", wait, removeError)
+}
+
 var clusterNodeGroupAutoscalingCmd = &cobra.Command{
 	Use:   "autoscaling",
 	Short: "Manage node-group autoscaling",
@@ -950,15 +1062,18 @@ func init() {
 	registerAsyncWriteFlags(clusterNodeGroupScaleCmd)
 	registerAsyncWriteFlags(clusterNodeGroupUpgradeCmd)
 	registerAsyncWriteFlags(clusterNodeGroupDeleteCmd)
+	registerAsyncWriteFlags(clusterNodeGroupRemoveNodeCmd)
 	registerAsyncWriteFlags(clusterNodeGroupAutoscalingSetCmd)
 	registerAsyncWriteFlags(clusterNodeGroupLabelsCmd)
 	registerAsyncWriteFlags(clusterNodeGroupTaintsCmd)
 
 	clusterNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	clusterNodeGroupRemoveNodeCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	registerForceDrainFlag(clusterNodeGroupScaleCmd, forceDrainScaleUsage)
 	registerForceDrainFlag(clusterNodeGroupUpgradeCmd, forceDrainResizeUsage)
 	registerForceDrainFlag(clusterNodeGroupDeleteCmd, forceDrainDeleteUsage)
+	registerForceDrainFlag(clusterNodeGroupRemoveNodeCmd, forceDrainRemoveNodeUsage)
 
 	registerStructuredOutputFlags(
 		clusterNodeGroupListCmd,
@@ -966,6 +1081,7 @@ func init() {
 		clusterNodeGroupScaleCmd,
 		clusterNodeGroupUpgradeCmd,
 		clusterNodeGroupDeleteCmd,
+		clusterNodeGroupRemoveNodeCmd,
 		clusterNodeGroupAutoscalingGetCmd,
 		clusterNodeGroupAutoscalingSetCmd,
 		clusterNodeGroupLabelsCmd,
@@ -980,6 +1096,7 @@ func init() {
 	clusterNodeGroupCmd.AddCommand(clusterNodeGroupScaleCmd)
 	clusterNodeGroupCmd.AddCommand(clusterNodeGroupUpgradeCmd)
 	clusterNodeGroupCmd.AddCommand(clusterNodeGroupDeleteCmd)
+	clusterNodeGroupCmd.AddCommand(clusterNodeGroupRemoveNodeCmd)
 	clusterNodeGroupCmd.AddCommand(clusterNodeGroupAutoscalingCmd)
 	clusterNodeGroupCmd.AddCommand(clusterNodeGroupLabelsCmd)
 	clusterNodeGroupCmd.AddCommand(clusterNodeGroupTaintsCmd)
