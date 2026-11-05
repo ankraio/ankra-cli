@@ -69,12 +69,11 @@ overrides it. An environment of your own leaves the reporting level as it is
 unless --criticality is given.
 
 An ImportCluster file can declare the environment too, as metadata.environment:
-'ankra cluster apply' creates a new cluster with it, and changes an existing
-cluster's to it when the two differ, so a value set here stays until it is
-changed here, in the portal, or by applying a file that declares another.
-The platform's own GitOps sync never changes an existing cluster's environment.
-Who chose the label is recorded from the credential either way: your own
-token records you, a service account records automation.
+'ankra cluster apply' creates a new cluster with it, and fills it in on an
+existing cluster only where nobody chose the label yet. A value set here is
+never reverted by a file, so it stays until it is changed here or in the
+portal. Who chose a label is recorded from the credential: your own token
+records you, a service account records automation.
 
 The cluster is given by name or id; without one, the selected cluster is
 updated.`,

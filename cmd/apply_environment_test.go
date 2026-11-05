@@ -63,8 +63,11 @@ func (mock *applyEnvironmentMock) SetClusterEnvironment(_ context.Context, clust
 
 const applyEnvironmentClusterID = "6f0c1a2b-3c4d-4e5f-8a9b-0c1d2e3f4a5b"
 
-func storedEdgeCluster(environment string) *client.ClusterListItem {
-	return &client.ClusterListItem{ID: applyEnvironmentClusterID, Name: "eu-edge", Environment: environment}
+// storedEdgeCluster is eu-edge as the platform lists it, with its label and
+// how that label was set.
+func storedEdgeCluster(environment string, source string) *client.ClusterListItem {
+	return &client.ClusterListItem{ID: applyEnvironmentClusterID, Name: "eu-edge", Environment: environment,
+		EnvironmentSource: source}
 }
 
 // applyEnvironmentDocument is an ImportCluster for eu-edge carrying the given
@@ -161,11 +164,11 @@ func TestApplyCreatesTheClusterWithTheDeclaredEnvironment(t *testing.T) {
 	}
 }
 
-// The bead's acceptance: an existing cluster whose label differs from the
-// file's is changed to it through the environment route, after the apply is
+// An existing cluster whose label nobody chose (a create lane's default) is
+// changed to the file's through the environment route, after the apply is
 // taken, with the preset's reporting level (as 'ankra cluster update' sends).
-func TestApplyChangesAnExistingClustersEnvironmentToTheDeclaredOne(t *testing.T) {
-	mock := &applyEnvironmentMock{stored: storedEdgeCluster("development")}
+func TestApplyChangesAnUnchosenEnvironmentToTheDeclaredOne(t *testing.T) {
+	mock := &applyEnvironmentMock{stored: storedEdgeCluster("development", "default")}
 	commandOutput, _, executeError := runApplyCommand(t, mock, applyEnvironmentDocument("  environment: staging\n"))
 	if executeError != nil {
 		t.Fatalf("apply failed: %v", executeError)
@@ -182,11 +185,45 @@ func TestApplyChangesAnExistingClustersEnvironmentToTheDeclaredOne(t *testing.T)
 	}
 }
 
+// A label somebody chose is never reverted by a file: apply leaves it, says
+// who set it and names the command that changes it, and still exits 0. A
+// source that is not 'default', including one an older platform does not
+// send, counts as a choice.
+func TestApplyLeavesAChosenEnvironmentAndSaysHowToChangeIt(t *testing.T) {
+	for source, saying := range map[string]string{
+		"person":     "a person chose it",
+		"automation": "automation set it",
+		"unknown":    "it was set before Ankra recorded who chose it",
+		"":           "the platform does not say who chose it",
+	} {
+		mock := &applyEnvironmentMock{stored: storedEdgeCluster("production", source)}
+		commandOutput, stdout, executeError := runApplyCommand(t, mock, applyEnvironmentDocument("  environment: staging\n"))
+		if executeError != nil {
+			t.Fatalf("source %q: a kept label is not a failure: %v", source, executeError)
+		}
+		if len(mock.updates) != 0 {
+			t.Errorf("source %q: a chosen label must not be changed by a file, sent %+v", source, mock.updates)
+		}
+		if len(mock.applied) != 1 {
+			t.Errorf("source %q: the configuration must still be applied, applied %d times", source, len(mock.applied))
+		}
+		want := "warning: metadata.environment is \"staging\" but cluster 'eu-edge' keeps its environment 'production': " +
+			saying + ", and a cluster file sets the environment only where nobody has. " +
+			"To change it: ankra cluster update eu-edge --environment staging"
+		if !strings.Contains(commandOutput, want) {
+			t.Errorf("source %q: want the warning\n%s\ngot:\n%s", source, want, commandOutput)
+		}
+		if strings.Contains(stdout, "metadata.environment") {
+			t.Errorf("source %q: the warning belongs on stderr, not stdout:\n%s", source, stdout)
+		}
+	}
+}
+
 // Re-applying a file nobody edited sends no environment change: the route
 // records a person's write of an unchanged label as a new confirmation of what
 // the cluster is for, and a re-apply confirms nothing.
 func TestApplySendsNoEnvironmentChangeForAnUnchangedLabel(t *testing.T) {
-	mock := &applyEnvironmentMock{stored: storedEdgeCluster("staging")}
+	mock := &applyEnvironmentMock{stored: storedEdgeCluster("staging", "default")}
 	_, _, executeError := runApplyCommand(t, mock, applyEnvironmentDocument("  environment: Staging\n"))
 	if executeError != nil {
 		t.Fatalf("apply failed: %v", executeError)
@@ -202,7 +239,7 @@ func TestApplySendsNoEnvironmentChangeForAnUnchangedLabel(t *testing.T) {
 // A name of your own brings no reporting level, so the stored one is left as
 // it is; a cluster imported without a label reads as having none.
 func TestApplyChangesToANameOfYourOwnLeaveTheReportingLevel(t *testing.T) {
-	mock := &applyEnvironmentMock{stored: storedEdgeCluster("")}
+	mock := &applyEnvironmentMock{stored: storedEdgeCluster("", "default")}
 	commandOutput, _, executeError := runApplyCommand(t, mock, applyEnvironmentDocument("  environment: eu-qa\n"))
 	if executeError != nil {
 		t.Fatalf("apply failed: %v", executeError)
@@ -218,7 +255,7 @@ func TestApplyChangesToANameOfYourOwnLeaveTheReportingLevel(t *testing.T) {
 
 // A file that declares no environment costs no extra read and sends no change.
 func TestApplyWithoutMetadataEnvironmentNeitherReadsNorChangesIt(t *testing.T) {
-	mock := &applyEnvironmentMock{stored: storedEdgeCluster("development")}
+	mock := &applyEnvironmentMock{stored: storedEdgeCluster("development", "default")}
 	_, _, executeError := runApplyCommand(t, mock, applyEnvironmentDocument(""))
 	if executeError != nil {
 		t.Fatalf("apply failed: %v", executeError)
@@ -231,7 +268,7 @@ func TestApplyWithoutMetadataEnvironmentNeitherReadsNorChangesIt(t *testing.T) {
 // The default --wait=false submits the apply; the environment change still
 // follows it.
 func TestApplyChangesTheEnvironmentAfterASubmittedApply(t *testing.T) {
-	mock := &applyEnvironmentMock{stored: storedEdgeCluster("development"), submitted: true}
+	mock := &applyEnvironmentMock{stored: storedEdgeCluster("development", "default"), submitted: true}
 	_, _, executeError := runApplyCommand(t, mock, applyEnvironmentDocument("  environment: production\n"))
 	if executeError != nil {
 		t.Fatalf("apply failed: %v", executeError)
@@ -243,7 +280,7 @@ func TestApplyChangesTheEnvironmentAfterASubmittedApply(t *testing.T) {
 
 // A configuration the platform refused changes nothing, the label included.
 func TestApplyRefusedByThePlatformChangesNoEnvironment(t *testing.T) {
-	mock := &applyEnvironmentMock{stored: storedEdgeCluster("development"), importResponse: &client.ImportResponse{
+	mock := &applyEnvironmentMock{stored: storedEdgeCluster("development", "default"), importResponse: &client.ImportResponse{
 		Errors: []client.ImportResponseResourceError{{Name: "web", Kind: "addon",
 			Errors: []client.ImportResponseErrorItem{{Key: "chart", Message: "not found"}}}}}}
 	_, _, executeError := runApplyCommand(t, mock, applyEnvironmentDocument("  environment: staging\n"))
@@ -259,7 +296,7 @@ func TestApplyRefusedByThePlatformChangesNoEnvironment(t *testing.T) {
 // production) fails the command and says the configuration itself was applied.
 func TestApplyReportsARefusedEnvironmentChange(t *testing.T) {
 	refusal := errors.New("only a person can move a cluster off production")
-	mock := &applyEnvironmentMock{stored: storedEdgeCluster("production"), updateError: refusal}
+	mock := &applyEnvironmentMock{stored: storedEdgeCluster("production", "default"), updateError: refusal}
 	_, _, executeError := runApplyCommand(t, mock, applyEnvironmentDocument("  environment: development\n"))
 	if executeError == nil {
 		t.Fatal("a refused environment change must fail the command")
@@ -288,7 +325,7 @@ func TestApplyStopsWhenTheClusterCannotBeRead(t *testing.T) {
 
 // Under -o json the note goes to stderr, so stdout stays one JSON document.
 func TestApplyEnvironmentNoteKeepsStructuredOutputParseable(t *testing.T) {
-	mock := &applyEnvironmentMock{stored: storedEdgeCluster("development")}
+	mock := &applyEnvironmentMock{stored: storedEdgeCluster("development", "default")}
 	resetClusterApplyFlags(t)
 	setMockClient(t, mock)
 	path := writeImportClusterWithEnvironment(t, applyEnvironmentDocument("  environment: staging\n"))
@@ -351,7 +388,7 @@ func TestUnreadImportMetadataWarningsReadTheDocumentApplySends(t *testing.T) {
 
 // A dry run stays offline and no longer calls metadata.environment unread.
 func TestClusterApplyDryRunReadsMetadataEnvironmentOffline(t *testing.T) {
-	mock := &applyEnvironmentMock{stored: storedEdgeCluster("development")}
+	mock := &applyEnvironmentMock{stored: storedEdgeCluster("development", "default")}
 	commandOutput, stdout, executeError := runApplyCommand(t, mock, applyEnvironmentDocument("  environment: staging\n"), "--dry-run")
 	if executeError != nil {
 		t.Fatalf("dry-run failed: %v", executeError)

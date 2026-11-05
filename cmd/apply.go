@@ -314,15 +314,19 @@ func declaredClusterEnvironment(metadata map[string]interface{}) (*string, error
 	return &environment, nil
 }
 
-// declaredEnvironmentChange is the environment change an apply makes to a
+// declaredEnvironmentChange is what an apply does about the environment of a
 // cluster that already exists. The platform applies the import body's
-// environment only when that import creates the cluster (a GitOps sync
-// re-applies the same document and must not revert a label changed since),
-// so a person who edits metadata.environment and applies the file changes
-// an existing cluster's label through the environment route, the one
-// 'ankra cluster update' uses. Either way the platform records who chose it
-// from the credential: a person's own token records the person, a service
-// account records automation.
+// environment only when that import creates the cluster: its own GitOps sync
+// re-applies the same document on a schedule, and a label somebody chose
+// since must not be reverted by it. apply keeps that promise. It changes an
+// existing cluster's label, through the environment route 'ankra cluster
+// update' uses, only when nobody chose the stored one (environment_source
+// 'default', a create lane's fallback): the file is then the first statement
+// of what the cluster is for. A label a person or automation set, or one set
+// before the platform recorded who did, is left as it is and the apply says
+// how to change it. Either way the platform records who chose a label it
+// writes from the credential: a person's own token records the person, a
+// service account records automation.
 type declaredEnvironmentChange struct {
 	clusterID   string
 	clusterName string
@@ -332,16 +336,24 @@ type declaredEnvironmentChange struct {
 	// pairing 'ankra cluster update' and the portal write), empty for a name
 	// of your own, which leaves the stored level alone.
 	criticality string
+	// chosenBy is set when the stored label was chosen (its
+	// environment_source), and the apply leaves it and warns instead.
+	chosenBy string
 }
 
-// planDeclaredEnvironmentChange answers the change to make once the apply is
-// taken, or nil when there is none: the file declares no environment, the
-// cluster does not exist yet (the import creates it with the declared label),
-// or its label already is the declared one. That last case sends nothing on
-// purpose: the environment route records a person's write of an unchanged
-// label as a fresh confirmation of what the cluster is for, and re-applying a
-// file nobody edited confirms nothing. The cluster is read before the apply,
-// so a lookup that fails stops the apply before anything is written.
+// environmentSourceDefault is the environment_source of a label a create lane
+// fell back to: the one source that is nobody's choice.
+const environmentSourceDefault = "default"
+
+// planDeclaredEnvironmentChange answers what to do once the apply is taken,
+// or nil when there is nothing: the file declares no environment, the cluster
+// does not exist yet (the import creates it with the declared label), or its
+// label already is the declared one. That last case sends nothing on purpose:
+// the environment route records a person's write of an unchanged label as a
+// fresh confirmation of what the cluster is for, and re-applying a file is
+// not one, least of all a file that only echoes a label the platform
+// defaulted. The cluster is read before the apply, so a lookup that fails
+// stops the apply before anything is written.
 func planDeclaredEnvironmentChange(importRequest client.CreateImportClusterRequest) (*declaredEnvironmentChange, error) {
 	if importRequest.Environment == nil {
 		return nil, nil
@@ -357,22 +369,51 @@ func planDeclaredEnvironmentChange(importRequest client.CreateImportClusterReque
 	if cluster.Environment == *importRequest.Environment {
 		return nil, nil
 	}
-	return &declaredEnvironmentChange{
+	change := &declaredEnvironmentChange{
 		clusterID:   cluster.ID,
 		clusterName: cluster.Name,
 		from:        cluster.Environment,
 		to:          *importRequest.Environment,
 		criticality: presetEnvironmentReportingLevels[*importRequest.Environment],
-	}, nil
+	}
+	if cluster.EnvironmentSource != environmentSourceDefault {
+		change.chosenBy = describeEnvironmentChooser(cluster.EnvironmentSource)
+	}
+	return change, nil
 }
 
-// applyDeclaredEnvironment makes the planned change. The configuration is
-// already applied when it runs, so a refusal (for one, a service account may
-// not move a cluster off production) says so and exits 1 rather than reading
-// as an apply that changed nothing. The note goes to stderr under -o json/yaml,
-// so the structured result on stdout stays parseable.
+// describeEnvironmentChooser says who chose a stored label, for the warning.
+// A source this CLI does not know, or none from an older platform, is read as
+// a choice: only 'default' says nobody made one.
+func describeEnvironmentChooser(source string) string {
+	switch source {
+	case "person":
+		return "a person chose it"
+	case "automation":
+		return "automation set it"
+	case "unknown":
+		return "it was set before Ankra recorded who chose it"
+	default:
+		return "the platform does not say who chose it"
+	}
+}
+
+// applyDeclaredEnvironment carries out the plan once the configuration is
+// applied. A chosen label is left, with a warning naming the command that
+// changes it. A change the platform refuses (for one, only a person may move
+// a cluster off production) says the configuration was applied and exits 1,
+// so a script never reads the cluster as matching the file. The note goes to
+// stderr under -o json/yaml, so the structured result on stdout stays
+// parseable.
 func applyDeclaredEnvironment(cmd *cobra.Command, change *declaredEnvironmentChange) error {
 	if change == nil {
+		return nil
+	}
+	if change.chosenBy != "" {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+			"warning: metadata.environment is %q but cluster '%s' keeps its environment %s: %s, and a cluster file sets the environment only where nobody has. To change it: ankra cluster update %s --environment %s\n",
+			change.to, change.clusterName, describeEnvironmentLabel(change.from), change.chosenBy,
+			shellWordOrQuoted(change.clusterName), shellWordOrQuoted(change.to))
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
