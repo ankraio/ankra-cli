@@ -26,14 +26,25 @@ type CostReconciliationImport struct {
 	Counted          bool    `json:"counted" yaml:"counted"`
 }
 
-// CostReconciliationFX is the rate the estimate (held in USD) was converted
-// into the invoice's currency at: the latest stored rate, not the month's
-// own. AsOf is nil when the rate is the platform's built-in one.
+// CostReconciliationFX is how the estimate was put in the invoice's currency
+// (openapi ReconciliationFX). From is the figure read, usd or eur, and To the
+// invoice's currency. Rate is the rate applied, units of To per unit of From;
+// RateFromUSD is that rate only when From is usd, and nil when the EUR figure
+// was read. AsOf is the ECB day whose rates converted the EUR figure or, for
+// the USD figure at today's rate, when that stored rate was refreshed; nil
+// when the built-in rate was used. Basis is captured, approximated or today
+// (cluster#6006).
+//
+// Rate and Basis are nil on a platform that predates them, which always
+// converted the USD figure at the latest stored rate and sent it as
+// RateFromUSD.
 type CostReconciliationFX struct {
-	From        string  `json:"from" yaml:"from"`
-	To          string  `json:"to" yaml:"to"`
-	RateFromUSD float64 `json:"rate_from_usd" yaml:"rate_from_usd"`
-	AsOf        *string `json:"as_of" yaml:"as_of"`
+	From        string   `json:"from" yaml:"from"`
+	To          string   `json:"to" yaml:"to"`
+	Rate        *float64 `json:"rate" yaml:"rate"`
+	RateFromUSD *float64 `json:"rate_from_usd" yaml:"rate_from_usd"`
+	AsOf        *string  `json:"as_of" yaml:"as_of"`
+	Basis       *string  `json:"basis" yaml:"basis"`
 }
 
 // CostReconciliationCluster is one cluster the invoice's lines are placed
