@@ -116,11 +116,12 @@ func TestClusterNodesConsoleLogJSONCarriesTheTailedAnswer(t *testing.T) {
 	resetConsoleLogFlags(t)
 	setMockClient(t, &nodeConsoleLogMock{result: completedConsoleLog()})
 
-	stdoutOutput := captureStdout(t, func() {
-		if _, err := executeCommand("cluster", "ovh", "nodes", "console-log", testClusterID, "node-1", "--lines", "1", "-o", "json"); err != nil {
-			t.Errorf("nodes console-log -o json: %v", err)
-		}
-	})
+	// -o json goes through renderStructured to the command's own writer,
+	// which executeCommand captures.
+	stdoutOutput, executeError := executeCommand("cluster", "ovh", "nodes", "console-log", testClusterID, "node-1", "--lines", "1", "-o", "json")
+	if executeError != nil {
+		t.Fatalf("nodes console-log -o json: %v", executeError)
+	}
 
 	var decoded client.NodeConsoleLogResult
 	if decodeError := json.Unmarshal([]byte(stdoutOutput), &decoded); decodeError != nil {

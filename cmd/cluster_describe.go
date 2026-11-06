@@ -157,19 +157,19 @@ Examples:
 // renderKubeletConfig prints the --kubelet-config section: the configuration
 // as indented YAML, or the reason it could not be read.
 func renderKubeletConfig(out io.Writer, result describeResult) {
-	fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out)
 	if result.KubeletConfigError != "" {
-		fmt.Fprintf(out, "Kubelet configuration: could not be read: %s\n", result.KubeletConfigError)
+		_, _ = fmt.Fprintf(out, "Kubelet configuration: could not be read: %s\n", result.KubeletConfigError)
 		return
 	}
-	fmt.Fprintln(out, "Kubelet configuration (live, as the kubelet reports it on /configz):")
+	_, _ = fmt.Fprintln(out, "Kubelet configuration (live, as the kubelet reports it on /configz):")
 	encoded, marshalError := yaml.Marshal(result.KubeletConfig)
 	if marshalError != nil {
-		fmt.Fprintf(out, "  could not be rendered: %v\n", marshalError)
+		_, _ = fmt.Fprintf(out, "  could not be rendered: %v\n", marshalError)
 		return
 	}
 	for _, line := range strings.Split(strings.TrimRight(string(encoded), "\n"), "\n") {
-		fmt.Fprintf(out, "  %s\n", line)
+		_, _ = fmt.Fprintf(out, "  %s\n", line)
 	}
 }
 
