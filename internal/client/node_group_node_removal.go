@@ -9,13 +9,22 @@ import (
 
 // RemoveNodeGroupNodeResult is the platform's answer to removing one named
 // worker from its node group: the worker, the group's node count before and
-// after, and the operation draining and deleting it. OperationID is nil when
-// the platform created none - the cluster is stopped (the worker is dropped
-// from the cluster's record at once and not created again when it starts),
-// or another operation is still changing a node of the cluster and the
-// platform's reconcile follows with the removal once it has finished.
+// after, and the operation draining and deleting it.
+//
+// Accepted is set when the platform answered that it accepted the removal
+// without waiting (202). When it had decided the removal before answering,
+// that answer names the worker and the counts as well; when it was still
+// deciding, NodeName is empty and only OperationID may be set.
+//
+// OperationID is nil when the platform started no operation. Either the
+// cluster is stopped (the worker is dropped from the cluster's record at
+// once and not created again when it starts), or the platform did not start
+// the operation right away - another operation is still changing a node of
+// the cluster, or starting it failed - and its reconcile drains and deletes
+// the worker later.
 type RemoveNodeGroupNodeResult struct {
 	RawDocument   `json:"-" yaml:"-"`
+	Accepted      bool    `json:"-" yaml:"-"`
 	GroupName     string  `json:"group_name"`
 	NodeName      string  `json:"node_name"`
 	NodeID        string  `json:"node_id"`
@@ -25,11 +34,10 @@ type RemoveNodeGroupNodeResult struct {
 }
 
 // RemoveNodeGroupNode removes the worker node names from node group
-// groupName of a cloud-managed cluster of the given kind (hetzner, ovh,
-// upcloud, digitalocean, scaleway, ankracloud, aws, proxmox, morpheus). node
-// is the worker's server name, its Kubernetes node name, the providerID its
-// node reports, or its node id; it is path-escaped, so a providerID's
-// slashes reach the platform intact.
+// groupName of a cloud-managed cluster of the given kind. node is the
+// worker's server id, its server name, its Kubernetes node name, or the
+// providerID its node reports; it is path-escaped, so a providerID's slashes
+// reach the platform intact.
 //
 // The worker is drained through its PodDisruptionBudgets before it is
 // deleted, and a refused drain keeps it; drainOptions.ForceDrain takes the
@@ -37,32 +45,26 @@ type RemoveNodeGroupNodeResult struct {
 // worker for removal and started the operation that drains and deletes it,
 // never after the drain and the delete.
 //
-// With wait the request returns the result. Without it the platform may
-// answer that it accepted the removal, which is returned as accepted (with
-// the operation, when the platform named one). When the platform decided the
-// removal before answering, its answer also names the worker and the counts,
-// returned as the result beside accepted; when it was still deciding, the
-// result is nil.
+// With wait the platform answers once it has decided, and the result keeps
+// its document. Without it the platform may answer that it accepted the
+// removal: the result is then Accepted, decoded from that one answer.
 //
 // The platform's refusals (409) and its answer for a node the cluster does
 // not have (404) come back as an *UnexpectedResponseError whose Detail is the
 // platform's reason, so a caller can tell that 404 from a platform that does
 // not serve the route at all (a 404 with no detail, or the router's own).
 func (c *Client) RemoveNodeGroupNode(ctx context.Context, kind, clusterID, groupName, node string,
-	drainOptions DrainOptions, wait bool) (*RemoveNodeGroupNodeResult, *AsyncWriteAcceptedResponse, error) {
+	drainOptions DrainOptions, wait bool) (*RemoveNodeGroupNodeResult, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/%s/node-groups/%s/nodes/%s", c.BaseURL,
 		url.PathEscape(kind), url.PathEscape(clusterID), url.PathEscape(groupName), url.PathEscape(node))
-	var result, acceptedMembers RemoveNodeGroupNodeResult
+	// One answer decodes into result: the decided answer (200, or any answer
+	// with wait) as the target, a 202 as its members.
+	var result RemoveNodeGroupNodeResult
 	accepted, err := c.doJSONWriteRequestAcceptedWithMembers(ctx, http.MethodDelete, endpoint+drainOptions.query(),
-		nil, wait, &result, &acceptedMembers)
+		nil, wait, &result, &result)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	if accepted == nil {
-		return &result, nil, nil
-	}
-	if acceptedMembers.NodeName == "" {
-		return nil, accepted, nil
-	}
-	return &acceptedMembers, accepted, nil
+	result.Accepted = accepted != nil
+	return &result, nil
 }

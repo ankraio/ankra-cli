@@ -22,10 +22,10 @@ func TestRemoveNodeGroupNodeEscapesTheNodeAndSendsTheDrainChoice(t *testing.T) {
 		})
 	})
 
-	result, accepted, removeError := client.RemoveNodeGroupNode(context.Background(), "hetzner", "cluster-1", "opensearch",
+	result, removeError := client.RemoveNodeGroupNode(context.Background(), "hetzner", "cluster-1", "opensearch",
 		"hcloud://168428300", DrainOptions{ForceDrain: true}, true)
-	if removeError != nil || accepted != nil {
-		t.Fatalf("RemoveNodeGroupNode = (%+v, %+v, %v)", result, accepted, removeError)
+	if removeError != nil || result == nil || result.Accepted {
+		t.Fatalf("RemoveNodeGroupNode = (%+v, %v)", result, removeError)
 	}
 	if method != http.MethodDelete ||
 		escapedPath != "/api/v1/clusters/hetzner/cluster-1/node-groups/opensearch/nodes/hcloud:%2F%2F168428300" {
@@ -41,8 +41,8 @@ func TestRemoveNodeGroupNodeEscapesTheNodeAndSendsTheDrainChoice(t *testing.T) {
 }
 
 // An unforced request sends no force_drain. A removal the platform decided
-// before answering comes back as accepted with its operation, and as the
-// result naming the worker that leaves and the counts.
+// before answering 202 comes back as one accepted result: the worker that
+// leaves, the counts and the operation, all from that one answer.
 func TestRemoveNodeGroupNodeAcceptedNamesTheNodeThatLeaves(t *testing.T) {
 	var forceDrainSent bool
 	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
@@ -54,13 +54,10 @@ func TestRemoveNodeGroupNodeAcceptedNamesTheNodeThatLeaves(t *testing.T) {
 		})
 	})
 
-	result, accepted, removeError := client.RemoveNodeGroupNode(context.Background(), "upcloud", "cluster-1", "opensearch",
+	result, removeError := client.RemoveNodeGroupNode(context.Background(), "upcloud", "cluster-1", "opensearch",
 		"prod-opensearch-0", DrainOptions{}, false)
-	if removeError != nil || result == nil || accepted == nil {
-		t.Fatalf("RemoveNodeGroupNode = (%+v, %+v, %v)", result, accepted, removeError)
-	}
-	if accepted.OperationID != "4b0e3f6a-6c2e-4d2a-9d7e-1f0e2a3b4c5d" {
-		t.Fatalf("accepted = %+v", accepted)
+	if removeError != nil || result == nil || !result.Accepted {
+		t.Fatalf("RemoveNodeGroupNode = (%+v, %v)", result, removeError)
 	}
 	if result.NodeName != "prod-opensearch-0" || result.NodeID != "f3c1a3a2-6a55-4c1e-9d1c-2f3e4a5b6c7d" ||
 		result.PreviousCount != 4 || result.NewCount != 3 ||
@@ -73,16 +70,16 @@ func TestRemoveNodeGroupNodeAcceptedNamesTheNodeThatLeaves(t *testing.T) {
 }
 
 // A removal the platform was still deciding when it answered names no node:
-// it comes back as accepted alone.
+// it comes back accepted, with no node and no operation.
 func TestRemoveNodeGroupNodeAcceptedWhileStillDecidingHasNoResult(t *testing.T) {
 	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
 		jsonResponse(t, writer, http.StatusAccepted, map[string]any{"status": "accepted"})
 	})
 
-	result, accepted, removeError := client.RemoveNodeGroupNode(context.Background(), "hetzner", "cluster-1", "opensearch",
+	result, removeError := client.RemoveNodeGroupNode(context.Background(), "hetzner", "cluster-1", "opensearch",
 		"prod-opensearch-0", DrainOptions{}, false)
-	if removeError != nil || result != nil || accepted == nil || accepted.OperationID != "" {
-		t.Fatalf("RemoveNodeGroupNode = (%+v, %+v, %v)", result, accepted, removeError)
+	if removeError != nil || result == nil || !result.Accepted || result.NodeName != "" || result.OperationID != nil {
+		t.Fatalf("RemoveNodeGroupNode = (%+v, %v)", result, removeError)
 	}
 }
 
@@ -96,7 +93,7 @@ func TestRemoveNodeGroupNodeResultKeepsThePlatformsDocument(t *testing.T) {
 		})
 	})
 
-	result, _, removeError := client.RemoveNodeGroupNode(context.Background(), "hetzner", "cluster-1", "opensearch",
+	result, removeError := client.RemoveNodeGroupNode(context.Background(), "hetzner", "cluster-1", "opensearch",
 		"prod-opensearch-0", DrainOptions{}, true)
 	if removeError != nil || result == nil {
 		t.Fatalf("RemoveNodeGroupNode = (%+v, %v)", result, removeError)
@@ -114,7 +111,7 @@ func TestRemoveNodeGroupNodeRefusalCarriesThePlatformsReason(t *testing.T) {
 		jsonResponse(t, writer, http.StatusConflict, map[string]any{"detail": reason})
 	})
 	for _, wait := range []bool{false, true} {
-		_, _, removeError := client.RemoveNodeGroupNode(context.Background(), "hetzner", "cluster-1", "opensearch",
+		_, removeError := client.RemoveNodeGroupNode(context.Background(), "hetzner", "cluster-1", "opensearch",
 			"prod-opensearch-0", DrainOptions{}, wait)
 		var unexpected *UnexpectedResponseError
 		if !errors.As(removeError, &unexpected) || unexpected.StatusCode != http.StatusConflict ||
@@ -131,7 +128,7 @@ func TestRemoveNodeGroupNodeKeepsTheNotFound(t *testing.T) {
 		jsonResponse(t, writer, http.StatusNotFound, map[string]any{"detail": "Node 'ghost' not found in this cluster"})
 	})
 
-	_, _, removeError := client.RemoveNodeGroupNode(context.Background(), "hetzner", "cluster-1", "opensearch",
+	_, removeError := client.RemoveNodeGroupNode(context.Background(), "hetzner", "cluster-1", "opensearch",
 		"ghost", DrainOptions{}, true)
 	var unexpected *UnexpectedResponseError
 	if !errors.As(removeError, &unexpected) || unexpected.StatusCode != http.StatusNotFound ||
@@ -148,7 +145,7 @@ func TestRemoveNodeGroupNodeKeepsTheRoutersNotFoundDetail(t *testing.T) {
 		jsonResponse(t, writer, http.StatusNotFound, map[string]any{"detail": "Not Found"})
 	})
 
-	_, _, removeError := client.RemoveNodeGroupNode(context.Background(), "hetzner", "cluster-1", "opensearch",
+	_, removeError := client.RemoveNodeGroupNode(context.Background(), "hetzner", "cluster-1", "opensearch",
 		"prod-opensearch-0", DrainOptions{}, false)
 	var unexpected *UnexpectedResponseError
 	if !errors.As(removeError, &unexpected) || unexpected.StatusCode != http.StatusNotFound || unexpected.Detail != "Not Found" {
@@ -163,7 +160,7 @@ func TestRemoveNodeGroupNodeLeavesARouterNotFoundWithoutADetail(t *testing.T) {
 		http.NotFound(writer, request)
 	})
 
-	_, _, removeError := client.RemoveNodeGroupNode(context.Background(), "hetzner", "cluster-1", "opensearch",
+	_, removeError := client.RemoveNodeGroupNode(context.Background(), "hetzner", "cluster-1", "opensearch",
 		"prod-opensearch-0", DrainOptions{}, true)
 	var unexpected *UnexpectedResponseError
 	if !errors.As(removeError, &unexpected) || unexpected.StatusCode != http.StatusNotFound || unexpected.Detail != "" {

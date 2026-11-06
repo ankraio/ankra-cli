@@ -28,15 +28,20 @@ group's node count drops by one, so nothing recreates the node.
 
 A scale-down picks the nodes it removes itself; remove-node is the way to
 retire a particular one, such as a node on a failing host. <node> is the
-node's name (its server name, which on most providers is also its Kubernetes
-node name), the providerID its Kubernetes node reports, or its server id
-(the ID column of 'ankra cluster <provider> nodes list', for example
-'ankra cluster hetzner nodes list'). Before asking, the command looks the
-reference up and shows the node's name, server id and providerID, or says
-that it could not tell which node the reference names; the platform
-resolves the reference itself either way. A node that is already cordoned
-is removed the same way, but a refused drain makes the node it keeps
-schedulable again: cordon it again if it must stay out of service.
+node's server id (the ID column of 'ankra cluster <provider> nodes list',
+for example 'ankra cluster hetzner nodes list'), its server name, its
+Kubernetes node name (the server name, on every provider but AWS) or the
+providerID its Kubernetes node reports, in any letter case.
+
+Before asking, the command looks the reference up and shows the node's
+name, server id and providerID, or says that it could not tell which node
+the reference names. When it found the node, it sends that node's server
+id, so the node removed is the node you approved; otherwise it sends the
+reference as typed, and the platform resolves it and refuses it if it
+names no node of the group. With --yes nothing is looked up and the
+reference is sent as typed. A node that is already cordoned is removed the
+same way, but a refused drain makes the node it keeps schedulable again:
+cordon it again if it must stay out of service.
 
 ` + guardedDrainHelp + `
 
@@ -49,18 +54,21 @@ delete. When the drain is refused, the operation fails and names what
 refused it, the node is kept and made schedulable again, and the group's
 count goes back up.
 
-When the platform starts no operation, one of two things is true. The
-cluster is stopped: the node is dropped from the cluster's record now,
-nothing is drained, and it is not created again when the cluster starts. Or
-another node change on the cluster is still running: the platform drains
-and deletes this node once that change has finished.
+When the platform names no operation, either the cluster is stopped: the
+node is dropped from the cluster's record now, nothing is drained, and it
+is not created again when the cluster starts. Or the platform did not start
+the operation right away, because another node change on the cluster is
+still running or starting it failed, and it drains and deletes the node
+later.
 
 The platform refuses a control plane, a node of another group, a node
-already being removed, and a removal that would take an autoscaling group
-below its min count; each refusal exits 1 with the platform's reason. A
-node the cluster does not have exits 3. A blank group or node, one made
-only of dots, a '/' outside a providerID, or a '.' or '..' step inside one
-exits 2 before anything is looked up or sent.
+already being removed, a reference several nodes answer to, and a removal
+that would take an autoscaling group below its min count; each refusal
+exits 1 with the platform's reason. A node the cluster does not have exits
+3. A group or node that is blank, has spaces around it, or is '.' or '..'
+(also percent-encoded), a '/' outside a providerID, a providerID with no id
+or with a '.' or '..' step, and an -o other than json or yaml exit 2 before
+anything is looked up or sent.
 
 Examples:
   ankra cluster node-group remove-node <cluster_id> opensearch prod-opensearch-0
@@ -77,7 +85,7 @@ func runRemoveNodeGroupNode(cmd *cobra.Command, args []string) error {
 	if resolveError != nil {
 		return resolveError
 	}
-	groupName, nodeReference := args[1], strings.TrimSpace(args[2])
+	groupName, nodeReference := args[1], args[2]
 	yes, _ := cmd.Flags().GetBool("yes")
 	drainOptions := drainOptionsFromFlags(cmd)
 	kind, kindError := resolveNodeGroupClusterKind(args[0], clusterID)
@@ -85,6 +93,12 @@ func runRemoveNodeGroupNode(cmd *cobra.Command, args []string) error {
 		return kindError
 	}
 
+	// sent is the node the request names: the server id of the node the user
+	// approved when the lookup found it, so the platform removes that node and
+	// no other, whatever else answers to the reference by then; the reference
+	// as typed otherwise. Only a UUID is sent as an id, because the platform
+	// reads a UUID as a server id and any other reference as a name.
+	sent := nodeReference
 	if !yes {
 		consequence := "This drains the node and deletes its server!"
 		if drainOptions.ForceDrain {
@@ -95,6 +109,9 @@ func runRemoveNodeGroupNode(cmd *cobra.Command, args []string) error {
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), prompt, false); err != nil {
 			return err
 		}
+		if target.node != nil && looksLikeUUID(target.node.ID) {
+			sent = target.node.ID
+		}
 	}
 
 	requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
@@ -103,19 +120,18 @@ func runRemoveNodeGroupNode(cmd *cobra.Command, args []string) error {
 	}
 	defer cancelRequestContext()
 
-	result, accepted, removeError := apiClient.RemoveNodeGroupNode(requestContext, kind, clusterID, groupName,
-		nodeReference, drainOptions, wait)
+	result, removeError := apiClient.RemoveNodeGroupNode(requestContext, kind, clusterID, groupName, sent,
+		drainOptions, wait)
 	if removeError != nil {
 		return removeNodeGroupNodeError(wait, removeError)
 	}
-	if accepted != nil {
-		submitted := newNodeRemovalSubmitted(clusterID, result, accepted)
-		if handled, err := renderStructured(cmd, submitted); err != nil {
+	if result.Accepted {
+		if handled, err := renderStructured(cmd, newNodeRemovalSubmitted(clusterID, result)); err != nil {
 			return err
 		} else if handled {
 			return nil
 		}
-		printNodeRemovalAccepted(cmd.OutOrStdout(), clusterID, result, accepted, drainOptions)
+		printNodeRemovalAccepted(cmd.OutOrStdout(), clusterID, result, drainOptions)
 		return nil
 	}
 	if handled, err := renderStructured(cmd, result); err != nil {
@@ -135,17 +151,20 @@ var providerIDShape = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*://`)
 const nameANodeHint = "name the node, its providerID or its server id"
 
 // validateNodeReference refuses a node reference no node can have, before
-// anything is looked up or sent: blank, made only of dots, holding a '/' when
-// it is not a providerID, or a providerID with no id or with a "." or ".."
-// step. The reference is path-escaped into one segment, but a reference of
-// dots is a path step the platform's edge resolves, so `remove-node <c>
-// <group> ..` would reach the group's own DELETE (ankra-6pi023). The edge
-// leaves the escaped '/' of a providerID alone today; no provider's id has a
-// dot step, so one is refused here rather than resting on that. Space around
-// the reference is not part of it: this checks what is sent, trimmed.
+// anything is looked up or sent: blank or with spaces around it, "." or ".."
+// (or one that decodes to them), holding a '/' when it is not a providerID,
+// or a providerID with no id or with a "." or ".." step. The reference is
+// path-escaped into one segment, but ".." is a path step the platform's edge
+// resolves, so `remove-node <c> <group> ..` would reach the group's own
+// DELETE (ankra-6pi023). The edge leaves the escaped '/' of a providerID
+// alone today; no provider's id has a dot step, so one is refused here
+// rather than resting on that. What is checked is what is sent: a reference
+// with spaces around it is refused, as a group name is, not trimmed.
 func validateNodeReference(reference string) error {
-	trimmed := strings.TrimSpace(reference)
-	decoded, _ := client.UnsafePathSegment(trimmed)
+	if strings.TrimSpace(reference) != reference || reference == "" {
+		return validatePathArgument("node", reference)
+	}
+	decoded, _ := client.UnsafePathSegment(reference)
 	if scheme := providerIDShape.FindString(decoded); scheme != "" {
 		id := strings.Trim(strings.TrimPrefix(decoded, scheme), "/")
 		if id == "" {
@@ -164,7 +183,7 @@ func validateNodeReference(reference string) error {
 		return withExitCode(exitUsage, fmt.Errorf("the node %q contains '/' but is not a providerID (scheme://...); %s",
 			reference, nameANodeHint))
 	}
-	return validatePathArgument("node", trimmed)
+	return validatePathArgument("node", reference)
 }
 
 // removeNodeGroupNodeError wraps a remove-node failure for the terminal. A
@@ -194,30 +213,32 @@ type nodeRemovalSubmitted struct {
 	NewCount             *int   `json:"new_count,omitempty" yaml:"new_count,omitempty"`
 }
 
-func newNodeRemovalSubmitted(clusterID string, result *client.RemoveNodeGroupNodeResult,
-	accepted *client.AsyncWriteAcceptedResponse) nodeRemovalSubmitted {
+// newNodeRemovalSubmitted is the -o answer for an accepted removal. Its hint
+// names commands a script can run: an operation is read with -o json, since
+// --watch renders for a terminal and refuses -o.
+func newNodeRemovalSubmitted(clusterID string, result *client.RemoveNodeGroupNodeResult) nodeRemovalSubmitted {
 	submitted := nodeRemovalSubmitted{asyncSubmittedResult: asyncSubmittedResult{
-		Submitted: true,
-		Operation: "Node removal",
+		Submitted:   true,
+		Operation:   "Node removal",
+		OperationID: removalOperationID(result),
 	}}
-	submitted.OperationID = accepted.OperationID
-	if result != nil {
+	decided := result.NodeName != ""
+	if decided {
 		submitted.GroupName, submitted.NodeName, submitted.NodeID = result.GroupName, result.NodeName, result.NodeID
 		previousCount, newCount := result.PreviousCount, result.NewCount
 		submitted.PreviousCount, submitted.NewCount = &previousCount, &newCount
-		if submitted.OperationID == "" && result.OperationID != nil {
-			submitted.OperationID = *result.OperationID
-		}
 	}
 	switch {
 	case submitted.OperationID != "":
-		submitted.Hint = "follow the drain and the delete with '" + watchOperationCommand(submitted.OperationID) +
-			"'; a refused drain fails the operation, names what refused it and keeps the node"
-	case result != nil:
+		submitted.Hint = "operation " + submitted.OperationID + " drains the node and deletes its server; read it with '" +
+			followOperationCommand(submitted.OperationID) + " -o json' until it has ended. A refused drain fails it, " +
+			"names what refused it and keeps the node"
+	case decided:
 		submitted.Hint = "no operation was started yet: either the cluster is stopped and the node was dropped from " +
-			"its record (nothing is drained, and it is not created again on start), or another node change is " +
-			"still running and the platform drains and deletes this node after it; '" +
-			clusterOperationsCommand(clusterID) + "' lists the removal's operation once it starts"
+			"its record (nothing is drained, and it is not created again on start), or the platform did not start the " +
+			"operation right away (another node change is still running, or starting it failed) and drains and " +
+			"deletes the node later; '" + clusterOperationsCommand(clusterID) + "' lists the removal's operation " +
+			"once it starts"
 	default:
 		submitted.Hint = "the platform was still checking the removal when it answered, so it has not named the " +
 			"node yet; '" + clusterOperationsCommand(clusterID) + "' lists the removal's operation once it starts, " +
@@ -225,6 +246,15 @@ func newNodeRemovalSubmitted(clusterID string, result *client.RemoveNodeGroupNod
 			"operation once it is decided"
 	}
 	return submitted
+}
+
+// removalOperationID is the operation the platform named for the removal,
+// or "" for none.
+func removalOperationID(result *client.RemoveNodeGroupNodeResult) string {
+	if result.OperationID == nil {
+		return ""
+	}
+	return *result.OperationID
 }
 
 // watchOperationCommand follows one operation until it ends.
@@ -243,13 +273,14 @@ func printNodeRemoval(out io.Writer, clusterID string, result *client.RemoveNode
 	drainOptions client.DrainOptions) {
 	_, _ = fmt.Fprintf(out, "Node '%s' (server id %s) is leaving node group '%s' (%d -> %d nodes).\n",
 		result.NodeName, result.NodeID, result.GroupName, result.PreviousCount, result.NewCount)
-	if result.OperationID == nil {
+	operationID := removalOperationID(result)
+	if operationID == "" {
 		_, _ = fmt.Fprintln(out, "No operation was started for it yet. Either:")
 		_, _ = fmt.Fprintln(out, "  - the cluster is stopped: the node was dropped from the cluster's record now, nothing is "+
 			"drained, and it is not created again when the cluster starts; or")
-		_, _ = fmt.Fprintf(out, "  - another node change on the cluster is still running: the platform drains and deletes this "+
-			"node once it has finished. Find the removal's operation then with:\n      %s\n",
-			clusterOperationsCommand(clusterID))
+		_, _ = fmt.Fprintf(out, "  - the platform did not start the operation right away (another node change on the cluster "+
+			"is still running, or starting it failed): it drains and deletes this node later. Find the removal's "+
+			"operation then with:\n      %s\n", clusterOperationsCommand(clusterID))
 		return
 	}
 	drain := "drains it through its pods' PodDisruptionBudgets"
@@ -257,8 +288,8 @@ func printNodeRemoval(out io.Writer, clusterID string, result *client.RemoveNode
 		drain = "drains it without honouring its pods' PodDisruptionBudgets"
 	}
 	_, _ = fmt.Fprintf(out, "The node is marked for removal. Operation %s %s, then deletes its server.\n",
-		*result.OperationID, drain)
-	_, _ = fmt.Fprintf(out, "Follow the drain and the delete with:\n  %s\n", watchOperationCommand(*result.OperationID))
+		operationID, drain)
+	_, _ = fmt.Fprintf(out, "Follow the drain and the delete with:\n  %s\n", watchOperationCommand(operationID))
 	if !drainOptions.ForceDrain {
 		_, _ = fmt.Fprintf(out, "If the drain is refused, the operation fails and names what refused it, the node is kept "+
 			"and made schedulable again, and the group goes back to %d nodes.\n", result.PreviousCount)
@@ -270,19 +301,15 @@ func printNodeRemoval(out io.Writer, clusterID string, result *client.RemoveNode
 // named the node, and the output is the same; otherwise it says what is
 // known and where the outcome will be recorded.
 func printNodeRemovalAccepted(out io.Writer, clusterID string, result *client.RemoveNodeGroupNodeResult,
-	accepted *client.AsyncWriteAcceptedResponse, drainOptions client.DrainOptions) {
-	if result != nil {
-		if result.OperationID == nil && accepted.OperationID != "" {
-			operationID := accepted.OperationID
-			result.OperationID = &operationID
-		}
+	drainOptions client.DrainOptions) {
+	if result.NodeName != "" {
 		printNodeRemoval(out, clusterID, result, drainOptions)
 		return
 	}
 	_, _ = fmt.Fprintln(out, "Node removal submitted. The platform was still checking it when it answered, so it has not "+
 		"named the node that leaves yet.")
-	if accepted.OperationID != "" {
-		_, _ = fmt.Fprintf(out, "Follow it with:\n  %s\n", watchOperationCommand(accepted.OperationID))
+	if operationID := removalOperationID(result); operationID != "" {
+		_, _ = fmt.Fprintf(out, "Follow it with:\n  %s\n", watchOperationCommand(operationID))
 		return
 	}
 	_, _ = fmt.Fprintf(out, "The removal's operation is listed here once it starts:\n  %s\n", clusterOperationsCommand(clusterID))
@@ -296,7 +323,7 @@ func printNodeRemovalAccepted(out io.Writer, clusterID string, result *client.Re
 // reference names, read before the prompt so the user approves a node
 // rather than a string. node is nil when the lookup could not tell which
 // node it is (unresolved says why); the platform resolves the reference
-// itself either way, so an inconclusive lookup never refuses the removal.
+// itself then, so an inconclusive lookup never refuses the removal.
 type removeNodeTarget struct {
 	node *client.NodeSummary
 	// providerID is the providerID the node's Kubernetes node reports, and
@@ -306,133 +333,245 @@ type removeNodeTarget struct {
 	unresolved        string
 }
 
-// removeNodeKubernetesReadTimeout bounds the providerID read before the
-// prompt: it goes through the cluster's agent, and a slow agent must not
-// hold the question back for long.
-const removeNodeKubernetesReadTimeout = 10 * time.Second
+// removeNodeLookupTimeout bounds the whole lookup before the prompt. Its
+// reads go through the platform, the Kubernetes one through the cluster's
+// agent, and a slow answer must not hold the question back for long: when
+// the time is up, the prompt says what could not be read. A variable so a
+// test can wait less.
+var removeNodeLookupTimeout = 10 * time.Second
 
-// nodesOpsByKind is each node-group kind's node listing.
-var nodesOpsByKind = map[string]func() clusterNodesOps{
-	"hetzner":      hetznerNodesOps,
-	"ovh":          ovhNodesOps,
-	"upcloud":      upcloudNodesOps,
-	"digitalocean": digitaloceanNodesOps,
-	"scaleway":     scalewayNodesOps,
-	"ankracloud":   ankraCloudNodesOps,
-	"aws":          awsNodesOps,
-	"proxmox":      proxmoxNodesOps,
-	"morpheus":     morpheusNodesOps,
+// readAnswer is one background read's answer.
+type readAnswer[T any] struct {
+	value T
+	err   error
 }
 
-// resolveRemoveNodeTarget looks reference up in the cluster's node list and,
-// for its providerID, in the cluster's Kubernetes nodes.
-func resolveRemoveNodeTarget(kind, clusterID, reference string) removeNodeTarget {
-	opsFor, known := nodesOpsByKind[kind]
-	if !known {
-		return removeNodeTarget{unresolved: "the CLI cannot list the nodes of a " + kind + " cluster"}
-	}
-	listed, listError := opsFor().list(clusterID)
-	if listError != nil || listed == nil {
-		return removeNodeTarget{unresolved: fmt.Sprintf("the cluster's node list could not be read (%v)", listError)}
-	}
-	return matchRemoveNodeReference(listed.Nodes, readKubernetesNodeProviderIDs(clusterID), reference)
-}
-
-// readKubernetesNodeProviderIDs maps the cluster's Kubernetes nodes, by
-// lowercased name, to the providerID each reports ("" for none). nil when
-// they could not be read within removeNodeKubernetesReadTimeout.
-func readKubernetesNodeProviderIDs(clusterID string) map[string]string {
-	reader := apiClient
-	answers := make(chan map[string]string, 1)
+// startRead runs read in the background, so reads that do not depend on
+// each other run at the same time. A read nobody waits for any more
+// finishes on its own.
+func startRead[T any](read func() (T, error)) <-chan readAnswer[T] {
+	answers := make(chan readAnswer[T], 1)
 	go func() {
-		response, readError := reader.GetResources(clusterID, client.GetResourcesRequest{
-			ResourceRequests: []client.ResourceRequestItem{{Kind: "Node", Version: "v1"}},
+		value, err := read()
+		answers <- readAnswer[T]{value: value, err: err}
+	}()
+	return answers
+}
+
+// awaitRead is the read's answer, or answered false when deadline passed
+// first.
+func awaitRead[T any](answers <-chan readAnswer[T], deadline time.Time) (answer readAnswer[T], answered bool) {
+	timer := time.NewTimer(time.Until(deadline))
+	defer timer.Stop()
+	select {
+	case answer = <-answers:
+		return answer, true
+	case <-timer.C:
+		return readAnswer[T]{}, false
+	}
+}
+
+// kubernetesNodesNamedAfterServers reports whether a kind's servers register
+// as the Kubernetes node named after them (the lowercased server name). Every
+// node-group kind does but AWS, which registers the EC2 private DNS name and
+// records it on the server, where the node list does not show it, so the CLI
+// cannot pair an AWS server with its Kubernetes node.
+func kubernetesNodesNamedAfterServers(kind string) bool {
+	return kind != "aws"
+}
+
+// kubernetesNodeView is what the lookup learnt of the cluster's Kubernetes
+// nodes: the providerID each node it read reports, by lowercased name (""
+// for one that reports none). providerIDs is nil when nothing was read, and
+// unread says why.
+type kubernetesNodeView struct {
+	namedAfterServers bool
+	providerIDs       map[string]string
+	unread            string
+}
+
+// startKubernetesNodeRead reads the providerID of the cluster's Kubernetes
+// node called name, or of every node when name is "". A node of that name
+// that does not exist answers an empty map. The read asks for a live answer
+// and takes no other, as cluster top's capacity read does: a cached copy can
+// pair a providerID with a node name that a replaced server has reused since.
+func startKubernetesNodeRead(clusterID, name string) <-chan readAnswer[map[string]string] {
+	getResources := apiClient.GetResources
+	return startRead(func() (map[string]string, error) {
+		response, readError := getResources(clusterID, client.GetResourcesRequest{
+			ResourceRequests: []client.ResourceRequestItem{{Kind: "Node", Version: "v1", Name: name}},
+			SkipCache:        true,
 		})
-		if readError != nil || response == nil || len(response.ResourceResponses) != 1 ||
-			response.ResourceResponses[0].Status == "error" {
-			answers <- nil
-			return
+		if readError != nil {
+			return nil, readError
+		}
+		var items []interface{}
+		if name != "" {
+			named, namedError := namedReadItems(response, "Node", name, "")
+			switch {
+			case exitCodeFor(namedError) == exitNotFound:
+				return map[string]string{}, nil
+			case namedError != nil:
+				return nil, namedError
+			}
+			items = named
+		} else {
+			if response == nil || len(response.ResourceResponses) != 1 {
+				return nil, noItemInReplyError("the cluster's Nodes")
+			}
+			if failed := failedReadError(response.ResourceResponses[0], "the cluster's Nodes"); failed != nil {
+				return nil, failed
+			}
+			items = response.ResourceResponses[0].Items
+		}
+		if response.ResourceResponses[0].CacheMetadata != nil {
+			return nil, errors.New("the cluster did not answer live; only the platform's cached copy did")
 		}
 		providerIDs := map[string]string{}
-		for _, item := range response.ResourceResponses[0].Items {
+		for _, item := range items {
 			object, isObject := item.(map[string]interface{})
 			if !isObject {
 				continue
 			}
-			if name := getNestedString(object, "metadata", "name"); name != "" {
-				providerIDs[strings.ToLower(name)] = getNestedString(object, "spec", "providerID")
+			if nodeName := getNestedString(object, "metadata", "name"); nodeName != "" {
+				providerIDs[strings.ToLower(nodeName)] = getNestedString(object, "spec", "providerID")
 			}
 		}
-		answers <- providerIDs
-	}()
-	select {
-	case providerIDs := <-answers:
-		return providerIDs
-	case <-time.After(removeNodeKubernetesReadTimeout):
-		return nil
+		return providerIDs, nil
+	})
+}
+
+// resolveRemoveNodeTarget looks reference up in the cluster's node list and,
+// for the providerID, in the cluster's Kubernetes nodes, within
+// removeNodeLookupTimeout. The two reads run at the same time whenever the
+// reference says which Kubernetes read it needs: every node for a providerID
+// (the one reporting it is not known yet), the one node named like the
+// server for a name. A server id names its node only once the list is read.
+func resolveRemoveNodeTarget(kind, clusterID, reference string) removeNodeTarget {
+	nodesOps := nodeGroupCallsFor(kind).nodes
+	if nodesOps == nil {
+		return removeNodeTarget{unresolved: "the CLI cannot list the nodes of a " + kind + " cluster"}
 	}
+	deadline := time.Now().Add(removeNodeLookupTimeout)
+	list := nodesOps().list
+	listing := startRead(func() (*client.NodeListResult, error) { return list(clusterID) })
+
+	namedAfterServers := kubernetesNodesNamedAfterServers(kind)
+	var kubernetesRead <-chan readAnswer[map[string]string]
+	switch {
+	case !namedAfterServers:
+	case providerIDShape.MatchString(reference):
+		kubernetesRead = startKubernetesNodeRead(clusterID, "")
+	case !looksLikeUUID(reference):
+		kubernetesRead = startKubernetesNodeRead(clusterID, strings.ToLower(reference))
+	}
+
+	listed, answered := awaitRead(listing, deadline)
+	switch {
+	case !answered:
+		return removeNodeTarget{unresolved: fmt.Sprintf("the cluster's node list did not answer within %s",
+			removeNodeLookupTimeout)}
+	case listed.err != nil:
+		return removeNodeTarget{unresolved: fmt.Sprintf("the cluster's node list could not be read (%v)", listed.err)}
+	case listed.value == nil:
+		return removeNodeTarget{unresolved: "the platform answered no node list"}
+	}
+	nodes := listed.value.Nodes
+
+	if kubernetesRead == nil && namedAfterServers {
+		if candidates := nodesAnswering(nodes, kubernetesNodeView{}, reference); len(candidates) == 1 &&
+			candidates[0].Name != "" {
+			kubernetesRead = startKubernetesNodeRead(clusterID, strings.ToLower(candidates[0].Name))
+		}
+	}
+	kubernetes := kubernetesNodeView{namedAfterServers: namedAfterServers,
+		unread: "the cluster's Kubernetes nodes could not be read"}
+	if !namedAfterServers {
+		kubernetes.unread = "on AWS the CLI cannot tell which Kubernetes node a server registered as"
+	}
+	if kubernetesRead != nil {
+		if read, readAnswered := awaitRead(kubernetesRead, deadline); readAnswered && read.err == nil {
+			kubernetes.providerIDs, kubernetes.unread = read.value, ""
+		}
+	}
+	return matchRemoveNodeReference(nodes, kubernetes, reference)
 }
 
 // matchRemoveNodeReference finds the node reference names the way the
-// platform does: by server id, then by name case-insensitively, a providerID
-// first mapped to the Kubernetes node reporting it. A name or providerID
-// that several nodes answer to names none of them.
-func matchRemoveNodeReference(nodes []client.NodeSummary, providerIDs map[string]string,
+// platform does: a UUID that is a live server's id names that server; any
+// other reference names the servers that answer to it (nodeAnswersTo). A
+// reference several nodes answer to names none of them.
+func matchRemoveNodeReference(nodes []client.NodeSummary, kubernetes kubernetesNodeView,
 	reference string) removeNodeTarget {
-	trimmed := strings.TrimSpace(reference)
-	var live []client.NodeSummary
-	for _, node := range nodes {
-		if !node.IsDeleted {
-			live = append(live, node)
-		}
-	}
-	for index := range live {
-		if strings.EqualFold(live[index].ID, trimmed) {
-			return removeNodeTargetFor(&live[index], providerIDs)
-		}
-	}
-
-	name := trimmed
-	var reporting []string
-	for nodeName, providerID := range providerIDs {
-		if providerID != "" && strings.EqualFold(providerID, trimmed) {
-			reporting = append(reporting, nodeName)
-		}
-	}
+	candidates := nodesAnswering(nodes, kubernetes, reference)
 	switch {
-	case len(reporting) == 1:
-		name = reporting[0]
-	case len(reporting) > 1:
-		return removeNodeTarget{unresolved: fmt.Sprintf("%d Kubernetes nodes report that providerID", len(reporting))}
-	}
-
-	var named []*client.NodeSummary
-	for index := range live {
-		if strings.EqualFold(live[index].Name, name) {
-			named = append(named, &live[index])
-		}
-	}
-	switch {
-	case len(named) == 1:
-		return removeNodeTargetFor(named[0], providerIDs)
-	case len(named) > 1:
-		return removeNodeTarget{unresolved: fmt.Sprintf("%d nodes in the cluster's records are named %q", len(named), name)}
-	case name != trimmed:
-		return removeNodeTarget{unresolved: fmt.Sprintf(
-			"the Kubernetes node reporting that providerID, %q, matches no node in the cluster's records", name)}
+	case len(candidates) == 1:
+		return removeNodeTargetFor(candidates[0], kubernetes)
+	case len(candidates) > 1:
+		return removeNodeTarget{unresolved: fmt.Sprintf("%d nodes in the cluster's records answer to it",
+			len(candidates))}
+	case !kubernetes.namedAfterServers:
+		return removeNodeTarget{unresolved: "no server in the cluster's records has that id or name, and " +
+			kubernetes.unread}
+	case kubernetes.providerIDs == nil && providerIDShape.MatchString(reference):
+		return removeNodeTarget{unresolved: kubernetes.unread + ", so the CLI could not tell which node reports " +
+			"that providerID"}
 	default:
-		return removeNodeTarget{unresolved: "no node in the cluster's records has that name or server id"}
+		return removeNodeTarget{unresolved: "no node in the cluster's records has that server id, name or providerID"}
 	}
 }
 
-func removeNodeTargetFor(node *client.NodeSummary, providerIDs map[string]string) removeNodeTarget {
+// nodesAnswering is the live nodes reference names: the one whose server id
+// it is, when it is a UUID that is one; otherwise every node that answers to
+// it.
+func nodesAnswering(nodes []client.NodeSummary, kubernetes kubernetesNodeView,
+	reference string) []*client.NodeSummary {
+	var live []*client.NodeSummary
+	for index := range nodes {
+		if !nodes[index].IsDeleted {
+			live = append(live, &nodes[index])
+		}
+	}
+	if looksLikeUUID(reference) {
+		for _, node := range live {
+			if strings.EqualFold(node.ID, reference) {
+				return []*client.NodeSummary{node}
+			}
+		}
+	}
+	var candidates []*client.NodeSummary
+	for _, node := range live {
+		if nodeAnswersTo(node, kubernetes, reference) {
+			candidates = append(candidates, node)
+		}
+	}
+	return candidates
+}
+
+// nodeAnswersTo reports whether reference is one of the names node answers
+// to, without regard to case: its server name, which is also its Kubernetes
+// node name where nodes are named after their servers, and the providerID
+// that Kubernetes node reports.
+func nodeAnswersTo(node *client.NodeSummary, kubernetes kubernetesNodeView, reference string) bool {
+	if node.Name == "" {
+		return false
+	}
+	if strings.EqualFold(node.Name, reference) {
+		return true
+	}
+	providerID := kubernetes.providerIDs[strings.ToLower(node.Name)]
+	return providerID != "" && strings.EqualFold(providerID, reference)
+}
+
+func removeNodeTargetFor(node *client.NodeSummary, kubernetes kubernetesNodeView) removeNodeTarget {
 	target := removeNodeTarget{node: node}
-	providerID, known := providerIDs[strings.ToLower(node.Name)]
+	nodeName := strings.ToLower(node.Name)
+	providerID, known := kubernetes.providerIDs[nodeName]
 	switch {
-	case providerIDs == nil:
-		target.providerIDUnknown = "not known: the cluster's Kubernetes nodes could not be read"
+	case kubernetes.providerIDs == nil:
+		target.providerIDUnknown = "not known: " + kubernetes.unread
 	case !known:
-		target.providerIDUnknown = "not known: no Kubernetes node is named " + node.Name
+		target.providerIDUnknown = "not known: no Kubernetes node is named " + nodeName
 	case providerID == "":
 		target.providerIDUnknown = "none: its Kubernetes node reports no providerID"
 	default:

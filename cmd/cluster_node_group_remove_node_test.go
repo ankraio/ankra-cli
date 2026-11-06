@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"ankra/internal/client"
 
@@ -23,17 +26,31 @@ type removeNodeCall struct {
 
 type nodeGroupRemoveNodeMock struct {
 	baseMock
-	cluster  client.ClusterListItem
-	lookups  int
-	calls    []removeNodeCall
-	result   *client.RemoveNodeGroupNodeResult
-	accepted *client.AsyncWriteAcceptedResponse
-	err      error
+	cluster client.ClusterListItem
+	lookups int
+	calls   []removeNodeCall
+	result  *client.RemoveNodeGroupNodeResult
+	err     error
 	// nodes is the cluster's node list (nil: the read fails), and
 	// kubernetesNodes the providerID each Kubernetes node reports, by name
-	// (nil: the read fails).
-	nodes           []client.NodeSummary
-	kubernetesNodes map[string]string
+	// (nil: the read fails). kubernetesCached answers the Node read from the
+	// platform's cache instead of the cluster.
+	nodes            []client.NodeSummary
+	kubernetesNodes  map[string]string
+	kubernetesCached bool
+	// listAnswersNothing answers the node list with neither a list nor an
+	// error; listNeverAnswers holds it until the test ends; and
+	// listWaitsForKubernetes holds it until a Kubernetes read has started,
+	// failing it after two seconds, so a lookup that reads the two one after
+	// the other shows up as a list that could not be read.
+	listAnswersNothing     bool
+	listNeverAnswers       chan struct{}
+	listWaitsForKubernetes bool
+	kubernetesStarted      chan struct{}
+	kubernetesStartedOnce  sync.Once
+
+	kubernetesMutex    sync.Mutex
+	kubernetesRequests []client.GetResourcesRequest
 }
 
 func (m *nodeGroupRemoveNodeMock) GetClusterByID(clusterID string) (client.ClusterListItem, error) {
@@ -45,31 +62,75 @@ func (m *nodeGroupRemoveNodeMock) GetClusterByID(clusterID string) (client.Clust
 }
 
 func (m *nodeGroupRemoveNodeMock) ListHetznerClusterNodes(string) (*client.NodeListResult, error) {
+	return m.listNodes()
+}
+
+func (m *nodeGroupRemoveNodeMock) ListAwsClusterNodes(string) (*client.NodeListResult, error) {
+	return m.listNodes()
+}
+
+func (m *nodeGroupRemoveNodeMock) listNodes() (*client.NodeListResult, error) {
+	if m.listNeverAnswers != nil {
+		<-m.listNeverAnswers
+		return nil, errors.New("the test ended")
+	}
+	if m.listWaitsForKubernetes {
+		select {
+		case <-m.kubernetesStarted:
+		case <-time.After(2 * time.Second):
+			return nil, errors.New("the node list was read before any Kubernetes read started")
+		}
+	}
+	if m.listAnswersNothing {
+		return nil, nil
+	}
 	if m.nodes == nil {
 		return nil, errors.New("listing nodes: status 503")
 	}
 	return &client.NodeListResult{Nodes: m.nodes}, nil
 }
 
+// GetResources answers the Node read: one node when the request names one
+// (not_found when there is none), every node otherwise.
 func (m *nodeGroupRemoveNodeMock) GetResources(_ string, request client.GetResourcesRequest) (*client.GetResourcesResponse, error) {
+	m.kubernetesMutex.Lock()
+	m.kubernetesRequests = append(m.kubernetesRequests, request)
+	m.kubernetesMutex.Unlock()
+	if m.kubernetesStarted != nil {
+		m.kubernetesStartedOnce.Do(func() { close(m.kubernetesStarted) })
+	}
 	if m.kubernetesNodes == nil || len(request.ResourceRequests) != 1 || request.ResourceRequests[0].Kind != "Node" {
 		return nil, errors.New("the agent did not answer")
 	}
+	wanted := request.ResourceRequests[0].Name
 	var items []interface{}
 	for name, providerID := range m.kubernetesNodes {
+		if wanted != "" && name != wanted {
+			continue
+		}
 		items = append(items, map[string]interface{}{
 			"metadata": map[string]interface{}{"name": name},
 			"spec":     map[string]interface{}{"providerID": providerID},
 		})
 	}
-	return &client.GetResourcesResponse{ResourceResponses: []client.ResourceResponseItem{{Status: "success", Kind: "Node", Items: items}}}, nil
+	item := client.ResourceResponseItem{Status: "success", Kind: "Node", Items: items, NotFound: wanted != "" && len(items) == 0}
+	if m.kubernetesCached {
+		item.CacheMetadata = &client.ResourceCacheMetadata{ServedFromCache: true}
+	}
+	return &client.GetResourcesResponse{ResourceResponses: []client.ResourceResponseItem{item}}, nil
+}
+
+func (m *nodeGroupRemoveNodeMock) kubernetesRequestsSent() []client.GetResourcesRequest {
+	m.kubernetesMutex.Lock()
+	defer m.kubernetesMutex.Unlock()
+	return append([]client.GetResourcesRequest(nil), m.kubernetesRequests...)
 }
 
 func (m *nodeGroupRemoveNodeMock) RemoveNodeGroupNode(ctx context.Context, kind, clusterID, groupName, node string,
-	drainOptions client.DrainOptions, wait bool) (*client.RemoveNodeGroupNodeResult, *client.AsyncWriteAcceptedResponse, error) {
+	drainOptions client.DrainOptions, wait bool) (*client.RemoveNodeGroupNodeResult, error) {
 	m.calls = append(m.calls, removeNodeCall{kind: kind, clusterID: clusterID, groupName: groupName, node: node,
 		drainOptions: drainOptions, wait: wait})
-	return m.result, m.accepted, m.err
+	return m.result, m.err
 }
 
 const (
@@ -152,7 +213,8 @@ func TestClusterNodeGroupRemoveNodePromptResolvesProviderIDsAndServerIDs(t *test
 			t.Fatalf("%s: expected errCancelled on decline, got %v", reference, err)
 		}
 		if !strings.Contains(prompt, `Remove node "depict-opensearch-0" from node group "opensearch"`) ||
-			!strings.Contains(prompt, "Server id:   "+removeNodeServerID) {
+			!strings.Contains(prompt, "Server id:   "+removeNodeServerID) ||
+			!strings.Contains(prompt, "Provider id: hcloud://168428300") {
 			t.Errorf("%s: the prompt must name the node it resolves to:\n%s", reference, prompt)
 		}
 	}
@@ -165,6 +227,9 @@ func TestClusterNodeGroupRemoveNodeUnresolvedReferenceIsSaidAndStillSent(t *test
 		"no such node in the records": func(*nodeGroupRemoveNodeMock) {},
 		"the node list cannot be read": func(mock *nodeGroupRemoveNodeMock) {
 			mock.nodes = nil
+		},
+		"the node list answers nothing": func(mock *nodeGroupRemoveNodeMock) {
+			mock.listAnswersNothing = true
 		},
 	}
 	for name, arrange := range cases {
@@ -216,7 +281,12 @@ func TestClusterNodeGroupRemoveNodeJSONWithoutYesKeepsThePromptOffStdout(t *test
 // guarded unless --force-drain asked otherwise. The output names the node
 // that leaves, the counts, and how to follow the drain and the delete.
 func TestClusterNodeGroupRemoveNodeSendsTheNamedNodeToTheClustersKind(t *testing.T) {
-	for _, kind := range []string{"hetzner", "ovh", "upcloud", "digitalocean", "scaleway", "ankracloud", "aws", "proxmox", "morpheus"} {
+	var kinds []string
+	for kind := range nodeGroupKinds {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	for _, kind := range kinds {
 		mock := newRemoveNodeMock(kind)
 		stdout, _, runError := runRemoveNode(t, mock, "", testClusterID, "opensearch", "hcloud://168428300", "--yes")
 		if runError != nil {
@@ -241,10 +311,11 @@ func TestClusterNodeGroupRemoveNodeSendsTheNamedNodeToTheClustersKind(t *testing
 	}
 }
 
-// A removal the platform created no operation for has two causes the CLI
-// cannot tell apart (a stopped cluster, or a node change already running),
-// so the message says what each one means rather than asserting one.
-func TestClusterNodeGroupRemoveNodeWithoutAnOperationNamesBothCauses(t *testing.T) {
+// A removal the platform named no operation for has causes the CLI cannot
+// tell apart: a stopped cluster, or an operation the platform did not start
+// right away (a node change already running, or starting it failed). The
+// message says what each means rather than asserting one.
+func TestClusterNodeGroupRemoveNodeWithoutAnOperationNamesEveryCause(t *testing.T) {
 	mock := newRemoveNodeMock("hetzner")
 	mock.result.OperationID = nil
 	stdout, _, runError := runRemoveNode(t, mock, "", testClusterID, "opensearch", "depict-opensearch-0", "--yes")
@@ -254,7 +325,8 @@ func TestClusterNodeGroupRemoveNodeWithoutAnOperationNamesBothCauses(t *testing.
 	for _, said := range []string{
 		"the cluster is stopped: the node was dropped from the cluster's record now, nothing is drained, " +
 			"and it is not created again when the cluster starts",
-		"another node change on the cluster is still running: the platform drains and deletes this node once it has finished",
+		"the platform did not start the operation right away (another node change on the cluster is still running, " +
+			"or starting it failed): it drains and deletes this node later",
 		"ankra cluster operations list --cluster " + testClusterID,
 	} {
 		if !strings.Contains(stdout, said) {
@@ -311,7 +383,7 @@ func TestClusterNodeGroupRemoveNodeJSONIsTheResult(t *testing.T) {
 // node and the counts to the submitted shape.
 func TestClusterNodeGroupRemoveNodeAcceptedNamesTheNodeThatLeaves(t *testing.T) {
 	mock := newRemoveNodeMock("hetzner")
-	mock.accepted = &client.AsyncWriteAcceptedResponse{Status: "accepted", OperationID: removeNodeOperationID}
+	mock.result.Accepted = true
 	stdout, _, err := runRemoveNode(t, mock, "", testClusterID, "opensearch", "depict-opensearch-0", "--yes")
 	if err != nil {
 		t.Fatalf("accepted remove-node failed: %v", err)
@@ -329,7 +401,7 @@ func TestClusterNodeGroupRemoveNodeAcceptedNamesTheNodeThatLeaves(t *testing.T) 
 	}
 
 	mock = newRemoveNodeMock("hetzner")
-	mock.accepted = &client.AsyncWriteAcceptedResponse{Status: "accepted", OperationID: removeNodeOperationID}
+	mock.result.Accepted = true
 	stdout, _, err = runRemoveNode(t, mock, "", testClusterID, "opensearch", "depict-opensearch-0", "--yes", "-o", "json")
 	if err != nil {
 		t.Fatalf("accepted remove-node -o json failed: %v", err)
@@ -340,8 +412,15 @@ func TestClusterNodeGroupRemoveNodeAcceptedNamesTheNodeThatLeaves(t *testing.T) 
 	}
 	if decoded["submitted"] != true || decoded["operation_id"] != removeNodeOperationID ||
 		decoded["node_name"] != "depict-opensearch-0" || decoded["previous_count"] != float64(4) ||
-		decoded["new_count"] != float64(3) || !strings.Contains(decoded["hint"].(string), "--watch") {
+		decoded["new_count"] != float64(3) {
 		t.Fatalf("JSON = %s", stdout)
+	}
+	// The hint is for a script: it names a command that takes -o json, and
+	// not --watch, which refuses -o.
+	hint, _ := decoded["hint"].(string)
+	if !strings.Contains(hint, "ankra cluster operations list "+removeNodeOperationID+" -o json") ||
+		strings.Contains(hint, "--watch") {
+		t.Fatalf("hint = %q, want a runnable -o json read of the operation", hint)
 	}
 }
 
@@ -350,8 +429,7 @@ func TestClusterNodeGroupRemoveNodeAcceptedNamesTheNodeThatLeaves(t *testing.T) 
 // sending it again.
 func TestClusterNodeGroupRemoveNodeAcceptedWhileStillCheckingSaysWhereToLook(t *testing.T) {
 	mock := newRemoveNodeMock("hetzner")
-	mock.result = nil
-	mock.accepted = &client.AsyncWriteAcceptedResponse{Status: "accepted"}
+	mock.result = &client.RemoveNodeGroupNodeResult{Accepted: true}
 	stdout, _, err := runRemoveNode(t, mock, "", testClusterID, "opensearch", "depict-opensearch-0", "--yes")
 	if err != nil {
 		t.Fatalf("accepted remove-node failed: %v", err)
@@ -371,8 +449,7 @@ func TestClusterNodeGroupRemoveNodeAcceptedWhileStillCheckingSaysWhereToLook(t *
 	}
 
 	mock = newRemoveNodeMock("hetzner")
-	mock.result = nil
-	mock.accepted = &client.AsyncWriteAcceptedResponse{Status: "accepted"}
+	mock.result = &client.RemoveNodeGroupNodeResult{Accepted: true}
 	stdout, _, err = runRemoveNode(t, mock, "", testClusterID, "opensearch", "depict-opensearch-0", "--yes", "-o", "json")
 	if err != nil {
 		t.Fatalf("accepted remove-node -o json failed: %v", err)
@@ -457,6 +534,9 @@ func TestClusterNodeGroupRemoveNodeRefusesAReferenceNoNodeCanHave(t *testing.T) 
 		{"opensearch", "..", "is a path step, not a name"},
 		{"opensearch", ".", "is a path step, not a name"},
 		{"opensearch", "%2e%2E", `decodes to ".."`},
+		{"opensearch", " depict-opensearch-0", "has spaces around it"},
+		{"opensearch", "depict-opensearch-0\t", "has spaces around it"},
+		{"opensearch", "  hcloud://168428300  ", "has spaces around it"},
 		{"opensearch", "a/b", "is not a providerID"},
 		{"opensearch", "x://..", "which no providerID has"},
 		{"opensearch", "x://%2e%2e", "which no providerID has"},
@@ -468,6 +548,7 @@ func TestClusterNodeGroupRemoveNodeRefusesAReferenceNoNodeCanHave(t *testing.T) 
 		{"opensearch", "x://%2f", "a providerID with no id"},
 		{"", "depict-opensearch-0", "node group name is blank"},
 		{"..", "depict-opensearch-0", "is a path step, not a name"},
+		{" opensearch", "depict-opensearch-0", "has spaces around it"},
 		{"a/b", "depict-opensearch-0", "contains '/'"},
 	}
 	for _, testCase := range cases {
@@ -487,27 +568,140 @@ func TestClusterNodeGroupRemoveNodeRefusesAReferenceNoNodeCanHave(t *testing.T) 
 // A providerID is the one node reference with a '/', whatever its provider.
 func TestClusterNodeGroupRemoveNodeAcceptsProviderIDs(t *testing.T) {
 	for _, reference := range []string{"hcloud://168428300", "aws:///eu-west-1a/i-0abc123", "openstack:///3f2a9c",
-		"vsphere://42.1f..aa/.vm", "  hcloud://168428300  "} {
+		"vsphere://42.1f..aa/.vm"} {
 		if err := validateNodeReference(reference); err != nil {
 			t.Errorf("%s: refused a providerID: %v", reference, err)
 		}
 	}
 }
 
-// What is checked is what is sent: space around the reference is not part of
-// it, so the prompt's lookup and the request both use the trimmed form.
-func TestClusterNodeGroupRemoveNodeSendsTheReferenceItChecked(t *testing.T) {
+// The node the user approved is the node removed: once the lookup found it,
+// the request names its server id, whatever the reference was. With --yes
+// nothing is looked up, and the reference goes as typed.
+func TestClusterNodeGroupRemoveNodeSendsTheApprovedNodesServerID(t *testing.T) {
+	for _, reference := range []string{"depict-opensearch-0", "DEPICT-OPENSEARCH-0", "hcloud://168428300", removeNodeServerID} {
+		mock := newRemoveNodeMock("hetzner")
+		if _, _, runError := runRemoveNode(t, mock, "y\n", testClusterID, "opensearch", reference); runError != nil {
+			t.Fatalf("%s: remove-node failed: %v", reference, runError)
+		}
+		if len(mock.calls) != 1 || mock.calls[0].node != removeNodeServerID {
+			t.Errorf("%s: calls = %+v, want the approved node's server id %s", reference, mock.calls, removeNodeServerID)
+		}
+	}
 	mock := newRemoveNodeMock("hetzner")
-	_, stderr, runError := runRemoveNode(t, mock, "y\n", testClusterID, "opensearch", "  hcloud://168428300  ")
-	if runError != nil {
-		t.Fatalf("remove-node failed: %v", runError)
+	if _, _, runError := runRemoveNode(t, mock, "", testClusterID, "opensearch", "depict-opensearch-0", "--yes"); runError != nil {
+		t.Fatalf("remove-node --yes failed: %v", runError)
 	}
-	want := removeNodeCall{kind: "hetzner", clusterID: testClusterID, groupName: "opensearch", node: "hcloud://168428300"}
-	if len(mock.calls) != 1 || mock.calls[0] != want {
-		t.Fatalf("calls = %+v, want [%+v]", mock.calls, want)
+	if len(mock.calls) != 1 || mock.calls[0].node != "depict-opensearch-0" || len(mock.kubernetesRequestsSent()) != 0 {
+		t.Errorf("--yes: calls = %+v, Kubernetes reads %d; want the reference as typed and no lookup", mock.calls,
+			len(mock.kubernetesRequestsSent()))
 	}
-	if !strings.Contains(stderr, "depict-opensearch-0") {
-		t.Errorf("the prompt did not resolve the trimmed reference: %q", stderr)
+}
+
+// -o is checked with the arguments, before anything is looked up, asked or
+// sent: a removal must not be sent when its answer cannot be printed.
+func TestClusterNodeGroupRemoveNodeRefusesAnUnknownOutputFormatBeforeSending(t *testing.T) {
+	mock := newRemoveNodeMock("hetzner")
+	_, stderr, err := runRemoveNode(t, mock, "y\n", testClusterID, "opensearch", "depict-opensearch-0", "-o", "xml")
+	if err == nil || exitCodeFor(err) != exitUsage || !strings.Contains(err.Error(), `invalid -o format "xml"`) {
+		t.Fatalf("got %v (exit %d), want the usage error for -o xml", err, exitCodeFor(err))
+	}
+	if mock.lookups != 0 || len(mock.calls) != 0 || strings.Contains(stderr, "[y/N]") {
+		t.Errorf("-o was checked too late (lookups=%d, calls=%d, stderr %q)", mock.lookups, len(mock.calls), stderr)
+	}
+}
+
+// The Kubernetes Node read asks for a live answer, and reads only what the
+// reference needs: the one node named like the server for a name or a
+// server id, every node for a providerID (the one reporting it is not known
+// yet). A cached answer is not used: it can pair a providerID with a name a
+// replaced server has reused since.
+func TestClusterNodeGroupRemoveNodeReadsOnlyTheKubernetesNodesItNeedsLive(t *testing.T) {
+	for reference, wantName := range map[string]string{
+		"depict-opensearch-0": "depict-opensearch-0",
+		"DEPICT-OPENSEARCH-0": "depict-opensearch-0",
+		removeNodeServerID:    "depict-opensearch-0",
+		"hcloud://168428300":  "",
+	} {
+		mock := newRemoveNodeMock("hetzner")
+		_, _, _ = runRemoveNode(t, mock, "n\n", testClusterID, "opensearch", reference)
+		requests := mock.kubernetesRequestsSent()
+		if len(requests) != 1 || !requests[0].SkipCache || len(requests[0].ResourceRequests) != 1 ||
+			requests[0].ResourceRequests[0].Name != wantName {
+			t.Errorf("%s: Kubernetes reads = %+v, want one live read of %q", reference, requests, wantName)
+		}
+	}
+
+	mock := newRemoveNodeMock("hetzner")
+	mock.kubernetesCached = true
+	_, prompt, _ := runRemoveNode(t, mock, "n\n", testClusterID, "opensearch", "depict-opensearch-0")
+	if !strings.Contains(prompt, "Provider id: not known: the cluster's Kubernetes nodes could not be read") {
+		t.Errorf("a cached Node answer must not be shown as the providerID:\n%s", prompt)
+	}
+}
+
+// When the reference says which Kubernetes read it needs, that read runs at
+// the same time as the node list, not after it. The mock holds the list back
+// until a Kubernetes read has started.
+func TestClusterNodeGroupRemoveNodeReadsTheListAndTheNodesAtOnce(t *testing.T) {
+	for _, reference := range []string{"depict-opensearch-0", "hcloud://168428300"} {
+		mock := newRemoveNodeMock("hetzner")
+		mock.listWaitsForKubernetes = true
+		mock.kubernetesStarted = make(chan struct{})
+		_, prompt, _ := runRemoveNode(t, mock, "n\n", testClusterID, "opensearch", reference)
+		if !strings.Contains(prompt, `Remove node "depict-opensearch-0"`) {
+			t.Errorf("%s: the two reads did not overlap:\n%s", reference, prompt)
+		}
+	}
+}
+
+// The lookup is bounded: a node list that does not answer leaves the prompt
+// saying so, and the reference is still sent once confirmed.
+func TestClusterNodeGroupRemoveNodeLookupIsBounded(t *testing.T) {
+	original := removeNodeLookupTimeout
+	removeNodeLookupTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { removeNodeLookupTimeout = original })
+	mock := newRemoveNodeMock("hetzner")
+	mock.listNeverAnswers = make(chan struct{})
+	t.Cleanup(func() { close(mock.listNeverAnswers) })
+	_, prompt, err := runRemoveNode(t, mock, "y\n", testClusterID, "opensearch", "depict-opensearch-0")
+	if err != nil {
+		t.Fatalf("remove-node failed: %v", err)
+	}
+	if !strings.Contains(prompt, "the cluster's node list did not answer within 50ms") {
+		t.Errorf("the prompt must say the node list did not answer:\n%s", prompt)
+	}
+	if len(mock.calls) != 1 || mock.calls[0].node != "depict-opensearch-0" {
+		t.Errorf("calls = %+v, want the reference sent as typed", mock.calls)
+	}
+}
+
+// Why a reference was not resolved is said truthfully: a providerID when the
+// Kubernetes nodes could not be read, and on AWS, where the CLI cannot pair a
+// server with its Kubernetes node, a node name or providerID it cannot check.
+// An AWS server named directly still resolves.
+func TestClusterNodeGroupRemoveNodeSaysWhyAReferenceWasNotResolved(t *testing.T) {
+	mock := newRemoveNodeMock("hetzner")
+	mock.kubernetesNodes = nil
+	_, prompt, _ := runRemoveNode(t, mock, "n\n", testClusterID, "opensearch", "hcloud://168428300")
+	if !strings.Contains(prompt, "the cluster's Kubernetes nodes could not be read, so the CLI could not tell which "+
+		"node reports that providerID") {
+		t.Errorf("a providerID with no Node read must say the nodes could not be read:\n%s", prompt)
+	}
+
+	for _, reference := range []string{"ip-10-0-1-5.eu-west-1.compute.internal", "aws:///eu-west-1a/i-0abc123"} {
+		mock = newRemoveNodeMock("aws")
+		_, prompt, _ = runRemoveNode(t, mock, "n\n", testClusterID, "opensearch", reference)
+		if !strings.Contains(prompt, "no server in the cluster's records has that id or name, and on AWS the CLI "+
+			"cannot tell which Kubernetes node a server registered as") || len(mock.kubernetesRequestsSent()) != 0 {
+			t.Errorf("aws %s: prompt (Kubernetes reads %d):\n%s", reference, len(mock.kubernetesRequestsSent()), prompt)
+		}
+	}
+	mock = newRemoveNodeMock("aws")
+	_, prompt, _ = runRemoveNode(t, mock, "n\n", testClusterID, "opensearch", "depict-opensearch-0")
+	if !strings.Contains(prompt, `Remove node "depict-opensearch-0"`) ||
+		!strings.Contains(prompt, "Provider id: not known: on AWS the CLI cannot tell which Kubernetes node a server registered as") {
+		t.Errorf("aws server name: prompt:\n%s", prompt)
 	}
 }
 
