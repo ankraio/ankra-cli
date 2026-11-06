@@ -2036,6 +2036,14 @@ func (m baseMock) OvhNodeCloudInitLog(clusterID, nodeID string) (*client.NodeClo
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) OvhNodeConsoleLog(ctx context.Context, clusterID, nodeID string) (*client.NodeConsoleLogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetNodeKubeletConfig(clusterID, nodeName string) (*client.NodeKubeletConfig, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) UpcloudNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error) {
 	return nil, errors.New("not implemented")
 }
