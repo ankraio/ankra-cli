@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -39,10 +40,19 @@ have to filter by eye.
 Kinds outside the built-in set need --group (and sometimes --api-version),
 exactly like 'cluster get resources'.
 
+--managed-fields reads the object live from the cluster and adds who last
+wrote it: each field manager with its operation, subresource and time. It is
+how to see what resized a pod in place (subresource "resize"), scaled a
+workload or changed its spec. Kubernetes keeps one entry per manager and
+subresource, so this is the most recent write of each, not a full history. The
+cached copy other reads are served from does not keep them, and -o json|yaml
+then carry them under object.metadata.managedFields.
+
 Examples:
   ankra cluster describe pod web-7d9f-2xkvp -n default
   ankra cluster describe deployment web -n default
   ankra cluster describe node worker-1
+  ankra cluster describe pod web-7d9f-2xkvp -n default --managed-fields
   ankra cluster describe pvc data-web-0 -n default -o json`,
 	Args:        cobra.ExactArgs(2),
 	Annotations: map[string]string{"group": "kubernetes"},
@@ -52,6 +62,7 @@ Examples:
 			return err
 		}
 		namespace, _ := cmd.Flags().GetString("namespace")
+		showFieldManagers, _ := cmd.Flags().GetBool("managed-fields")
 
 		resolvedKind, kindError := resolveK8sKindFromFlags(cmd, args[0])
 		if kindError != nil {
@@ -70,7 +81,7 @@ Examples:
 			return clusterError
 		}
 
-		object, objectAnswer, objectError := fetchSingleResource(cluster.ID, resolvedKind, namespace, name)
+		object, objectAnswer, objectError := fetchSingleResource(cluster.ID, resolvedKind, namespace, name, showFieldManagers)
 		if objectError != nil {
 			return objectError
 		}
@@ -83,6 +94,9 @@ Examples:
 		result := describeResult{Object: object, Events: events}
 		if outputFormat == "json" || outputFormat == "yaml" {
 			announceDegradedBareObject(objectAnswer)
+			if showFieldManagers && objectAnswer.ServedFromCache {
+				fmt.Fprintln(os.Stderr, fieldManagersUnavailableNotice)
+			}
 		}
 		switch outputFormat {
 		case "json":
@@ -102,6 +116,9 @@ Examples:
 		}
 		announceCachedAnswer(objectAnswer)
 		renderDescribe(resolvedKind.kind, object, events)
+		if showFieldManagers {
+			renderFieldManagers(os.Stdout, object, objectAnswer)
+		}
 		return nil
 	},
 }
@@ -205,7 +222,7 @@ func redactSecretAnnotations(object map[string]interface{}, secretValues []strin
 // object exits with the not-found code and a failed read is an error
 // (namedReadItems), rather than either rendering as a description. The
 // answer says whether the platform served it from the agent's cache.
-func fetchSingleResource(clusterID string, resolvedKind k8sKind, namespace string, name string) (map[string]interface{}, cachenotice.Answer, error) {
+func fetchSingleResource(clusterID string, resolvedKind k8sKind, namespace string, name string, live bool) (map[string]interface{}, cachenotice.Answer, error) {
 	request := client.ResourceRequestItem{
 		Kind:     resolvedKind.kind,
 		Group:    resolvedKind.group,
@@ -218,6 +235,7 @@ func fetchSingleResource(clusterID string, resolvedKind k8sKind, namespace strin
 	}
 	response, requestError := apiClient.GetResources(clusterID, client.GetResourcesRequest{
 		ResourceRequests: []client.ResourceRequestItem{request},
+		SkipCache:        live,
 	})
 	if requestError != nil {
 		return nil, cachenotice.Answer{}, requestError
@@ -271,6 +289,74 @@ func renderDescribe(kind string, object map[string]interface{}, events []map[str
 	renderContainerStatuses(object)
 	renderSecretKeys(kind, object)
 	renderObjectEvents(events)
+}
+
+// fieldManagersUnavailableNotice is what --managed-fields says when the live
+// read degraded to the cached copy. That copy never keeps field managers, so
+// finding none in it says nothing about the object.
+const fieldManagersUnavailableNotice = "Field managers are not available: the cluster did not answer live, " +
+	"and the cached copy does not keep them."
+
+// fieldManager is one metadata.managedFields entry, without the field list.
+type fieldManager struct {
+	manager     string
+	operation   string
+	subresource string
+	time        string
+}
+
+// fieldManagersNewestFirst reads metadata.managedFields. RFC 3339 times in one
+// zone sort as strings, and the apiserver writes every one in UTC.
+func fieldManagersNewestFirst(object map[string]interface{}) []fieldManager {
+	metadata, hasMetadata := getNestedMap(object, "metadata")
+	if !hasMetadata {
+		return nil
+	}
+	rawEntries, isList := metadata["managedFields"].([]interface{})
+	if !isList {
+		return nil
+	}
+	managers := make([]fieldManager, 0, len(rawEntries))
+	for _, rawEntry := range rawEntries {
+		entry, isMap := rawEntry.(map[string]interface{})
+		if !isMap {
+			continue
+		}
+		managers = append(managers, fieldManager{
+			manager:     getNestedString(entry, "manager"),
+			operation:   getNestedString(entry, "operation"),
+			subresource: getNestedString(entry, "subresource"),
+			time:        getNestedString(entry, "time"),
+		})
+	}
+	sort.SliceStable(managers, func(left, right int) bool {
+		return managers[left].time > managers[right].time
+	})
+	return managers
+}
+
+// renderFieldManagers prints who last wrote the object. The time is printed
+// whole, not as an age: this table is read to line a write up against
+// something else that happened.
+func renderFieldManagers(out io.Writer, object map[string]interface{}, answer cachenotice.Answer) {
+	_, _ = fmt.Fprintf(out, "\n%s\n", text.Bold.Sprint("Field managers"))
+	if answer.ServedFromCache {
+		_, _ = fmt.Fprintln(out, fieldManagersUnavailableNotice)
+		return
+	}
+	managers := fieldManagersNewestFirst(object)
+	if len(managers) == 0 {
+		_, _ = fmt.Fprintln(out, "None recorded.")
+		return
+	}
+	managersTable := table.NewWriter()
+	managersTable.SetOutputMirror(out)
+	managersTable.SetStyle(table.StyleRounded)
+	managersTable.AppendHeader(table.Row{"Manager", "Operation", "Subresource", "Last Write"})
+	for _, manager := range managers {
+		managersTable.AppendRow(table.Row{manager.manager, manager.operation, manager.subresource, manager.time})
+	}
+	managersTable.Render()
 }
 
 // formatStringMap renders metadata.<key> as a sorted k=v list.
@@ -468,6 +554,8 @@ func renderObjectEvents(events []map[string]interface{}) {
 
 func init() {
 	clusterDescribeCmd.Flags().StringP("namespace", "n", "", "Kubernetes namespace")
+	clusterDescribeCmd.Flags().Bool("managed-fields", false,
+		"Read the object live and show who last wrote it: each field manager with its operation, subresource and time")
 	clusterDescribeCmd.Flags().StringP("output", "o", "table", "Output format: table, json, yaml")
 	registerK8sKindFlags(clusterDescribeCmd)
 

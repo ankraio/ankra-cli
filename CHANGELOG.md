@@ -2,8 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra cluster describe --managed-fields` shows who last wrote an object.** It reads the object live and lists each field manager with its operation, subresource and time, which is how to see what resized a pod in place (subresource `resize`), scaled a workload or edited its spec. Kubernetes keeps one entry per manager and subresource, so this is the latest write of each, not a full history. When the cluster cannot answer live, the command says the field managers are unavailable rather than that there are none.
+- **Every `ankra cluster operations` command accepts a short execution id.** `steps`, `list <id>`, `retry`, `cancel` and `cancel-step` take the first 6 or more characters of an id, the way a report or a chat message abbreviates it, instead of answering 422. A short id is looked up among the most recent executions of the active cluster, or of the organisation when no cluster is selected. Two matches are refused and both are named.
+
 ### Fixed
 
+- **`ankra cluster metrics query-range` says when a series was downsampled.** A long range could come back with far fewer points than the query produced, at a spacing nothing mentioned and with `truncated: false`, so it read as a complete answer at the `--step` you asked for. The Points column now reads `50 of 385`, and a note on stderr says how far apart the returned points are. `-o json` and `-o yaml` stay parseable and print the platform's own response.
 - **`ankra cluster node-group delete <cluster> ..` can no longer delete the cluster.** The platform reads `..` in a request as "one level up", so deleting a node group named `..` reached the cluster itself, and a cluster with no volumes would be deprovisioned. The `ankra cluster node-group` commands, and the older `ankra cluster <provider> node-group` ones, now refuse a group name that is blank, has spaces around it, is `.` or `..` (also written `%2e%2e`), or contains `/`, and exit 2 before they ask or send anything. Any other command that would send such a request is stopped before it is sent, with the same exit 2, and is not retried as if the connection had dropped.
 - **A `/`, `?` or `#` in an id you type can no longer turn a command into another one.** Ids and names were put into the request as typed, so `ankra cluster hetzner nodes cloud-init-log <cluster> 'abc/restart?'` would restart node `abc` instead of reading a log, with no prompt. Every id and name now goes to the platform as one piece, so a stray character can only make the command name something that does not exist.
 
