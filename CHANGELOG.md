@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ankra cost reconcile` no longer calls a credential outside your projects "deleted".** When you read the reconciliation with access limited to some projects (a token pinned to one, or a role on projects only), the platform now withholds which credential it is for a credential outside those projects that bills your clusters: no id, no name, no invoice number, no provider error. Its cost on your clusters is still shown. The CLI used to read the missing id as a deleted credential, and two such credentials would have shared one row label. Each now reads "a credential outside your projects", numbered when one provider has several, with a note saying what was withheld. A read that names every credential prints exactly as before.
+
 ## v0.67.0 - 2026-11-05
 
 This release makes `ankra cluster apply` read `metadata.environment`, the field in a cluster
