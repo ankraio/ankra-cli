@@ -313,6 +313,50 @@ func costReconcileBilled(credential client.CostReconciliationCredential, labelsB
 	}
 }
 
+// costReconcileConversionNote says how the estimate was put in the invoice's
+// currency, for a credential whose estimate was converted. A platform that
+// predates rate and basis (cluster#6006) always converted the USD figure at
+// the latest stored rate, and gets the sentence it always got. Otherwise the
+// note names the rate applied and the day of its rates. For basis today it
+// says a cluster's month recorded no EUR figure, so the estimate is the USD
+// figure at today's rate and the difference includes the rate's move since
+// the month; for approximated, that a EUR figure was made later from older
+// data. No rate on file is the built-in one, never a rate of 0.
+func costReconcileConversionNote(fx client.CostReconciliationFX) string {
+	from, to := strings.ToUpper(fx.From), strings.ToUpper(fx.To)
+	storedRate := "the built-in rate"
+	if fx.AsOf != nil && *fx.AsOf != "" {
+		storedRate = "the rate stored " + *fx.AsOf
+	}
+	if fx.Rate == nil {
+		if fx.RateFromUSD == nil {
+			return fmt.Sprintf("The estimate is converted from %s (%s), not the month's own rate.", from, storedRate)
+		}
+		return fmt.Sprintf("The estimate is converted from %s at %g (%s), not the month's own rate.", from, *fx.RateFromUSD, storedRate)
+	}
+	basis := ""
+	if fx.Basis != nil {
+		basis = *fx.Basis
+	}
+	if basis == "today" {
+		return fmt.Sprintf("A cluster's month recorded no EUR figure, so the estimate is the %s figure converted into %s at today's rate, %g (%s), "+
+			"and the difference includes the rate's move since the month.", from, to, *fx.Rate, storedRate)
+	}
+	rateDay := "the built-in rate"
+	if fx.AsOf != nil && *fx.AsOf != "" {
+		day := *fx.AsOf
+		if cut := strings.IndexByte(day, 'T'); cut > 0 {
+			day = day[:cut]
+		}
+		rateDay = "the ECB rates of " + day
+	}
+	note := fmt.Sprintf("The estimate is converted from %s into %s at %g (%s).", from, to, *fx.Rate, rateDay)
+	if basis == "approximated" {
+		note += " At least one of the month's EUR figures was made later from older data."
+	}
+	return note
+}
+
 // costReconcileNotes is what a reader needs beside a credential's row: why
 // no difference is stated, the caveat on one that is, what was set apart,
 // the unplaced lines, failed imports in the provider's words, and the
@@ -349,12 +393,7 @@ func costReconcileNotes(credential client.CostReconciliationCredential) []string
 			notes = append(notes, note)
 		}
 		if credential.EstimateFX != nil && credential.EstimateFX.From != credential.EstimateFX.To {
-			basis := "the built-in rate"
-			if credential.EstimateFX.AsOf != nil && *credential.EstimateFX.AsOf != "" {
-				basis = "the rate stored " + *credential.EstimateFX.AsOf
-			}
-			notes = append(notes, fmt.Sprintf("The estimate is converted from %s at %g (%s), not the month's own rate.",
-				strings.ToUpper(credential.EstimateFX.From), credential.EstimateFX.RateFromUSD, basis))
+			notes = append(notes, costReconcileConversionNote(*credential.EstimateFX))
 		}
 	} else if credential.CurrenciesMixed && credential.UnmatchedLineCount > 0 {
 		notes = append(notes, pluralCount(credential.UnmatchedLineCount, "billed line")+" placed on no cluster, in more than one currency.")

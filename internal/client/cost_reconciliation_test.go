@@ -2,6 +2,7 @@ package client
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -52,7 +53,8 @@ func TestGetCostReconciliation_DecodesNullsAsUnknownAndSendsTheMonth(t *testing.
 	}
 	stated := reconciliation.Credentials[0]
 	if stated.DifferencePct == nil || *stated.DifferencePct != 3.26 || stated.InvoiceMinor == nil || *stated.InvoiceMinor != 9800 ||
-		stated.EstimateFX == nil || stated.EstimateFX.RateFromUSD != 0.92 || len(stated.Clusters) != 1 ||
+		stated.EstimateFX == nil || stated.EstimateFX.RateFromUSD == nil || *stated.EstimateFX.RateFromUSD != 0.92 ||
+		stated.EstimateFX.Rate != nil || stated.EstimateFX.Basis != nil || len(stated.Clusters) != 1 ||
 		stated.Clusters[0].LifetimeHours == nil || *stated.Clusters[0].LifetimeHours != 744 ||
 		len(stated.UnmatchedLines) != 1 || stated.UnmatchedLines[0].Currency != "eur" ||
 		stated.Imports[0].LinesState == nil || *stated.Imports[0].LinesState != "complete" {
@@ -153,6 +155,36 @@ func TestGetCostReconciliation_DecodesAWithheldCredentialAsNotNamed(t *testing.T
 	}
 	if document := reconciliation.Credentials[1].Imports[0]; document.SourceDocumentID != "" || document.Reason != nil {
 		t.Fatalf("a withheld credential's import must carry no document id or provider error: %+v", document)
+	}
+}
+
+// The conversion as cluster#6006 sends it: a GBP invoice compared with the
+// EUR figure, so rate_from_usd is null and rate is the one applied, and an
+// estimate at today's rate. The golden above is the older shape, which leaves
+// rate and basis absent.
+func TestGetCostReconciliation_DecodesTheRateAppliedAndItsBasis(t *testing.T) {
+	body := strings.Replace(costReconciliationGolden,
+		`"estimate_fx":{"from":"usd","to":"eur","rate_from_usd":0.92,"as_of":"2026-09-25T00:00:00Z"}`,
+		`"estimate_fx":{"from":"eur","to":"gbp","rate":0.8612,"rate_from_usd":null,"as_of":"2026-08-29T00:00:00Z","basis":"captured"}`, 1)
+	body = strings.Replace(body, `"estimate_fx":null`,
+		`"estimate_fx":{"from":"usd","to":"eur","rate":0.93,"rate_from_usd":0.93,"as_of":"2026-11-06T06:00:00Z","basis":"today"}`, 1)
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}
+	reconciliation, err := newTestClient(t, handler).GetCostReconciliation("2026-08")
+	if err != nil || len(reconciliation.Credentials) != 2 {
+		t.Fatalf("GetCostReconciliation = %+v, %v", reconciliation, err)
+	}
+	fromEUR := reconciliation.Credentials[0].EstimateFX
+	if fromEUR == nil || fromEUR.From != "eur" || fromEUR.To != "gbp" || fromEUR.Rate == nil || *fromEUR.Rate != 0.8612 ||
+		fromEUR.RateFromUSD != nil || fromEUR.AsOf == nil || *fromEUR.AsOf != "2026-08-29T00:00:00Z" ||
+		fromEUR.Basis == nil || *fromEUR.Basis != "captured" {
+		t.Fatalf("the EUR figure's conversion did not decode, rate_from_usd null: %+v", fromEUR)
+	}
+	today := reconciliation.Credentials[1].EstimateFX
+	if today == nil || today.From != "usd" || today.Rate == nil || *today.Rate != 0.93 || today.RateFromUSD == nil ||
+		*today.RateFromUSD != 0.93 || today.Basis == nil || *today.Basis != "today" {
+		t.Fatalf("the estimate at today's rate did not decode: %+v", today)
 	}
 }
 

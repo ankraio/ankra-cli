@@ -41,6 +41,8 @@ func reconcileCents(cents int64) *int64 { return &cents }
 
 func reconcileText(value string) *string { return &value }
 
+func reconcileRate(value float64) *float64 { return &value }
+
 // costReconciliationFixture is one credential per state the route answers:
 // a stated difference with its caveat, tax and credits, over every cluster;
 // final figures not yet in (month to date after a failed refresh), over one
@@ -57,7 +59,7 @@ func costReconciliationFixture() *client.CostReconciliation {
 				State: "complete", Currency: reconcileText("eur"), InvoiceMinor: reconcileCents(9800), TaxMinor: reconcileCents(1805),
 				CreditMinor: reconcileCents(-500), MatchedMinor: reconcileCents(9500), UnmatchedMinor: reconcileCents(300),
 				EstimateMinor: reconcileCents(9200), EstimateComplete: &isComplete, DifferencePct: &difference,
-				EstimateFX:          &client.CostReconciliationFX{From: "usd", To: "eur", RateFromUSD: 0.92, AsOf: reconcileText("2026-09-25T00:00:00Z")},
+				EstimateFX:          &client.CostReconciliationFX{From: "usd", To: "eur", RateFromUSD: reconcileRate(0.92), AsOf: reconcileText("2026-09-25T00:00:00Z")},
 				UnplacedPricedMinor: reconcileCents(300), DifferenceCaveat: reconcileText("1 billed line(s) in categories the estimate prices are not placed on any cluster."),
 				UnmatchedLineCount: 1, CoverageReported: true,
 				DifferenceCoverage: &client.CostReconciliationCoverage{ClustersCovered: 2, ClustersNamed: 2, MatchedMinor: 9500,
@@ -121,6 +123,72 @@ func TestCostReconcileRendersEveryStateWithoutReadingUnknownAsZero(t *testing.T)
 	}
 	if absentRow == "" || strings.Contains(absentRow, "0.00") {
 		t.Errorf("a never-imported credential must read unknown, never zero: %q", absentRow)
+	}
+}
+
+// TestCostReconcileConversionNoteNamesTheRateAppliedAndItsDay pins the note
+// for each conversion cluster#6006 sends, and the older platform's sentence
+// byte for byte. A GBP invoice is compared with the EUR figure, so
+// rate_from_usd is null there: the note reads rate, and never says "at 0"
+// as it did when it read rate_from_usd.
+func TestCostReconcileConversionNoteNamesTheRateAppliedAndItsDay(t *testing.T) {
+	captured, approximated, today := "captured", "approximated", "today"
+	for _, testCase := range []struct {
+		name string
+		fx   client.CostReconciliationFX
+		want string
+	}{
+		{"gbp from the EUR figure", client.CostReconciliationFX{From: "eur", To: "gbp", Rate: reconcileRate(0.8612),
+			AsOf: reconcileText("2026-08-29T00:00:00Z"), Basis: &captured},
+			"The estimate is converted from EUR into GBP at 0.8612 (the ECB rates of 2026-08-29)."},
+		{"approximated", client.CostReconciliationFX{From: "eur", To: "sek", Rate: reconcileRate(11.42),
+			AsOf: reconcileText("2026-08-29T00:00:00Z"), Basis: &approximated},
+			"The estimate is converted from EUR into SEK at 11.42 (the ECB rates of 2026-08-29). " +
+				"At least one of the month's EUR figures was made later from older data."},
+		{"the built-in rate", client.CostReconciliationFX{From: "eur", To: "gbp", Rate: reconcileRate(0.85), Basis: &captured},
+			"The estimate is converted from EUR into GBP at 0.85 (the built-in rate)."},
+		{"today's rate", client.CostReconciliationFX{From: "usd", To: "eur", Rate: reconcileRate(0.93), RateFromUSD: reconcileRate(0.93),
+			AsOf: reconcileText("2026-11-06T06:00:00Z"), Basis: &today},
+			"A cluster's month recorded no EUR figure, so the estimate is the USD figure converted into EUR at today's rate, 0.93 " +
+				"(the rate stored 2026-11-06T06:00:00Z), and the difference includes the rate's move since the month."},
+		{"today's rate, built in", client.CostReconciliationFX{From: "usd", To: "gbp", Rate: reconcileRate(0.79), RateFromUSD: reconcileRate(0.79),
+			Basis: &today},
+			"A cluster's month recorded no EUR figure, so the estimate is the USD figure converted into GBP at today's rate, 0.79 " +
+				"(the built-in rate), and the difference includes the rate's move since the month."},
+		{"an older platform", client.CostReconciliationFX{From: "usd", To: "eur", RateFromUSD: reconcileRate(0.92),
+			AsOf: reconcileText("2026-09-25T00:00:00Z")},
+			"The estimate is converted from USD at 0.92 (the rate stored 2026-09-25T00:00:00Z), not the month's own rate."},
+		{"an older platform, built in", client.CostReconciliationFX{From: "usd", To: "eur", RateFromUSD: reconcileRate(0.92)},
+			"The estimate is converted from USD at 0.92 (the built-in rate), not the month's own rate."},
+		{"no rate at all", client.CostReconciliationFX{From: "usd", To: "eur"},
+			"The estimate is converted from USD (the built-in rate), not the month's own rate."},
+	} {
+		if got := costReconcileConversionNote(testCase.fx); got != testCase.want {
+			t.Errorf("%s:\n got %q\nwant %q", testCase.name, got, testCase.want)
+		}
+	}
+}
+
+// Through the command: a GBP invoice's note names the rate applied, and an
+// invoice in the figure's own currency (rate 1, from equal to to) has no
+// conversion note.
+func TestCostReconcilePrintsTheConversionTheEstimateRestsOn(t *testing.T) {
+	captured := "captured"
+	reconciliation := costReconciliationFixture()
+	reconciliation.Credentials[0].Currency = reconcileText("gbp")
+	reconciliation.Credentials[0].EstimateFX = &client.CostReconciliationFX{From: "eur", To: "gbp", Rate: reconcileRate(0.8612),
+		AsOf: reconcileText("2026-08-29T00:00:00Z"), Basis: &captured}
+	reconciliation.Credentials[1].EstimateFX = &client.CostReconciliationFX{From: "eur", To: "eur", Rate: reconcileRate(1),
+		AsOf: nil, Basis: &captured}
+	output, err := runCostReconcileCommand(t, &costReconcileMock{reconciliation: reconciliation}, "cost", "reconcile", "--month", "2026-08")
+	if err != nil {
+		t.Fatalf("cost reconcile: %v", err)
+	}
+	if !strings.Contains(output, "    - The estimate is converted from EUR into GBP at 0.8612 (the ECB rates of 2026-08-29).\n") {
+		t.Fatalf("the GBP invoice's note must name the rate applied and its day:\n%s", output)
+	}
+	if strings.Count(output, "converted from") != 1 || strings.Contains(output, " at 0 ") {
+		t.Fatalf("only the converted estimate carries a note, and no rate reads 0:\n%s", output)
 	}
 }
 
