@@ -555,6 +555,11 @@ func renderChatTurn(events <-chan client.ChatStreamEvent, out io.Writer, errOut 
 			if status := client.ChatSessionCompleteStatus(event); status != "" {
 				outcome.sessionStatus = status
 			}
+			// "end" only comes for a session that is over, whatever it last
+			// parked on.
+			if event.Type == "end" {
+				outcome.sessionStatus = ""
+			}
 			// A turn the user or the platform stopped sends no error frame,
 			// only its status, so without this a cancelled turn would read
 			// as a successful one with a partial answer.
