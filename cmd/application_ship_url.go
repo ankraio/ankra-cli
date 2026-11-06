@@ -1,0 +1,102 @@
+package cmd
+
+// The public check behind ship's Live line (ankra-oznf7k.26). A route that
+// holds inside the cluster is not a URL that answers: a certificate still being
+// issued left a direct Ingress returning nothing for three minutes after ship
+// had printed Live. So before it claims Live, ship asks the URL itself over
+// HTTPS, for a bounded window.
+//
+// An unanswered URL is pending, never a failed deploy. The deploy is healthy,
+// the answer depends on this machine's network as well (an IPv6-only address
+// cannot answer a machine with no IPv6), and the usual cause clears by itself.
+
+import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"time"
+)
+
+// shipStateURLPending is the State of a healthy deploy whose URL did not answer
+// inside the window.
+const shipStateURLPending = "url_pending"
+
+// shipURLProbeTimeout bounds one request; a load balancer that answers nothing
+// costs this much per attempt.
+const shipURLProbeTimeout = 10 * time.Second
+
+// Variables so tests can inject the probe and finish instantly.
+var (
+	shipURLAnswerWindow   = 5 * time.Minute
+	shipURLAnswerInterval = 5 * time.Second
+	shipURLProbe          = probeShipURL
+)
+
+// probeShipURL answers "" when the URL serves a response over verified HTTPS,
+// and otherwise what is still pending in the reader's terms. A 4xx counts as an
+// answer: the application is reached and decides for itself what its root does.
+// Redirects are not followed, because the first response already proves it.
+func probeShipURL(probeContext context.Context, url string) string {
+	httpClient := &http.Client{
+		Timeout: shipURLProbeTimeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	request, requestError := http.NewRequestWithContext(probeContext, http.MethodGet, url, nil)
+	if requestError != nil {
+		return "the URL could not be requested: " + requestError.Error()
+	}
+	response, responseError := httpClient.Do(request)
+	if responseError != nil {
+		return shipURLPendingReason(responseError)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode >= http.StatusInternalServerError {
+		return fmt.Sprintf("it answers HTTP %d", response.StatusCode)
+	}
+	return ""
+}
+
+// shipURLPendingReason names which stage of reaching the URL failed, since each
+// one sends the reader somewhere else.
+func shipURLPendingReason(requestError error) string {
+	var dnsError *net.DNSError
+	if errors.As(requestError, &dnsError) {
+		return "its hostname does not resolve yet"
+	}
+	var unknownAuthority x509.UnknownAuthorityError
+	var hostnameError x509.HostnameError
+	var certificateInvalid x509.CertificateInvalidError
+	var certificateVerification *tls.CertificateVerificationError
+	if errors.As(requestError, &unknownAuthority) || errors.As(requestError, &hostnameError) ||
+		errors.As(requestError, &certificateInvalid) || errors.As(requestError, &certificateVerification) {
+		return "its certificate is not issued yet"
+	}
+	return "nothing answers it from this machine yet"
+}
+
+// waitForShipURLToAnswer probes until the URL answers or the window closes, and
+// returns what was still pending at the last attempt, or "" once it answered.
+func waitForShipURLToAnswer(waitContext context.Context, progress io.Writer, url string) string {
+	deadline := time.Now().Add(shipURLAnswerWindow)
+	lastReason := ""
+	for {
+		reason := shipURLProbe(waitContext, url)
+		if reason == "" {
+			return ""
+		}
+		if reason != lastReason {
+			_, _ = fmt.Fprintf(progress, "Waiting for %s to answer: %s.\n", url, reason)
+			lastReason = reason
+		}
+		if !time.Now().Before(deadline) || !shipEndpointSettleSleep(waitContext, shipURLAnswerInterval) {
+			return lastReason
+		}
+	}
+}

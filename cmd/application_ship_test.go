@@ -313,7 +313,10 @@ func fastShipPolling(t *testing.T) {
 	buildPollInterval = time.Millisecond
 	previousSettleSleep := shipEndpointSettleSleep
 	shipEndpointSettleSleep = func(context.Context, time.Duration) bool { return true }
+	previousURLProbe := shipURLProbe
+	shipURLProbe = func(context.Context, string) string { return "" }
 	t.Cleanup(func() {
+		shipURLProbe = previousURLProbe
 		shipEndpointSettleSleep = previousSettleSleep
 		shipPollInterval = previousPoll
 		shipMergePollInterval = previousMerge
