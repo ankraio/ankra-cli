@@ -315,24 +315,28 @@ func costReconcileBilled(credential client.CostReconciliationCredential, labelsB
 
 // costReconcileConversionNote says how the estimate was put in the invoice's
 // currency, for a credential whose estimate was converted. A platform that
-// predates rate and basis (cluster#6006) always converted the USD figure at
-// the latest stored rate, and gets the sentence it always got; its rate is
-// rate_from_usd, so it is named only when from is usd, and never next to
-// another currency's figure. Otherwise the
-// note names the rate applied and the day of its rates. For basis today it
-// says a cluster's month recorded no EUR figure, so the estimate is the USD
-// figure at today's rate and the difference includes the rate's move since
-// the month; for approximated, that a EUR figure was made later from older
-// data. No rate on file is the built-in one, never a rate of 0.
+// predates rate and basis (cluster#6006) always sent the USD figure with
+// rate_from_usd, converted at the latest stored rate, and gets the sentence
+// it always got; that rate is named only when from is usd, never next to
+// another currency's figure. A payload with no rate the note can name says
+// the platform did not report it, and names no day and no basis: a sentence
+// never states a rate the platform did not send. Otherwise the note names
+// the rate applied and the day of its rates. Basis today is read only beside
+// the USD figure, where it says a cluster's month recorded no EUR figure, so
+// the estimate is the USD figure at today's rate and the difference includes
+// the rate's move since the month; for approximated, that a EUR figure was
+// made later from older data. A rate with no as_of is the built-in one,
+// never a rate of 0.
 func costReconcileConversionNote(fx client.CostReconciliationFX) string {
 	from, to := strings.ToUpper(fx.From), strings.ToUpper(fx.To)
+	fromUSD := strings.EqualFold(fx.From, "usd")
 	storedRate := "the built-in rate"
 	if fx.AsOf != nil && *fx.AsOf != "" {
 		storedRate = "the rate stored " + *fx.AsOf
 	}
 	if fx.Rate == nil {
-		if fx.RateFromUSD == nil || !strings.EqualFold(fx.From, "usd") {
-			return fmt.Sprintf("The estimate is converted from %s (%s), not the month's own rate.", from, storedRate)
+		if fx.RateFromUSD == nil || !fromUSD {
+			return fmt.Sprintf("The estimate is converted from %s at a rate the platform did not report.", from)
 		}
 		return fmt.Sprintf("The estimate is converted from %s at %g (%s), not the month's own rate.", from, *fx.RateFromUSD, storedRate)
 	}
@@ -340,7 +344,7 @@ func costReconcileConversionNote(fx client.CostReconciliationFX) string {
 	if fx.Basis != nil {
 		basis = *fx.Basis
 	}
-	if basis == "today" {
+	if basis == "today" && fromUSD {
 		return fmt.Sprintf("A cluster's month recorded no EUR figure, so the estimate is the %s figure converted into %s at today's rate, %g (%s), "+
 			"and the difference includes the rate's move since the month.", from, to, *fx.Rate, storedRate)
 	}

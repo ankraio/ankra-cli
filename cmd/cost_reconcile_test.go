@@ -130,7 +130,8 @@ func TestCostReconcileRendersEveryStateWithoutReadingUnknownAsZero(t *testing.T)
 // for each conversion cluster#6006 sends, and the older platform's sentence
 // byte for byte. A GBP invoice is compared with the EUR figure, so
 // rate_from_usd is null there: the note reads rate, and never says "at 0"
-// as it did when it read rate_from_usd.
+// as it did when it read rate_from_usd. A rate or basis the payload does not
+// carry, or carries beside the wrong figure, is never named.
 func TestCostReconcileConversionNoteNamesTheRateAppliedAndItsDay(t *testing.T) {
 	captured, approximated, today := "captured", "approximated", "today"
 	for _, testCase := range []struct {
@@ -160,15 +161,28 @@ func TestCostReconcileConversionNoteNamesTheRateAppliedAndItsDay(t *testing.T) {
 			"The estimate is converted from USD at 0.92 (the rate stored 2026-09-25T00:00:00Z), not the month's own rate."},
 		{"an older platform, built in", client.CostReconciliationFX{From: "usd", To: "eur", RateFromUSD: reconcileRate(0.92)},
 			"The estimate is converted from USD at 0.92 (the built-in rate), not the month's own rate."},
+		// No platform sends a conversion without a rate, so one that arrives
+		// names none: not the built-in rate, not a stored day, not a basis.
 		{"no rate at all", client.CostReconciliationFX{From: "usd", To: "eur"},
-			"The estimate is converted from USD (the built-in rate), not the month's own rate."},
+			"The estimate is converted from USD at a rate the platform did not report."},
+		{"no rate, but a day", client.CostReconciliationFX{From: "usd", To: "eur", AsOf: reconcileText("2026-09-25T00:00:00Z")},
+			"The estimate is converted from USD at a rate the platform did not report."},
 		{"an older platform's rate in upper case", client.CostReconciliationFX{From: "USD", To: "eur", RateFromUSD: reconcileRate(0.92)},
 			"The estimate is converted from USD at 0.92 (the built-in rate), not the month's own rate."},
 		// rate_from_usd is the rate from USD, so it is never named next to the
 		// EUR figure: a payload mixing the two shapes gets no rate at all.
 		{"a USD rate beside the EUR figure", client.CostReconciliationFX{From: "eur", To: "gbp", RateFromUSD: reconcileRate(0.92),
 			AsOf: reconcileText("2026-09-25T00:00:00Z")},
-			"The estimate is converted from EUR (the rate stored 2026-09-25T00:00:00Z), not the month's own rate."},
+			"The estimate is converted from EUR at a rate the platform did not report."},
+		// Basis today means the month had no EUR figure, so beside the EUR
+		// figure it would contradict itself: the note is the plain one.
+		{"today beside the EUR figure", client.CostReconciliationFX{From: "eur", To: "gbp", Rate: reconcileRate(0.8612),
+			AsOf: reconcileText("2026-08-29T00:00:00Z"), Basis: &today},
+			"The estimate is converted from EUR into GBP at 0.8612 (the ECB rates of 2026-08-29)."},
+		{"today's rate in upper case", client.CostReconciliationFX{From: "USD", To: "eur", Rate: reconcileRate(0.93), RateFromUSD: reconcileRate(0.93),
+			Basis: &today},
+			"A cluster's month recorded no EUR figure, so the estimate is the USD figure converted into EUR at today's rate, 0.93 " +
+				"(the built-in rate), and the difference includes the rate's move since the month."},
 	} {
 		if got := costReconcileConversionNote(testCase.fx); got != testCase.want {
 			t.Errorf("%s:\n got %q\nwant %q", testCase.name, got, testCase.want)
