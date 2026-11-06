@@ -287,6 +287,9 @@ Requires organisation admin. A member's attempt is refused with exit code 7.`,
 			return renderError
 		}
 		renderOrganisationCISettings(cmd, settings)
+		if settings.WorkspaceSandboxWarning != "" {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n%s\n", settings.WorkspaceSandboxWarning)
+		}
 		return nil
 	},
 }
