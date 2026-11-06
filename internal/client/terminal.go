@@ -157,9 +157,7 @@ func (c *Client) OpenPodTerminal(ctx context.Context, clusterID string, request 
 	}
 	connection, response, dialError := websocket.Dial(ctx, endpoint.String(), &websocket.DialOptions{
 		HTTPHeader: headers,
-		HTTPClient: &http.Client{Transport: &requestPathGuardTransport{
-			base: &http.Transport{Proxy: http.ProxyFromEnvironment},
-		}},
+		HTTPClient: &http.Client{Transport: guardedDefaultTransport()},
 	})
 	if dialError != nil {
 		if response != nil {

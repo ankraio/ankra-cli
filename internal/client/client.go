@@ -97,9 +97,10 @@ type scopeOverrideTransport struct {
 }
 
 func (t *scopeOverrideTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	destination := t.destination(req.URL)
 	// Checked outside the retry loop, so a refused request is never retried,
 	// and for every request except one positively bound for another host.
-	if !t.isOtherHostRequest(req.URL) {
+	if destination != destinationOtherHost {
 		if refusal := refuseUnsafeRequestPath(req); refusal != nil {
 			return nil, refusal
 		}
@@ -113,7 +114,7 @@ func (t *scopeOverrideTransport) RoundTrip(req *http.Request) (*http.Response, e
 		projectID = *t.projectID
 	}
 	clone := req.Clone(req.Context())
-	if t.isAPIRequest(clone.URL) {
+	if destination == destinationAPI {
 		applyClientAttribution(clone.Header, t.environment())
 	}
 	if organisationID != "" {
@@ -123,7 +124,7 @@ func (t *scopeOverrideTransport) RoundTrip(req *http.Request) (*http.Response, e
 		clone.Header.Set(projectOverrideHeader, projectID)
 	}
 	response, requestError := t.base.RoundTrip(clone)
-	if requestError == nil && t.isAPIRequest(clone.URL) {
+	if requestError == nil && destination == destinationAPI {
 		t.projectScopeWarning.observe(clone, response, projectID)
 	}
 	return response, requestError

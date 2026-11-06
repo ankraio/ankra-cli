@@ -454,8 +454,8 @@ func TestClusterNodeGroupRemoveNodeRefusesAReferenceNoNodeCanHave(t *testing.T) 
 	cases := []struct{ group, node, wantInError string }{
 		{"opensearch", "", "the node is blank"},
 		{"opensearch", "  ", "the node is blank"},
-		{"opensearch", "..", "made only of dots"},
-		{"opensearch", ".", "made only of dots"},
+		{"opensearch", "..", "is a path step, not a name"},
+		{"opensearch", ".", "is a path step, not a name"},
 		{"opensearch", "%2e%2E", `decodes to ".."`},
 		{"opensearch", "a/b", "is not a providerID"},
 		{"opensearch", "x://..", "which no providerID has"},
@@ -467,7 +467,7 @@ func TestClusterNodeGroupRemoveNodeRefusesAReferenceNoNodeCanHave(t *testing.T) 
 		{"opensearch", "aws:///", "a providerID with no id"},
 		{"opensearch", "x://%2f", "a providerID with no id"},
 		{"", "depict-opensearch-0", "node group name is blank"},
-		{"..", "depict-opensearch-0", "made only of dots"},
+		{"..", "depict-opensearch-0", "is a path step, not a name"},
 		{"a/b", "depict-opensearch-0", "contains '/'"},
 	}
 	for _, testCase := range cases {

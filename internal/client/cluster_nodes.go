@@ -3,6 +3,7 @@ package client
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 type NodeSummary struct {
@@ -149,7 +150,7 @@ func (c *Client) ScalewayNodeCloudInitLog(clusterID, nodeID string) (*NodeCloudI
 // tracked execution; repeated calls attach to an in-flight run rather than
 // dispatching duplicates.
 func (c *Client) nodeCloudInitLog(provider, clusterID, nodeID string) (*NodeCloudInitLogResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/nodes/%s/cloud-init-log", c.BaseURL, provider, clusterID, nodeID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/nodes/%s/cloud-init-log", c.BaseURL, url.PathEscape(provider), url.PathEscape(clusterID), url.PathEscape(nodeID))
 	var result NodeCloudInitLogResult
 	if err := c.sendJSON(http.MethodPost, url, nil, &result); err != nil {
 		return nil, err
@@ -161,7 +162,7 @@ func (c *Client) nodeCloudInitLog(provider, clusterID, nodeID string) (*NodeClou
 // node-group writes, this endpoint has no async accept/wait contract - it
 // always runs synchronously and answers 200 with the scheduled operation.
 func (c *Client) restartClusterNode(provider, clusterID, nodeID string) (*RestartNodeResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/nodes/%s/restart", c.BaseURL, provider, clusterID, nodeID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/nodes/%s/restart", c.BaseURL, url.PathEscape(provider), url.PathEscape(clusterID), url.PathEscape(nodeID))
 	var result RestartNodeResult
 	if err := c.sendJSON(http.MethodPost, url, nil, &result); err != nil {
 		return nil, err
@@ -170,7 +171,7 @@ func (c *Client) restartClusterNode(provider, clusterID, nodeID string) (*Restar
 }
 
 func (c *Client) listClusterNodes(provider, clusterID string) (*NodeListResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/nodes", c.BaseURL, provider, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/nodes", c.BaseURL, url.PathEscape(provider), url.PathEscape(clusterID))
 	var result NodeListResult
 	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
@@ -179,7 +180,7 @@ func (c *Client) listClusterNodes(provider, clusterID string) (*NodeListResult, 
 }
 
 func (c *Client) getClusterNode(provider, clusterID, nodeID string) (*NodeDetail, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/nodes/%s", c.BaseURL, provider, clusterID, nodeID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/nodes/%s", c.BaseURL, url.PathEscape(provider), url.PathEscape(clusterID), url.PathEscape(nodeID))
 	var result NodeDetail
 	if err := c.getJSON(url, &result); err != nil {
 		return nil, err

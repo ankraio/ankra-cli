@@ -108,7 +108,7 @@ func (c *Client) CreateDigitaloceanCluster(req CreateDigitaloceanClusterRequest)
 }
 
 func (c *Client) DeprovisionDigitaloceanCluster(clusterID string, options DeprovisionOptions) (*DeprovisionDigitaloceanClusterResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s", c.BaseURL, clusterID) + options.query()
+	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s", c.BaseURL, url.PathEscape(clusterID)) + options.query()
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -137,7 +137,7 @@ func (c *Client) DeprovisionDigitaloceanCluster(clusterID string, options Deprov
 }
 
 func (c *Client) GetDigitaloceanWorkerCount(clusterID string) (*WorkerCountResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/worker-count", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/worker-count", c.BaseURL, url.PathEscape(clusterID))
 	var result WorkerCountResult
 	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
@@ -146,7 +146,7 @@ func (c *Client) GetDigitaloceanWorkerCount(clusterID string) (*WorkerCountResul
 }
 
 func (c *Client) GetDigitaloceanK8sVersion(clusterID string) (*K8sVersionInfo, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/k8s-version", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/k8s-version", c.BaseURL, url.PathEscape(clusterID))
 	var result K8sVersionInfo
 	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
@@ -155,7 +155,7 @@ func (c *Client) GetDigitaloceanK8sVersion(clusterID string) (*K8sVersionInfo, e
 }
 
 func (c *Client) UpgradeDigitaloceanK8sVersion(clusterID, targetVersion string, force bool) (*UpgradeK8sVersionResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/upgrade-k8s-version", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/upgrade-k8s-version", c.BaseURL, url.PathEscape(clusterID))
 	return c.doUpgradeK8sVersion(url, targetVersion, force)
 }
 
@@ -233,7 +233,7 @@ func (c *Client) DeleteDigitaloceanNodeGroup(ctx context.Context, clusterID, gro
 }
 
 func (c *Client) ScaleDigitaloceanWorkers(clusterID string, workerCount int, drainOptions DrainOptions) (*ScaleWorkersResult, error) {
-	scaleURL := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/scale-workers", c.BaseURL, clusterID)
+	scaleURL := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/scale-workers", c.BaseURL, url.PathEscape(clusterID))
 	return c.doScaleWorkers(scaleURL, workerCount, drainOptions)
 }
 

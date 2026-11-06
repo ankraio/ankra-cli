@@ -145,7 +145,7 @@ const nameANodeHint = "name the node, its providerID or its server id"
 // the reference is not part of it: this checks what is sent, trimmed.
 func validateNodeReference(reference string) error {
 	trimmed := strings.TrimSpace(reference)
-	decoded := client.PercentDecoded(trimmed)
+	decoded, _ := client.UnsafePathSegment(trimmed)
 	if scheme := providerIDShape.FindString(decoded); scheme != "" {
 		id := strings.Trim(strings.TrimPrefix(decoded, scheme), "/")
 		if id == "" {

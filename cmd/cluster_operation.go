@@ -78,7 +78,11 @@ var clusterOperationsCmd = &cobra.Command{
 	Use:     "operations",
 	Aliases: []string{"executions"},
 	Short:   "Manage executions (deployments and platform writes)",
-	Long:    "Commands to list, inspect, retry, and cancel executions and their steps.",
+	Long: `Commands to list, inspect, retry, and cancel executions and their steps.
+
+Every command that takes an execution id also accepts its first 6 or more
+characters. A short id is looked up among the most recent executions of the
+active cluster, or of the organisation when no cluster is selected.`,
 }
 
 var clusterOperationsListCmd = &cobra.Command{
@@ -88,8 +92,12 @@ var clusterOperationsListCmd = &cobra.Command{
 	Args:    cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		executionID := ""
-		if len(args) > 0 {
-			executionID = strings.TrimSpace(args[0])
+		if len(args) > 0 && strings.TrimSpace(args[0]) != "" {
+			resolved, resolveError := resolveExecutionReference(cmd, args[0])
+			if resolveError != nil {
+				return resolveError
+			}
+			executionID = resolved
 		}
 		// One execution is read by its id alone, so it needs no cluster: an
 		// organisation-level operation, such as a background cluster apply
@@ -361,11 +369,16 @@ var clusterOperationsCancelCmd = &cobra.Command{
 	Aliases: []string{"stop"},
 	Args:    cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		executionIDs, resolveError := resolveExecutionReferences(cmd, args)
+		if resolveError != nil {
+			return resolveError
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), executionRequestTimeout)
 		defer cancel()
 
-		if len(args) == 1 {
-			result, err := apiClient.CancelExecution(ctx, args[0])
+		if len(executionIDs) == 1 {
+			result, err := apiClient.CancelExecution(ctx, executionIDs[0])
 			if err != nil {
 				return fmt.Errorf("cancelling execution: %w", err)
 			}
@@ -376,7 +389,7 @@ var clusterOperationsCancelCmd = &cobra.Command{
 			return nil
 		}
 
-		result, err := apiClient.BatchCancelExecutions(ctx, args)
+		result, err := apiClient.BatchCancelExecutions(ctx, executionIDs)
 		if err != nil {
 			return fmt.Errorf("cancelling executions: %w", err)
 		}
@@ -415,10 +428,15 @@ var clusterOperationsCancelStepCmd = &cobra.Command{
 	Short:   "Cancel a specific step within an execution",
 	Args:    cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		executionID, resolveError := resolveExecutionReference(cmd, args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), executionRequestTimeout)
 		defer cancel()
 
-		result, err := apiClient.CancelExecutionStep(ctx, args[0], args[1])
+		result, err := apiClient.CancelExecutionStep(ctx, executionID, args[1])
 		if err != nil {
 			return fmt.Errorf("cancelling step: %w", err)
 		}
@@ -435,10 +453,15 @@ var clusterOperationsRetryCmd = &cobra.Command{
 	Short: "Retry a failed, cancelled or critical execution",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		executionID, resolveError := resolveExecutionReference(cmd, args[0])
+		if resolveError != nil {
+			return resolveError
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), executionRequestTimeout)
 		defer cancel()
 
-		result, err := apiClient.RetryExecution(ctx, args[0])
+		result, err := apiClient.RetryExecution(ctx, executionID)
 		if err != nil {
 			return fmt.Errorf("retrying execution: %w", err)
 		}
@@ -462,7 +485,10 @@ resources a teardown deleted, skipped, or failed to reclaim). Results are
 printed under each step, and merged into the steps in -o json|yaml output.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		executionID := args[0]
+		executionID, resolveError := resolveExecutionReference(cmd, args[0])
+		if resolveError != nil {
+			return resolveError
+		}
 		includeResults, _ := cmd.Flags().GetBool("results")
 
 		format, err := structuredFormatFromFlags(cmd)

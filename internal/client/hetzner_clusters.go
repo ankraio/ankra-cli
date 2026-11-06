@@ -196,7 +196,7 @@ func (c *Client) CreateHetznerCluster(req CreateHetznerClusterRequest) (*CreateH
 }
 
 func (c *Client) DeprovisionHetznerCluster(clusterID string, options DeprovisionOptions) (*DeprovisionHetznerClusterResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s", c.BaseURL, clusterID) + options.query()
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s", c.BaseURL, url.PathEscape(clusterID)) + options.query()
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -233,7 +233,7 @@ func (c *Client) StartHetznerCluster(clusterID string, options StartClusterOptio
 }
 
 func (c *Client) GetHetznerWorkerCount(clusterID string) (*WorkerCountResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/worker-count", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/worker-count", c.BaseURL, url.PathEscape(clusterID))
 	var result WorkerCountResult
 	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
@@ -242,7 +242,7 @@ func (c *Client) GetHetznerWorkerCount(clusterID string) (*WorkerCountResult, er
 }
 
 func (c *Client) GetHetznerK8sVersion(clusterID string) (*K8sVersionInfo, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/k8s-version", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/k8s-version", c.BaseURL, url.PathEscape(clusterID))
 	var result K8sVersionInfo
 	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
@@ -251,12 +251,12 @@ func (c *Client) GetHetznerK8sVersion(clusterID string) (*K8sVersionInfo, error)
 }
 
 func (c *Client) UpgradeHetznerK8sVersion(clusterID, targetVersion string, force bool) (*UpgradeK8sVersionResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/upgrade-k8s-version", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/upgrade-k8s-version", c.BaseURL, url.PathEscape(clusterID))
 	return c.doUpgradeK8sVersion(url, targetVersion, force)
 }
 
 func (c *Client) ScaleHetznerWorkers(clusterID string, workerCount int, drainOptions DrainOptions) (*ScaleWorkersResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/scale-workers", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/scale-workers", c.BaseURL, url.PathEscape(clusterID))
 	return c.doScaleWorkers(url, workerCount, drainOptions)
 }
 

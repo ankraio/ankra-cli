@@ -53,33 +53,54 @@ func nodeGroupArgs(count, groupIndex int) cobra.PositionalArgs {
 	})
 }
 
-// validatePathArgument refuses a name the CLI pastes into a request path
-// when no such resource can have it: blank, made only of dots, or holding a
-// '/'. A name of dots is a path step the platform's edge resolves before
-// routing, so `node-group delete <cluster> ..` would reach the cluster's own
-// DELETE, which deprovisions it (ankra-6pi023); a blank one empties a
-// segment, and a '/' splits it into two. The client refuses the first two
-// before sending in any case; this names the argument that is wrong. The
-// checks run on the percent-decoded name too, so "%2e%2e" is ".." here.
+// nodeGroupAddArgs is the Args check of a node-group add: the cluster, and
+// the --name flag, which every later command puts in its request path, so a
+// group that could never be addressed there is not created. It runs where
+// nodeGroupArgs does, before the credentials are read. A --name left out is
+// cobra's required-flag error, reported after this.
+func nodeGroupAddArgs(cmd *cobra.Command, args []string) error {
+	if err := cobra.ExactArgs(1)(cmd, args); err != nil {
+		return err
+	}
+	if !cmd.Flags().Changed("name") {
+		return nil
+	}
+	name, _ := cmd.Flags().GetString("name")
+	return validatePathArgument("node group name", name)
+}
+
+// validatePathArgument refuses a name the CLI puts into a request path when
+// no such resource can have it, before anything is looked up, asked or sent:
+//
+//   - blank, or with spaces around it, which no name has;
+//   - "." or "..", or one that decodes to them ("%2e%2e"): a path step, not a
+//     name. Sent as it is, ".." is resolved by the platform's edge before
+//     routing, so `node-group delete <cluster> ..` reached the cluster's own
+//     DELETE, which deprovisions it (ankra-6pi023). The rule is the client's
+//     (client.UnsafePathSegment), so the argument check and the request
+//     check agree; "..." is neither and passes both;
+//   - holding a '/' (or "%2F"): no such name has one.
+//
 // label names the argument in the message ("node group name").
 func validatePathArgument(label, value string) error {
 	if strings.TrimSpace(value) == "" {
 		return withExitCode(exitUsage, fmt.Errorf("the %s is blank", label))
 	}
-	decoded := client.PercentDecoded(value)
-	shown := fmt.Sprintf("%q", value)
-	if decoded != value {
-		shown = fmt.Sprintf("%q (which decodes to %q)", value, decoded)
+	if strings.TrimSpace(value) != value {
+		return withExitCode(exitUsage, fmt.Errorf("the %s %q has spaces around it, which no %s has",
+			label, value, label))
 	}
-	if strings.Trim(decoded, ".") == "" {
+	decoded, isPathStep := client.UnsafePathSegment(value)
+	switch {
+	case isPathStep && decoded != value:
+		return withExitCode(exitUsage, fmt.Errorf("the %s %q decodes to %q, a path step, not a name",
+			label, value, decoded))
+	case isPathStep:
 		return withExitCode(exitUsage, fmt.Errorf(
-			"the %s %s is made only of dots, which the platform reads as a path step to a different route, "+
-				"not as a name", label, shown))
-	}
-	if strings.Contains(decoded, "/") {
-		return withExitCode(exitUsage, fmt.Errorf(
-			"the %s %s contains '/', which would split it into two path segments; no %s has one",
-			label, shown, label))
+			"the %s %q is a path step, not a name: the platform's edge would resolve it to a different route",
+			label, value))
+	case strings.Contains(decoded, "/"):
+		return withExitCode(exitUsage, fmt.Errorf("the %s %q contains '/', which no %s has", label, value, label))
 	}
 	return nil
 }
@@ -451,14 +472,9 @@ func readNodeGroupUserDataFile(path string) (string, error) {
 var clusterNodeGroupAddCmd = &cobra.Command{
 	Use:   "add <cluster_id|name>",
 	Short: "Add a node group",
-	Args:  cobra.ExactArgs(1),
+	Args:  nodeGroupAddArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Every later command names the group in its request path, so a
-		// group that could never be addressed there is not created.
 		name, _ := cmd.Flags().GetString("name")
-		if nameError := validatePathArgument("node group name", name); nameError != nil {
-			return nameError
-		}
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
 			return resolveError
