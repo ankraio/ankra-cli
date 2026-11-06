@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## v0.68.0 - 2026-11-06
+
+This release makes three cost commands say only what the platform knows. A credential outside
+the projects you can see is named as that, not as deleted. A waste scan that did not finish reads
+as unknown, not as no waste, and names the scans that did not finish. The reconciliation note
+names the exchange rate an estimate was converted at, never 0.
+
+`-o json` and `-o yaml` print the platform's own response, as before. On a platform that does
+not send the new fields, every command prints what it printed before.
+
 ### Fixed
 
 - **`ankra cost reconcile` no longer calls a credential outside your projects "deleted".** When you read the reconciliation with access limited to some projects (a token pinned to one, or a role on projects only), the platform now withholds which credential it is for a credential outside those projects that bills your clusters: no id, no name, no invoice number, no provider error. Its cost on your clusters is still shown. The CLI used to read the missing id as a deleted credential, and two such credentials would have shared one row label. Each now reads "a credential outside your projects", numbered when one provider has several, with a note saying what was withheld. A read that names every credential prints exactly as before.
