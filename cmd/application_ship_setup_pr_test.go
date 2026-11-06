@@ -84,9 +84,11 @@ func TestShipReportsTheFindingWhenTheGateBlocksTheSetupPullRequest(t *testing.T)
 	if !strings.Contains(executeError.Error(), "CRITICAL CVE-2026-1234 in lodash 4.17.20 (fixed in 4.17.21)") {
 		t.Errorf("the stop must name the finding: %v", executeError)
 	}
+	// The real root command silences usage; this bare one prints it after the
+	// document, so only the first value is read.
 	var document shipResult
-	if decodeError := json.Unmarshal([]byte(stdout), &document); decodeError != nil {
-		t.Fatalf("stdout is not one document: %v\n%s", decodeError, stdout)
+	if decodeError := json.NewDecoder(strings.NewReader(stdout)).Decode(&document); decodeError != nil {
+		t.Fatalf("stdout does not start with the document: %v\n%s", decodeError, stdout)
 	}
 	if document.State != shipStateSetupPullRequestBlocked || document.SetupPullRequestRun == nil ||
 		len(document.BlockingFindings) != 2 || document.BlockingFindings[0].Identifier != cve {
