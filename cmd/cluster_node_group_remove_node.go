@@ -10,6 +10,7 @@ import (
 
 	"ankra/internal/client"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
@@ -64,11 +65,15 @@ later.
 The platform refuses a control plane, a node of another group, a node
 already being removed, a reference several nodes answer to, and a removal
 that would take an autoscaling group below its min count; each refusal
-exits 1 with the platform's reason. A node the cluster does not have exits
-3. A group or node that is blank, has spaces around it, or is '.' or '..'
-(also percent-encoded), a '/' outside a providerID, a providerID with no id
-or with a '.' or '..' step, and an -o other than json or yaml exit 2 before
-anything is looked up or sent.
+exits 1 with the platform's reason. It also refuses, the same way, a
+reference that "cannot be resolved right now": a providerID while it has no
+current view of the cluster's Kubernetes nodes, and a reference that may be
+a Kubernetes node name it has not recorded yet. Name the node by its server
+name or its server id instead; those need neither. A node the cluster does
+not have exits 3. A group or node that is blank, has spaces around it, or is
+'.' or '..' (also percent-encoded), a '/' outside a providerID, a providerID
+with no id or with a '.' or '..' step, and an -o other than json or yaml
+exit 2 before anything is looked up or sent.
 
 Examples:
   ankra cluster node-group remove-node <cluster_id> opensearch prod-opensearch-0
@@ -88,10 +93,11 @@ func runRemoveNodeGroupNode(cmd *cobra.Command, args []string) error {
 	groupName, nodeReference := args[1], args[2]
 	yes, _ := cmd.Flags().GetBool("yes")
 	drainOptions := drainOptionsFromFlags(cmd)
-	kind, kindError := resolveNodeGroupClusterKind(args[0], clusterID)
-	if kindError != nil {
-		return kindError
+	cluster, clusterError := resolveNodeGroupCluster(args[0], clusterID)
+	if clusterError != nil {
+		return clusterError
 	}
+	kind := cluster.Kind
 
 	// sent is the node the request names: the server id of the node the user
 	// approved when the lookup found it, so the platform removes that node and
@@ -104,13 +110,15 @@ func runRemoveNodeGroupNode(cmd *cobra.Command, args []string) error {
 		if drainOptions.ForceDrain {
 			consequence = "This deletes the node's server without honouring its PodDisruptionBudgets!"
 		}
-		target := resolveRemoveNodeTarget(kind, clusterID, nodeReference)
+		target := resolveRemoveNodeTarget(kind, clusterID, nodeReference, cluster.State == clusterStateStopped)
 		prompt := removeNodePrompt(target, nodeReference, groupName, clusterTarget(args[0], clusterID), consequence)
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), prompt, false); err != nil {
 			return err
 		}
-		if target.node != nil && looksLikeUUID(target.node.ID) {
-			sent = target.node.ID
+		if target.node != nil {
+			if serverID, isServerID := parseServerID(target.node.ID); isServerID {
+				sent = serverID
+			}
 		}
 	}
 
@@ -126,7 +134,7 @@ func runRemoveNodeGroupNode(cmd *cobra.Command, args []string) error {
 		return removeNodeGroupNodeError(wait, removeError)
 	}
 	if result.Accepted {
-		if handled, err := renderStructured(cmd, newNodeRemovalSubmitted(clusterID, result)); err != nil {
+		if handled, err := renderStructured(cmd, newNodeRemovalSubmitted(clusterID, result, drainOptions)); err != nil {
 			return err
 		} else if handled {
 			return nil
@@ -215,14 +223,16 @@ type nodeRemovalSubmitted struct {
 
 // newNodeRemovalSubmitted is the -o answer for an accepted removal. Its hint
 // names commands a script can run: an operation is read with -o json, since
-// --watch renders for a terminal and refuses -o.
-func newNodeRemovalSubmitted(clusterID string, result *client.RemoveNodeGroupNodeResult) nodeRemovalSubmitted {
+// --watch renders for a terminal and refuses -o. A forced drain is not
+// refused, so its hint promises nothing about a refusal.
+func newNodeRemovalSubmitted(clusterID string, result *client.RemoveNodeGroupNodeResult,
+	drainOptions client.DrainOptions) nodeRemovalSubmitted {
 	submitted := nodeRemovalSubmitted{asyncSubmittedResult: asyncSubmittedResult{
 		Submitted:   true,
 		Operation:   "Node removal",
 		OperationID: removalOperationID(result),
 	}}
-	decided := result.NodeName != ""
+	decided := result.NodeID != ""
 	if decided {
 		submitted.GroupName, submitted.NodeName, submitted.NodeID = result.GroupName, result.NodeName, result.NodeID
 		previousCount, newCount := result.PreviousCount, result.NewCount
@@ -231,8 +241,10 @@ func newNodeRemovalSubmitted(clusterID string, result *client.RemoveNodeGroupNod
 	switch {
 	case submitted.OperationID != "":
 		submitted.Hint = "operation " + submitted.OperationID + " drains the node and deletes its server; read it with '" +
-			followOperationCommand(submitted.OperationID) + " -o json' until it has ended. A refused drain fails it, " +
-			"names what refused it and keeps the node"
+			followOperationCommand(submitted.OperationID) + " -o json' until it has ended"
+		if !drainOptions.ForceDrain {
+			submitted.Hint += ". A refused drain fails it, names what refused it and keeps the node"
+		}
 	case decided:
 		submitted.Hint = "no operation was started yet: either the cluster is stopped and the node was dropped from " +
 			"its record (nothing is drained, and it is not created again on start), or the platform did not start the " +
@@ -302,7 +314,7 @@ func printNodeRemoval(out io.Writer, clusterID string, result *client.RemoveNode
 // known and where the outcome will be recorded.
 func printNodeRemovalAccepted(out io.Writer, clusterID string, result *client.RemoveNodeGroupNodeResult,
 	drainOptions client.DrainOptions) {
-	if result.NodeName != "" {
+	if result.NodeID != "" {
 		printNodeRemoval(out, clusterID, result, drainOptions)
 		return
 	}
@@ -359,8 +371,14 @@ func startRead[T any](read func() (T, error)) <-chan readAnswer[T] {
 }
 
 // awaitRead is the read's answer, or answered false when deadline passed
-// first.
+// first. A read that has already finished counts however late it is asked:
+// with the deadline gone too, a select over both would pick at random.
 func awaitRead[T any](answers <-chan readAnswer[T], deadline time.Time) (answer readAnswer[T], answered bool) {
+	select {
+	case answer = <-answers:
+		return answer, true
+	default:
+	}
 	timer := time.NewTimer(time.Until(deadline))
 	defer timer.Stop()
 	select {
@@ -448,7 +466,7 @@ func startKubernetesNodeRead(clusterID, name string) <-chan readAnswer[map[strin
 // reference says which Kubernetes read it needs: every node for a providerID
 // (the one reporting it is not known yet), the one node named like the
 // server for a name. A server id names its node only once the list is read.
-func resolveRemoveNodeTarget(kind, clusterID, reference string) removeNodeTarget {
+func resolveRemoveNodeTarget(kind, clusterID, reference string, clusterStopped bool) removeNodeTarget {
 	nodesOps := nodeGroupCallsFor(kind).nodes
 	if nodesOps == nil {
 		return removeNodeTarget{unresolved: "the CLI cannot list the nodes of a " + kind + " cluster"}
@@ -458,12 +476,13 @@ func resolveRemoveNodeTarget(kind, clusterID, reference string) removeNodeTarget
 	listing := startRead(func() (*client.NodeListResult, error) { return list(clusterID) })
 
 	namedAfterServers := kubernetesNodesNamedAfterServers(kind)
+	_, isServerID := parseServerID(reference)
 	var kubernetesRead <-chan readAnswer[map[string]string]
 	switch {
 	case !namedAfterServers:
 	case providerIDShape.MatchString(reference):
 		kubernetesRead = startKubernetesNodeRead(clusterID, "")
-	case !looksLikeUUID(reference):
+	case !isServerID:
 		kubernetesRead = startKubernetesNodeRead(clusterID, strings.ToLower(reference))
 	}
 
@@ -477,7 +496,7 @@ func resolveRemoveNodeTarget(kind, clusterID, reference string) removeNodeTarget
 	case listed.value == nil:
 		return removeNodeTarget{unresolved: "the platform answered no node list"}
 	}
-	nodes := listed.value.Nodes
+	nodes := nodesTheRemovalCanName(listed.value.Nodes, kind, clusterStopped)
 
 	if kubernetesRead == nil && namedAfterServers {
 		if candidates := nodesAnswering(nodes, kubernetesNodeView{}, reference); len(candidates) == 1 &&
@@ -509,9 +528,10 @@ func resolveRemoveNodeTarget(kind, clusterID, reference string) removeNodeTarget
 }
 
 // matchRemoveNodeReference finds the node reference names the way the
-// platform does: a UUID that is a live server's id names that server; any
-// other reference names the servers that answer to it (nodeAnswersTo). A
-// reference several nodes answer to names none of them.
+// platform does: a UUID that is a server's id names that server; any other
+// reference names the servers that answer to it (nodeAnswersTo). A reference
+// several nodes answer to names none of them. nodes is what the platform
+// looks in (nodesTheRemovalCanName).
 func matchRemoveNodeReference(nodes []client.NodeSummary, kubernetes kubernetesNodeView,
 	reference string) removeNodeTarget {
 	candidates := nodesAnswering(nodes, kubernetes, reference)
@@ -532,31 +552,84 @@ func matchRemoveNodeReference(nodes []client.NodeSummary, kubernetes kubernetesN
 	}
 }
 
-// nodesAnswering is the live nodes reference names: the one whose server id
-// it is, when it is a UUID that is one; otherwise every node that answers to
-// it.
-func nodesAnswering(nodes []client.NodeSummary, kubernetes kubernetesNodeView,
-	reference string) []*client.NodeSummary {
-	var live []*client.NodeSummary
-	for index := range nodes {
-		if !nodes[index].IsDeleted {
-			live = append(live, &nodes[index])
+// clusterStateStopped is a stopped cluster's state in the cluster list, and
+// nodeStateDown and nodeStateStopping the node list's states for a server
+// that is gone and for one being removed.
+const (
+	clusterStateStopped = "stopped"
+	nodeStateDown       = "down"
+	nodeStateStopping   = "stopping"
+)
+
+// nodesTheRemovalCanName is the rows of the cluster's node list the platform
+// looks a reference up in: its servers (the list also has its bastion and
+// VMs), without the deleted and down ones. A stopped cluster's servers are
+// such rows until it starts, and the platform restores them before it looks,
+// so on a stopped cluster none is left out. That also keeps a stopped
+// cluster's long-deleted rows, which the list does not tell apart: the
+// platform answers for those.
+func nodesTheRemovalCanName(nodes []client.NodeSummary, kind string, clusterStopped bool) []client.NodeSummary {
+	serverKind := kind + "_server"
+	var named []client.NodeSummary
+	for _, node := range nodes {
+		gone := node.IsDeleted || node.State == nodeStateDown
+		if node.Kind == serverKind && (clusterStopped || !gone) {
+			named = append(named, node)
 		}
 	}
-	if looksLikeUUID(reference) {
-		for _, node := range live {
-			if strings.EqualFold(node.ID, reference) {
-				return []*client.NodeSummary{node}
+	return named
+}
+
+// parseServerID reads reference as a server id the way the platform does,
+// with uuid.Parse: the canonical form, and also 32 hex digits, {braces} and
+// urn:uuid:, none of which looksLikeUUID takes. canonical is the id as the
+// node list writes it.
+func parseServerID(reference string) (canonical string, isServerID bool) {
+	parsed, parseError := uuid.Parse(reference)
+	if parseError != nil {
+		return "", false
+	}
+	return parsed.String(), true
+}
+
+// nodesAnswering is the nodes reference names: the one whose server id it is,
+// when it is a UUID that is one; otherwise every node that answers to it,
+// less the ones stepping aside (nodesStaying).
+func nodesAnswering(nodes []client.NodeSummary, kubernetes kubernetesNodeView,
+	reference string) []*client.NodeSummary {
+	if serverID, isServerID := parseServerID(reference); isServerID {
+		for index := range nodes {
+			if strings.EqualFold(nodes[index].ID, serverID) {
+				return []*client.NodeSummary{&nodes[index]}
 			}
 		}
 	}
 	var candidates []*client.NodeSummary
-	for _, node := range live {
-		if nodeAnswersTo(node, kubernetes, reference) {
-			candidates = append(candidates, node)
+	for index := range nodes {
+		if nodeAnswersTo(&nodes[index], kubernetes, reference) {
+			candidates = append(candidates, &nodes[index])
 		}
 	}
-	return candidates
+	return nodesStaying(candidates)
+}
+
+// nodesStaying drops, from several nodes a name answers to, the ones on their
+// way out, so a name reused by a replacement means the replacement: the
+// platform steps its delete_permanently rows aside. The node list does not
+// show that field; "stopping" is the state it marks a removed worker with,
+// and a deleted row is one only a stopped cluster keeps here. When every
+// candidate is on its way out, none steps aside.
+func nodesStaying(candidates []*client.NodeSummary) []*client.NodeSummary {
+	var staying []*client.NodeSummary
+	for _, node := range candidates {
+		if node.State != nodeStateStopping && !node.IsDeleted {
+			staying = append(staying, node)
+		}
+	}
+	if len(staying) == 0 {
+		return candidates
+	}
+	return staying
 }
 
 // nodeAnswersTo reports whether reference is one of the names node answers

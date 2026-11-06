@@ -14,7 +14,7 @@ import (
 // Accepted is set when the platform answered that it accepted the removal
 // without waiting (202). When it had decided the removal before answering,
 // that answer names the worker and the counts as well; when it was still
-// deciding, NodeName is empty and only OperationID may be set.
+// deciding, NodeID is empty and only OperationID may be set.
 //
 // OperationID is nil when the platform started no operation. Either the
 // cluster is stopped (the worker is dropped from the cluster's record at
@@ -57,8 +57,10 @@ func (c *Client) RemoveNodeGroupNode(ctx context.Context, kind, clusterID, group
 	drainOptions DrainOptions, wait bool) (*RemoveNodeGroupNodeResult, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/%s/node-groups/%s/nodes/%s", c.BaseURL,
 		url.PathEscape(kind), url.PathEscape(clusterID), url.PathEscape(groupName), url.PathEscape(node))
-	// One answer decodes into result: the decided answer (200, or any answer
-	// with wait) as the target, a 202 as its members.
+	// One answer decodes into result: with wait the platform's 200 as the
+	// target, and a 202 as its members. Without wait the platform answers
+	// only a 202 or a refusal, so a 200 there stays the unexpected status it
+	// is on every async write.
 	var result RemoveNodeGroupNodeResult
 	accepted, err := c.doJSONWriteRequestAcceptedWithMembers(ctx, http.MethodDelete, endpoint+drainOptions.query(),
 		nil, wait, &result, &result)

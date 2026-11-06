@@ -25,19 +25,26 @@ type (
 	nodeGroupTaintsFunc         func(ctx context.Context, clusterID, groupName string, taints []client.NodeTaint, wait bool) (*client.UpdateNodeGroupResult, bool, error)
 )
 
-// resolveNodeGroupClusterKind looks up the cluster and confirms it is a
+// resolveNodeGroupClusterKind is the kind of the cluster
+// resolveNodeGroupCluster confirms.
+func resolveNodeGroupClusterKind(typed, clusterID string) (string, error) {
+	cluster, resolveError := resolveNodeGroupCluster(typed, clusterID)
+	return cluster.Kind, resolveError
+}
+
+// resolveNodeGroupCluster looks up the cluster and confirms it is a
 // cloud-managed kind that supports node groups. A cluster of another kind is
 // a usage error (exit 2) naming its kind; typed is the cluster as the user
 // named it.
-func resolveNodeGroupClusterKind(typed, clusterID string) (string, error) {
+func resolveNodeGroupCluster(typed, clusterID string) (client.ClusterListItem, error) {
 	cluster, lookupError := apiClient.GetClusterByID(clusterID)
 	if lookupError != nil {
-		return "", fmt.Errorf("looking up cluster %q: %w", clusterID, lookupError)
+		return client.ClusterListItem{}, fmt.Errorf("looking up cluster %q: %w", clusterID, lookupError)
 	}
 	if _, hasNodeGroups := nodeGroupKinds[cluster.Kind]; !hasNodeGroups {
-		return "", unsupportedClusterKindError(typed, cluster.Kind, "node groups")
+		return client.ClusterListItem{}, unsupportedClusterKindError(typed, cluster.Kind, "node groups")
 	}
-	return cluster.Kind, nil
+	return cluster, nil
 }
 
 // nodeGroupArgs is the Args check of a node-group command that takes count
@@ -139,7 +146,7 @@ type nodeGroupCalls struct {
 
 // nodeGroupKinds is every cluster kind with node groups, and its calls. It is
 // the one list of those kinds: a node-group command accepts a cluster whose
-// kind is here and refuses any other (resolveNodeGroupClusterKind), and the
+// kind is here and refuses any other (resolveNodeGroupCluster), and the
 // tests that cover every kind read it.
 var nodeGroupKinds = map[string]func(api APIClient) nodeGroupCalls{
 	"hetzner": func(api APIClient) nodeGroupCalls {

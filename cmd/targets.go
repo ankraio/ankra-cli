@@ -27,7 +27,7 @@ const maximumJoinTokenLifetime = 24 * time.Hour
 
 // routeAbsentDetail is what the platform's router answers for a path it does
 // not serve, as opposed to a handler's own not-found sentence.
-const routeAbsentDetail = "Not Found"
+const routeAbsentDetail = client.RouterNotFoundDetail
 
 // isRouteAbsent reports whether apiError is a platform that does not serve
 // the route at all: a 404 carrying the router's routeAbsentDetail, or no

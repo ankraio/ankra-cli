@@ -119,16 +119,16 @@ func parseAsyncWriteResponse(
 	return nil, newUnexpectedResponseErrorWithMessage(response.StatusCode, fmt.Sprintf("unexpected status %d for async submit", response.StatusCode))
 }
 
-// routerNotFoundDetail is the detail the platform's router answers for a
+// RouterNotFoundDetail is the detail the platform's router answers for a
 // path it does not serve, as opposed to a handler's own not-found sentence.
-const routerNotFoundDetail = "Not Found"
+const RouterNotFoundDetail = "Not Found"
 
 // detailedWriteRefusal is the platform's own answer that a write cannot go
 // ahead: a 409 refusal, or a 404 for something the write names that does not
 // exist, with the reason as a string detail. The error's message is the
 // reason and Detail records it, so a caller can tell the platform's 404 from
 // a platform that does not serve the route at all: its router answers
-// routerNotFoundDetail, and anything in front of it a body with no detail.
+// RouterNotFoundDetail, and anything in front of it a body with no detail.
 // The router's detail keeps the status in the message, since alone it says
 // nothing. nil for any other answer, which keeps its existing handling.
 func detailedWriteRefusal(statusCode int, responseBody []byte) *UnexpectedResponseError {
@@ -139,7 +139,7 @@ func detailedWriteRefusal(statusCode int, responseBody []byte) *UnexpectedRespon
 	switch {
 	case detail == "":
 		return nil
-	case statusCode == http.StatusNotFound && detail == routerNotFoundDetail:
+	case statusCode == http.StatusNotFound && detail == RouterNotFoundDetail:
 		return &UnexpectedResponseError{StatusCode: statusCode,
 			message: fmt.Sprintf("request failed: status %d: %s", statusCode, detail), Detail: detail}
 	default:

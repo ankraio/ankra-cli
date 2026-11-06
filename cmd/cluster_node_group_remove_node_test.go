@@ -153,11 +153,11 @@ func newRemoveNodeMock(kind string) *nodeGroupRemoveNodeMock {
 		result: &client.RemoveNodeGroupNodeResult{GroupName: "opensearch", NodeName: "depict-opensearch-0",
 			NodeID: removeNodeServerID, PreviousCount: 4, NewCount: 3, OperationID: &operationID},
 		nodes: []client.NodeSummary{
-			{ID: removeNodeServerID, Name: "depict-opensearch-0", Role: removeNodeStringPointer("worker"),
-				NodeGroup: removeNodeStringPointer("opensearch")},
-			{ID: "0a9b8c7d-6e5f-4a3b-8c2d-1e0f9a8b7c6d", Name: "depict-opensearch-1", Role: removeNodeStringPointer("worker"),
-				NodeGroup: removeNodeStringPointer("opensearch")},
-			{ID: "11111111-2222-4333-8444-555555555555", Name: "depict-opensearch-0", IsDeleted: true},
+			{ID: removeNodeServerID, Kind: kind + "_server", Name: "depict-opensearch-0",
+				Role: removeNodeStringPointer("worker"), NodeGroup: removeNodeStringPointer("opensearch")},
+			{ID: "0a9b8c7d-6e5f-4a3b-8c2d-1e0f9a8b7c6d", Kind: kind + "_server", Name: "depict-opensearch-1",
+				Role: removeNodeStringPointer("worker"), NodeGroup: removeNodeStringPointer("opensearch")},
+			{ID: "11111111-2222-4333-8444-555555555555", Kind: kind + "_server", Name: "depict-opensearch-0", IsDeleted: true},
 		},
 		kubernetesNodes: map[string]string{"depict-opensearch-0": "hcloud://168428300", "depict-opensearch-1": "hcloud://168428301"},
 	}
@@ -430,6 +430,66 @@ func TestClusterNodeGroupRemoveNodeAcceptedNamesTheNodeThatLeaves(t *testing.T) 
 	}
 }
 
+// A forced drain is not refused, so the answer a script reads must not
+// promise that a refused drain keeps the node; a guarded one does.
+func TestClusterNodeGroupRemoveNodeAcceptedHintPromisesOnlyAGuardedDrain(t *testing.T) {
+	hint := func(extraArgs ...string) string {
+		t.Helper()
+		mock := newRemoveNodeMock("hetzner")
+		mock.result.Accepted = true
+		args := append([]string{testClusterID, "opensearch", "depict-opensearch-0", "--yes", "-o", "json"}, extraArgs...)
+		stdout, _, err := runRemoveNode(t, mock, "", args...)
+		if err != nil {
+			t.Fatalf("accepted remove-node failed: %v", err)
+		}
+		var decoded map[string]any
+		if decodeError := json.Unmarshal([]byte(stdout), &decoded); decodeError != nil {
+			t.Fatalf("stdout is not one JSON document: %v\n%s", decodeError, stdout)
+		}
+		hint, _ := decoded["hint"].(string)
+		return hint
+	}
+	if forced := hint("--force-drain"); strings.Contains(forced, "keeps the node") ||
+		!strings.Contains(forced, "ankra cluster operations list "+removeNodeOperationID+" -o json") {
+		t.Errorf("--force-drain hint = %q, want the operation and no promise about a refused drain", forced)
+	}
+	if guarded := hint(); !strings.Contains(guarded, "A refused drain fails it, names what refused it and keeps the node") {
+		t.Errorf("guarded hint = %q, want the promise about a refused drain", guarded)
+	}
+}
+
+// A decided answer is one that names a server, by its id: a server's name can
+// be empty, and that must not read as the platform still checking.
+func TestClusterNodeGroupRemoveNodeAcceptedOfANamelessServerIsDecided(t *testing.T) {
+	mock := newRemoveNodeMock("hetzner")
+	mock.result.Accepted = true
+	mock.result.NodeName = ""
+	stdout, _, err := runRemoveNode(t, mock, "", testClusterID, "opensearch", "depict-opensearch-0", "--yes")
+	if err != nil {
+		t.Fatalf("accepted remove-node failed: %v", err)
+	}
+	if !strings.Contains(stdout, "(server id "+removeNodeServerID+") is leaving node group 'opensearch' (4 -> 3 nodes)") ||
+		strings.Contains(stdout, "has not named the node") {
+		t.Errorf("output must treat the answer as decided:\n%s", stdout)
+	}
+
+	mock = newRemoveNodeMock("hetzner")
+	mock.result.Accepted = true
+	mock.result.NodeName = ""
+	stdout, _, err = runRemoveNode(t, mock, "", testClusterID, "opensearch", "depict-opensearch-0", "--yes", "-o", "json")
+	if err != nil {
+		t.Fatalf("accepted remove-node -o json failed: %v", err)
+	}
+	var decoded map[string]any
+	if decodeError := json.Unmarshal([]byte(stdout), &decoded); decodeError != nil {
+		t.Fatalf("stdout is not one JSON document: %v\n%s", decodeError, stdout)
+	}
+	if decoded["node_id"] != removeNodeServerID || decoded["group_name"] != "opensearch" ||
+		decoded["new_count"] != float64(3) {
+		t.Fatalf("JSON = %s", stdout)
+	}
+}
+
 // A removal the platform was still checking when it answered names no node:
 // the output says so and where the outcome will show, and does not suggest
 // sending it again.
@@ -601,6 +661,148 @@ func TestClusterNodeGroupRemoveNodeSendsTheApprovedNodesServerID(t *testing.T) {
 	if len(mock.calls) != 1 || mock.calls[0].node != "depict-opensearch-0" || len(mock.kubernetesRequestsSent()) != 0 {
 		t.Errorf("--yes: calls = %+v, Kubernetes reads %d; want the reference as typed and no lookup", mock.calls,
 			len(mock.kubernetesRequestsSent()))
+	}
+}
+
+// The platform reads a server id with uuid.Parse, which takes more than the
+// canonical form, so a dashless id is a server id here too: the prompt names
+// its node, and what is sent is the id in the form the node list writes it.
+func TestClusterNodeGroupRemoveNodeReadsEveryFormOfAServerID(t *testing.T) {
+	dashless := strings.ReplaceAll(removeNodeServerID, "-", "")
+	for _, reference := range []string{dashless, strings.ToUpper(dashless), "{" + removeNodeServerID + "}",
+		"urn:uuid:" + removeNodeServerID, strings.ToUpper(removeNodeServerID)} {
+		mock := newRemoveNodeMock("hetzner")
+		_, prompt, runError := runRemoveNode(t, mock, "y\n", testClusterID, "opensearch", reference)
+		if runError != nil {
+			t.Fatalf("%s: remove-node failed: %v", reference, runError)
+		}
+		if !strings.Contains(prompt, `Remove node "depict-opensearch-0" from node group "opensearch"`) ||
+			!strings.Contains(prompt, "Provider id: hcloud://168428300") {
+			t.Errorf("%s: the prompt must name the node:\n%s", reference, prompt)
+		}
+		if len(mock.calls) != 1 || mock.calls[0].node != removeNodeServerID {
+			t.Errorf("%s: calls = %+v, want the server id %s", reference, mock.calls, removeNodeServerID)
+		}
+	}
+}
+
+// A name that happens to look like an id is still a name when no server has
+// that id, as it is on the platform.
+func TestClusterNodeGroupRemoveNodeFallsBackToTheNameOfAnIDShapedReference(t *testing.T) {
+	const idShapedName = "0123456789abcdef0123456789abcdef"
+	mock := newRemoveNodeMock("hetzner")
+	mock.nodes[0].Name = idShapedName
+	if _, prompt, runError := runRemoveNode(t, mock, "n\n", testClusterID, "opensearch", idShapedName); !errors.Is(runError, errCancelled) ||
+		!strings.Contains(prompt, "Server id:   "+removeNodeServerID) {
+		t.Fatalf("got %v, want the node named %s found:\n%s", runError, idShapedName, prompt)
+	}
+}
+
+// The lookup reads the rows the platform reads, so it neither calls a name
+// ambiguous that the platform resolves nor approves a node the platform does
+// not have.
+func TestClusterNodeGroupRemoveNodeLooksWhereThePlatformLooks(t *testing.T) {
+	const otherServerID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	server := func(id, state string, deleted bool) client.NodeSummary {
+		return client.NodeSummary{ID: id, Kind: "hetzner_server", Name: "depict-opensearch-0", State: state, IsDeleted: deleted}
+	}
+	unresolved := "The CLI could not tell which node that is"
+	cases := map[string]struct {
+		clusterState string
+		nodes        []client.NodeSummary
+		reference    string
+		// wantSent is what is sent; the prompt names that server, or says
+		// unresolved when wantSent is the reference as typed.
+		wantSent string
+		wantSaid string
+	}{
+		"a down row is no second answer to a name": {
+			nodes:     []client.NodeSummary{server(removeNodeServerID, "running", false), server(otherServerID, "down", false)},
+			reference: "depict-opensearch-0", wantSent: removeNodeServerID,
+			wantSaid: "Server id:   " + removeNodeServerID,
+		},
+		"a down row alone is not approved by name": {
+			nodes:     []client.NodeSummary{server(otherServerID, "down", false)},
+			reference: "depict-opensearch-0", wantSent: "depict-opensearch-0", wantSaid: unresolved,
+		},
+		"a down row alone is not approved by id": {
+			nodes:     []client.NodeSummary{server(otherServerID, "down", false)},
+			reference: otherServerID, wantSent: otherServerID, wantSaid: unresolved,
+		},
+		"a row being removed steps aside for its replacement": {
+			nodes:     []client.NodeSummary{server(otherServerID, "stopping", false), server(removeNodeServerID, "running", false)},
+			reference: "depict-opensearch-0", wantSent: removeNodeServerID,
+			wantSaid: "Server id:   " + removeNodeServerID,
+		},
+		"a row being removed still answers when it is the only one": {
+			nodes:     []client.NodeSummary{server(otherServerID, "stopping", false)},
+			reference: "depict-opensearch-0", wantSent: otherServerID, wantSaid: "Server id:   " + otherServerID,
+		},
+		"a row being removed answers to its own id": {
+			nodes:     []client.NodeSummary{server(otherServerID, "stopping", false), server(removeNodeServerID, "running", false)},
+			reference: otherServerID, wantSent: otherServerID, wantSaid: "Server id:   " + otherServerID,
+		},
+		"two live rows are still ambiguous": {
+			nodes:     []client.NodeSummary{server(otherServerID, "running", false), server(removeNodeServerID, "running", false)},
+			reference: "depict-opensearch-0", wantSent: "depict-opensearch-0", wantSaid: "2 nodes in the cluster's records answer to it",
+		},
+		"the bastion is not a server of the cluster's": {
+			nodes: []client.NodeSummary{server(removeNodeServerID, "running", false),
+				{ID: otherServerID, Kind: "hetzner_bastion", Name: "depict-opensearch-0", State: "running"}},
+			reference: "depict-opensearch-0", wantSent: removeNodeServerID,
+			wantSaid: "Server id:   " + removeNodeServerID,
+		},
+		"a stopped cluster's soft-deleted server is its node": {
+			clusterState: "stopped",
+			nodes:        []client.NodeSummary{server(removeNodeServerID, "down", true)},
+			reference:    "depict-opensearch-0", wantSent: removeNodeServerID,
+			wantSaid: "Server id:   " + removeNodeServerID,
+		},
+		"a stopped cluster's soft-deleted server answers to its id": {
+			clusterState: "stopped",
+			nodes:        []client.NodeSummary{server(removeNodeServerID, "down", true)},
+			reference:    removeNodeServerID, wantSent: removeNodeServerID,
+			wantSaid: "Server id:   " + removeNodeServerID,
+		},
+		"a server a stopped cluster kept is preferred to a deleted row": {
+			clusterState: "stopped",
+			nodes:        []client.NodeSummary{server(otherServerID, "down", true), server(removeNodeServerID, "stopped", false)},
+			reference:    "depict-opensearch-0", wantSent: removeNodeServerID,
+			wantSaid: "Server id:   " + removeNodeServerID,
+		},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			mock := newRemoveNodeMock("hetzner")
+			mock.cluster.State = testCase.clusterState
+			mock.nodes = testCase.nodes
+			_, prompt, runError := runRemoveNode(t, mock, "y\n", testClusterID, "opensearch", testCase.reference)
+			if runError != nil {
+				t.Fatalf("remove-node failed: %v", runError)
+			}
+			if !strings.Contains(prompt, testCase.wantSaid) {
+				t.Errorf("the prompt does not say %q:\n%s", testCase.wantSaid, prompt)
+			}
+			if len(mock.calls) != 1 || mock.calls[0].node != testCase.wantSent {
+				t.Errorf("calls = %+v, want %s sent", mock.calls, testCase.wantSent)
+			}
+		})
+	}
+}
+
+// With the deadline gone too a select over both would pick at random, and
+// a read that had finished would be thrown away about half the time.
+func TestAwaitReadTakesAFinishedReadPastTheDeadline(t *testing.T) {
+	deadline := time.Now().Add(-time.Second)
+	for attempt := range 200 {
+		answers := make(chan readAnswer[int], 1)
+		answers <- readAnswer[int]{value: 7}
+		if answer, answered := awaitRead(answers, deadline); !answered || answer.value != 7 {
+			t.Fatalf("attempt %d: got %+v answered %v, want the finished read", attempt, answer, answered)
+		}
+	}
+	if _, answered := awaitRead(make(chan readAnswer[int]), deadline); answered {
+		t.Fatal("a read that has not finished must not count as answered past the deadline")
 	}
 }
 
