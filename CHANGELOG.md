@@ -4,6 +4,7 @@
 
 ### Added
 
+- **`ankra application promote` and `ankra application previews`.** `promote <app> --from staging --to production` moves the build one environment runs onto the next, without building again, after showing what would change. It exits 8 with the blockers when something stops it. `previews <app>` shows whether every pull request gets a preview, and `previews enable|disable|follow` sets the repository's rule without touching any other setting.
 - **`ankra cluster describe --managed-fields` shows who last wrote an object.** It reads the object live and lists each field manager with its operation, subresource and time, which is how to see what resized a pod in place (subresource `resize`), scaled a workload or edited its spec. Kubernetes keeps one entry per manager and subresource, so this is the latest write of each, not a full history. When the cluster cannot answer live, the command says the field managers are unavailable rather than that there are none.
 - **Every `ankra cluster operations` command accepts a short execution id.** `steps`, `list <id>`, `retry`, `cancel` and `cancel-step` take the first 6 or more characters of an id, the way a report or a chat message abbreviates it, instead of answering 422. A short id is looked up among the most recent executions of the active cluster, or of the organisation when no cluster is selected. Two matches are refused and both are named.
 

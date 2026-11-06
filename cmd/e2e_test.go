@@ -383,6 +383,18 @@ func (m baseMock) DeleteStackProfileLogo(requestContext context.Context, profile
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetApplicationEnvironments(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PreviewApplicationPromotion(requestContext context.Context, applicationID string, query url.Values) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StartApplicationPromotion(requestContext context.Context, applicationID string, promotion map[string]string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
