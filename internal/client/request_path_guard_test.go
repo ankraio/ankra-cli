@@ -429,6 +429,43 @@ func TestTheGuardLeavesRequestsToAnotherHostAlone(t *testing.T) {
 	}
 }
 
+// A redirect's target comes from the server, not from an argument, so a hop
+// to a path the check refuses is followed on every lane, to the API's host or
+// another: refusing it would blame a blank argument nobody gave. Only the
+// first hop is the client's own path, and that one is still checked.
+func TestARedirectHopIsNotRefused(t *testing.T) {
+	storageServer, _ := newCountingServer(t, nil)
+	hops := map[string]struct{ location, wantPath string }{
+		"/api/v1/hop/empty-segment":  {"/target//x", "/target//x"},
+		"/api/v1/hop/trailing-slash": {"/target/", "/target/"},
+		"/api/v1/hop/another-host":   {storageServer.URL + "/bucket//x/", "/bucket//x/"},
+	}
+	apiServer, _ := newCountingServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if hop, isHop := hops[r.URL.Path]; isHop {
+			w.Header().Set("Location", hop.location)
+			w.WriteHeader(http.StatusTemporaryRedirect)
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	})
+	testClient := New(testToken, apiServer.URL)
+	for lane, httpClients := range apiClientLanes(testClient) {
+		for index, httpClient := range httpClients {
+			for start, hop := range hops {
+				response, sendError := httpClient.Get(apiServer.URL + start)
+				if sendError != nil {
+					t.Errorf("%s[%d] %s: %v", lane, index, start, sendError)
+					continue
+				}
+				_ = response.Body.Close()
+				if got := response.Request.URL.Path; got != hop.wantPath {
+					t.Errorf("%s[%d] %s: ended at %q, want %q", lane, index, start, got, hop.wantPath)
+				}
+			}
+		}
+	}
+}
+
 // ExchangeGitHubOIDCToken sends with the caller's client, so it checks its
 // own request: a base URL whose path the edge would rewrite is refused.
 func TestGitHubOIDCExchangeRefusesAnUnsafePath(t *testing.T) {
@@ -463,6 +500,41 @@ func TestGuardedLanesKeepTheDefaultTransportSettings(t *testing.T) {
 			base.ForceAttemptHTTP2 != defaults.ForceAttemptHTTP2 || base.DialContext == nil {
 			t.Errorf("%s: the base transport lost net/http's defaults", name)
 		}
+	}
+}
+
+// wrappedDefaultTransport is what an instrumented program leaves in
+// http.DefaultTransport: a RoundTripper that is not an *http.Transport.
+type wrappedDefaultTransport struct {
+	http.RoundTripper
+}
+
+// cmd builds the login client at package init, so a default transport that
+// cannot be cloned must not panic every command at startup: it is used as it
+// is, still behind the check.
+func TestGuardedLanesSurviveAWrappedDefaultTransport(t *testing.T) {
+	server, hits := newCountingServer(t, nil)
+	original := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = original })
+	wrapped := wrappedDefaultTransport{RoundTripper: original}
+	http.DefaultTransport = wrapped
+
+	httpClient := NewGuardedHTTPClient(time.Minute)
+	guard, isGuard := httpClient.Transport.(*requestPathGuardTransport)
+	if !isGuard || guard.base != http.RoundTripper(wrapped) {
+		t.Fatalf("transport %T, want the path guard over the wrapped default", httpClient.Transport)
+	}
+	response, sendError := httpClient.Get(server.URL + "/api/v1/clusters")
+	if sendError != nil {
+		t.Fatalf("an ordinary request through the wrapped default: %v", sendError)
+	}
+	_ = response.Body.Close()
+	if _, sendError = httpClient.Get(server.URL + "/api/v1/clusters//nodes"); sendError == nil {
+		t.Fatal("the wrapped default lost the path check")
+	}
+	var refusal *UnsafeRequestPathError
+	if !errors.As(sendError, &refusal) || hits.Load() != 1 {
+		t.Fatalf("got %v with %d request(s), want a refusal and only the ordinary request sent", sendError, hits.Load())
 	}
 }
 

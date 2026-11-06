@@ -32,8 +32,11 @@ import (
 // lanes that do not ride it, and by ExchangeGitHubOIDCToken itself, which
 // sends with its caller's client (request_path_guard_test.go keeps that
 // list complete). A request to another host (a presigned storage URL) is not
-// the edge's to rewrite. Arguments are url.PathEscape'd into their segments
-// first, so a name that holds '/', '?' or '#' stays one segment.
+// the edge's to rewrite, and a redirect hop is not a path this client built:
+// its URL came from the server, in answer to a request that passed the check,
+// so no argument of ours is behind it. Arguments are url.PathEscape'd into
+// their segments first, so a name that holds '/', '?' or '#' stays one
+// segment.
 
 // UnsafeRequestPathError is the client's refusal to send a request whose
 // path has an empty, "." or ".." segment, or one that decodes to "." or
@@ -135,8 +138,13 @@ func checkRequestPath(method string, requestURL *url.URL) error {
 }
 
 // refuseUnsafeRequestPath checks a request a transport is about to send. A
-// refused request's body is closed, as a RoundTripper must on every error.
+// refused request's body is closed, as a RoundTripper must on every error. A
+// redirect hop, the one request http.Client sets Response on, is let through
+// (see above): refusing it would blame a blank argument nobody gave.
 func refuseUnsafeRequestPath(request *http.Request) error {
+	if request.Response != nil {
+		return nil
+	}
 	refusal := checkRequestPath(request.Method, request.URL)
 	if refusal != nil && request.Body != nil {
 		_ = request.Body.Close()
@@ -170,9 +178,16 @@ func (t *requestPathGuardTransport) CloseIdleConnections() {
 // guardedDefaultTransport is net/http's default transport (proxy from the
 // environment, dial, keep-alive and TLS handshake timeouts, idle connection
 // reaping, HTTP/2), cloned so nothing else shares its pool, behind the path
-// check. It is the one place the package reads http.DefaultTransport.
+// check. It is the one place the package reads http.DefaultTransport. A
+// default something has wrapped cannot be cloned, so it is used as it is:
+// the login client is built at package init, and a panic here would stop
+// every command at startup.
 func guardedDefaultTransport() *requestPathGuardTransport {
-	return &requestPathGuardTransport{base: http.DefaultTransport.(*http.Transport).Clone()}
+	base := http.DefaultTransport
+	if standard, isStandard := base.(*http.Transport); isStandard {
+		base = standard.Clone()
+	}
+	return &requestPathGuardTransport{base: base}
 }
 
 // NewGuardedHTTPClient is an http.Client for the API built outside this
