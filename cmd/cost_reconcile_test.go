@@ -162,6 +162,13 @@ func TestCostReconcileConversionNoteNamesTheRateAppliedAndItsDay(t *testing.T) {
 			"The estimate is converted from USD at 0.92 (the built-in rate), not the month's own rate."},
 		{"no rate at all", client.CostReconciliationFX{From: "usd", To: "eur"},
 			"The estimate is converted from USD (the built-in rate), not the month's own rate."},
+		{"an older platform's rate in upper case", client.CostReconciliationFX{From: "USD", To: "eur", RateFromUSD: reconcileRate(0.92)},
+			"The estimate is converted from USD at 0.92 (the built-in rate), not the month's own rate."},
+		// rate_from_usd is the rate from USD, so it is never named next to the
+		// EUR figure: a payload mixing the two shapes gets no rate at all.
+		{"a USD rate beside the EUR figure", client.CostReconciliationFX{From: "eur", To: "gbp", RateFromUSD: reconcileRate(0.92),
+			AsOf: reconcileText("2026-09-25T00:00:00Z")},
+			"The estimate is converted from EUR (the rate stored 2026-09-25T00:00:00Z), not the month's own rate."},
 	} {
 		if got := costReconcileConversionNote(testCase.fx); got != testCase.want {
 			t.Errorf("%s:\n got %q\nwant %q", testCase.name, got, testCase.want)
@@ -189,6 +196,21 @@ func TestCostReconcilePrintsTheConversionTheEstimateRestsOn(t *testing.T) {
 	}
 	if strings.Count(output, "converted from") != 1 || strings.Contains(output, " at 0 ") {
 		t.Fatalf("only the converted estimate carries a note, and no rate reads 0:\n%s", output)
+	}
+}
+
+// The currencies are compared as currencies, whatever their case: USD against
+// usd is no conversion and has no note, as usd against usd always had.
+func TestCostReconcileReadsTheFigureAndInvoiceCurrencyWithoutCase(t *testing.T) {
+	reconciliation := costReconciliationFixture()
+	reconciliation.Credentials[0].Currency = reconcileText("usd")
+	reconciliation.Credentials[0].EstimateFX = &client.CostReconciliationFX{From: "USD", To: "usd", Rate: reconcileRate(1)}
+	output, err := runCostReconcileCommand(t, &costReconcileMock{reconciliation: reconciliation}, "cost", "reconcile", "--month", "2026-08")
+	if err != nil {
+		t.Fatalf("cost reconcile: %v", err)
+	}
+	if strings.Contains(output, "converted from") {
+		t.Fatalf("USD against usd is the same currency and must carry no conversion note:\n%s", output)
 	}
 }
 

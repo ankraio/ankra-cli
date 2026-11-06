@@ -316,7 +316,9 @@ func costReconcileBilled(credential client.CostReconciliationCredential, labelsB
 // costReconcileConversionNote says how the estimate was put in the invoice's
 // currency, for a credential whose estimate was converted. A platform that
 // predates rate and basis (cluster#6006) always converted the USD figure at
-// the latest stored rate, and gets the sentence it always got. Otherwise the
+// the latest stored rate, and gets the sentence it always got; its rate is
+// rate_from_usd, so it is named only when from is usd, and never next to
+// another currency's figure. Otherwise the
 // note names the rate applied and the day of its rates. For basis today it
 // says a cluster's month recorded no EUR figure, so the estimate is the USD
 // figure at today's rate and the difference includes the rate's move since
@@ -329,7 +331,7 @@ func costReconcileConversionNote(fx client.CostReconciliationFX) string {
 		storedRate = "the rate stored " + *fx.AsOf
 	}
 	if fx.Rate == nil {
-		if fx.RateFromUSD == nil {
+		if fx.RateFromUSD == nil || !strings.EqualFold(fx.From, "usd") {
 			return fmt.Sprintf("The estimate is converted from %s (%s), not the month's own rate.", from, storedRate)
 		}
 		return fmt.Sprintf("The estimate is converted from %s at %g (%s), not the month's own rate.", from, *fx.RateFromUSD, storedRate)
@@ -392,7 +394,7 @@ func costReconcileNotes(credential client.CostReconciliationCredential) []string
 			}
 			notes = append(notes, note)
 		}
-		if credential.EstimateFX != nil && credential.EstimateFX.From != credential.EstimateFX.To {
+		if credential.EstimateFX != nil && !strings.EqualFold(credential.EstimateFX.From, credential.EstimateFX.To) {
 			notes = append(notes, costReconcileConversionNote(*credential.EstimateFX))
 		}
 	} else if credential.CurrenciesMixed && credential.UnmatchedLineCount > 0 {
