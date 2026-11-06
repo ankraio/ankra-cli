@@ -102,6 +102,7 @@ func waitForPipelineBuild(
 	dispatched := false
 	announcedWaiting := false
 	announcedState := ""
+	announcedAuthority := false
 	for {
 		run, listedAll, listError := findShipPipelineRun(waitContext, selector, headSHA)
 		if listError != nil {
@@ -169,6 +170,10 @@ func waitForPipelineBuild(
 					line, applicationID, detail.ID)
 				announcedState = state
 			}
+			if note := shipPipelineAuthorityNote(detail); note != "" && !announcedAuthority {
+				_, _ = fmt.Fprintln(progress, note)
+				announcedAuthority = true
+			}
 			if shipPipelineImagePublished(detail) {
 				_, _ = fmt.Fprintf(progress, "Ankra Pipelines built the image: run #%d (%s).\n", detail.RunNumber, detail.ID)
 				return detail.ID, nil
@@ -199,8 +204,9 @@ func waitForPipelineBuild(
 			} else if detail.Status == pipelineRunStatusConcluded &&
 				pipelineOptionalString(detail.Outcome) != pipelineOutcomeSuccess {
 				return "", fmt.Errorf("%w - see why with 'ankra application pipeline logs %s %s', "+
-					"or re-run it with 'ankra application pipeline rerun %s %s'",
-					pipelineRunConclusionError(detail.PipelineRun), applicationID, detail.ID, applicationID, detail.ID)
+					"or re-run it with 'ankra application pipeline rerun %s %s'%s",
+					pipelineRunConclusionError(detail.PipelineRun), applicationID, detail.ID, applicationID, detail.ID,
+					shipPipelineAuthorityClause(detail))
 			} else if skipped := shipPipelineSkippedPublish(detail); skipped != nil {
 				reason := "its publish step was skipped"
 				if skipped.ErrorMessage != nil && strings.TrimSpace(*skipped.ErrorMessage) != "" {
@@ -229,6 +235,47 @@ func waitForPipelineBuild(
 			return "", tickError
 		}
 	}
+}
+
+// shipPipelineApproveCommand is the command that approves what the run's
+// definition declares, empty for a run that is not unapproved or that the
+// platform named nothing to approve for.
+func shipPipelineApproveCommand(detail *client.PipelineRunDetail) string {
+	if detail.AuthorityState == nil || *detail.AuthorityState != pipelineAuthorityUnapproved ||
+		detail.ApproveDefinitionID == nil || *detail.ApproveDefinitionID == "" {
+		return ""
+	}
+	return "ankra pipeline definitions approve " + *detail.ApproveDefinitionID
+}
+
+// shipPipelineAuthorityNote says what an unapproved definition means for this
+// run, the first time ship sees it, so a stage that needs an overridden section
+// does not fail as the first sign. It says the publish is unaffected, because
+// an unapproved run does publish: the registry login is the platform's own.
+func shipPipelineAuthorityNote(detail *client.PipelineRunDetail) string {
+	command := shipPipelineApproveCommand(detail)
+	if command == "" {
+		return ""
+	}
+	taken := pipelineAuthorityOverridePaths(*detail)
+	if taken == "" {
+		taken = "none that this run reported"
+	}
+	return fmt.Sprintf("Pipeline run #%d runs without approved authority: no administrator has approved what its definition "+
+		"declares, so the run does not get these sections as written: %s. Publishing the image does not need this approval, "+
+		"but a stage that needs one of them can fail. An organisation administrator can approve it for later runs: %s",
+		detail.RunNumber, taken, command)
+}
+
+// shipPipelineAuthorityClause adds the approve step to a failed run's error.
+func shipPipelineAuthorityClause(detail *client.PipelineRunDetail) string {
+	command := shipPipelineApproveCommand(detail)
+	if command == "" || len(detail.AuthorityOverrides) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("; this run did not have approved authority (%s), so if a stage needed one of those sections, "+
+		"an organisation administrator approves it with '%s' and the next run has it",
+		pipelineAuthorityOverridePaths(*detail), command)
 }
 
 // shipPipelineRunNotRunError explains a run that concluded skipped: the
