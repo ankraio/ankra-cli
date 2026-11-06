@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- **`ankra cluster` commands that take the cluster as their first argument say so.** `ankra cluster node-group add --cluster ci` answered `accepts 1 arg(s), received 0`, though `--cluster` is a listed flag. Every such command now names the right form when given only the flag. Passing a positional and a `--cluster` that names something else is now refused with exit 2; the flag used to be ignored with no word, so the command acted on the positional. The flag does not stand in for a required positional, so `stop`, `delete` and the like still have to name their target.
 - **`ankra cluster metrics query-range` says when a series was downsampled.** A long range could come back with far fewer points than the query produced, at a spacing nothing mentioned and with `truncated: false`, so it read as a complete answer at the `--step` you asked for. The Points column now reads `50 of 385`, and a note on stderr says how far apart the returned points are. `-o json` and `-o yaml` stay parseable and print the platform's own response.
 
 ## v0.68.0 - 2026-11-06
