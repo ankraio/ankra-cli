@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -39,27 +40,87 @@ func TestRemoveNodeGroupNodeEscapesTheNodeAndSendsTheDrainChoice(t *testing.T) {
 	}
 }
 
-// An unforced request sends no force_drain, and a removal the platform
-// accepted without waiting comes back as accepted with its operation.
-func TestRemoveNodeGroupNodeAcceptedCarriesTheOperation(t *testing.T) {
+// An unforced request sends no force_drain. A removal the platform decided
+// before answering comes back as accepted with its operation, and as the
+// result naming the worker that leaves and the counts.
+func TestRemoveNodeGroupNodeAcceptedNamesTheNodeThatLeaves(t *testing.T) {
 	var forceDrainSent bool
 	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
 		_, forceDrainSent = request.URL.Query()["force_drain"]
 		jsonResponse(t, writer, http.StatusAccepted, map[string]any{
-			"status": "accepted", "node_name": "prod-opensearch-0", "operation_id": "4b0e3f6a-6c2e-4d2a-9d7e-1f0e2a3b4c5d",
+			"status": "accepted", "group_name": "opensearch", "node_name": "prod-opensearch-0",
+			"node_id": "f3c1a3a2-6a55-4c1e-9d1c-2f3e4a5b6c7d", "previous_count": 4, "new_count": 3,
+			"operation_id": "4b0e3f6a-6c2e-4d2a-9d7e-1f0e2a3b4c5d",
 		})
 	})
 
 	result, accepted, removeError := client.RemoveNodeGroupNode(context.Background(), "upcloud", "cluster-1", "opensearch",
 		"prod-opensearch-0", DrainOptions{}, false)
-	if removeError != nil || result != nil || accepted == nil {
+	if removeError != nil || result == nil || accepted == nil {
 		t.Fatalf("RemoveNodeGroupNode = (%+v, %+v, %v)", result, accepted, removeError)
 	}
 	if accepted.OperationID != "4b0e3f6a-6c2e-4d2a-9d7e-1f0e2a3b4c5d" {
 		t.Fatalf("accepted = %+v", accepted)
 	}
+	if result.NodeName != "prod-opensearch-0" || result.NodeID != "f3c1a3a2-6a55-4c1e-9d1c-2f3e4a5b6c7d" ||
+		result.PreviousCount != 4 || result.NewCount != 3 ||
+		result.OperationID == nil || *result.OperationID != "4b0e3f6a-6c2e-4d2a-9d7e-1f0e2a3b4c5d" {
+		t.Fatalf("result = %+v", result)
+	}
 	if forceDrainSent {
 		t.Fatal("an unforced removal must not send force_drain")
+	}
+}
+
+// A removal the platform was still deciding when it answered names no node:
+// it comes back as accepted alone.
+func TestRemoveNodeGroupNodeAcceptedWhileStillDecidingHasNoResult(t *testing.T) {
+	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		jsonResponse(t, writer, http.StatusAccepted, map[string]any{"status": "accepted"})
+	})
+
+	result, accepted, removeError := client.RemoveNodeGroupNode(context.Background(), "hetzner", "cluster-1", "opensearch",
+		"prod-opensearch-0", DrainOptions{}, false)
+	if removeError != nil || result != nil || accepted == nil || accepted.OperationID != "" {
+		t.Fatalf("RemoveNodeGroupNode = (%+v, %+v, %v)", result, accepted, removeError)
+	}
+}
+
+// The --wait result keeps the platform's document, so -o json prints what
+// the platform answered rather than the fields the CLI declares.
+func TestRemoveNodeGroupNodeResultKeepsThePlatformsDocument(t *testing.T) {
+	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		jsonResponse(t, writer, http.StatusOK, map[string]any{
+			"group_name": "opensearch", "node_name": "prod-opensearch-0", "node_id": "f3c1a3a2-6a55-4c1e-9d1c-2f3e4a5b6c7d",
+			"previous_count": 4, "new_count": 3, "operation_id": nil, "added_later": "kept",
+		})
+	})
+
+	result, _, removeError := client.RemoveNodeGroupNode(context.Background(), "hetzner", "cluster-1", "opensearch",
+		"prod-opensearch-0", DrainOptions{}, true)
+	if removeError != nil || result == nil {
+		t.Fatalf("RemoveNodeGroupNode = (%+v, %v)", result, removeError)
+	}
+	if document := string(result.RawJSON()); !strings.Contains(document, `"added_later":"kept"`) {
+		t.Fatalf("raw document = %s, want the platform's answer", document)
+	}
+}
+
+// A refusal is the platform's 409 with its reason as the message, with and
+// without --wait.
+func TestRemoveNodeGroupNodeRefusalCarriesThePlatformsReason(t *testing.T) {
+	const reason = "Node 'prod-opensearch-0' is already being removed from node group 'opensearch'"
+	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		jsonResponse(t, writer, http.StatusConflict, map[string]any{"detail": reason})
+	})
+	for _, wait := range []bool{false, true} {
+		_, _, removeError := client.RemoveNodeGroupNode(context.Background(), "hetzner", "cluster-1", "opensearch",
+			"prod-opensearch-0", DrainOptions{}, wait)
+		var unexpected *UnexpectedResponseError
+		if !errors.As(removeError, &unexpected) || unexpected.StatusCode != http.StatusConflict ||
+			unexpected.Detail != reason || removeError.Error() != reason {
+			t.Fatalf("wait=%v: expected the platform's 409 with its reason, got %v", wait, removeError)
+		}
 	}
 }
 

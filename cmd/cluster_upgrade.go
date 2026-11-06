@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
-	"net/http"
 
 	"ankra/internal/client"
 
@@ -139,9 +137,5 @@ func init() {
 // upgrade goes ahead after. The cluster was found just before, so a 404 here
 // is the route, not the cluster.
 func upgradePreflightRouteAbsent(preflightError error) bool {
-	var unexpected *client.UnexpectedResponseError
-	if !errors.As(preflightError, &unexpected) || unexpected.StatusCode != http.StatusNotFound {
-		return false
-	}
-	return unexpected.Detail == "" || unexpected.Detail == routeAbsentDetail
+	return isRouteAbsent(preflightError)
 }
