@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- **`ankra application ship` treats an open setup pull request as a state, not an error.** A new repository stopped with an error saying its run was skipped, and said nothing of the pull request's own run. Ship now prints `Waiting for the setup pull request`, follows that run to its end and exits 9, with state `waiting_for_setup_pull_request` in `-o json`. If the gate blocks the run it exits 8, with state `setup_pull_request_blocked` and the worst findings by name. Merge the pull request and run ship again to continue.
 - **`ankra cluster metrics query-range` says when a series was downsampled.** A long range could come back with far fewer points than the query produced, at a spacing nothing mentioned and with `truncated: false`, so it read as a complete answer at the `--step` you asked for. The Points column now reads `50 of 385`, and a note on stderr says how far apart the returned points are. `-o json` and `-o yaml` stay parseable and print the platform's own response.
 
 ## v0.68.0 - 2026-11-06

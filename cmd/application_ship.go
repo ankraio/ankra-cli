@@ -55,6 +55,10 @@ type shipResult struct {
 	// proved it does not (State "unroutable"): the URL is then left out.
 	URLProblem string `json:"url_problem,omitempty" yaml:"url_problem,omitempty"`
 	State      string `json:"state" yaml:"state"`
+	// SetupPullRequestRun and BlockingFindings describe a stop at the setup
+	// pull request: its run, and when the gate blocked it, the worst findings.
+	SetupPullRequestRun *shipSetupPullRequestRun `json:"setup_pull_request_run,omitempty" yaml:"setup_pull_request_run,omitempty"`
+	BlockingFindings    []shipBlockingFinding    `json:"blocking_findings,omitempty" yaml:"blocking_findings,omitempty"`
 }
 
 // shipApplicationView is the slice of the application detail (and of each
@@ -129,9 +133,13 @@ The build it waits for is the one that actually builds the application:
     That needs the applications.deploy permission. A push during the wait
     moves ship on to the new head commit. A run whose publish step is skipped
     stops ship and asks for a push. A run the pipeline skipped outright - no
-    trigger it declares accepts the push, typically because the setup pull
-    request that adds .ankra/pipeline.yaml is not merged yet - stops ship
-    with the pull request to merge, or the trigger the branch needs.
+    trigger it declares accepts the push - stops ship with the trigger the
+    branch needs. When that is because the setup pull request that adds
+    .ankra/pipeline.yaml is not merged yet, the normal state of a new
+    repository, ship follows the pull request's own run and stops with state
+    waiting_for_setup_pull_request and exit 9. A gate that blocks the run
+    stops it with state setup_pull_request_blocked, the findings and exit 8.
+    Merge the pull request and run ship again to continue.
   - The repository's own GitHub Actions workflow: its latest run on the
     tracked branch.
   - The workflow Ankra generated: its latest run on the tracked branch, once
@@ -287,6 +295,21 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 		}
 	}
 	if buildError != nil {
+		if renderError := renderShipStop(buildError, func(result shipResult) error {
+			_, structuredError := renderStructured(command, result)
+			return structuredError
+		}, shipResult{
+			ApplicationID:    application.ID,
+			ApplicationName:  application.Name,
+			Repository:       repository.Owner + "/" + repository.Name,
+			Branch:           trackedBranch,
+			Registered:       registered,
+			OrganisationName: organisationName,
+			ClusterID:        cluster.ID,
+			ClusterName:      cluster.Name,
+		}); renderError != nil {
+			return renderError
+		}
 		return buildError
 	}
 

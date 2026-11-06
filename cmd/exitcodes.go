@@ -14,7 +14,8 @@ import (
 // act on (re-run usage errors after fixing the invocation, treat not-found
 // as idempotent success, re-authenticate on auth failures, retry on wait
 // expiry, ask for a role on a permission refusal, hold a rollout a preflight
-// blocked) without parsing error text.
+// blocked) without parsing error text. 9 is not a failure: the work is
+// unfinished and is waiting on something other than this command.
 const (
 	exitOK          = 0
 	exitError       = 1 // API or runtime failure
@@ -25,6 +26,7 @@ const (
 	exitAuth        = 6 // missing, expired, or rejected credentials
 	exitForbidden   = 7 // authenticated but the role lacks the permission (RBAC)
 	exitBlocked     = 8 // a preflight found a block, so nothing was changed
+	exitWaiting     = 9 // nothing failed, but the work is not finished: it is waiting on a pause or a person's step
 )
 
 // codedError attaches an exit code to an error without changing its message.
