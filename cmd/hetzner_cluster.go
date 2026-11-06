@@ -143,7 +143,7 @@ var hetznerDeprovisionCmd = &cobra.Command{
 			return volumeError
 		}
 
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Deprovision Hetzner cluster %s? This deletes all its servers, networks and SSH keys! [y/N]: ", clusterTarget(args[0], clusterID)),
 			yes); err != nil {
 			return err
@@ -571,7 +571,7 @@ var nodeGroupDeleteCmd = &cobra.Command{
 		groupName := args[1]
 		yes, _ := cmd.Flags().GetBool("yes")
 
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete node group %q from cluster %s? This deletes all its nodes! [y/N]: ", groupName, clusterTarget(args[0], clusterID)),
 			yes); err != nil {
 			return err

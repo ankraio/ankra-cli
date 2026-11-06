@@ -397,7 +397,7 @@ pass --accept-volume-data-loss (--yes does not imply it).`,
 		if volumeError != nil {
 			return volumeError
 		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Deprovision Ankra Cloud cluster %s? This permanently deletes its servers and the cluster record! [y/N]: ",
 				clusterTarget(args[0], clusterID)),
 			skipConfirmation); confirmError != nil {

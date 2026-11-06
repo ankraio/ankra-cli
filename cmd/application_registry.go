@@ -217,7 +217,7 @@ from - the organisation's provisioned registry project again.`,
 			}
 			yes, _ := command.Flags().GetBool("yes")
 			if confirmError := confirmPrompt(
-				command.InOrStdin(), command.OutOrStdout(),
+				command.InOrStdin(), command.ErrOrStderr(),
 				fmt.Sprintf("Clear the declared image registry of application %q? "+
 					"It will publish to the organisation's own registry again. [y/N]: ", strings.TrimSpace(arguments[0])),
 				yes,

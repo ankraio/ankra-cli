@@ -172,7 +172,7 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	prompt := fmt.Sprintf("%s ankra from v%s to v%s (%s)? [y/N]: ",
 		action, currentVersion, targetVersion, executablePath)
 	input := bufio.NewReader(cmd.InOrStdin())
-	if err := confirmPrompt(input, out, prompt, skipConfirm); err != nil {
+	if err := confirmPrompt(input, cmd.ErrOrStderr(), prompt, skipConfirm); err != nil {
 		return err
 	}
 

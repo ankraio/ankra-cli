@@ -188,7 +188,7 @@ var credentialsDeleteCmd = &cobra.Command{
 		yes, _ := cmd.Flags().GetBool("yes")
 
 		if err := confirmPrompt(
-			cmd.InOrStdin(), cmd.OutOrStdout(),
+			cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete credential %q? Clusters using it will fail to reconcile! [y/N]: ", credentialID),
 			yes,
 		); err != nil {
