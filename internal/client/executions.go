@@ -30,8 +30,17 @@ type ExecutionSummary struct {
 	Status         string      `json:"status"`
 	ErrorExcerpt   *string     `json:"error_excerpt"`
 	StepSummary    StepSummary `json:"step_summary"`
-	CreatedAt      *string     `json:"created_at"`
-	UpdatedAt      *string     `json:"updated_at"`
+	// UserID is the user the platform recorded as starting the execution;
+	// nil when none was recorded (an automated run, an older operation) or
+	// the platform predates the field.
+	UserID *string `json:"user_id"`
+	// InitiatedBy names that user (their email or a service principal's
+	// name). The platform fills it on a single-execution read, and only for
+	// an active member of the organisation or one of its service principals;
+	// for anyone else UserID is all it gives.
+	InitiatedBy *string `json:"initiated_by"`
+	CreatedAt   *string `json:"created_at"`
+	UpdatedAt   *string `json:"updated_at"`
 	// AttentionState is derived by the platform on every read: "none"
 	// unless the execution ended failed, critical or cancelled; "resolved"
 	// once every resource its failed steps targeted has recovered (a later

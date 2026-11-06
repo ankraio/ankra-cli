@@ -718,6 +718,8 @@ type APIClient interface {
 	GetOvhClusterNode(clusterID, nodeID string) (*client.NodeDetail, error)
 	RestartOvhClusterNode(clusterID, nodeID string) (*client.RestartNodeResult, error)
 	OvhNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error)
+	OvhNodeConsoleLog(ctx context.Context, clusterID, nodeID string) (*client.NodeConsoleLogResult, error)
+	GetNodeKubeletConfig(clusterID, nodeName string) (*client.NodeKubeletConfig, error)
 	UpdateOvhBastionInstanceType(ctx context.Context, clusterID, instanceType string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error)
 	UpdateOvhBastionAllowedIPs(ctx context.Context, clusterID string, allowedIPs []string) (*client.UpdateBastionAllowedIPsResult, error)
 	GetOvhBastionHealth(clusterID string) (*client.BastionHealthResult, error)
