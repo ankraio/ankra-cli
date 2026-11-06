@@ -13,15 +13,15 @@ import (
 //
 // Accepted is set when the platform answered that it accepted the removal
 // without waiting (202). When it had decided the removal before answering,
-// that answer names the worker and the counts as well; when it was still
-// deciding, NodeID is empty and only OperationID may be set.
+// that answer names the worker, the counts and operation_id as well; when it
+// was still deciding, it names nothing, and NodeID is empty.
 //
-// OperationID is nil when the platform started no operation. Either the
-// cluster is stopped (the worker is dropped from the cluster's record at
-// once and not created again when it starts), or the platform did not start
-// the operation right away - another operation is still changing a node of
-// the cluster, or starting it failed - and its reconcile drains and deletes
-// the worker later.
+// OperationID is nil when the request created no operation. On a stopped
+// cluster the worker is dropped from the cluster's record at once and not
+// created again when it starts. On a running cluster the platform could not
+// start the operation with the request (another node operation is still
+// running, the cluster's agent is offline, and other reasons), and its
+// reconcile drains and deletes the worker later.
 type RemoveNodeGroupNodeResult struct {
 	RawDocument   `json:"-" yaml:"-"`
 	Accepted      bool    `json:"-" yaml:"-"`

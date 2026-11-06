@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"regexp"
 	"strings"
 	"time"
@@ -38,11 +39,11 @@ Before asking, the command looks the reference up and shows the node's
 name, server id and providerID, or says that it could not tell which node
 the reference names. When it found the node, it sends that node's server
 id, so the node removed is the node you approved; otherwise it sends the
-reference as typed, and the platform resolves it and refuses it if it
-names no node of the group. With --yes nothing is looked up and the
-reference is sent as typed. A node that is already cordoned is removed the
-same way, but a refused drain makes the node it keeps schedulable again:
-cordon it again if it must stay out of service.
+reference as typed, and the platform resolves it itself. With --yes
+nothing is looked up and the reference is sent as typed. A node that is
+already cordoned is removed the same way, but a refused drain makes the
+node it keeps schedulable again: cordon it again if it must stay out of
+service.
 
 ` + guardedDrainHelp + `
 
@@ -55,25 +56,32 @@ delete. When the drain is refused, the operation fails and names what
 refused it, the node is kept and made schedulable again, and the group's
 count goes back up.
 
-When the platform names no operation, either the cluster is stopped: the
-node is dropped from the cluster's record now, nothing is drained, and it
-is not created again when the cluster starts. Or the platform did not start
-the operation right away, because another node change on the cluster is
-still running or starting it failed, and it drains and deletes the node
-later.
+When the platform names no operation, the removal is still recorded. On a
+stopped cluster the node is dropped from the cluster's record now: nothing
+is drained, and it is not created again when the cluster starts. On a
+running cluster the platform could not start the operation with the
+request, for example because another node operation is still running or
+the cluster's agent is offline, and its reconcile drains and deletes the
+node later.
 
-The platform refuses a control plane, a node of another group, a node
-already being removed, a reference several nodes answer to, and a removal
-that would take an autoscaling group below its min count; each refusal
-exits 1 with the platform's reason. It also refuses, the same way, a
-reference that "cannot be resolved right now": a providerID while it has no
-current view of the cluster's Kubernetes nodes, and a reference that may be
+Every refusal of the platform's exits 1 with its reason. Among them: a
+node that is not a worker, a node of another group, a node already marked
+for deletion or whose server is stopping, the last node of its group (the
+group is deleted instead, with 'ankra cluster node-group delete'), a
+removal that would take an autoscaling group below its min count, a
+reference several nodes answer to (the reason lists each by its node id,
+which is the server id), and a change while an identical one is in
+progress. A reference the platform cannot resolve is refused the same way:
+a providerID while the cluster is stopped or while it cannot see that
+providerID on the cluster's Kubernetes nodes, and on AWS a name that may be
 a Kubernetes node name it has not recorded yet. Name the node by its server
-name or its server id instead; those need neither. A node the cluster does
-not have exits 3. A group or node that is blank, has spaces around it, or is
-'.' or '..' (also percent-encoded), a '/' outside a providerID, a providerID
-with no id or with a '.' or '..' step, and an -o other than json or yaml
-exit 2 before anything is looked up or sent.
+name or its server id then; neither needs the Kubernetes nodes.
+
+A node the cluster does not have exits 3. A group or node that is blank,
+has spaces around it, or is '.' or '..' (also percent-encoded), a '/'
+outside a providerID, a providerID with no id or with a '.' or '..' step,
+and an -o other than json or yaml exit 2 before anything is looked up or
+sent, and a node or group the platform cannot read (its 422) exits 2 too.
 
 Examples:
   ankra cluster node-group remove-node <cluster_id> opensearch prod-opensearch-0
@@ -199,14 +207,20 @@ func validateNodeReference(reference string) error {
 // not "the node does not exist": it is said plainly and exits 1, rather than
 // the not-found code a script would read as the node being gone already. The
 // platform's own 404 for a node the cluster does not have carries its reason
-// and exits 3.
+// and exits 3. Its 422 is a group or node it cannot read, an argument to
+// change, so it exits 2 like the CLI's own checks.
 func removeNodeGroupNodeError(wait bool, removeError error) error {
 	if isRouteAbsent(removeError) {
 		return withExitCode(exitError, errors.New(
 			"removing node from node group: this Ankra platform does not serve node removal yet (the route answered 404); "+
 				"check the selected organisation with 'ankra org current' and try again once the platform has it"))
 	}
-	return asyncWriteError("removing node from node group", wait, removeError)
+	wrapped := asyncWriteError("removing node from node group", wait, removeError)
+	var unexpected *client.UnexpectedResponseError
+	if errors.As(removeError, &unexpected) && unexpected.StatusCode == http.StatusUnprocessableEntity {
+		return withExitCode(exitUsage, wrapped)
+	}
+	return wrapped
 }
 
 // nodeRemovalSubmitted is remove-node's -o json|yaml answer when the platform
@@ -246,11 +260,10 @@ func newNodeRemovalSubmitted(clusterID string, result *client.RemoveNodeGroupNod
 			submitted.Hint += ". A refused drain fails it, names what refused it and keeps the node"
 		}
 	case decided:
-		submitted.Hint = "no operation was started yet: either the cluster is stopped and the node was dropped from " +
-			"its record (nothing is drained, and it is not created again on start), or the platform did not start the " +
-			"operation right away (another node change is still running, or starting it failed) and drains and " +
-			"deletes the node later; '" + clusterOperationsCommand(clusterID) + "' lists the removal's operation " +
-			"once it starts"
+		submitted.Hint = "no operation was started with the request: on a stopped cluster the node was dropped from " +
+			"its record (nothing is drained, and it is not created again on start); on a running cluster the " +
+			"platform's reconcile drains and deletes the node later, and '" + clusterOperationsCommand(clusterID) +
+			"' lists the removal's operation once it starts"
 	default:
 		submitted.Hint = "the platform was still checking the removal when it answered, so it has not named the " +
 			"node yet; '" + clusterOperationsCommand(clusterID) + "' lists the removal's operation once it starts, " +
@@ -287,12 +300,13 @@ func printNodeRemoval(out io.Writer, clusterID string, result *client.RemoveNode
 		result.NodeName, result.NodeID, result.GroupName, result.PreviousCount, result.NewCount)
 	operationID := removalOperationID(result)
 	if operationID == "" {
-		_, _ = fmt.Fprintln(out, "No operation was started for it yet. Either:")
-		_, _ = fmt.Fprintln(out, "  - the cluster is stopped: the node was dropped from the cluster's record now, nothing is "+
-			"drained, and it is not created again when the cluster starts; or")
-		_, _ = fmt.Fprintf(out, "  - the platform did not start the operation right away (another node change on the cluster "+
-			"is still running, or starting it failed): it drains and deletes this node later. Find the removal's "+
-			"operation then with:\n      %s\n", clusterOperationsCommand(clusterID))
+		_, _ = fmt.Fprintln(out, "No operation was started with the request.")
+		_, _ = fmt.Fprintln(out, "  - On a stopped cluster the node was dropped from the cluster's record now: nothing is "+
+			"drained, and it is not created again when the cluster starts.")
+		_, _ = fmt.Fprintf(out, "  - On a running cluster the platform could not start the operation with the request (for "+
+			"example, another node operation is still running or the cluster's agent is offline), and its reconcile "+
+			"drains and deletes this node later. Find the removal's operation then with:\n      %s\n",
+			clusterOperationsCommand(clusterID))
 		return
 	}
 	drain := "drains it through its pods' PodDisruptionBudgets"
@@ -406,6 +420,18 @@ type kubernetesNodeView struct {
 	namedAfterServers bool
 	providerIDs       map[string]string
 	unread            string
+}
+
+// nodesReporting is how many of the Kubernetes nodes read report providerID,
+// without regard to case.
+func (view kubernetesNodeView) nodesReporting(providerID string) int {
+	reporting := 0
+	for _, reported := range view.providerIDs {
+		if reported != "" && strings.EqualFold(reported, providerID) {
+			reporting++
+		}
+	}
+	return reporting
 }
 
 // startKubernetesNodeRead reads the providerID of the cluster's Kubernetes
@@ -530,10 +556,16 @@ func resolveRemoveNodeTarget(kind, clusterID, reference string, clusterStopped b
 // matchRemoveNodeReference finds the node reference names the way the
 // platform does: a UUID that is a server's id names that server; any other
 // reference names the servers that answer to it (nodeAnswersTo). A reference
-// several nodes answer to names none of them. nodes is what the platform
-// looks in (nodesTheRemovalCanName).
+// several nodes answer to names none of them, and so does a providerID
+// several Kubernetes nodes report, which the platform matches to none of
+// them either: a server the list leaves out may be behind the other node.
+// nodes is what the platform looks in (nodesTheRemovalCanName).
 func matchRemoveNodeReference(nodes []client.NodeSummary, kubernetes kubernetesNodeView,
 	reference string) removeNodeTarget {
+	if reporting := kubernetes.nodesReporting(reference); reporting > 1 {
+		return removeNodeTarget{unresolved: fmt.Sprintf("%d of the cluster's Kubernetes nodes report that providerID",
+			reporting)}
+	}
 	candidates := nodesAnswering(nodes, kubernetes, reference)
 	switch {
 	case len(candidates) == 1:
@@ -672,7 +704,7 @@ func removeNodePrompt(target removeNodeTarget, reference, groupName, cluster, co
 		_, _ = fmt.Fprintf(&prompt, "Remove the node %q names from node group %q of cluster %s?\n",
 			reference, groupName, cluster)
 		_, _ = fmt.Fprintf(&prompt, "  The CLI could not tell which node that is: %s. The platform resolves the "+
-			"reference itself, and refuses it if it names no node of the group.\n", target.unresolved)
+			"reference itself, and refuses it with its reason if it cannot remove the node it names.\n", target.unresolved)
 	} else {
 		node := target.node
 		_, _ = fmt.Fprintf(&prompt, "Remove node %q from node group %q of cluster %s?\n", node.Name, groupName, cluster)
@@ -688,6 +720,10 @@ func removeNodePrompt(target removeNodeTarget, reference, groupName, cluster, co
 		}
 		if node.Role != nil && *node.Role != "" && *node.Role != "worker" {
 			_, _ = fmt.Fprintf(&prompt, "  Role:        %s: the platform removes workers only\n", *node.Role)
+		}
+		if node.State == nodeStateStopping {
+			_, _ = fmt.Fprintln(&prompt, "  State:       stopping: the platform refuses a node whose server is stopping "+
+				"or that is already marked for deletion")
 		}
 	}
 	_, _ = fmt.Fprintf(&prompt, "%s [y/N]: ", consequence)

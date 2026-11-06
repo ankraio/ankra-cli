@@ -318,9 +318,9 @@ func TestClusterNodeGroupRemoveNodeSendsTheNamedNodeToTheClustersKind(t *testing
 }
 
 // A removal the platform named no operation for has causes the CLI cannot
-// tell apart: a stopped cluster, or an operation the platform did not start
-// right away (a node change already running, or starting it failed). The
-// message says what each means rather than asserting one.
+// tell apart: a stopped cluster, or one of several reasons a running cluster
+// gets its operation from the reconcile instead. The message says what each
+// means, gives examples rather than a closed list, and asserts no one cause.
 func TestClusterNodeGroupRemoveNodeWithoutAnOperationNamesEveryCause(t *testing.T) {
 	mock := newRemoveNodeMock("hetzner")
 	mock.result.OperationID = nil
@@ -329,10 +329,11 @@ func TestClusterNodeGroupRemoveNodeWithoutAnOperationNamesEveryCause(t *testing.
 		t.Fatalf("remove-node failed: %v", runError)
 	}
 	for _, said := range []string{
-		"the cluster is stopped: the node was dropped from the cluster's record now, nothing is drained, " +
+		"On a stopped cluster the node was dropped from the cluster's record now: nothing is drained, " +
 			"and it is not created again when the cluster starts",
-		"the platform did not start the operation right away (another node change on the cluster is still running, " +
-			"or starting it failed): it drains and deletes this node later",
+		"On a running cluster the platform could not start the operation with the request (for example, another " +
+			"node operation is still running or the cluster's agent is offline), and its reconcile drains and " +
+			"deletes this node later",
 		"ankra cluster operations list --cluster " + testClusterID,
 	} {
 		if !strings.Contains(stdout, said) {
@@ -531,17 +532,55 @@ func TestClusterNodeGroupRemoveNodeAcceptedWhileStillCheckingSaysWhereToLook(t *
 
 // A refusal is the platform's 409: it exits 1 and says the platform's reason.
 func TestClusterNodeGroupRemoveNodeRefusalSaysThePlatformsReason(t *testing.T) {
-	const reason = "Node 'depict-opensearch-0' is already being removed from node group 'opensearch'"
+	// The platform's own sentences (cluster#5995).
+	for _, reason := range []string{
+		"Node 'depict-opensearch-0' is already marked for deletion from node group 'opensearch', so it cannot be removed again",
+		"Node 'depict-opensearch-0' is the last node of node group 'opensearch', so it cannot be removed on its own; " +
+			"delete the node group instead",
+		"Node 'depict-opensearch-0' matches 2 nodes of this cluster: 'depict-opensearch-0' (node id " + removeNodeServerID +
+			"), 'depict-opensearch-0' (node id 0a9b8c7d-6e5f-4a3b-8c2d-1e0f9a8b7c6d); name the one to remove by its node id",
+		"Node 'hcloud://168428300' cannot be resolved while the cluster is stopped: a providerID is matched against " +
+			"the cluster's Kubernetes nodes, which the platform cannot see while it is stopped; name the node by its " +
+			"server name or its node id instead",
+	} {
+		mock := newRemoveNodeMock("hetzner")
+		mock.result = nil
+		mock.err = &client.UnexpectedResponseError{StatusCode: http.StatusConflict, Detail: reason}
+		_, _, err := runRemoveNode(t, mock, "", testClusterID, "opensearch", "depict-opensearch-0", "--yes")
+		if err == nil || exitCodeFor(err) != exitError {
+			t.Fatalf("expected exit %d for a refusal, got %v (exit %d)", exitError, err, exitCodeFor(err))
+		}
+		var unexpected *client.UnexpectedResponseError
+		if !errors.As(err, &unexpected) || unexpected.Detail != reason ||
+			!strings.HasPrefix(err.Error(), "removing node from node group: ") {
+			t.Errorf("the error must carry the platform's reason, got %v", err)
+		}
+	}
+}
+
+// The CLI leaves the group's last node to the platform: it neither refuses
+// it nor warns, and the platform's refusal is what the user reads.
+func TestClusterNodeGroupRemoveNodeSendsAGroupsLastNode(t *testing.T) {
+	mock := newRemoveNodeMock("hetzner")
+	mock.nodes = mock.nodes[:1]
+	if _, _, runError := runRemoveNode(t, mock, "y\n", testClusterID, "opensearch", "depict-opensearch-0"); runError != nil {
+		t.Fatalf("remove-node failed: %v", runError)
+	}
+	if len(mock.calls) != 1 || mock.calls[0].node != removeNodeServerID {
+		t.Fatalf("calls = %+v, want the group's only node sent", mock.calls)
+	}
+}
+
+// The platform's 422 is a node or group it cannot read: an argument to
+// change, so it exits 2.
+func TestClusterNodeGroupRemoveNodePlatformValidationExitsUsage(t *testing.T) {
 	mock := newRemoveNodeMock("hetzner")
 	mock.result = nil
-	mock.err = &client.UnexpectedResponseError{StatusCode: http.StatusConflict, Detail: reason}
+	mock.err = client.NewUnexpectedResponseError(http.StatusUnprocessableEntity,
+		`request failed: status 422: {"detail":[{"loc":["path","node"],"msg":"Name the node to remove"}]}`)
 	_, _, err := runRemoveNode(t, mock, "", testClusterID, "opensearch", "depict-opensearch-0", "--yes")
-	if err == nil || exitCodeFor(err) != exitError {
-		t.Fatalf("expected exit %d for a refusal, got %v (exit %d)", exitError, err, exitCodeFor(err))
-	}
-	var unexpected *client.UnexpectedResponseError
-	if !errors.As(err, &unexpected) || unexpected.Detail != reason || !strings.HasPrefix(err.Error(), "removing node from node group: ") {
-		t.Errorf("the error must carry the platform's reason, got %v", err)
+	if err == nil || exitCodeFor(err) != exitUsage || !strings.Contains(err.Error(), "status 422") {
+		t.Fatalf("expected exit %d with the platform's answer, got %v (exit %d)", exitUsage, err, exitCodeFor(err))
 	}
 }
 
@@ -752,6 +791,11 @@ func TestClusterNodeGroupRemoveNodeLooksWhereThePlatformLooks(t *testing.T) {
 			reference: "depict-opensearch-0", wantSent: removeNodeServerID,
 			wantSaid: "Server id:   " + removeNodeServerID,
 		},
+		"a row being removed says the platform refuses it": {
+			nodes:     []client.NodeSummary{server(removeNodeServerID, "stopping", false)},
+			reference: removeNodeServerID, wantSent: removeNodeServerID,
+			wantSaid: "State:       stopping: the platform refuses a node whose server is stopping",
+		},
 		"a stopped cluster's soft-deleted server is its node": {
 			clusterState: "stopped",
 			nodes:        []client.NodeSummary{server(removeNodeServerID, "down", true)},
@@ -787,6 +831,26 @@ func TestClusterNodeGroupRemoveNodeLooksWhereThePlatformLooks(t *testing.T) {
 				t.Errorf("calls = %+v, want %s sent", mock.calls, testCase.wantSent)
 			}
 		})
+	}
+}
+
+// A providerID two Kubernetes nodes report identifies neither on the
+// platform, so the CLI does not approve the one server it can see behind it:
+// the reference goes as typed, and the platform says why it cannot resolve it.
+func TestClusterNodeGroupRemoveNodeDoesNotResolveASharedProviderID(t *testing.T) {
+	mock := newRemoveNodeMock("hetzner")
+	mock.nodes[1].State = "down"
+	mock.kubernetesNodes = map[string]string{"depict-opensearch-0": "hcloud://168428300",
+		"depict-opensearch-1": "hcloud://168428300"}
+	_, prompt, runError := runRemoveNode(t, mock, "y\n", testClusterID, "opensearch", "hcloud://168428300")
+	if runError != nil {
+		t.Fatalf("remove-node failed: %v", runError)
+	}
+	if !strings.Contains(prompt, "2 of the cluster's Kubernetes nodes report that providerID") {
+		t.Errorf("the prompt must say the providerID is shared:\n%s", prompt)
+	}
+	if len(mock.calls) != 1 || mock.calls[0].node != "hcloud://168428300" {
+		t.Errorf("calls = %+v, want the reference as typed", mock.calls)
 	}
 }
 
