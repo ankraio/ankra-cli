@@ -4,6 +4,7 @@
 
 ### Added
 
+- **`ankra application ship` says which address families a live deployment answers on.** Under the `Live:` line it prints `Answers on: IPv4 and IPv6`, or `Answers on: IPv6 only` with the warning that visitors on IPv4-only networks cannot connect, read from the hostname's DNS records. A public deployment on an IPv6-only load balancer used to read fine while those visitors got nothing. `-o json` and `-o yaml` carry the same as `address_families`, left out when no record could be read.
 - **`ankra cluster describe --managed-fields` shows who last wrote an object.** It reads the object live and lists each field manager with its operation, subresource and time, which is how to see what resized a pod in place (subresource `resize`), scaled a workload or edited its spec. Kubernetes keeps one entry per manager and subresource, so this is the latest write of each, not a full history. When the cluster cannot answer live, the command says the field managers are unavailable rather than that there are none.
 - **Every `ankra cluster operations` command accepts a short execution id.** `steps`, `list <id>`, `retry`, `cancel` and `cancel-step` take the first 6 or more characters of an id, the way a report or a chat message abbreviates it, instead of answering 422. A short id is looked up among the most recent executions of the active cluster, or of the organisation when no cluster is selected. Two matches are refused and both are named.
 
