@@ -176,7 +176,7 @@ func (c *Client) ListExecutions(opts ListExecutionsOptions) (ExecutionListRespon
 }
 
 func (c *Client) GetExecution(executionID string) (ExecutionDetail, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/org/executions/%s", c.BaseURL, executionID)
+	endpoint := fmt.Sprintf("%s/api/v1/org/executions/%s", c.BaseURL, url.PathEscape(executionID))
 	var detail ExecutionDetail
 	if err := c.getJSON(endpoint, &detail); err != nil {
 		return ExecutionDetail{}, err
@@ -185,7 +185,7 @@ func (c *Client) GetExecution(executionID string) (ExecutionDetail, error) {
 }
 
 func (c *Client) GetExecutionResult(executionID string) (ExecutionResultResponse, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/org/executions/%s/result", c.BaseURL, executionID)
+	endpoint := fmt.Sprintf("%s/api/v1/org/executions/%s/result", c.BaseURL, url.PathEscape(executionID))
 	var response ExecutionResultResponse
 	if err := c.getJSON(endpoint, &response); err != nil {
 		return ExecutionResultResponse{}, err
@@ -194,7 +194,7 @@ func (c *Client) GetExecutionResult(executionID string) (ExecutionResultResponse
 }
 
 func (c *Client) ListExecutionSteps(executionID string) ([]ExecutionStep, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/org/executions/%s/steps", c.BaseURL, executionID)
+	endpoint := fmt.Sprintf("%s/api/v1/org/executions/%s/steps", c.BaseURL, url.PathEscape(executionID))
 	var steps []ExecutionStep
 	if err := c.getJSON(endpoint, &steps); err != nil {
 		return nil, err
@@ -203,12 +203,12 @@ func (c *Client) ListExecutionSteps(executionID string) ([]ExecutionStep, error)
 }
 
 func (c *Client) CancelExecution(ctx context.Context, executionID string) (*CancelExecutionResponse, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/org/executions/%s/cancel", c.BaseURL, executionID)
+	endpoint := fmt.Sprintf("%s/api/v1/org/executions/%s/cancel", c.BaseURL, url.PathEscape(executionID))
 	return doExecutionPostJSON[CancelExecutionResponse](c, ctx, endpoint, nil)
 }
 
 func (c *Client) CancelExecutionStep(ctx context.Context, executionID, stepID string) (*CancelStepResponse, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/org/executions/%s/steps/%s/cancel", c.BaseURL, executionID, stepID)
+	endpoint := fmt.Sprintf("%s/api/v1/org/executions/%s/steps/%s/cancel", c.BaseURL, url.PathEscape(executionID), url.PathEscape(stepID))
 	return doExecutionPostJSON[CancelStepResponse](c, ctx, endpoint, nil)
 }
 
@@ -219,7 +219,7 @@ func (c *Client) BatchCancelExecutions(ctx context.Context, executionIDs []strin
 }
 
 func (c *Client) RetryExecution(ctx context.Context, executionID string) (*ExecutionSummary, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/org/executions/%s/retry", c.BaseURL, executionID)
+	endpoint := fmt.Sprintf("%s/api/v1/org/executions/%s/retry", c.BaseURL, url.PathEscape(executionID))
 	return doExecutionPostJSON[ExecutionSummary](c, ctx, endpoint, nil)
 }
 

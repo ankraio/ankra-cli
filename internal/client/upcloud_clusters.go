@@ -115,7 +115,7 @@ func (c *Client) CreateUpcloudCluster(req CreateUpcloudClusterRequest) (*CreateU
 }
 
 func (c *Client) DeprovisionUpcloudCluster(clusterID string, options DeprovisionOptions) (*DeprovisionUpcloudClusterResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s", c.BaseURL, clusterID) + options.query()
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s", c.BaseURL, url.PathEscape(clusterID)) + options.query()
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -144,7 +144,7 @@ func (c *Client) DeprovisionUpcloudCluster(clusterID string, options Deprovision
 }
 
 func (c *Client) GetUpcloudWorkerCount(clusterID string) (*WorkerCountResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/worker-count", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/worker-count", c.BaseURL, url.PathEscape(clusterID))
 	var result WorkerCountResult
 	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
@@ -153,7 +153,7 @@ func (c *Client) GetUpcloudWorkerCount(clusterID string) (*WorkerCountResult, er
 }
 
 func (c *Client) GetUpcloudK8sVersion(clusterID string) (*K8sVersionInfo, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/k8s-version", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/k8s-version", c.BaseURL, url.PathEscape(clusterID))
 	var result K8sVersionInfo
 	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
@@ -162,62 +162,62 @@ func (c *Client) GetUpcloudK8sVersion(clusterID string) (*K8sVersionInfo, error)
 }
 
 func (c *Client) UpgradeUpcloudK8sVersion(clusterID, targetVersion string, force bool) (*UpgradeK8sVersionResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/upgrade-k8s-version", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/upgrade-k8s-version", c.BaseURL, url.PathEscape(clusterID))
 	return c.doUpgradeK8sVersion(url, targetVersion, force)
 }
 
 func (c *Client) ListUpcloudNodeGroups(clusterID string) (*NodeGroupListResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups", c.BaseURL, clusterID)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups", c.BaseURL, url.PathEscape(clusterID))
 	var result NodeGroupListResult
-	if err := c.getJSON(url, &result); err != nil {
+	if err := c.getJSON(endpoint, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
 func (c *Client) AddUpcloudNodeGroup(ctx context.Context, clusterID string, req AddNodeGroupRequest, wait bool) (*AddNodeGroupResult, bool, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups", c.BaseURL, clusterID)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups", c.BaseURL, url.PathEscape(clusterID))
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doAddNodeGroup(ctx, url, payload, wait)
+	return c.doAddNodeGroup(ctx, endpoint, payload, wait)
 }
 
 func (c *Client) ScaleUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions DrainOptions, wait bool) (*ScaleNodeGroupResult, bool, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/scale", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/scale", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, err := json.Marshal(ScaleNodeGroupRequest{Count: count, ForceDrain: drainOptions.ForceDrain})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doScaleNodeGroup(ctx, url, payload, wait)
+	return c.doScaleNodeGroup(ctx, endpoint, payload, wait)
 }
 
 func (c *Client) GetUpcloudNodeGroupAutoscaling(clusterID, groupName string) (*NodeGroupAutoscalingResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/autoscaling", c.BaseURL, clusterID, groupName)
-	return c.doGetNodeGroupAutoscaling(url)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/autoscaling", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
+	return c.doGetNodeGroupAutoscaling(endpoint)
 }
 
 func (c *Client) UpdateUpcloudNodeGroupAutoscaling(ctx context.Context, clusterID, groupName string, req NodeGroupAutoscalingRequest, wait bool) (*NodeGroupAutoscalingResult, bool, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/autoscaling", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/autoscaling", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doUpdateNodeGroupAutoscaling(ctx, url, payload, wait)
+	return c.doUpdateNodeGroupAutoscaling(ctx, endpoint, payload, wait)
 }
 
 func (c *Client) UpdateUpcloudNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions DrainOptions, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/instance-type", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/instance-type", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, err := json.Marshal(UpdateNodeGroupInstanceTypeRequest{InstanceType: instanceType, ForceDrain: drainOptions.ForceDrain})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doUpdateNodeGroup(ctx, url, payload, wait)
+	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
 }
 
 func (c *Client) UpdateUpcloudNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/labels", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/labels", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, err := json.Marshal(UpdateLabelsRequest{Labels: labels})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
@@ -226,7 +226,7 @@ func (c *Client) UpdateUpcloudNodeGroupLabels(ctx context.Context, clusterID, gr
 }
 
 func (c *Client) UpdateUpcloudNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []NodeTaint, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/taints", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s/taints", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, err := json.Marshal(UpdateTaintsRequest{Taints: taints})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
@@ -235,12 +235,12 @@ func (c *Client) UpdateUpcloudNodeGroupTaints(ctx context.Context, clusterID, gr
 }
 
 func (c *Client) DeleteUpcloudNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions DrainOptions, wait bool) (*DeleteNodeGroupResult, bool, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s", c.BaseURL, clusterID, groupName)
-	return c.doDeleteNodeGroup(ctx, url, drainOptions, wait)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/node-groups/%s", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
+	return c.doDeleteNodeGroup(ctx, endpoint, drainOptions, wait)
 }
 
 func (c *Client) ScaleUpcloudWorkers(clusterID string, workerCount int, drainOptions DrainOptions) (*ScaleWorkersResult, error) {
-	scaleURL := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/scale-workers", c.BaseURL, clusterID)
+	scaleURL := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/scale-workers", c.BaseURL, url.PathEscape(clusterID))
 	return c.doScaleWorkers(scaleURL, workerCount, drainOptions)
 }
 
@@ -319,7 +319,7 @@ type UpdateUpcloudZonePoolResult struct {
 // (PUT /api/v1/clusters/upcloud/{id}/zones). With wait=false the platform
 // answers 202 and the second result is true.
 func (c *Client) UpdateUpcloudZonePool(ctx context.Context, clusterID string, zones []string, wait bool) (*UpdateUpcloudZonePoolResult, bool, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/zones", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/zones", c.BaseURL, url.PathEscape(clusterID))
 	payload, err := json.Marshal(UpdateUpcloudZonePoolRequest{Zones: zones})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)

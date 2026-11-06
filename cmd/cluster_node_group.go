@@ -42,6 +42,69 @@ func resolveNodeGroupClusterKind(typed, clusterID string) (string, error) {
 	}
 }
 
+// nodeGroupArgs is the Args check of a node-group command that takes count
+// arguments and names a group at groupIndex: the count, then the name.
+// cobra runs it before the credentials are read, so a name no group can
+// have is refused before the cluster is looked up, a prompt is shown or a
+// request is sent.
+func nodeGroupArgs(count, groupIndex int) cobra.PositionalArgs {
+	return cobra.MatchAll(cobra.ExactArgs(count), func(_ *cobra.Command, args []string) error {
+		return validatePathArgument("node group name", args[groupIndex])
+	})
+}
+
+// nodeGroupAddArgs is the Args check of a node-group add: the cluster, and
+// the --name flag, which every later command puts in its request path, so a
+// group that could never be addressed there is not created. It runs where
+// nodeGroupArgs does, before the credentials are read. A --name left out is
+// cobra's required-flag error, reported after this.
+func nodeGroupAddArgs(cmd *cobra.Command, args []string) error {
+	if err := cobra.ExactArgs(1)(cmd, args); err != nil {
+		return err
+	}
+	if !cmd.Flags().Changed("name") {
+		return nil
+	}
+	name, _ := cmd.Flags().GetString("name")
+	return validatePathArgument("node group name", name)
+}
+
+// validatePathArgument refuses a name the CLI puts into a request path when
+// no such resource can have it, before anything is looked up, asked or sent:
+//
+//   - blank, or with spaces around it, which no name has;
+//   - "." or "..", or one that decodes to them ("%2e%2e"): a path step, not a
+//     name. Sent as it is, ".." is resolved by the platform's edge before
+//     routing, so `node-group delete <cluster> ..` reached the cluster's own
+//     DELETE, which deprovisions it (ankra-6pi023). The rule is the client's
+//     (client.UnsafePathSegment), so the argument check and the request
+//     check agree; "..." is neither and passes both;
+//   - holding a '/' (or "%2F"): no such name has one.
+//
+// label names the argument in the message ("node group name").
+func validatePathArgument(label, value string) error {
+	if strings.TrimSpace(value) == "" {
+		return withExitCode(exitUsage, fmt.Errorf("the %s is blank", label))
+	}
+	if strings.TrimSpace(value) != value {
+		return withExitCode(exitUsage, fmt.Errorf("the %s %q has spaces around it, which no %s has",
+			label, value, label))
+	}
+	decoded, isPathStep := client.UnsafePathSegment(value)
+	switch {
+	case isPathStep && decoded != value:
+		return withExitCode(exitUsage, fmt.Errorf("the %s %q decodes to %q, a path step, not a name",
+			label, value, decoded))
+	case isPathStep:
+		return withExitCode(exitUsage, fmt.Errorf(
+			"the %s %q is a path step, not a name: the platform's edge would resolve it to a different route",
+			label, value))
+	case strings.Contains(decoded, "/"):
+		return withExitCode(exitUsage, fmt.Errorf("the %s %q contains '/', which no %s has", label, value, label))
+	}
+	return nil
+}
+
 // unsupportedAutoscalingKindError refuses node-group autoscaling on a kind
 // that has node groups but no autoscaling. It names no supported kinds: the
 // cluster's own kind is one of the node-group kinds, so the shared sentence
@@ -409,8 +472,9 @@ func readNodeGroupUserDataFile(path string) (string, error) {
 var clusterNodeGroupAddCmd = &cobra.Command{
 	Use:   "add <cluster_id|name>",
 	Short: "Add a node group",
-	Args:  cobra.ExactArgs(1),
+	Args:  nodeGroupAddArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		name, _ := cmd.Flags().GetString("name")
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
 			return resolveError
@@ -419,7 +483,6 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 		if kindError != nil {
 			return kindError
 		}
-		name, _ := cmd.Flags().GetString("name")
 		instanceType, _ := cmd.Flags().GetString("instance-type")
 		count, _ := cmd.Flags().GetInt("count")
 		availabilityZone, _ := cmd.Flags().GetString("availability-zone")
@@ -511,7 +574,7 @@ A scale-down picks the nodes to remove. ` + guardedDrainHelp + `
 Examples:
   ankra cluster node-group scale <cluster_id> workers 2
   ankra cluster node-group scale <cluster_id> workers 2 --force-drain`,
-	Args: cobra.ExactArgs(3),
+	Args: nodeGroupArgs(3, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -575,7 +638,7 @@ plane cannot be replaced that way, so a cross-family change there is refused.
 Examples:
   ankra cluster node-group upgrade <cluster_id> workers <instance_type>
   ankra cluster node-group upgrade <cluster_id> workers <instance_type> --force-drain`,
-	Args: cobra.ExactArgs(3),
+	Args: nodeGroupArgs(3, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -630,7 +693,7 @@ var clusterNodeGroupDeleteCmd = &cobra.Command{
 Examples:
   ankra cluster node-group delete <cluster_id> gpu-workers
   ankra cluster node-group delete <cluster_id> gpu-workers --force-drain --yes`,
-	Args: cobra.ExactArgs(2),
+	Args: nodeGroupArgs(2, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -698,7 +761,7 @@ stays allowed but is clamped into the same bounds.`,
 var clusterNodeGroupAutoscalingGetCmd = &cobra.Command{
 	Use:   "get <cluster_id|name> <group_name>",
 	Short: "Show autoscaling settings for a node group",
-	Args:  cobra.ExactArgs(2),
+	Args:  nodeGroupArgs(2, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -742,7 +805,7 @@ var clusterNodeGroupAutoscalingSetCmd = &cobra.Command{
 --enabled=false. min must be at least 1 (scale-to-zero is not supported);
 enabling requires the cluster's ankra-agent to be recent enough to serve
 the autoscaler, and installs the Cluster Autoscaler on first enable.`,
-	Args: cobra.ExactArgs(2),
+	Args: nodeGroupArgs(2, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -802,7 +865,7 @@ var clusterNodeGroupLabelsCmd = &cobra.Command{
 	Use:   "labels <cluster_id|name> <group_name>",
 	Short: "Set labels on all nodes in a node group",
 	Long:  "Replace the labels on every node in the group. Pass --labels as a comma-separated list of key=value pairs, or --clear to remove all labels. The cloud provider is detected automatically from the cluster.",
-	Args:  cobra.ExactArgs(2),
+	Args:  nodeGroupArgs(2, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -862,7 +925,7 @@ var clusterNodeGroupTaintsCmd = &cobra.Command{
 	Use:   "taints <cluster_id|name> <group_name>",
 	Short: "Set taints on all nodes in a node group",
 	Long:  "Replace the taints on every node in the group. Pass --taints as a comma-separated list of key=value:Effect (value optional, effect defaults to NoSchedule), or --clear to remove all taints. The cloud provider is detected automatically from the cluster.",
-	Args:  cobra.ExactArgs(2),
+	Args:  nodeGroupArgs(2, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {

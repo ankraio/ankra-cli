@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"strings"
 	"sync"
@@ -143,7 +144,7 @@ func (c *Client) StreamChat(clusterID *string, chatReq ChatRequest) (<-chan Chat
 
 	var url string
 	if clusterID != nil && *clusterID != "" {
-		url = fmt.Sprintf("%s/api/v1/org/clusters/%s/kubernetes/chat", c.BaseURL, *clusterID)
+		url = fmt.Sprintf("%s/api/v1/org/clusters/%s/kubernetes/chat", c.BaseURL, neturl.PathEscape(*clusterID))
 	} else {
 		url = c.BaseURL + "/api/v1/chat/general"
 	}
@@ -250,7 +251,7 @@ func (c *Client) ListChatHistory(clusterID *string, limit, offset int) (*ListCon
 	var url string
 	if clusterID != nil && *clusterID != "" {
 		url = fmt.Sprintf("%s/api/v1/org/clusters/%s/kubernetes/chat/history?limit=%d&offset=%d",
-			c.BaseURL, *clusterID, limit, offset)
+			c.BaseURL, neturl.PathEscape(*clusterID), limit, offset)
 	} else {
 		url = fmt.Sprintf("%s/api/v1/chat/general/history?limit=%d&offset=%d",
 			c.BaseURL, limit, offset)
@@ -265,7 +266,7 @@ func (c *Client) ListChatHistory(clusterID *string, limit, offset int) (*ListCon
 
 func (c *Client) GetChatConversation(conversationID string) (*ChatConversation, error) {
 	url := fmt.Sprintf("%s/api/v1/chat/general/history/%s",
-		c.BaseURL, conversationID)
+		c.BaseURL, neturl.PathEscape(conversationID))
 	var conv ChatConversation
 	if err := c.getJSON(url, &conv); err != nil {
 		return nil, fmt.Errorf("failed to get conversation: %w", err)
@@ -275,7 +276,7 @@ func (c *Client) GetChatConversation(conversationID string) (*ChatConversation, 
 
 func (c *Client) DeleteChatConversation(conversationID string) (*DeleteConversationResponse, error) {
 	url := fmt.Sprintf("%s/api/v1/chat/general/history/%s",
-		c.BaseURL, conversationID)
+		c.BaseURL, neturl.PathEscape(conversationID))
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -301,7 +302,7 @@ func (c *Client) DeleteChatConversation(conversationID string) (*DeleteConversat
 
 func (c *Client) GetClusterHealth(clusterID string, includeAI bool) (*ClusterHealth, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/%s/kubernetes/health?include_ai_analysis=%t",
-		c.BaseURL, clusterID, includeAI)
+		c.BaseURL, neturl.PathEscape(clusterID), includeAI)
 	var health ClusterHealth
 	if err := c.getJSON(url, &health); err != nil {
 		return nil, fmt.Errorf("failed to get cluster health: %w", err)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -273,7 +274,7 @@ type DeleteClusterAccessGrantResponse struct {
 }
 
 func (c *Client) ListClusterAccessGrants(ctx context.Context, clusterID string) (*ListClusterAccessGrantsResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/access/grants", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/access/grants", c.BaseURL, url.PathEscape(clusterID))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -302,7 +303,7 @@ func (c *Client) ListClusterAccessGrants(ctx context.Context, clusterID string) 
 }
 
 func (c *Client) CreateClusterAccessGrant(ctx context.Context, clusterID string, request CreateClusterAccessGrantRequest) (*CreateClusterAccessGrantResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/access/grants", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/access/grants", c.BaseURL, url.PathEscape(clusterID))
 	payload, err := json.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -337,7 +338,7 @@ func (c *Client) CreateClusterAccessGrant(ctx context.Context, clusterID string,
 }
 
 func (c *Client) DeleteClusterAccessGrant(ctx context.Context, clusterID string, grantID string) (*DeleteClusterAccessGrantResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/access/grants/%s", c.BaseURL, clusterID, grantID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/access/grants/%s", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(grantID))
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -368,7 +369,7 @@ func (c *Client) DeleteClusterAccessGrant(ctx context.Context, clusterID string,
 // ElevateClusterAccess grants the caller itself time-boxed access to a
 // cluster (break-glass, kube_access.elevate).
 func (c *Client) ElevateClusterAccess(ctx context.Context, clusterID string, request ElevateClusterAccessRequest) (*CreateClusterAccessGrantResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/access/elevate", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/access/elevate", c.BaseURL, url.PathEscape(clusterID))
 	payload, err := json.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
