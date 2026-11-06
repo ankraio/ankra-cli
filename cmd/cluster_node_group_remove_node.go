@@ -131,32 +131,38 @@ func runRemoveNodeGroupNode(cmd *cobra.Command, args []string) error {
 // "aws:///eu-west-1a/i-..."): the one form of node reference with a '/'.
 var providerIDShape = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*://`)
 
+// nameANodeHint ends a refused node reference with the forms that work.
+const nameANodeHint = "name the node, its providerID or its server id"
+
 // validateNodeReference refuses a node reference no node can have, before
 // anything is looked up or sent: blank, made only of dots, holding a '/' when
-// it is not a providerID, or a providerID with a "." or ".." step. The
-// reference is path-escaped into one segment, but a reference of dots is a
-// path step the platform's edge resolves, so `remove-node <c> <group> ..`
-// would reach the group's own DELETE (ankra-6pi023). The edge leaves the
-// escaped '/' of a providerID alone today; no provider's id has a dot step,
-// so one is refused here rather than resting on that. Space around the
-// reference is not part of it: this checks what is sent, trimmed.
+// it is not a providerID, or a providerID with no id or with a "." or ".."
+// step. The reference is path-escaped into one segment, but a reference of
+// dots is a path step the platform's edge resolves, so `remove-node <c>
+// <group> ..` would reach the group's own DELETE (ankra-6pi023). The edge
+// leaves the escaped '/' of a providerID alone today; no provider's id has a
+// dot step, so one is refused here rather than resting on that. Space around
+// the reference is not part of it: this checks what is sent, trimmed.
 func validateNodeReference(reference string) error {
 	trimmed := strings.TrimSpace(reference)
 	decoded := client.PercentDecoded(trimmed)
 	if scheme := providerIDShape.FindString(decoded); scheme != "" {
-		for _, step := range strings.Split(strings.TrimPrefix(decoded, scheme), "/") {
+		id := strings.Trim(strings.TrimPrefix(decoded, scheme), "/")
+		if id == "" {
+			return withExitCode(exitUsage, fmt.Errorf("the node %q is a providerID with no id; %s",
+				reference, nameANodeHint))
+		}
+		for _, step := range strings.Split(id, "/") {
 			if step == "." || step == ".." {
-				return withExitCode(exitUsage, fmt.Errorf(
-					"the node %q has a '%s' step, which no providerID has; name the node, its providerID or "+
-						"its server id", reference, step))
+				return withExitCode(exitUsage, fmt.Errorf("the node %q has a '%s' step, which no providerID has; %s",
+					reference, step, nameANodeHint))
 			}
 		}
 		return nil
 	}
 	if strings.Contains(decoded, "/") {
-		return withExitCode(exitUsage, fmt.Errorf(
-			"the node %q contains '/' but is not a providerID (scheme://...); name the node, its providerID "+
-				"or its server id", reference))
+		return withExitCode(exitUsage, fmt.Errorf("the node %q contains '/' but is not a providerID (scheme://...); %s",
+			reference, nameANodeHint))
 	}
 	return validatePathArgument("node", trimmed)
 }
