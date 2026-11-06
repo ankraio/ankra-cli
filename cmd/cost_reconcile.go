@@ -93,14 +93,59 @@ func costReconcileReadError(readError error) error {
 		"reading the invoice reconciliation")
 }
 
-// costReconcileCredentialLabel names a credential, or says it was deleted
-// since the month it billed.
+// costReconcileOutsideLabel is how a credential outside the reader's
+// projects is named: the platform withheld which credential it is.
+const costReconcileOutsideLabel = "a credential outside your projects"
+
+// costReconcileOutsideNote is the note beside such a credential's row.
+const costReconcileOutsideNote = "Outside the projects you can read: which credential this is, its invoice numbers and " +
+	"its provider's errors are withheld. Its cost on your clusters is shown."
+
+// costReconcileCredentialLabel names one credential: its name; "deleted
+// credential" and the first block of its id when the platform kept the id
+// but the name is gone; or costReconcileOutsideLabel when the platform
+// withheld which credential it is. A withheld credential is never called
+// deleted, since withholding it says nothing about whether it still exists.
 func costReconcileCredentialLabel(credential client.CostReconciliationCredential) string {
-	name := "deleted credential " + costShortID(credential.CredentialID)
-	if credential.CredentialName != nil && *credential.CredentialName != "" {
+	var name string
+	switch {
+	case credential.CredentialOutsideProjects:
+		name = costReconcileOutsideLabel
+	case credential.CredentialName != nil && *credential.CredentialName != "":
 		name = *credential.CredentialName
+	case credential.CredentialID != nil:
+		name = "deleted credential " + costShortID(*credential.CredentialID)
+	default:
+		name = "a credential the platform did not name"
 	}
 	return name + " (" + costProviderLabel(credential.Provider) + ")"
+}
+
+// costReconcileCredentialLabels names every row, in the order the platform
+// listed the credentials. A row is keyed by its position, never by its
+// credential id: a credential outside the reader's projects comes with no
+// id, and two of them are still two rows. When one provider has more than
+// one such credential, each is numbered ("1 of 2") so its notes can be told
+// apart; the number says nothing about which credential it is.
+func costReconcileCredentialLabels(credentials []client.CostReconciliationCredential) []string {
+	outsideCount := map[string]int{}
+	for _, credential := range credentials {
+		if credential.CredentialOutsideProjects {
+			outsideCount[credential.Provider]++
+		}
+	}
+	outsideSeen := map[string]int{}
+	labels := make([]string, len(credentials))
+	for index, credential := range credentials {
+		if credential.CredentialOutsideProjects && outsideCount[credential.Provider] > 1 {
+			outsideSeen[credential.Provider]++
+			labels[index] = fmt.Sprintf("%s, %d of %d (%s)", costReconcileOutsideLabel, outsideSeen[credential.Provider],
+				outsideCount[credential.Provider], costProviderLabel(credential.Provider))
+			continue
+		}
+		labels[index] = costReconcileCredentialLabel(credential)
+	}
+	return labels
 }
 
 // costShortID is the first block of an id, enough to tell rows apart.
@@ -252,11 +297,12 @@ func costReconcileShare(percent *float64) string {
 // costReconcileBilled is the Billed column. An invoice counted under another
 // credential that reads the same provider account names that credential
 // rather than reading unknown, and a read for a project or a set of
-// clusters says the total was withheld.
-func costReconcileBilled(credential client.CostReconciliationCredential, labels map[string]string) string {
+// clusters says the total was withheld. labelsByID holds the label of every
+// credential the platform named by id.
+func costReconcileBilled(credential client.CostReconciliationCredential, labelsByID map[string]string) string {
 	switch {
 	case credential.SameInvoiceAs != nil && *credential.SameInvoiceAs != "":
-		if label, known := labels[*credential.SameInvoiceAs]; known {
+		if label, known := labelsByID[*credential.SameInvoiceAs]; known {
 			return "counted under " + label
 		}
 		return "counted under " + costShortID(*credential.SameInvoiceAs)
@@ -270,9 +316,13 @@ func costReconcileBilled(credential client.CostReconciliationCredential, labels 
 // costReconcileNotes is what a reader needs beside a credential's row: why
 // no difference is stated, the caveat on one that is, what was set apart,
 // the unplaced lines, failed imports in the provider's words, and the
-// conversion basis.
+// conversion basis. A credential outside the reader's projects says first
+// what was withheld about it.
 func costReconcileNotes(credential client.CostReconciliationCredential) []string {
 	var notes []string
+	if credential.CredentialOutsideProjects {
+		notes = append(notes, costReconcileOutsideNote)
+	}
 	if credential.DifferenceReason != nil && *credential.DifferenceReason != "" {
 		notes = append(notes, *credential.DifferenceReason)
 	}
@@ -334,9 +384,12 @@ func renderCostReconciliation(out io.Writer, reconciliation *client.CostReconcil
 		return
 	}
 	_, _ = fmt.Fprintln(out)
-	labels := make(map[string]string, len(reconciliation.Credentials))
-	for _, credential := range reconciliation.Credentials {
-		labels[credential.CredentialID] = costReconcileCredentialLabel(credential)
+	labels := costReconcileCredentialLabels(reconciliation.Credentials)
+	labelsByID := make(map[string]string, len(reconciliation.Credentials))
+	for index, credential := range reconciliation.Credentials {
+		if credential.CredentialID != nil {
+			labelsByID[*credential.CredentialID] = labels[index]
+		}
 	}
 	writer := newCostTable(out)
 	writer.SetColumnConfigs([]table.ColumnConfig{
@@ -346,11 +399,11 @@ func renderCostReconciliation(out io.Writer, reconciliation *client.CostReconcil
 		{Number: 6, Align: text.AlignRight},
 	})
 	writer.AppendHeader(table.Row{"Credential", "Import", "Billed", "On clusters", "Estimate", "Difference", "Difference covers"})
-	for _, credential := range reconciliation.Credentials {
+	for index, credential := range reconciliation.Credentials {
 		writer.AppendRow(table.Row{
-			labels[credential.CredentialID],
+			labels[index],
 			costReconcileImportCell(credential),
-			costReconcileBilled(credential, labels),
+			costReconcileBilled(credential, labelsByID),
 			costReconcileAmount(credential.MatchedMinor, credential),
 			costReconcileEstimate(credential),
 			costReconcileDifference(credential),
@@ -360,7 +413,7 @@ func renderCostReconciliation(out io.Writer, reconciliation *client.CostReconcil
 	writer.Render()
 
 	hasNotes := false
-	for _, credential := range reconciliation.Credentials {
+	for index, credential := range reconciliation.Credentials {
 		notes := costReconcileNotes(credential)
 		if len(notes) == 0 {
 			continue
@@ -370,7 +423,7 @@ func renderCostReconciliation(out io.Writer, reconciliation *client.CostReconcil
 			_, _ = fmt.Fprintln(out, "Notes:")
 			hasNotes = true
 		}
-		_, _ = fmt.Fprintf(out, "  %s\n", costReconcileCredentialLabel(credential))
+		_, _ = fmt.Fprintf(out, "  %s\n", labels[index])
 		for _, note := range notes {
 			_, _ = fmt.Fprintf(out, "    - %s\n", note)
 		}

@@ -53,7 +53,7 @@ func costReconciliationFixture() *client.CostReconciliation {
 	return &client.CostReconciliation{
 		Month: "2026-08", MonthClosed: true, PeriodHours: 744, GeneratedAt: "2026-09-26T08:00:00Z",
 		Credentials: []client.CostReconciliationCredential{
-			{CredentialID: "aaaaaaaa-0000-4000-8000-000000000001", CredentialName: reconcileText("ovh-prod"), Provider: "ovh",
+			{CredentialID: reconcileText("aaaaaaaa-0000-4000-8000-000000000001"), CredentialName: reconcileText("ovh-prod"), Provider: "ovh",
 				State: "complete", Currency: reconcileText("eur"), InvoiceMinor: reconcileCents(9800), TaxMinor: reconcileCents(1805),
 				CreditMinor: reconcileCents(-500), MatchedMinor: reconcileCents(9500), UnmatchedMinor: reconcileCents(300),
 				EstimateMinor: reconcileCents(9200), EstimateComplete: &isComplete, DifferencePct: &difference,
@@ -63,7 +63,7 @@ func costReconciliationFixture() *client.CostReconciliation {
 				DifferenceCoverage: &client.CostReconciliationCoverage{ClustersCovered: 2, ClustersNamed: 2, MatchedMinor: 9500,
 					EstimateMinor: 9200, InvoiceSharePct: &whole, HoursSharePct: &whole},
 				Imports: []client.CostReconciliationImport{{SourceDocumentID: "usage-2026-08", State: "complete", LinesState: &complete}}},
-			{CredentialID: "aaaaaaaa-0000-4000-8000-000000000002", CredentialName: reconcileText("upcloud-prod"), Provider: "upcloud",
+			{CredentialID: reconcileText("aaaaaaaa-0000-4000-8000-000000000002"), CredentialName: reconcileText("upcloud-prod"), Provider: "upcloud",
 				State: "failed", Currency: reconcileText("eur"), InvoiceMinor: reconcileCents(9000), MatchedMinor: reconcileCents(9000),
 				EstimateMinor: reconcileCents(9200), EstimateComplete: &isComplete, CoverageReported: true,
 				DifferenceCoverage: &client.CostReconciliationCoverage{ClustersCovered: 1, ClustersNamed: 2, MatchedMinor: 5000,
@@ -71,12 +71,12 @@ func costReconciliationFixture() *client.CostReconciliation {
 				DifferenceReason: reconcileText("The provider's figures for this month are not final yet, so the difference is not stated until they are."),
 				Imports: []client.CostReconciliationImport{{SourceDocumentID: "usage-2026-08", State: "failed", LinesState: &partial,
 					Reason: reconcileText("Reading UpCloud's billing summary for 2026-08 failed (502): Bad gateway")}}},
-			{CredentialID: "aaaaaaaa-0000-4000-8000-000000000003", Provider: "hetzner", State: "absent", CoverageReported: true,
+			{CredentialID: reconcileText("aaaaaaaa-0000-4000-8000-000000000003"), Provider: "hetzner", State: "absent", CoverageReported: true,
 				DifferenceReason: reconcileText("No billing document has been imported for this month, so what the provider billed is unknown, not zero.")},
-			{CredentialID: "aaaaaaaa-0000-4000-8000-000000000004", CredentialName: reconcileText("do-legacy"), Provider: "digitalocean",
+			{CredentialID: reconcileText("aaaaaaaa-0000-4000-8000-000000000004"), CredentialName: reconcileText("do-legacy"), Provider: "digitalocean",
 				State: "complete", CurrenciesMixed: true, UnmatchedLineCount: 2,
 				DifferenceReason: reconcileText("The imported lines are in more than one currency, so they are not summed.")},
-			{CredentialID: "aaaaaaaa-0000-4000-8000-000000000005", CredentialName: reconcileText("ovh-idle"), Provider: "ovh",
+			{CredentialID: reconcileText("aaaaaaaa-0000-4000-8000-000000000005"), CredentialName: reconcileText("ovh-idle"), Provider: "ovh",
 				State: "complete", Currency: reconcileText("eur"), InvoiceMinor: reconcileCents(0), MatchedMinor: reconcileCents(0),
 				CoverageReported: true,
 				DifferenceReason: reconcileText("The provider billed nothing on this credential for this month, so there is nothing to compare with the estimate.")},
@@ -195,11 +195,11 @@ func TestCostReconcileSaysWhereAnInvoiceIsCountedAndWhenItIsWithheld(t *testing.
 	unlisted := "bbbbbbbb-0000-4000-8000-000000000009"
 	mock := &costReconcileMock{reconciliation: &client.CostReconciliation{Month: "2026-10", MonthClosed: true,
 		Credentials: []client.CostReconciliationCredential{
-			{CredentialID: counter, CredentialName: reconcileText("ovh-scoped"), Provider: "ovh", State: "complete",
+			{CredentialID: reconcileText(counter), CredentialName: reconcileText("ovh-scoped"), Provider: "ovh", State: "complete",
 				Currency: reconcileText("eur"), MatchedMinor: reconcileCents(4000), InvoiceWithheld: true},
-			{CredentialID: "aaaaaaaa-0000-4000-8000-000000000002", CredentialName: reconcileText("ovh-twin"), Provider: "ovh",
+			{CredentialID: reconcileText("aaaaaaaa-0000-4000-8000-000000000002"), CredentialName: reconcileText("ovh-twin"), Provider: "ovh",
 				State: "complete", SameInvoiceAs: &counter},
-			{CredentialID: "aaaaaaaa-0000-4000-8000-000000000003", CredentialName: reconcileText("ovh-other"), Provider: "ovh",
+			{CredentialID: reconcileText("aaaaaaaa-0000-4000-8000-000000000003"), CredentialName: reconcileText("ovh-other"), Provider: "ovh",
 				State: "complete", SameInvoiceAs: &unlisted},
 		}}}
 	output, err := runCostReconcileCommand(t, mock, "cost", "reconcile")
@@ -315,5 +315,113 @@ func TestCostReconcileImportCellFollowsTheCountedDocument(t *testing.T) {
 		if got != testCase.want {
 			t.Errorf("%s = %q, want %q", name, got, testCase.want)
 		}
+	}
+}
+
+// costReconcileOutsideFixture is a read for a reader confined to a project
+// (ankra-bn86k4.64): its own credential in full, two OVHcloud credentials
+// and one UpCloud credential outside its projects that bill its clusters,
+// each with no id, no name and the marker, and an in-reach credential
+// counted under one of them, which the platform does not say.
+func costReconcileOutsideFixture() *client.CostReconciliation {
+	countedUnderOutside := "This credential reads the same provider account as a credential outside your projects: " +
+		"both are billed this month for mostly the same servers, volumes and load balancers, so the invoice is counted " +
+		"once, under that credential, and not here."
+	return &client.CostReconciliation{Month: "2026-10", MonthClosed: true,
+		Credentials: []client.CostReconciliationCredential{
+			{CredentialID: reconcileText("aaaaaaaa-0000-4000-8000-000000000001"), CredentialName: reconcileText("ovh-a"),
+				Provider: "ovh", State: "complete", Currency: reconcileText("eur"), MatchedMinor: reconcileCents(4000),
+				InvoiceWithheld: true},
+			{CredentialID: reconcileText("aaaaaaaa-0000-4000-8000-000000000002"), CredentialName: reconcileText("ovh-twin"),
+				Provider: "ovh", State: "complete", InvoiceWithheld: true, DifferenceReason: &countedUnderOutside},
+			{CredentialOutsideProjects: true, Provider: "ovh", State: "failed", Currency: reconcileText("eur"),
+				MatchedMinor: reconcileCents(1200), InvoiceWithheld: true,
+				Imports: []client.CostReconciliationImport{{State: "failed"}}},
+			{CredentialOutsideProjects: true, Provider: "ovh", State: "complete", Currency: reconcileText("eur"),
+				MatchedMinor: reconcileCents(1700), InvoiceWithheld: true},
+			{CredentialOutsideProjects: true, Provider: "upcloud", State: "complete", Currency: reconcileText("eur"),
+				MatchedMinor: reconcileCents(900), InvoiceWithheld: true},
+		}}
+}
+
+func TestCostReconcileNamesACredentialOutsideTheReadersProjectsWithoutCallingItDeleted(t *testing.T) {
+	mock := &costReconcileMock{reconciliation: costReconcileOutsideFixture()}
+	output, err := runCostReconcileCommand(t, mock, "cost", "reconcile")
+	if err != nil {
+		t.Fatalf("cost reconcile: %v", err)
+	}
+	for _, row := range [][]string{
+		{"ovh-a (OVHcloud)", "€40.00"},
+		{"a credential outside your projects, 1 of 2 (OVHcloud)", "failed", "€12.00"},
+		{"a credential outside your projects, 2 of 2 (OVHcloud)", "€17.00"},
+		{"a credential outside your projects (UpCloud)", "€9.00"},
+	} {
+		if costReconcileRow(output, row...) == "" {
+			t.Errorf("no row holds %q:\n%s", row, output)
+		}
+	}
+	if strings.Contains(output, "deleted credential") {
+		t.Errorf("a credential the platform withheld must never read as deleted:\n%s", output)
+	}
+	if got := strings.Count(output, costReconcileOutsideNote); got != 3 {
+		t.Errorf("each of the three withheld credentials needs the note saying what was withheld, got %d:\n%s", got, output)
+	}
+	notes := output[strings.Index(output, "Notes:"):]
+	for _, label := range []string{"a credential outside your projects, 1 of 2 (OVHcloud)",
+		"a credential outside your projects, 2 of 2 (OVHcloud)", "a credential outside your projects (UpCloud)"} {
+		if !strings.Contains(notes, "  "+label+"\n") {
+			t.Errorf("the notes must head each withheld credential's note with its own label %q:\n%s", label, notes)
+		}
+	}
+	if !strings.Contains(output, "counted once, under that credential, and not here") {
+		t.Errorf("an in-reach credential counted under a withheld one must say so in the platform's words:\n%s", output)
+	}
+}
+
+// TestCostReconcileKeysRowsByPositionWhenTheIDIsWithheld: two withheld
+// credentials of one provider share every field that once keyed a row (no
+// id, no name, one provider), and each still gets its own label.
+func TestCostReconcileKeysRowsByPositionWhenTheIDIsWithheld(t *testing.T) {
+	credentials := costReconcileOutsideFixture().Credentials
+	labels := costReconcileCredentialLabels(credentials)
+	if len(labels) != len(credentials) {
+		t.Fatalf("%d labels for %d credentials", len(labels), len(credentials))
+	}
+	seen := map[string]int{}
+	for index, label := range labels {
+		if label == "" {
+			t.Errorf("credential %d has an empty label", index)
+		}
+		if previous, isTaken := seen[label]; isTaken {
+			t.Errorf("credentials %d and %d share the label %q", previous, index, label)
+		}
+		seen[label] = index
+	}
+}
+
+// TestCostReconcileLabelsAReadThatNamesEveryCredentialAsBefore: when the
+// platform names every credential (an organisation-wide reader, or one that
+// predates the marker), every label is the one the id-keyed rendering
+// printed: the name, or "deleted credential" and the id's first block.
+func TestCostReconcileLabelsAReadThatNamesEveryCredentialAsBefore(t *testing.T) {
+	credentials := costReconciliationFixture().Credentials
+	labels := costReconcileCredentialLabels(credentials)
+	for index, credential := range credentials {
+		want := "deleted credential " + strings.SplitN(*credential.CredentialID, "-", 2)[0]
+		if credential.CredentialName != nil && *credential.CredentialName != "" {
+			want = *credential.CredentialName
+		}
+		want += " (" + costProviderLabel(credential.Provider) + ")"
+		if labels[index] != want {
+			t.Errorf("credential %d is labelled %q, want %q as before", index, labels[index], want)
+		}
+	}
+	mock := &costReconcileMock{reconciliation: costReconciliationFixture()}
+	output, err := runCostReconcileCommand(t, mock, "cost", "reconcile")
+	if err != nil {
+		t.Fatalf("cost reconcile: %v", err)
+	}
+	if strings.Contains(output, "outside your projects") || strings.Contains(output, "did not name") {
+		t.Errorf("a read that names every credential must carry no withheld label or note:\n%s", output)
 	}
 }
