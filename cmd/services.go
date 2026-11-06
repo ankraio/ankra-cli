@@ -123,6 +123,7 @@ type APIClient interface {
 	GetCloudSavings() (*client.CloudSavings, error)
 	GetCloudLedger() (*client.CloudLedger, error)
 	GetCloudWaste() (*client.CloudWaste, error)
+	GetCloudWasteCredentialErrors() ([]client.CloudWasteCredentialError, error)
 	GetCostAutopilot() (*client.CostAutopilotPolicy, error)
 	UpdateCostAutopilot(update client.CostAutopilotPolicyUpdate) (*client.CostAutopilotPolicy, error)
 	SetCostAutopilotOverride(clusterID string, request client.CostAutopilotOverrideRequest) (*client.CostAutopilotCluster, error)

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ankra cost savings` no longer says "no open findings" when the waste scan did not finish.** When a credential's scan failed, for example because its token expired, the waste line read "Waste: no open findings." although nobody knew whether there was waste. On a platform that reports an incomplete scan, the line now says the last scan did not finish, so no findings is unknown rather than none, or that a count of findings may be short. It then names each scan that did not finish: the credential and its provider with the provider's error, a scan with no credential name, and one line for scans by credentials outside your projects. If that list cannot be read, the command still succeeds, says so, and prints the reason on stderr. A complete scan, and a platform that does not report incomplete scans, print exactly what they printed before and make no extra request. `-o json` and `-o yaml` are unchanged; the platform's `waste.scan_incomplete` is already in them.
+
 ## v0.67.0 - 2026-11-05
 
 This release makes `ankra cluster apply` read `metadata.environment`, the field in a cluster

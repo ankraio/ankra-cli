@@ -21,6 +21,10 @@ type costMock struct {
 	updates     []client.CostSettings
 	ledger      *client.CloudLedger
 	ledgerError error
+
+	scanFailures      []client.CloudWasteCredentialError
+	scanFailuresError error
+	scanFailureReads  int
 }
 
 func (m *costMock) GetFleetCloudCost() (*client.FleetCloudCost, error) {
@@ -29,6 +33,14 @@ func (m *costMock) GetFleetCloudCost() (*client.FleetCloudCost, error) {
 
 func (m *costMock) GetCloudSavings() (*client.CloudSavings, error) {
 	return m.savings, nil
+}
+
+func (m *costMock) GetCloudWasteCredentialErrors() ([]client.CloudWasteCredentialError, error) {
+	m.scanFailureReads++
+	if m.scanFailuresError != nil {
+		return nil, m.scanFailuresError
+	}
+	return m.scanFailures, nil
 }
 
 func (m *costMock) GetCloudLedger() (*client.CloudLedger, error) {

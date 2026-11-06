@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"ankra/internal/client"
+	"ankra/internal/hiddenunicode"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
@@ -151,7 +152,7 @@ Every figure is a list-price estimate in the organisation's display currency.`,
 		if rendered, err := renderStructured(cmd, savings); rendered || err != nil {
 			return err
 		}
-		renderCloudSavings(cmd.OutOrStdout(), savings)
+		renderCloudSavings(cmd.OutOrStdout(), savings, readCloudSavingsScanFailures(cmd.ErrOrStderr(), savings.Waste))
 		return nil
 	},
 }
@@ -1096,13 +1097,52 @@ func renderCloudSavingsOffHoursHint(out io.Writer, recommendations []client.Clou
 	}
 }
 
-func renderCloudSavingsWaste(out io.Writer, waste client.CloudSavingsWaste, currency string) {
+// cloudSavingsScanFailures is what the waste listing said about the scans a
+// savings read's scan_incomplete stands for: the failed scans, or that they
+// could not be read.
+type cloudSavingsScanFailures struct {
+	failures []client.CloudWasteCredentialError
+	isUnread bool
+}
+
+// cloudSavingsScanIncomplete reports whether the platform said the last scan
+// of an account bearing on the read did not finish. A platform that predates
+// scan_incomplete never says so, and its waste line reads as it always did.
+func cloudSavingsScanIncomplete(waste client.CloudSavingsWaste) bool {
+	return waste.Available && waste.ScanIncomplete != nil && *waste.ScanIncomplete
+}
+
+// readCloudSavingsScanFailures reads which scans did not finish, only when
+// the savings read says one did: a complete scan, and a platform that
+// predates scan_incomplete, cost no extra request and get nil. A listing
+// that cannot be read does not fail the command, since the savings read
+// already said the scan is incomplete; the reason goes to stderr.
+func readCloudSavingsScanFailures(stderr io.Writer, waste client.CloudSavingsWaste) *cloudSavingsScanFailures {
+	if !cloudSavingsScanIncomplete(waste) {
+		return nil
+	}
+	failures, readError := apiClient.GetCloudWasteCredentialErrors()
+	if readError != nil {
+		_, _ = fmt.Fprintf(stderr, "Reading which waste scan did not finish failed: %v\n", readError)
+		return &cloudSavingsScanFailures{isUnread: true}
+	}
+	return &cloudSavingsScanFailures{failures: failures}
+}
+
+// renderCloudSavingsWaste is the waste line. When the platform says the last
+// scan did not finish, no findings is unknown rather than none and a count
+// may be short, so the line says that and the failed scans are named under
+// it. Otherwise the line is the one this command always printed.
+func renderCloudSavingsWaste(out io.Writer, waste client.CloudSavingsWaste, currency string, scan *cloudSavingsScanFailures) {
 	_, _ = fmt.Fprintln(out)
+	isIncomplete := cloudSavingsScanIncomplete(waste)
 	switch {
 	case !waste.Available:
 		_, _ = fmt.Fprintln(out, "Waste: the scan could not be read (this is not the same as no waste).")
-	case !waste.HasData:
+	case !waste.HasData && !isIncomplete:
 		_, _ = fmt.Fprintln(out, "Waste: no scan yet.")
+	case waste.FindingCount == 0 && isIncomplete:
+		_, _ = fmt.Fprintln(out, "Waste: none listed, but the last scan did not finish, so that is unknown, not no waste.")
 	case waste.FindingCount == 0:
 		_, _ = fmt.Fprintln(out, "Waste: no open findings.")
 	default:
@@ -1113,6 +1153,50 @@ func renderCloudSavingsWaste(out io.Writer, waste client.CloudSavingsWaste, curr
 		}
 		if waste.ScannedAt != nil && *waste.ScannedAt != "" {
 			line += " · scanned " + *waste.ScannedAt
+		}
+		_, _ = fmt.Fprintln(out, line)
+		if isIncomplete {
+			_, _ = fmt.Fprintln(out, "The last scan did not finish, so findings may be missing from that count.")
+		}
+	}
+	if isIncomplete {
+		renderCloudSavingsScanFailures(out, scan)
+	}
+}
+
+// renderCloudSavingsScanFailures names the scans that did not finish: a
+// credential by its name and provider with the provider's error, a scan no
+// credential of the organisation stands behind by its provider alone (not a
+// deleted credential: the platform does not say that), and the scans outside
+// the reader's projects as one line that names none, as the platform gives
+// them. Names and errors are the platform's and the provider's text, flattened
+// to one line.
+func renderCloudSavingsScanFailures(out io.Writer, scan *cloudSavingsScanFailures) {
+	if scan == nil {
+		return
+	}
+	if scan.isUnread {
+		_, _ = fmt.Fprintln(out, "  Which scan did not finish could not be read.")
+		return
+	}
+	for _, failed := range scan.failures {
+		if failed.CredentialOutsideProjects {
+			_, _ = fmt.Fprintln(out, "  Did not finish: a scan by a credential outside your projects.")
+			continue
+		}
+		name, _ := hiddenunicode.Line(failed.CredentialName)
+		subject := "a credential Ankra has no name for"
+		switch {
+		case name != "" && failed.Provider != "":
+			subject = name + " (" + costProviderLabel(failed.Provider) + ")"
+		case name != "":
+			subject = name
+		case failed.Provider != "":
+			subject += " (" + costProviderLabel(failed.Provider) + ")"
+		}
+		line := "  Did not finish: " + subject
+		if reason, _ := hiddenunicode.Line(failed.Error); reason != "" {
+			line += ": " + reason
 		}
 		_, _ = fmt.Fprintln(out, line)
 	}
@@ -1152,7 +1236,9 @@ func savingsReportsConfidence(savings *client.CloudSavings) bool {
 	return false
 }
 
-func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
+// renderCloudSavings is the human savings read. scan is what the waste
+// listing said about an incomplete scan, nil when the read says none.
+func renderCloudSavings(out io.Writer, savings *client.CloudSavings, scan *cloudSavingsScanFailures) {
 	currency := savings.Currency
 	// A platform that reports confidence counts only measured and billed levers
 	// in the total and says what the estimates add apart from it (ankra-tp6xp);
@@ -1170,7 +1256,7 @@ func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
 		_, _ = fmt.Fprintln(out, "Estimates appear once a cluster on AWS, Google Cloud, Azure, Hetzner, OVHcloud, UpCloud or Scaleway has reported pricing in the last day; AWS, Google Cloud and Azure clusters need a connected cloud credential.")
 		renderCloudSavingsClusters(out, "Unpriced clusters (no cost snapshot yet):", savings.UnpricedClusters, true)
 		renderCloudSavingsClusters(out, cloudSavingsStaleHeading(savings.Thresholds), savings.StaleClusters, true)
-		renderCloudSavingsWaste(out, savings.Waste, currency)
+		renderCloudSavingsWaste(out, savings.Waste, currency, scan)
 		return
 	}
 	_, _ = fmt.Fprintf(out, "Cloud savings (%s): %s/mo across %s", strings.ToUpper(currency),
@@ -1248,7 +1334,7 @@ func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
 	renderCloudSavingsClusters(out, cloudSavingsStaleHeading(savings.Thresholds), savings.StaleClusters, true)
 	renderCloudSavingsClusters(out, "Unreadable clusters (breakdown could not be read on this pass):", savings.UnreadableClusters, false)
 	renderCloudSavingsClusters(out, "Offline clusters (agent not checked in; nothing is recommended for them until it is):", savings.OfflineClusters, false)
-	renderCloudSavingsWaste(out, savings.Waste, currency)
+	renderCloudSavingsWaste(out, savings.Waste, currency, scan)
 }
 
 func renderCostSettings(out io.Writer, settings *client.CostSettings) {

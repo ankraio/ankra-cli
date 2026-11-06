@@ -430,6 +430,12 @@ type CloudSavingsCluster struct {
 // CloudSavingsWaste summarises the open cloud-waste findings. Available is
 // false when the waste scan could not be read, which is not the same as no
 // waste.
+//
+// ScanIncomplete true means the last scan of at least one account bearing on
+// the read did not finish (cluster#6020), so FindingCount 0 is unknown, not
+// no waste, and a count above 0 may be missing findings; GET
+// /org/cloud-cost/waste says which scan failed. It is nil on a platform that
+// predates the field, which reads as it always did.
 type CloudSavingsWaste struct {
 	Available             bool    `json:"available" yaml:"available"`
 	HasData               bool    `json:"has_data" yaml:"has_data"`
@@ -437,6 +443,7 @@ type CloudSavingsWaste struct {
 	TotalMonthlyCostCents int64   `json:"total_monthly_cost_cents" yaml:"total_monthly_cost_cents"`
 	FindingCount          int     `json:"finding_count" yaml:"finding_count"`
 	UnpricedFindingCount  int     `json:"unpriced_finding_count" yaml:"unpriced_finding_count"`
+	ScanIncomplete        *bool   `json:"scan_incomplete,omitempty" yaml:"scan_incomplete,omitempty"`
 }
 
 // CloudSavingsThresholds echoes the model's constants, so a reading can be
