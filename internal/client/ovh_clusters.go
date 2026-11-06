@@ -157,7 +157,7 @@ func (c *Client) CreateOvhCluster(req CreateOvhClusterRequest) (*CreateOvhCluste
 }
 
 func (c *Client) DeprovisionOvhCluster(clusterID string, options DeprovisionOptions) (*DeprovisionOvhClusterResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s", c.BaseURL, clusterID) + options.query()
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s", c.BaseURL, url.PathEscape(clusterID)) + options.query()
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -202,7 +202,7 @@ func (c *Client) ListOvhRegions(credentialID string, withDetails bool) (*OvhRegi
 }
 
 func (c *Client) GetOvhWorkerCount(clusterID string) (*WorkerCountResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/worker-count", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/worker-count", c.BaseURL, url.PathEscape(clusterID))
 	var result WorkerCountResult
 	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
@@ -211,7 +211,7 @@ func (c *Client) GetOvhWorkerCount(clusterID string) (*WorkerCountResult, error)
 }
 
 func (c *Client) GetOvhK8sVersion(clusterID string) (*K8sVersionInfo, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/k8s-version", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/k8s-version", c.BaseURL, url.PathEscape(clusterID))
 	var result K8sVersionInfo
 	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
@@ -220,7 +220,7 @@ func (c *Client) GetOvhK8sVersion(clusterID string) (*K8sVersionInfo, error) {
 }
 
 func (c *Client) UpgradeOvhK8sVersion(clusterID, targetVersion string, force bool) (*UpgradeK8sVersionResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/upgrade-k8s-version", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/upgrade-k8s-version", c.BaseURL, url.PathEscape(clusterID))
 	return c.doUpgradeK8sVersion(url, targetVersion, force)
 }
 
@@ -298,7 +298,7 @@ func (c *Client) DeleteOvhNodeGroup(ctx context.Context, clusterID, groupName st
 }
 
 func (c *Client) ScaleOvhWorkers(clusterID string, workerCount int, drainOptions DrainOptions) (*ScaleWorkersResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/scale-workers", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/ovh/%s/scale-workers", c.BaseURL, url.PathEscape(clusterID))
 	return c.doScaleWorkers(url, workerCount, drainOptions)
 }
 

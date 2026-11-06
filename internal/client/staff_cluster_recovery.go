@@ -39,10 +39,7 @@ func NewStaffSessionClient(baseURL string, sessionToken string) *StaffSessionCli
 	return &StaffSessionClient{
 		BaseURL:      baseURL,
 		SessionToken: sessionToken,
-		HTTP: &http.Client{
-			Timeout:   60 * time.Second,
-			Transport: &requestPathGuardTransport{base: &http.Transport{Proxy: http.ProxyFromEnvironment}},
-		},
+		HTTP:         &http.Client{Timeout: 60 * time.Second, Transport: guardedDefaultTransport()},
 	}
 }
 

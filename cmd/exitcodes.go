@@ -36,6 +36,17 @@ type codedError struct {
 func (e *codedError) Error() string { return e.err.Error() }
 func (e *codedError) Unwrap() error { return e.err }
 
+// isRefusedBeforeSending reports whether the client refused to send a
+// request at all (client.UnsafeRequestPathError, which reaches a caller
+// inside the *url.Error http.Client wraps transport errors in). Nothing was
+// sent and the same arguments build the same path, so a retry loop must not
+// count it as a dropped connection: retried, it ends as a timeout or an
+// "interrupted" exit 1 instead of the usage error (exit 2) it is.
+func isRefusedBeforeSending(err error) bool {
+	var refusal *client.UnsafeRequestPathError
+	return errors.As(err, &refusal)
+}
+
 // withExitCode wraps err so Execute exits with code. A nil err stays nil, so
 // call sites can wrap unconditionally.
 func withExitCode(code int, err error) error {

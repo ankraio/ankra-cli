@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 type OrganisationSummary struct {
@@ -67,7 +68,7 @@ func (c *Client) ListOrganisations() ([]OrganisationSummary, error) {
 }
 
 func (c *Client) GetOrganisation(orgID string) (*OrganisationFull, error) {
-	url := fmt.Sprintf("%s/api/v1/org/organisation/%s", c.BaseURL, orgID)
+	url := fmt.Sprintf("%s/api/v1/org/organisation/%s", c.BaseURL, url.PathEscape(orgID))
 	var org OrganisationFull
 	if err := c.getJSON(url, &org); err != nil {
 		return nil, err

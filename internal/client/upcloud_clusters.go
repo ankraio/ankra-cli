@@ -115,7 +115,7 @@ func (c *Client) CreateUpcloudCluster(req CreateUpcloudClusterRequest) (*CreateU
 }
 
 func (c *Client) DeprovisionUpcloudCluster(clusterID string, options DeprovisionOptions) (*DeprovisionUpcloudClusterResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s", c.BaseURL, clusterID) + options.query()
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s", c.BaseURL, url.PathEscape(clusterID)) + options.query()
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -144,7 +144,7 @@ func (c *Client) DeprovisionUpcloudCluster(clusterID string, options Deprovision
 }
 
 func (c *Client) GetUpcloudWorkerCount(clusterID string) (*WorkerCountResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/worker-count", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/worker-count", c.BaseURL, url.PathEscape(clusterID))
 	var result WorkerCountResult
 	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
@@ -153,7 +153,7 @@ func (c *Client) GetUpcloudWorkerCount(clusterID string) (*WorkerCountResult, er
 }
 
 func (c *Client) GetUpcloudK8sVersion(clusterID string) (*K8sVersionInfo, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/k8s-version", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/k8s-version", c.BaseURL, url.PathEscape(clusterID))
 	var result K8sVersionInfo
 	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
@@ -162,7 +162,7 @@ func (c *Client) GetUpcloudK8sVersion(clusterID string) (*K8sVersionInfo, error)
 }
 
 func (c *Client) UpgradeUpcloudK8sVersion(clusterID, targetVersion string, force bool) (*UpgradeK8sVersionResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/upgrade-k8s-version", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/upgrade-k8s-version", c.BaseURL, url.PathEscape(clusterID))
 	return c.doUpgradeK8sVersion(url, targetVersion, force)
 }
 
@@ -240,7 +240,7 @@ func (c *Client) DeleteUpcloudNodeGroup(ctx context.Context, clusterID, groupNam
 }
 
 func (c *Client) ScaleUpcloudWorkers(clusterID string, workerCount int, drainOptions DrainOptions) (*ScaleWorkersResult, error) {
-	scaleURL := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/scale-workers", c.BaseURL, clusterID)
+	scaleURL := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/scale-workers", c.BaseURL, url.PathEscape(clusterID))
 	return c.doScaleWorkers(scaleURL, workerCount, drainOptions)
 }
 
@@ -319,7 +319,7 @@ type UpdateUpcloudZonePoolResult struct {
 // (PUT /api/v1/clusters/upcloud/{id}/zones). With wait=false the platform
 // answers 202 and the second result is true.
 func (c *Client) UpdateUpcloudZonePool(ctx context.Context, clusterID string, zones []string, wait bool) (*UpdateUpcloudZonePoolResult, bool, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/zones", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/upcloud/%s/zones", c.BaseURL, url.PathEscape(clusterID))
 	payload, err := json.Marshal(UpdateUpcloudZonePoolRequest{Zones: zones})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
