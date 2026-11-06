@@ -292,18 +292,37 @@ func (frame *sseFrame) event() (ChatStreamEvent, bool) {
 // after one of these would wait - heartbeats keeping the connection alive -
 // until the session expired.
 var chatParkedSessionStatuses = map[string]bool{
-	"awaiting_user": true,
-	"waiting":       true,
+	ChatSessionStatusAwaitingUser: true,
+	ChatSessionStatusWaiting:      true,
 }
+
+// The session_complete statuses that leave the session open.
+const (
+	ChatSessionStatusAwaitingUser = "awaiting_user"
+	ChatSessionStatusWaiting      = "waiting"
+)
 
 // ChatTurnParked reports whether the frame is the session_complete of a turn
 // that parked on the user rather than ending the session: the turn is over,
 // and no "end" follows.
 func ChatTurnParked(event ChatStreamEvent) bool {
+	return chatParkedSessionStatuses[ChatSessionCompleteStatus(event)]
+}
+
+// ChatTurnWaiting reports whether the frame is the session_complete of a turn
+// parked on a wait_for condition. Unlike a turn awaiting the user, the session
+// resumes by itself, and the resumed turn's frames arrive on the same tail.
+func ChatTurnWaiting(event ChatStreamEvent) bool {
+	return ChatSessionCompleteStatus(event) == ChatSessionStatusWaiting
+}
+
+// ChatSessionCompleteStatus is the status a session_complete frame carries,
+// empty for any other frame.
+func ChatSessionCompleteStatus(event ChatStreamEvent) string {
 	if event.Type != "session_complete" {
-		return false
+		return ""
 	}
 	data, _ := event.Data.(map[string]any)
 	status, _ := data["status"].(string)
-	return chatParkedSessionStatuses[status]
+	return status
 }

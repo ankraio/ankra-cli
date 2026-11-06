@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- **`ankra chat "<question>"` no longer exits 0 when the agent pauses.** A pause ended the command with exit 0 and a note, so a script read an unfinished conversation as a finished one. It now exits 9, a new code for work that is waiting and has not failed, and `-o json` carries a new `state` member (`completed`, `failed`, `awaiting_user` or `waiting`). `ankra chat --wait` follows the conversation through its pauses instead, up to `--wait-timeout` (default 4h), then exits 5. A turn awaiting a confirmation or an answer still exits 0, and interactive chat is unchanged.
 - **`ankra cluster metrics query-range` says when a series was downsampled.** A long range could come back with far fewer points than the query produced, at a spacing nothing mentioned and with `truncated: false`, so it read as a complete answer at the `--step` you asked for. The Points column now reads `50 of 385`, and a note on stderr says how far apart the returned points are. `-o json` and `-o yaml` stay parseable and print the platform's own response.
 
 ## v0.68.0 - 2026-11-06

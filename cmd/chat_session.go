@@ -31,6 +31,24 @@ const chatTailMaxReconnects = 3
 // so tests do not wait.
 var chatTailReconnectDelay = time.Second
 
+// chatParkedReconnectLimit caps the back-off between tail re-opens while a
+// session is parked, where a quiet tail closing is expected and not a failure.
+const chatParkedReconnectLimit = 5
+
+// chatDefaultWaitTimeout is the default for --wait-timeout: the platform lets
+// one session stay parked for 4 hours in total, so a longer wait cannot pay off.
+const chatDefaultWaitTimeout = 4 * time.Hour
+
+// chatWaitExpiredFrame is the local frame tailChatSession sends when the
+// session was still parked at the end of the wait the caller allowed.
+const chatWaitExpiredFrame = "wait_expired"
+
+// The state member of the one-shot document.
+const (
+	chatStateCompleted = "completed"
+	chatStateFailed    = "failed"
+)
+
 // chatScope is the cluster context a chat runs in and where it came from:
 // a persisted `ankra cluster select` is advisory (a deleted cluster degrades
 // to the global lane with a notice), an explicit --cluster is not.
@@ -58,6 +76,23 @@ type chatTurnOutcome struct {
 	// toolCalls are the tools the turn ran, in the order they started, as
 	// their tool_start and tool_result frames described them.
 	toolCalls []chatToolCall
+	// sessionStatus is the status of the last session_complete frame.
+	sessionStatus string
+	// waitExpired is set when --wait ran out while the session was parked.
+	waitExpired bool
+}
+
+// state names how the command left the conversation, for a script that must
+// not read a paused conversation as a finished one.
+func (outcome chatTurnOutcome) state() string {
+	switch {
+	case outcome.errorMessage != "" || outcome.billingRestricted != nil:
+		return chatStateFailed
+	case outcome.sessionStatus == client.ChatSessionStatusWaiting,
+		outcome.sessionStatus == client.ChatSessionStatusAwaitingUser:
+		return outcome.sessionStatus
+	}
+	return chatStateCompleted
 }
 
 // failure is the error a finished turn ends the command with: the typed
@@ -69,6 +104,14 @@ func (outcome chatTurnOutcome) failure() error {
 	}
 	if outcome.errorMessage != "" {
 		return errors.New(outcome.errorMessage)
+	}
+	if outcome.waitExpired {
+		return withExitCode(exitWaitTimeout, errors.New(
+			"the conversation was still paused when --wait-timeout ran out; it resumes by itself, read it with 'ankra chat show'"))
+	}
+	if outcome.sessionStatus == client.ChatSessionStatusWaiting {
+		return withExitCode(exitWaiting, errors.New(
+			"the conversation is paused, not finished, and resumes by itself; pass --wait to follow it, or read it later with 'ankra chat show'"))
 	}
 	return nil
 }
@@ -196,7 +239,7 @@ func validateConversationID(conversationID string) error {
 // can read the safety mode the server resolved) and nil on the deprecated
 // stream.
 func startChatTurn(conversationID string, clusterID *string, req client.ChatRequest,
-	interactionMode string) (<-chan client.ChatStreamEvent, *client.ChatSession, error) {
+	interactionMode string, waitTimeout time.Duration) (<-chan client.ChatStreamEvent, *client.ChatSession, error) {
 	idempotencyKey, keyErr := newChatUUID()
 	if keyErr != nil {
 		return nil, nil, keyErr
@@ -226,7 +269,7 @@ func startChatTurn(conversationID string, clusterID *string, req client.ChatRequ
 		_ = apiClient.CancelChatSession(session.ID)
 		return nil, session, err
 	}
-	return tailChatSession(session.ID, submitted.LastSeq), session, nil
+	return tailChatSession(session.ID, submitted.LastSeq, waitTimeout), session, nil
 }
 
 // retryableTailError reports whether a failed tail open is worth re-opening:
@@ -250,56 +293,104 @@ func retryableTailError(err error) bool {
 // log keeps every frame, so nothing is lost across a reconnect). The
 // reconnect budget bounds consecutive failures: a re-opened tail that
 // delivers a durable frame has resumed, and a later drop starts over.
-func tailChatSession(sessionID string, since int64) <-chan client.ChatStreamEvent {
+//
+// A turn parked on a wait_for condition ends the tail too, unless waitTimeout
+// is positive: the tail then reads on, since the resumed turn's frames arrive
+// on this same session, for at most waitTimeout from the first park. A parked
+// session sends only heartbeats, which have no sequence to earn the budget
+// back with, so re-opens while parked do not spend it.
+func tailChatSession(sessionID string, since int64, waitTimeout time.Duration) <-chan client.ChatStreamEvent {
 	out := make(chan client.ChatStreamEvent, 100)
 	go func() {
 		defer close(out)
 		reconnects := 0
+		parkedReconnects := 0
+		isParked := false
+		var parkDeadline time.Time
+		parkExpiry := func() <-chan time.Time {
+			if !isParked {
+				return nil
+			}
+			return time.After(time.Until(parkDeadline))
+		}
+		sleepBeforeReopen := func() {
+			if isParked {
+				parkedReconnects = min(parkedReconnects+1, chatParkedReconnectLimit)
+				time.Sleep(time.Duration(parkedReconnects) * chatTailReconnectDelay)
+				return
+			}
+			reconnects++
+			time.Sleep(time.Duration(reconnects) * chatTailReconnectDelay)
+		}
 		for {
+			if isParked && !time.Now().Before(parkDeadline) {
+				out <- client.ChatStreamEvent{Type: chatWaitExpiredFrame}
+				return
+			}
 			events, err := apiClient.StreamChatSessionEvents(sessionID, since)
 			if err != nil {
-				if reconnects < chatTailMaxReconnects && retryableTailError(err) {
-					reconnects++
-					time.Sleep(time.Duration(reconnects) * chatTailReconnectDelay)
+				if (isParked || reconnects < chatTailMaxReconnects) && retryableTailError(err) {
+					sleepBeforeReopen()
 					continue
 				}
 				out <- client.ChatStreamEvent{Type: "error", Error: err.Error()}
 				return
 			}
-			for event := range events {
-				// A local stream failure (read error, idle watchdog) carries
-				// Error and no payload: that is a drop to resume from, not a
-				// backend verdict to show.
-				if event.Type == "error" && event.Error != "" && event.Data == nil {
-					break
-				}
-				// The backend serves `since` exclusively (events strictly
-				// after the cursor), so a durable frame at or below it can
-				// only be a replay: skip it rather than render it twice.
-				if event.Sequence != 0 && event.Sequence <= since {
-					continue
-				}
-				if event.Sequence > since {
-					since = event.Sequence
-					reconnects = 0
-				}
-				out <- event
-				// A turn parked on the user (a write awaiting confirmation,
-				// a question) is over, but the session is not, so no "end"
-				// follows: stop here rather than resume forever.
-				if event.Type == "end" || client.ChatTurnParked(event) {
+		readTail:
+			for {
+				select {
+				case <-parkExpiry():
+					out <- client.ChatStreamEvent{Type: chatWaitExpiredFrame}
 					return
+				case event, isOpen := <-events:
+					if !isOpen {
+						break readTail
+					}
+					// A local stream failure (read error, idle watchdog) carries
+					// Error and no payload: that is a drop to resume from, not a
+					// backend verdict to show.
+					if event.Type == "error" && event.Error != "" && event.Data == nil {
+						break readTail
+					}
+					// The backend serves `since` exclusively (events strictly
+					// after the cursor), so a durable frame at or below it can
+					// only be a replay: skip it rather than render it twice.
+					if event.Sequence != 0 && event.Sequence <= since {
+						continue
+					}
+					if event.Sequence > since {
+						since = event.Sequence
+						reconnects = 0
+						parkedReconnects = 0
+						isParked = false
+					}
+					out <- event
+					if event.Type == "end" {
+						return
+					}
+					if waitTimeout > 0 && client.ChatTurnWaiting(event) {
+						if parkDeadline.IsZero() {
+							parkDeadline = time.Now().Add(waitTimeout)
+						}
+						isParked = true
+						continue
+					}
+					// A turn parked on the user (a write awaiting confirmation,
+					// a question) is over, but the session is not, so no "end"
+					// follows: stop here rather than resume forever.
+					if client.ChatTurnParked(event) {
+						return
+					}
 				}
 			}
 			// Dropped, or closed cleanly without an end frame (the server
 			// finished its response window): resume from the cursor.
-			if reconnects >= chatTailMaxReconnects {
+			if !isParked && reconnects >= chatTailMaxReconnects {
 				out <- client.ChatStreamEvent{Type: "error",
 					Error: "the reply stream dropped and could not be resumed; the turn may still finish - check 'ankra chat show'"}
 				return
 			}
-			reconnects++
-			time.Sleep(time.Duration(reconnects) * chatTailReconnectDelay)
+			sleepBeforeReopen()
 		}
 	}()
 	return out
@@ -458,7 +549,12 @@ func renderChatTurn(events <-chan client.ChatStreamEvent, out io.Writer, errOut 
 			if collectProposals {
 				_, _ = fmt.Fprintf(errOut, "\nError: %s\n", message)
 			}
+		case chatWaitExpiredFrame:
+			outcome.waitExpired = true
 		case "session_complete", "end":
+			if status := client.ChatSessionCompleteStatus(event); status != "" {
+				outcome.sessionStatus = status
+			}
 			// A turn the user or the platform stopped sends no error frame,
 			// only its status, so without this a cancelled turn would read
 			// as a successful one with a partial answer.
