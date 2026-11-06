@@ -4,6 +4,7 @@
 
 ### Added
 
+- **`ankra slack connect` starts a Slack install from the terminal.** It prints the address to open and waits until the install finishes, exiting 5 if `--timeout` (default 15m) runs out first. `--no-wait` prints the address and exits, and `ankra slack status` lists the connected workspaces. It needs an organisation administrator and a person's token.
 - **`ankra cluster describe --managed-fields` shows who last wrote an object.** It reads the object live and lists each field manager with its operation, subresource and time, which is how to see what resized a pod in place (subresource `resize`), scaled a workload or edited its spec. Kubernetes keeps one entry per manager and subresource, so this is the latest write of each, not a full history. When the cluster cannot answer live, the command says the field managers are unavailable rather than that there are none.
 - **Every `ankra cluster operations` command accepts a short execution id.** `steps`, `list <id>`, `retry`, `cancel` and `cancel-step` take the first 6 or more characters of an id, the way a report or a chat message abbreviates it, instead of answering 422. A short id is looked up among the most recent executions of the active cluster, or of the organisation when no cluster is selected. Two matches are refused and both are named.
 
