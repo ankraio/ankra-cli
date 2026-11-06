@@ -151,14 +151,20 @@ func TestClusterNodesConsoleLogStillRunningPointsAtThePoller(t *testing.T) {
 	setMockClient(t, &nodeConsoleLogMock{result: &client.NodeConsoleLogResult{
 		OperationID: "op-11", NodeID: "node-1", JobName: "ovh_node_console_log", Status: "running", Attached: true}})
 
-	stdoutOutput := captureStdout(t, func() {
-		if _, err := executeCommand("cluster", "ovh", "nodes", "console-log", testClusterID, "node-1"); err != nil {
-			t.Errorf("a read still running is not a failure: %v", err)
-		}
+	var stdoutOutput string
+	stderrOutput := captureStderr(t, func() {
+		stdoutOutput = captureStdout(t, func() {
+			if _, err := executeCommand("cluster", "ovh", "nodes", "console-log", testClusterID, "node-1"); err != nil {
+				t.Errorf("a read still running is not a failure: %v", err)
+			}
+		})
 	})
+	if stdoutOutput != "" {
+		t.Errorf("the poll hint must stay off stdout so the pipe stays clean, got: %s", stdoutOutput)
+	}
 	for _, expected := range []string{"attached to the read already in flight", "still running", "ankra cluster operations list op-11"} {
-		if !strings.Contains(stdoutOutput, expected) {
-			t.Errorf("expected output to contain %q, got: %s", expected, stdoutOutput)
+		if !strings.Contains(stderrOutput, expected) {
+			t.Errorf("expected stderr to contain %q, got: %s", expected, stderrOutput)
 		}
 	}
 }
@@ -300,6 +306,23 @@ func TestDescribeNodeKubeletConfigJSONSaysWhyItIsMissing(t *testing.T) {
 	}
 	if decoded.KubeletConfig != nil || decoded.KubeletConfigError != "kubelet does not serve /configz" {
 		t.Errorf("result = %+v, want no configuration and the reason", decoded)
+	}
+}
+
+func TestDescribeNodeKubeletConfigWithoutAConfigurationIsNotAnEmptyOne(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	resetCommandFlags(t, clusterDescribeCmd)
+	mock := newKubeletConfigMock()
+	mock.config.KubeletConfig = nil
+	setMockClient(t, mock)
+
+	output := stripANSICodes(captureStdout(t, func() {
+		if _, executeError := executeCommand("cluster", "describe", "node", "worker-1", "--kubelet-config"); executeError != nil {
+			t.Fatalf("describe: %v", executeError)
+		}
+	}))
+	if strings.Contains(output, "null") || !strings.Contains(output, "could not be read: the platform answered without a kubelet configuration") {
+		t.Errorf("an absent configuration must read as unread, not null:\n%s", output)
 	}
 }
 

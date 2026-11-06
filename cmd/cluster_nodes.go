@@ -347,9 +347,9 @@ func printNodeConsoleLog(result *client.NodeConsoleLogResult) {
 		if result.Attached {
 			verb = "attached to the read already in flight"
 		}
-		fmt.Printf("Console log read %s (operation %s, status %s); the provider read is still running.\n",
+		fmt.Fprintf(os.Stderr, "Console log read %s (operation %s, status %s); the provider read is still running.\n",
 			verb, result.OperationID, result.Status)
-		fmt.Printf("Re-run this command to attach to it, or track it with: ankra cluster operations list %s\n",
+		fmt.Fprintf(os.Stderr, "Re-run this command to attach to it, or track it with: ankra cluster operations list %s\n",
 			result.OperationID)
 		return
 	}
@@ -376,7 +376,11 @@ func printNodeConsoleLog(result *client.NodeConsoleLogResult) {
 	if tailedTo := reportInt(result.Report, "tailed_to_lines"); tailedTo > 0 {
 		fmt.Fprintf(os.Stderr, "  Shortened here to the newest %d (--lines).\n", tailedTo)
 	}
-	consoleOutput, _ := result.Report["console_output"].(string)
+	consoleOutput, hasConsoleOutput := result.Report["console_output"].(string)
+	if !hasConsoleOutput {
+		fmt.Fprintln(os.Stderr, "  The platform's report carried no console output, so whether the console is empty is unknown.")
+		return
+	}
 	if consoleOutput == "" {
 		fmt.Fprintln(os.Stderr, "  The console holds no output.")
 		return

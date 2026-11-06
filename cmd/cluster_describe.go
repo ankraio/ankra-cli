@@ -116,6 +116,8 @@ Examples:
 			kubeletConfig, kubeletConfigError := apiClient.GetNodeKubeletConfig(cluster.ID, name)
 			if kubeletConfigError != nil {
 				result.KubeletConfigError = kubeletConfigError.Error()
+			} else if len(kubeletConfig.KubeletConfig) == 0 {
+				result.KubeletConfigError = "the platform answered without a kubelet configuration"
 			} else {
 				result.KubeletConfig = kubeletConfig.KubeletConfig
 			}
