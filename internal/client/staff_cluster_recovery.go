@@ -32,12 +32,17 @@ type StaffSessionClient struct {
 }
 
 // NewStaffSessionClient builds a client for baseURL that authenticates with
-// sessionToken (the value of a staff session's ankra_session cookie).
+// sessionToken (the value of a staff session's ankra_session cookie). Its
+// requests go to the API host, so they pass the same path check as every
+// other request to it (requestPathGuardTransport).
 func NewStaffSessionClient(baseURL string, sessionToken string) *StaffSessionClient {
 	return &StaffSessionClient{
 		BaseURL:      baseURL,
 		SessionToken: sessionToken,
-		HTTP:         &http.Client{Timeout: 60 * time.Second},
+		HTTP: &http.Client{
+			Timeout:   60 * time.Second,
+			Transport: &requestPathGuardTransport{base: &http.Transport{Proxy: http.ProxyFromEnvironment}},
+		},
 	}
 }
 

@@ -21,12 +21,17 @@ var ErrClusterNotFound = errors.New("cluster not found")
 // currently render (operation, agent_*, resources, *_count, etc.) are
 // silently ignored by Go's JSON decoder.
 type ClusterListItem struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	State          string `json:"state"`
-	Description    string `json:"description"`
-	Environment    string `json:"environment"`
-	OrganisationID string `json:"organisation_id"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	State       string `json:"state"`
+	Description string `json:"description"`
+	Environment string `json:"environment"`
+	// EnvironmentSource is how the environment label was set: person,
+	// automation, default (a create lane's fallback nobody chose) or unknown
+	// (set before the platform recorded it). Empty from a platform that
+	// predates the field.
+	EnvironmentSource string `json:"environment_source,omitempty" yaml:"environment_source,omitempty"`
+	OrganisationID    string `json:"organisation_id"`
 	// ProjectID is the project the cluster belongs to (ADR 0022), when the
 	// platform serves it; nil on platforms whose cluster list predates it.
 	ProjectID         *string         `json:"project_id,omitempty" yaml:"project_id,omitempty"`
@@ -475,8 +480,15 @@ type CreateResourceSpec struct {
 }
 
 type CreateImportClusterRequest struct {
-	Name        string             `json:"name"`
-	Description string             `json:"description,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// Environment is the file's metadata.environment, what the cluster is
+	// for; omitted when the file declares none. The platform applies it only
+	// when this import creates the cluster, recording who chose it from the
+	// credential (a person's own token: the person; a service account:
+	// automation). An existing cluster's label is changed through
+	// SetClusterEnvironment instead.
+	Environment *string            `json:"environment,omitempty"`
 	Spec        CreateResourceSpec `json:"spec"`
 	// AllowRepoint acknowledges that moving the cluster to a different GitOps
 	// repository or branch prunes whatever the new source does not define.

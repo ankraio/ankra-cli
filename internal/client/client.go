@@ -77,7 +77,9 @@ const defaultSlowWriteTimeout = 5 * time.Minute
 // headers, and the client attribution headers (attribution.go), on every
 // request routed through the client, so no individual call site needs to be
 // aware of either. Every transport that talks to the Ankra API is one of
-// these.
+// these, which makes it the one place a request to the API passes through
+// before it is sent: it refuses a path the platform's edge would rewrite to
+// another route (request_path_guard.go) before anything else happens.
 type scopeOverrideTransport struct {
 	base      http.RoundTripper
 	orgID     *string
@@ -95,6 +97,13 @@ type scopeOverrideTransport struct {
 }
 
 func (t *scopeOverrideTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Checked outside the retry loop, so a refused request is never retried,
+	// and for every request except one positively bound for another host.
+	if !t.isOtherHostRequest(req.URL) {
+		if refusal := refuseUnsafeRequestPath(req); refusal != nil {
+			return nil, refusal
+		}
+	}
 	organisationID := ""
 	if t.orgID != nil {
 		organisationID = *t.orgID

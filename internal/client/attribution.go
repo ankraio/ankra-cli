@@ -276,6 +276,21 @@ func (t *scopeOverrideTransport) isAPIRequest(requestURL *url.URL) bool {
 	return hostAndPort(apiURL) == hostAndPort(requestURL)
 }
 
+// isOtherHostRequest reports whether a request is known to go to a host
+// other than the client's API host. It is not the negation of isAPIRequest:
+// a transport without a readable base URL cannot know, and answers false,
+// so the path guard that keys on it fails closed.
+func (t *scopeOverrideTransport) isOtherHostRequest(requestURL *url.URL) bool {
+	if t.baseURL == nil || requestURL == nil {
+		return false
+	}
+	apiURL, parseError := url.Parse(*t.baseURL)
+	if parseError != nil || apiURL.Host == "" {
+		return false
+	}
+	return hostAndPort(apiURL) != hostAndPort(requestURL)
+}
+
 // hostAndPort is a URL's lower-cased host with its port, the scheme's
 // default port when the URL names none.
 func hostAndPort(address *url.URL) string {

@@ -313,6 +313,7 @@ func TestCostProjectScopeIsSentOnTheFleetCostReads(t *testing.T) {
 		{name: "reconciliation with month", read: func() error { _, err := testClient.GetCostReconciliation("2026-09"); return err }, path: "/api/v1/org/cloud-cost/reconciliation", want: "month=2026-09&project_id=all"},
 		{name: "budgets", read: func() error { _, err := testClient.ListCostBudgets(); return err }, path: "/api/v1/org/cloud-cost/budgets", want: "project_id=all"},
 		{name: "autopilot", read: func() error { _, err := testClient.GetCostAutopilot(); return err }, path: "/api/v1/org/cloud-cost/autopilot", want: "project_id=all"},
+		{name: "failed waste scans", read: func() error { _, err := testClient.GetCloudWasteCredentialErrors(); return err }, path: "/api/v1/org/cloud-cost/waste", want: "project_id=all"},
 	}
 	for _, read := range reads {
 		t.Run(read.name, func(t *testing.T) {
