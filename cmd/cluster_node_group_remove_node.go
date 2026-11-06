@@ -59,8 +59,8 @@ The platform refuses a control plane, a node of another group, a node
 already being removed, and a removal that would take an autoscaling group
 below its min count; each refusal exits 1 with the platform's reason. A
 node the cluster does not have exits 3. A blank group or node, one made
-only of dots, or a '/' outside a providerID exits 2 before anything is
-looked up or sent.
+only of dots, a '/' outside a providerID, or a '.' or '..' step inside one
+exits 2 before anything is looked up or sent.
 
 Examples:
   ankra cluster node-group remove-node <cluster_id> opensearch prod-opensearch-0
@@ -77,7 +77,7 @@ func runRemoveNodeGroupNode(cmd *cobra.Command, args []string) error {
 	if resolveError != nil {
 		return resolveError
 	}
-	groupName, nodeReference := args[1], args[2]
+	groupName, nodeReference := args[1], strings.TrimSpace(args[2])
 	yes, _ := cmd.Flags().GetBool("yes")
 	drainOptions := drainOptionsFromFlags(cmd)
 	kind, kindError := resolveNodeGroupClusterKind(args[0], clusterID)
@@ -132,22 +132,33 @@ func runRemoveNodeGroupNode(cmd *cobra.Command, args []string) error {
 var providerIDShape = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*://`)
 
 // validateNodeReference refuses a node reference no node can have, before
-// anything is looked up or sent: blank, made only of dots, or holding a '/'
-// when it is not a providerID. The reference is path-escaped into one
-// segment, but a reference of dots is a path step the platform's edge
-// resolves, so `remove-node <c> <group> ..` would reach the group's own
-// DELETE (ankra-6pi023).
+// anything is looked up or sent: blank, made only of dots, holding a '/' when
+// it is not a providerID, or a providerID with a "." or ".." step. The
+// reference is path-escaped into one segment, but a reference of dots is a
+// path step the platform's edge resolves, so `remove-node <c> <group> ..`
+// would reach the group's own DELETE (ankra-6pi023). The edge leaves the
+// escaped '/' of a providerID alone today; no provider's id has a dot step,
+// so one is refused here rather than resting on that. Space around the
+// reference is not part of it: this checks what is sent, trimmed.
 func validateNodeReference(reference string) error {
-	decoded := strings.TrimSpace(client.PercentDecoded(reference))
-	if providerIDShape.MatchString(decoded) {
+	trimmed := strings.TrimSpace(reference)
+	decoded := client.PercentDecoded(trimmed)
+	if scheme := providerIDShape.FindString(decoded); scheme != "" {
+		for _, step := range strings.Split(strings.TrimPrefix(decoded, scheme), "/") {
+			if step == "." || step == ".." {
+				return withExitCode(exitUsage, fmt.Errorf(
+					"the node %q has a '%s' step, which no providerID has; name the node, its providerID or "+
+						"its server id", reference, step))
+			}
+		}
 		return nil
 	}
-	if strings.TrimSpace(reference) != "" && strings.Trim(decoded, ".") != "" && strings.Contains(decoded, "/") {
+	if strings.Contains(decoded, "/") {
 		return withExitCode(exitUsage, fmt.Errorf(
 			"the node %q contains '/' but is not a providerID (scheme://...); name the node, its providerID "+
 				"or its server id", reference))
 	}
-	return validatePathArgument("node", reference)
+	return validatePathArgument("node", trimmed)
 }
 
 // removeNodeGroupNodeError wraps a remove-node failure for the terminal. A

@@ -458,6 +458,11 @@ func TestClusterNodeGroupRemoveNodeRefusesAReferenceNoNodeCanHave(t *testing.T) 
 		{"opensearch", ".", "made only of dots"},
 		{"opensearch", "%2e%2E", `decodes to ".."`},
 		{"opensearch", "a/b", "is not a providerID"},
+		{"opensearch", "x://..", "which no providerID has"},
+		{"opensearch", "x://%2e%2e", "which no providerID has"},
+		{"opensearch", "x://..%2f..", "which no providerID has"},
+		{"opensearch", "hcloud://168428300/../..", "which no providerID has"},
+		{"opensearch", "aws:///./i-0abc123", "which no providerID has"},
 		{"", "depict-opensearch-0", "node group name is blank"},
 		{"..", "depict-opensearch-0", "made only of dots"},
 		{"a/b", "depict-opensearch-0", "contains '/'"},
@@ -478,10 +483,28 @@ func TestClusterNodeGroupRemoveNodeRefusesAReferenceNoNodeCanHave(t *testing.T) 
 
 // A providerID is the one node reference with a '/', whatever its provider.
 func TestClusterNodeGroupRemoveNodeAcceptsProviderIDs(t *testing.T) {
-	for _, reference := range []string{"hcloud://168428300", "aws:///eu-west-1a/i-0abc123", "openstack:///3f2a9c"} {
+	for _, reference := range []string{"hcloud://168428300", "aws:///eu-west-1a/i-0abc123", "openstack:///3f2a9c",
+		"vsphere://42.1f..aa/.vm", "  hcloud://168428300  "} {
 		if err := validateNodeReference(reference); err != nil {
 			t.Errorf("%s: refused a providerID: %v", reference, err)
 		}
+	}
+}
+
+// What is checked is what is sent: space around the reference is not part of
+// it, so the prompt's lookup and the request both use the trimmed form.
+func TestClusterNodeGroupRemoveNodeSendsTheReferenceItChecked(t *testing.T) {
+	mock := newRemoveNodeMock("hetzner")
+	_, stderr, runError := runRemoveNode(t, mock, "y\n", testClusterID, "opensearch", "  hcloud://168428300  ")
+	if runError != nil {
+		t.Fatalf("remove-node failed: %v", runError)
+	}
+	want := removeNodeCall{kind: "hetzner", clusterID: testClusterID, groupName: "opensearch", node: "hcloud://168428300"}
+	if len(mock.calls) != 1 || mock.calls[0] != want {
+		t.Fatalf("calls = %+v, want [%+v]", mock.calls, want)
+	}
+	if !strings.Contains(stderr, "depict-opensearch-0") {
+		t.Errorf("the prompt did not resolve the trimmed reference: %q", stderr)
 	}
 }
 
