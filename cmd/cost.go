@@ -1170,13 +1170,20 @@ func renderCloudSavingsWaste(out io.Writer, waste client.CloudSavingsWaste, curr
 // deleted credential: the platform does not say that), and the scans outside
 // the reader's projects as one line that names none, as the platform gives
 // them. Names and errors are the platform's and the provider's text, flattened
-// to one line.
+// to one line. A listing that names no failed scan, as a platform that
+// predates credential_errors answers, or one read after a rescan finished, is
+// said in a line of its own: which scan did not finish is then unknown, and
+// the line under an incomplete scan never just ends.
 func renderCloudSavingsScanFailures(out io.Writer, scan *cloudSavingsScanFailures) {
 	if scan == nil {
 		return
 	}
 	if scan.isUnread {
 		_, _ = fmt.Fprintln(out, "  Which scan did not finish could not be read.")
+		return
+	}
+	if len(scan.failures) == 0 {
+		_, _ = fmt.Fprintln(out, "  Which scan did not finish is not listed by this platform.")
 		return
 	}
 	for _, failed := range scan.failures {

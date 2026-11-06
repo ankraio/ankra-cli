@@ -119,6 +119,29 @@ func TestCostSavingsWhenTheFailedScansCannotBeReadStillSucceeds(t *testing.T) {
 	}
 }
 
+// A listing that names no failed scan (a platform that predates
+// credential_errors answers an empty one, and so does a read after a rescan
+// finished) leaves which scan did not finish unknown, and the output says so
+// rather than ending after the incomplete-scan line.
+func TestCostSavingsWhenNoFailedScanIsListedSaysItIsNotListed(t *testing.T) {
+	for _, listed := range [][]client.CloudWasteCredentialError{{}, nil} {
+		mock := &costMock{
+			savings:      savingsWithWaste(client.CloudSavingsWaste{Available: true, HasData: true, ScanIncomplete: scanFlag(true)}),
+			scanFailures: listed,
+		}
+		output, executeError := runCostCommand(t, mock, "cost", "savings")
+		if executeError != nil {
+			t.Fatalf("cost savings failed: %v", executeError)
+		}
+		want := "\nWaste: none listed, but the last scan did not finish, so that is unknown, not no waste.\n" +
+			"  Which scan did not finish is not listed by this platform.\n"
+		if !strings.HasSuffix(output, want) {
+			t.Fatalf("listing %#v: an incomplete scan with no failed scan listed must say it is not listed, want suffix\n%q\ngot\n%q",
+				listed, want, output)
+		}
+	}
+}
+
 func TestCostSavingsFailedScanTextIsFlattenedToOneLine(t *testing.T) {
 	mock := &costMock{
 		savings: savingsWithWaste(client.CloudSavingsWaste{Available: true, HasData: true, ScanIncomplete: scanFlag(true)}),
