@@ -108,8 +108,51 @@ func TestGetCostReconciliation_TellsAnUnreportedCoverageFromNoClusterCovered(t *
 	if unreported.CoverageReported || unreported.DifferenceCoverage != nil {
 		t.Fatalf("a credential with no difference_coverage key must read as not reported: %+v", unreported)
 	}
-	if unreported.SameInvoiceAs == nil || *unreported.SameInvoiceAs != covered.CredentialID {
+	if covered.CredentialID == nil || unreported.SameInvoiceAs == nil || *unreported.SameInvoiceAs != *covered.CredentialID {
 		t.Fatalf("same_invoice_as did not decode: %+v", unreported)
+	}
+	for _, credential := range reconciliation.Credentials {
+		if credential.CredentialOutsideProjects {
+			t.Fatalf("a platform that predates credential_outside_projects must read as naming every credential: %+v", credential)
+		}
+	}
+}
+
+// costReconciliationOutsideBody is a read for a reader confined to a
+// project (ankra-bn86k4.64): the reader's own credential in full, and two
+// credentials outside its projects that bill its clusters, each with its
+// identity withheld (a null id and name, an empty document id, a null
+// provider error) and the marker set.
+const costReconciliationOutsideBody = `{"month":"2026-10","month_closed":true,"period_hours":744,"generated_at":"",` +
+	`"credentials":[` +
+	`{"credential_id":"aaaaaaaa-0000-4000-8000-000000000001","credential_outside_projects":false,"credential_name":"ovh-a",` +
+	`"provider":"ovh","state":"complete","invoice_withheld":true,"matched_minor":4000,"currency":"eur"},` +
+	`{"credential_id":null,"credential_outside_projects":true,"credential_name":null,"provider":"ovh","state":"failed",` +
+	`"imports":[{"source":"api","source_document_id":"","state":"failed","reason":null,"line_count":0,"attempted_at":"2026-11-01T06:00:00Z"}],` +
+	`"invoice_withheld":true,"matched_minor":1200,"currency":"eur","same_invoice_as":null,"difference_reason":null},` +
+	`{"credential_id":null,"credential_outside_projects":true,"credential_name":null,"provider":"ovh","state":"complete",` +
+	`"invoice_withheld":true,"matched_minor":1700,"currency":"eur"}]}`
+
+func TestGetCostReconciliation_DecodesAWithheldCredentialAsNotNamed(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(costReconciliationOutsideBody))
+	}
+	reconciliation, err := newTestClient(t, handler).GetCostReconciliation("2026-10")
+	if err != nil || len(reconciliation.Credentials) != 3 {
+		t.Fatalf("GetCostReconciliation = %+v, %v", reconciliation, err)
+	}
+	named := reconciliation.Credentials[0]
+	if named.CredentialOutsideProjects || named.CredentialID == nil || *named.CredentialID != "aaaaaaaa-0000-4000-8000-000000000001" {
+		t.Fatalf("the reader's own credential must decode named and unmarked: %+v", named)
+	}
+	for index, withheld := range reconciliation.Credentials[1:] {
+		if !withheld.CredentialOutsideProjects || withheld.CredentialID != nil || withheld.CredentialName != nil ||
+			withheld.MatchedMinor == nil {
+			t.Fatalf("withheld entry %d must decode marked, with no id or name and its amount kept: %+v", index, withheld)
+		}
+	}
+	if document := reconciliation.Credentials[1].Imports[0]; document.SourceDocumentID != "" || document.Reason != nil {
+		t.Fatalf("a withheld credential's import must carry no document id or provider error: %+v", document)
 	}
 }
 
