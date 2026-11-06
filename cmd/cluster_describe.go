@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -24,6 +25,12 @@ import (
 type describeResult struct {
 	Object map[string]interface{}   `json:"object" yaml:"object"`
 	Events []map[string]interface{} `json:"events" yaml:"events"`
+	// KubeletConfig is the node's live kubelet configuration, present only
+	// with --kubelet-config.
+	KubeletConfig map[string]interface{} `json:"kubelet_config,omitempty" yaml:"kubelet_config,omitempty"`
+	// KubeletConfigError says why --kubelet-config could not be read, so an
+	// absent kubelet_config is never mistaken for an empty one.
+	KubeletConfigError string `json:"kubelet_config_error,omitempty" yaml:"kubelet_config_error,omitempty"`
 }
 
 var clusterDescribeCmd = &cobra.Command{
@@ -48,11 +55,20 @@ subresource, so this is the most recent write of each, not a full history. The
 cached copy other reads are served from does not keep them, and -o json|yaml
 then carry them under object.metadata.managedFields.
 
+--kubelet-config, on a node, adds the kubelet's live configuration as the
+kubelet reports it on /configz: the values in force once its flags and config
+file were merged (eviction thresholds, reserved resources, image garbage
+collection, max pods), which the Node object does not carry. A kubelet the
+read cannot reach is reported with the reason in place of the configuration,
+never as an empty one; -o json|yaml carry it as kubelet_config, or
+kubelet_config_error.
+
 Examples:
   ankra cluster describe pod web-7d9f-2xkvp -n default
   ankra cluster describe deployment web -n default
   ankra cluster describe node worker-1
   ankra cluster describe pod web-7d9f-2xkvp -n default --managed-fields
+  ankra cluster describe node worker-1 --kubelet-config
   ankra cluster describe pvc data-web-0 -n default -o json`,
 	Args:        cobra.ExactArgs(2),
 	Annotations: map[string]string{"group": "kubernetes"},
@@ -63,12 +79,16 @@ Examples:
 		}
 		namespace, _ := cmd.Flags().GetString("namespace")
 		showFieldManagers, _ := cmd.Flags().GetBool("managed-fields")
+		showKubeletConfig, _ := cmd.Flags().GetBool("kubelet-config")
 
 		resolvedKind, kindError := resolveK8sKindFromFlags(cmd, args[0])
 		if kindError != nil {
 			return kindError
 		}
 		name := args[1]
+		if showKubeletConfig && (resolvedKind.kind != "Node" || resolvedKind.group != "") {
+			return withExitCode(exitUsage, errors.New("--kubelet-config applies to nodes only: ankra cluster describe node <name> --kubelet-config"))
+		}
 		if !resolvedKind.clusterScoped && namespace == "" {
 			return namespaceRequiredError("describe", resolvedKind)
 		}
@@ -92,6 +112,14 @@ Examples:
 		}
 
 		result := describeResult{Object: object, Events: events}
+		if showKubeletConfig {
+			kubeletConfig, kubeletConfigError := apiClient.GetNodeKubeletConfig(cluster.ID, name)
+			if kubeletConfigError != nil {
+				result.KubeletConfigError = kubeletConfigError.Error()
+			} else {
+				result.KubeletConfig = kubeletConfig.KubeletConfig
+			}
+		}
 		if outputFormat == "json" || outputFormat == "yaml" {
 			announceDegradedBareObject(objectAnswer)
 			if showFieldManagers && objectAnswer.ServedFromCache {
@@ -119,8 +147,30 @@ Examples:
 		if showFieldManagers {
 			renderFieldManagers(os.Stdout, object, objectAnswer)
 		}
+		if showKubeletConfig {
+			renderKubeletConfig(os.Stdout, result)
+		}
 		return nil
 	},
+}
+
+// renderKubeletConfig prints the --kubelet-config section: the configuration
+// as indented YAML, or the reason it could not be read.
+func renderKubeletConfig(out io.Writer, result describeResult) {
+	fmt.Fprintln(out)
+	if result.KubeletConfigError != "" {
+		fmt.Fprintf(out, "Kubelet configuration: could not be read: %s\n", result.KubeletConfigError)
+		return
+	}
+	fmt.Fprintln(out, "Kubelet configuration (live, as the kubelet reports it on /configz):")
+	encoded, marshalError := yaml.Marshal(result.KubeletConfig)
+	if marshalError != nil {
+		fmt.Fprintf(out, "  could not be rendered: %v\n", marshalError)
+		return
+	}
+	for _, line := range strings.Split(strings.TrimRight(string(encoded), "\n"), "\n") {
+		fmt.Fprintf(out, "  %s\n", line)
+	}
 }
 
 // lastAppliedConfigurationAnnotation is the annotation kubectl apply writes,
@@ -556,6 +606,8 @@ func init() {
 	clusterDescribeCmd.Flags().StringP("namespace", "n", "", "Kubernetes namespace")
 	clusterDescribeCmd.Flags().Bool("managed-fields", false,
 		"Read the object live and show who last wrote it: each field manager with its operation, subresource and time")
+	clusterDescribeCmd.Flags().Bool("kubelet-config", false,
+		"On a node: add the kubelet's live configuration as it reports it on /configz")
 	clusterDescribeCmd.Flags().StringP("output", "o", "table", "Output format: table, json, yaml")
 	registerK8sKindFlags(clusterDescribeCmd)
 
