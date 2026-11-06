@@ -34,10 +34,12 @@ type nodeGroupRemoveNodeMock struct {
 	// nodes is the cluster's node list (nil: the read fails), and
 	// kubernetesNodes the providerID each Kubernetes node reports, by name
 	// (nil: the read fails). kubernetesCached answers the Node read from the
-	// platform's cache instead of the cluster.
-	nodes            []client.NodeSummary
-	kubernetesNodes  map[string]string
-	kubernetesCached bool
+	// platform's cache instead of the cluster, and kubernetesNeverAnswers
+	// holds the Node read until the test ends.
+	nodes                  []client.NodeSummary
+	kubernetesNodes        map[string]string
+	kubernetesCached       bool
+	kubernetesNeverAnswers chan struct{}
 	// listAnswersNothing answers the node list with neither a list nor an
 	// error; listNeverAnswers holds it until the test ends; and
 	// listWaitsForKubernetes holds it until a Kubernetes read has started,
@@ -98,6 +100,10 @@ func (m *nodeGroupRemoveNodeMock) GetResources(_ string, request client.GetResou
 	m.kubernetesMutex.Unlock()
 	if m.kubernetesStarted != nil {
 		m.kubernetesStartedOnce.Do(func() { close(m.kubernetesStarted) })
+	}
+	if m.kubernetesNeverAnswers != nil {
+		<-m.kubernetesNeverAnswers
+		return nil, errors.New("the test ended")
 	}
 	if m.kubernetesNodes == nil || len(request.ResourceRequests) != 1 || request.ResourceRequests[0].Kind != "Node" {
 		return nil, errors.New("the agent did not answer")
@@ -632,11 +638,22 @@ func TestClusterNodeGroupRemoveNodeReadsOnlyTheKubernetesNodesItNeedsLive(t *tes
 		}
 	}
 
+	// A cached answer is refused whether it names the node or says there is
+	// none: a node that has joined since would be missed.
+	const notLive = "Provider id: not known: the cluster's Kubernetes nodes could not be read (the cluster did not " +
+		"answer live; only the platform's cached copy did)"
 	mock := newRemoveNodeMock("hetzner")
 	mock.kubernetesCached = true
 	_, prompt, _ := runRemoveNode(t, mock, "n\n", testClusterID, "opensearch", "depict-opensearch-0")
-	if !strings.Contains(prompt, "Provider id: not known: the cluster's Kubernetes nodes could not be read") {
+	if !strings.Contains(prompt, notLive) {
 		t.Errorf("a cached Node answer must not be shown as the providerID:\n%s", prompt)
+	}
+	mock = newRemoveNodeMock("hetzner")
+	mock.kubernetesCached = true
+	delete(mock.kubernetesNodes, "depict-opensearch-0")
+	_, prompt, _ = runRemoveNode(t, mock, "n\n", testClusterID, "opensearch", "depict-opensearch-0")
+	if !strings.Contains(prompt, notLive) {
+		t.Errorf("a cached \"not found\" must not be read as no Kubernetes node:\n%s", prompt)
 	}
 }
 
@@ -676,6 +693,32 @@ func TestClusterNodeGroupRemoveNodeLookupIsBounded(t *testing.T) {
 	}
 }
 
+// A Kubernetes read that runs out of time is said as that, not as a read
+// that failed. For a server id the read starts once the list has answered,
+// with what is left of the budget; the node is still named by its id.
+func TestClusterNodeGroupRemoveNodeSaysWhenTheNodeReadRanOutOfTime(t *testing.T) {
+	original := removeNodeLookupTimeout
+	removeNodeLookupTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { removeNodeLookupTimeout = original })
+	for _, reference := range []string{removeNodeServerID, "depict-opensearch-0"} {
+		mock := newRemoveNodeMock("hetzner")
+		mock.kubernetesNeverAnswers = make(chan struct{})
+		_, prompt, err := runRemoveNode(t, mock, "y\n", testClusterID, "opensearch", reference)
+		close(mock.kubernetesNeverAnswers)
+		if err != nil {
+			t.Fatalf("%s: remove-node failed: %v", reference, err)
+		}
+		if !strings.Contains(prompt, `Remove node "depict-opensearch-0"`) ||
+			!strings.Contains(prompt, "Provider id: not known: the cluster's Kubernetes nodes did not answer within "+
+				"the lookup's 50ms") {
+			t.Errorf("%s: the prompt must name the node and say the Node read ran out of time:\n%s", reference, prompt)
+		}
+		if len(mock.calls) != 1 || mock.calls[0].node != removeNodeServerID {
+			t.Errorf("%s: calls = %+v, want the approved node's server id", reference, mock.calls)
+		}
+	}
+}
+
 // Why a reference was not resolved is said truthfully: a providerID when the
 // Kubernetes nodes could not be read, and on AWS, where the CLI cannot pair a
 // server with its Kubernetes node, a node name or providerID it cannot check.
@@ -684,9 +727,9 @@ func TestClusterNodeGroupRemoveNodeSaysWhyAReferenceWasNotResolved(t *testing.T)
 	mock := newRemoveNodeMock("hetzner")
 	mock.kubernetesNodes = nil
 	_, prompt, _ := runRemoveNode(t, mock, "n\n", testClusterID, "opensearch", "hcloud://168428300")
-	if !strings.Contains(prompt, "the cluster's Kubernetes nodes could not be read, so the CLI could not tell which "+
-		"node reports that providerID") {
-		t.Errorf("a providerID with no Node read must say the nodes could not be read:\n%s", prompt)
+	if !strings.Contains(prompt, "the cluster's Kubernetes nodes could not be read (the agent did not answer), so the "+
+		"CLI could not tell which node reports that providerID") {
+		t.Errorf("a providerID with no Node read must say the nodes could not be read, and why:\n%s", prompt)
 	}
 
 	for _, reference := range []string{"ip-10-0-1-5.eu-west-1.compute.internal", "aws:///eu-west-1a/i-0abc123"} {

@@ -394,7 +394,8 @@ type kubernetesNodeView struct {
 // node called name, or of every node when name is "". A node of that name
 // that does not exist answers an empty map. The read asks for a live answer
 // and takes no other, as cluster top's capacity read does: a cached copy can
-// pair a providerID with a node name that a replaced server has reused since.
+// pair a providerID with a node name that a replaced server has reused since,
+// and a cached "not found" can miss a node that has joined since.
 func startKubernetesNodeRead(clusterID, name string) <-chan readAnswer[map[string]string] {
 	getResources := apiClient.GetResources
 	return startRead(func() (map[string]string, error) {
@@ -404,6 +405,12 @@ func startKubernetesNodeRead(clusterID, name string) <-chan readAnswer[map[strin
 		})
 		if readError != nil {
 			return nil, readError
+		}
+		if response == nil || len(response.ResourceResponses) != 1 {
+			return nil, noItemInReplyError("the cluster's Nodes")
+		}
+		if response.ResourceResponses[0].CacheMetadata != nil {
+			return nil, errors.New("the cluster did not answer live; only the platform's cached copy did")
 		}
 		var items []interface{}
 		if name != "" {
@@ -416,16 +423,10 @@ func startKubernetesNodeRead(clusterID, name string) <-chan readAnswer[map[strin
 			}
 			items = named
 		} else {
-			if response == nil || len(response.ResourceResponses) != 1 {
-				return nil, noItemInReplyError("the cluster's Nodes")
-			}
 			if failed := failedReadError(response.ResourceResponses[0], "the cluster's Nodes"); failed != nil {
 				return nil, failed
 			}
 			items = response.ResourceResponses[0].Items
-		}
-		if response.ResourceResponses[0].CacheMetadata != nil {
-			return nil, errors.New("the cluster did not answer live; only the platform's cached copy did")
 		}
 		providerIDs := map[string]string{}
 		for _, item := range items {
@@ -484,14 +485,24 @@ func resolveRemoveNodeTarget(kind, clusterID, reference string) removeNodeTarget
 			kubernetesRead = startKubernetesNodeRead(clusterID, strings.ToLower(candidates[0].Name))
 		}
 	}
-	kubernetes := kubernetesNodeView{namedAfterServers: namedAfterServers,
-		unread: "the cluster's Kubernetes nodes could not be read"}
-	if !namedAfterServers {
+	// A read that starts after the list has only what the list left of the
+	// budget, so running out of time is said as that, not as a read failure.
+	kubernetes := kubernetesNodeView{namedAfterServers: namedAfterServers}
+	switch {
+	case !namedAfterServers:
 		kubernetes.unread = "on AWS the CLI cannot tell which Kubernetes node a server registered as"
-	}
-	if kubernetesRead != nil {
-		if read, readAnswered := awaitRead(kubernetesRead, deadline); readAnswered && read.err == nil {
-			kubernetes.providerIDs, kubernetes.unread = read.value, ""
+	case kubernetesRead == nil:
+		kubernetes.unread = "the server has no name to find its Kubernetes node by"
+	default:
+		read, readAnswered := awaitRead(kubernetesRead, deadline)
+		switch {
+		case !readAnswered:
+			kubernetes.unread = fmt.Sprintf("the cluster's Kubernetes nodes did not answer within the lookup's %s",
+				removeNodeLookupTimeout)
+		case read.err != nil:
+			kubernetes.unread = fmt.Sprintf("the cluster's Kubernetes nodes could not be read (%v)", read.err)
+		default:
+			kubernetes.providerIDs = read.value
 		}
 	}
 	return matchRemoveNodeReference(nodes, kubernetes, reference)
