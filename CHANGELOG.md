@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- **`ankra cluster get resources <kind>` finds built-in kinds without `--group`.** `RuntimeClass` and `PriorityClass` answered "Resource not found" for objects that exist, because the command sent the kind with no API group. It now places a kind through the table `cluster describe` uses, so the same spellings work on both, including plurals like `runtimeclasses`, and a cluster-scoped kind ignores `-n`. An explicit `--group` or `--api-version` still wins. A custom resource with no `--group` that gets a 404 is now a usage error (exit 2) that names `--group`.
 - **`ankra cluster metrics query-range` says when a series was downsampled.** A long range could come back with far fewer points than the query produced, at a spacing nothing mentioned and with `truncated: false`, so it read as a complete answer at the `--step` you asked for. The Points column now reads `50 of 385`, and a note on stderr says how far apart the returned points are. `-o json` and `-o yaml` stay parseable and print the platform's own response.
 
 ## v0.68.0 - 2026-11-06
