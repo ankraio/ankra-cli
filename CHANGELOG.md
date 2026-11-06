@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra cluster describe --managed-fields` shows who last wrote an object.** It reads the object live and lists each field manager with its operation, subresource and time, which is how to see what resized a pod in place (subresource `resize`), scaled a workload or edited its spec. Kubernetes keeps one entry per manager and subresource, so this is the latest write of each, not a full history. When the cluster cannot answer live, the command says the field managers are unavailable rather than that there are none.
+- **Every `ankra cluster operations` command accepts a short execution id.** `steps`, `list <id>`, `retry`, `cancel` and `cancel-step` take the first 6 or more characters of an id, the way a report or a chat message abbreviates it, instead of answering 422. A short id is looked up among the most recent executions of the active cluster, or of the organisation when no cluster is selected. Two matches are refused and both are named.
+
+### Fixed
+
+- **`ankra cluster metrics query-range` says when a series was downsampled.** A long range could come back with far fewer points than the query produced, at a spacing nothing mentioned and with `truncated: false`, so it read as a complete answer at the `--step` you asked for. The Points column now reads `50 of 385`, and a note on stderr says how far apart the returned points are. `-o json` and `-o yaml` stay parseable and print the platform's own response.
+
 ## v0.68.0 - 2026-11-06
 
 This release makes three cost commands say only what the platform knows. A credential outside
