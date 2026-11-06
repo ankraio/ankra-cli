@@ -236,7 +236,7 @@ func ensureSecureConfigFile(path string) error {
 }
 
 // loginHTTPClient talks to the API (the login flow, the GitHub OIDC
-// exchange) and to GitHub's ID token endpoint, behind the client's path check.
+// exchange), behind the client's path check.
 var loginHTTPClient = client.NewGuardedHTTPClient(30 * time.Second)
 
 func runLogin() error {
