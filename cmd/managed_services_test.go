@@ -104,6 +104,27 @@ type fakeServicesPlatform struct {
 	// connectionDelivery replaces the consumer's connection_delivery in
 	// every instance read; nil keeps the delivered default.
 	connectionDelivery map[string]any
+	// extraConsumers are consumers the instance has beside the default one.
+	extraConsumers []any
+	// instanceDisconnections is the disconnections field the single
+	// instance read answers (never the listing, like the platform); nil
+	// sends none, as a platform from before disconnections.
+	instanceDisconnections map[string]any
+	// released marks the instance retired.
+	released bool
+	// The disconnection lane (managed_services_disconnect_test.go):
+	// disconnectionChoiceRequired makes a review ask who gives the
+	// conventional names; disconnectionConfirmConflict answers every confirm
+	// with the platform's 409; disconnectionConfirmPhase replaces the phase a
+	// confirm answers; disconnectionWorkloadsState and
+	// disconnectionNetworkReason replace those enum values in every plan.
+	disconnectionChoiceRequired  bool
+	disconnectionConfirmConflict bool
+	disconnectionConfirmPhase    string
+	disconnectionWorkloadsState  string
+	disconnectionNetworkReason   string
+	disconnections               map[string]map[string]any
+	disconnectionPrepares        int
 }
 
 // instance is the fake instance as this platform answers it.
@@ -112,6 +133,13 @@ func (platform *fakeServicesPlatform) instance() map[string]any {
 	if platform.connectionDelivery != nil {
 		consumer := instance["consumers"].([]any)[0].(map[string]any)
 		consumer["connection_delivery"] = platform.connectionDelivery
+	}
+	if len(platform.extraConsumers) > 0 {
+		instance["consumers"] = append(instance["consumers"].([]any), platform.extraConsumers...)
+	}
+	if platform.released {
+		instance["released_at"] = "2026-10-20T00:00:00Z"
+		instance["deployment_state"] = "released"
 	}
 	return instance
 }
@@ -367,7 +395,8 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		case !known:
 			fakeServiceJSON(t, writer, http.StatusNotFound, map[string]any{"detail": "Service admission resource not found"})
 		case platform.unbindInUse:
-			fakeServiceJSON(t, writer, http.StatusConflict, map[string]any{"detail": "A service still uses this binding; retire the service before removing it"})
+			fakeServiceJSON(t, writer, http.StatusConflict, map[string]any{"detail": "A service still uses this binding; disconnect the application " +
+				"from the service (or retire the service) before removing it"})
 		case request.URL.Query().Get("expected_revision") != current:
 			fakeServiceJSON(t, writer, http.StatusConflict, map[string]any{"detail": "Service configuration changed; refresh and review again"})
 		default:
@@ -407,7 +436,15 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"result": result,
 			"pagination": map[string]any{"total_pages": 1, "page": 1, "page_size": 100, "total_count": len(result)}})
 	case request.Method == http.MethodGet && path == instancePath:
-		fakeServiceJSON(t, writer, http.StatusOK, platform.instance())
+		instance := platform.instance()
+		if platform.instanceDisconnections != nil {
+			instance["disconnections"] = platform.instanceDisconnections
+		}
+		fakeServiceJSON(t, writer, http.StatusOK, instance)
+	case request.Method == http.MethodPost && path == instancePath+"/disconnections":
+		platform.servePrepareDisconnection(writer, bodyBytes)
+	case request.Method == http.MethodPost && strings.HasPrefix(path, instancePath+"/disconnections/") && strings.HasSuffix(path, "/confirm"):
+		platform.serveConfirmDisconnection(writer, strings.TrimSuffix(strings.TrimPrefix(path, instancePath+"/disconnections/"), "/confirm"), bodyBytes)
 	case request.Method == http.MethodPost && path == instancePath+"/retirements":
 		var body client.ServiceRetirementRequest
 		_ = json.Unmarshal(bodyBytes, &body)
@@ -596,7 +633,7 @@ func runServicesCommand(t *testing.T, platform *fakeServicesPlatform, input stri
 
 func TestServicesCommandsRegistered(t *testing.T) {
 	expected := map[string][]string{
-		"":            {"list", "get", "setup", "delete", "packages", "policy", "consumers", "reviews", "retirements"},
+		"":            {"list", "get", "setup", "delete", "disconnect", "packages", "policy", "consumers", "reviews", "retirements"},
 		"packages":    {"list", "get", "init", "publish", "propose", "probe", "collisions"},
 		"policy":      {"get", "set"},
 		"consumers":   {"list", "get", "bind", "unbind"},
@@ -745,21 +782,26 @@ func TestServicesSetupStructuredOutputStaysParseable(t *testing.T) {
 	}
 }
 
-// runServicesThroughRoot runs `ankra services ...` through the real root
-// command - its persistent flags, its pre-run, and the setup command's flag
-// parsing as a person types it - with no terminal on stdin. It mutates the
-// package-global rootCmd (output, input, arguments and flag state), so a test
-// that uses it must not call t.Parallel().
+// runServicesThroughRoot runs `ankra services <subcommand> ...` through the
+// real root command - its persistent flags, its pre-run, its SilenceUsage
+// (so stdout holds only what the command itself writes) and the
+// subcommand's flag parsing as a person types it - with no terminal on stdin.
+// The first argument names the subcommand, whose flags are reset around the
+// run. It mutates the package-global rootCmd (output, input, arguments and
+// flag state), so a test that uses it must not call t.Parallel().
 func runServicesThroughRoot(t *testing.T, platform *fakeServicesPlatform, arguments ...string) (string, string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, platform.client())
-	setupCommand, _, findError := rootCmd.Find([]string{"services", "setup"})
-	if findError != nil || setupCommand.Name() != "setup" {
-		t.Fatalf("services setup is not registered on the root command: %v", findError)
+	if len(arguments) == 0 {
+		t.Fatal("runServicesThroughRoot needs the services subcommand to run")
 	}
-	resetTreeFlags(t, setupCommand)
-	t.Cleanup(func() { resetTreeFlags(t, setupCommand) })
+	subcommand, _, findError := rootCmd.Find([]string{"services", arguments[0]})
+	if findError != nil || subcommand.Name() != arguments[0] {
+		t.Fatalf("services %s is not registered on the root command: %v", arguments[0], findError)
+	}
+	resetTreeFlags(t, subcommand)
+	t.Cleanup(func() { resetTreeFlags(t, subcommand) })
 	var stdout, stderr bytes.Buffer
 	rootCmd.SetOut(&stdout)
 	rootCmd.SetErr(&stderr)
@@ -1908,16 +1950,18 @@ func TestServicesConsumersUnbindFailsClosedWhenTheReadFails(t *testing.T) {
 }
 
 // The platform's refusals reach the user verbatim with the way forward: a
-// binding a service uses names that service; a stale revision says how to
-// read the current one.
+// binding a service uses names that service and the commands that disconnect
+// the application from it or retire it; a stale revision says how to read
+// the current one.
 func TestServicesConsumersUnbindRelaysRefusals(t *testing.T) {
 	platform := newFakeServicesPlatform(t)
 	platform.unbindInUse = true
 	_, _, runError := runServicesCommand(t, platform, "", "consumers", "unbind", fakeServiceConsumerID, "--yes")
-	if runError == nil || !strings.Contains(runError.Error(), "A service still uses this binding; retire the service before removing it") ||
+	if runError == nil || !strings.Contains(runError.Error(), "A service still uses this binding; disconnect the application from the service") ||
 		!strings.Contains(runError.Error(), "orders-db ("+fakeServiceInstanceID+")") ||
-		!strings.Contains(runError.Error(), "ankra services delete") {
-		t.Fatalf("expected the in-use refusal verbatim, naming the service, got %v", runError)
+		!strings.Contains(runError.Error(), "ankra services disconnect "+fakeServiceInstanceID+" --consumer "+fakeServiceConsumerID) ||
+		!strings.Contains(runError.Error(), "ankra services delete "+fakeServiceInstanceID) {
+		t.Fatalf("expected the in-use refusal verbatim, naming the service and both ways forward, got %v", runError)
 	}
 
 	platform = newFakeServicesPlatform(t)

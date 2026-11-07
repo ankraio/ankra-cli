@@ -41,6 +41,10 @@ var morpheusCreateCmd = &cobra.Command{
 		etcdPlanID, _ := cmd.Flags().GetInt64("etcd-plan-id")
 		cni, _ := cmd.Flags().GetString("cni")
 		includeNetworking, _ := cmd.Flags().GetBool("include-networking")
+		gatewayAPI, gatewayAPIError := resolveGatewayAPI(cmd, includeNetworking)
+		if gatewayAPIError != nil {
+			return gatewayAPIError
+		}
 		includeDNS, _ := cmd.Flags().GetBool("include-dns")
 
 		request := client.CreateMorpheusClusterRequest{
@@ -61,6 +65,7 @@ var morpheusCreateCmd = &cobra.Command{
 			EtcdNodeCount:      etcdNodeCount,
 			CNI:                cni,
 			IncludeNetworking:  includeNetworking,
+			GatewayAPI:         gatewayAPI,
 			IncludeDNS:         includeDNS,
 		}
 		if description != "" {
@@ -393,6 +398,7 @@ func init() {
 	morpheusCreateCmd.Flags().String("cni", "", "CNI plugin (optional; the platform default is used when omitted)")
 	morpheusCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager as Ankra-managed stacks for ingress (exposed via the built-in k3s service load balancer; default on)")
 	registerIncludeDNSFlag(morpheusCreateCmd)
+	registerGatewayAPIFlag(morpheusCreateCmd)
 	registerClusterClassificationFlags(morpheusCreateCmd)
 
 	_ = morpheusCreateCmd.MarkFlagRequired("name")

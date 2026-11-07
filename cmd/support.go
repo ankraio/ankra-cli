@@ -338,7 +338,7 @@ func renderTicketList(out io.Writer, list *client.SupportTicketListResponse, for
 	t := table.NewWriter()
 	t.SetOutputMirror(out)
 	t.SetStyle(table.StyleRounded)
-	t.AppendHeader(table.Row{"ID", "SUBJECT", "STATUS", "SEVERITY", "TRACKED", "CREATED"})
+	t.AppendHeader(table.Row{"ID", "SUBJECT", "STATUS", "SEVERITY", "TRACKED", "CREATED", "UPDATED", "LAST REPLY"})
 	for _, ticket := range list.Result {
 		t.AppendRow(table.Row{
 			ticket.ID,
@@ -347,6 +347,8 @@ func renderTicketList(out io.Writer, list *client.SupportTicketListResponse, for
 			derefString(ticket.Severity),
 			boolToYesNo(ticket.IsTrackedByTeam),
 			ticket.CreatedAt.Format(time.RFC3339),
+			ticket.UpdatedAt.Format(time.RFC3339),
+			lastReplyLabel(ticket.LastCommentAt, ticket.LastCommentBy),
 		})
 	}
 	t.Render()
@@ -370,9 +372,11 @@ func renderTicket(out io.Writer, ticket *client.SupportTicket, format outputForm
 		return nil
 	}
 	_, _ = fmt.Fprintf(out,
-		"ID:       %s\nSubject:  %s\nStatus:   %s\nCategory: %s\nSeverity: %s\nTracked:  %s\nCreated:  %s\n\n%s\n",
+		"ID:         %s\nSubject:    %s\nStatus:     %s\nCategory:   %s\nSeverity:   %s\nTracked:    %s\nCreated:    %s\nUpdated:    %s\nLast reply: %s\n\n%s\n",
 		ticket.ID, ticket.Subject, ticket.Status, ticket.Category, derefString(ticket.Severity),
-		boolToYesNo(ticket.IsTrackedByTeam), ticket.CreatedAt.Format(time.RFC3339), ticket.Description,
+		boolToYesNo(ticket.IsTrackedByTeam), ticket.CreatedAt.Format(time.RFC3339),
+		ticket.UpdatedAt.Format(time.RFC3339),
+		lastReplyLabel(ticket.LastCommentAt, ticket.LastCommentBy), ticket.Description,
 	)
 	if ticket.IsTrackedByTeam {
 		_, _ = fmt.Fprintln(out, "\nThis issue is being tracked by the Ankra team.")
@@ -385,6 +389,20 @@ func renderTicket(out io.Writer, ticket *client.SupportTicket, format outputForm
 		}
 	}
 	return nil
+}
+
+// lastReplyLabel renders who replied last and when, e.g.
+// "team 2026-10-29T12:54:07Z". A ticket nobody has replied on, or one read
+// from a platform that does not report the last reply, shows "-".
+func lastReplyLabel(at *time.Time, by *string) string {
+	if at == nil {
+		return "-"
+	}
+	stamp := at.UTC().Format(time.RFC3339)
+	if by == nil || *by == "" {
+		return stamp
+	}
+	return *by + " " + stamp
 }
 
 func derefString(value *string) string {

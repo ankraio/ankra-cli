@@ -506,3 +506,103 @@ func TestPromoteClusterStackDraftRefusesADocumentWithoutItsDraft(t *testing.T) {
 		t.Fatal("a document without a draft id must be refused")
 	}
 }
+
+func TestDraftReviewDecodesEveryKindOfMember(t *testing.T) {
+	document := reviewDocument(t, `{"name":"shop","draft_id":"d-1","lifecycle":"draft_only",
+		"manifests":[{"name":"store","manifest_base64":"a2luZDogT2JqZWN0U3RvcmUK","encrypted_paths":["data.KEY"],
+			"parents":[{"name":"db","kind":"addon"}]}],
+		"addons":[{"name":"db","chart_name":"postgres","chart_version":"1.2.3","namespace":"data",
+			"configuration":{"values_base64":"cmVwbGljYXM6IDEK","encrypted_paths":["admin.password"]}}],
+		"applications":[{"name":"orders","namespace":"shop","manifest_base64":"a2luZDogQ2x1c3Rlcgo="}]}`)
+
+	review, reviewError := document.DraftReview()
+	if reviewError != nil {
+		t.Fatal(reviewError)
+	}
+	if review.StackName != "shop" || review.DraftID != "d-1" || review.Lifecycle != "draft_only" {
+		t.Fatalf("the draft's identity must be carried, got %+v", review)
+	}
+	if len(review.Members) != 3 {
+		t.Fatalf("expected a member of each kind, got %+v", review.Members)
+	}
+	manifest, addon, application := review.Members[0], review.Members[1], review.Members[2]
+	if manifest.Kind != "manifest" || manifest.Content != "kind: ObjectStore\n" ||
+		len(manifest.Parents) != 1 || manifest.Parents[0] != (StackDraftParent{Name: "db", Kind: "addon"}) ||
+		len(manifest.EncryptedPaths) != 1 {
+		t.Fatalf("manifest: %+v", manifest)
+	}
+	if addon.Kind != "addon" || addon.Chart != "postgres@1.2.3" || addon.Namespace != "data" ||
+		addon.Content != "replicas: 1\n" || len(addon.EncryptedPaths) != 1 || addon.EncryptedPaths[0] != "admin.password" {
+		t.Fatalf("addon: %+v", addon)
+	}
+	if application.Kind != "application" || application.Namespace != "shop" || application.Content != "kind: Cluster\n" {
+		t.Fatalf("application: %+v", application)
+	}
+}
+
+// A configuration that carries no values must not mask the manifest body the
+// same member carries.
+func TestDraftReviewKeepsTheManifestWhenTheConfigurationCarriesNoValues(t *testing.T) {
+	document := reviewDocument(t, `{"name":"shop","applications":[
+		{"name":"orders","manifest_base64":"a2luZDogQ2x1c3Rlcgo=","configuration":{"values_base64":null}}]}`)
+
+	review, reviewError := document.DraftReview()
+	if reviewError != nil {
+		t.Fatal(reviewError)
+	}
+	if !review.Members[0].HasContent || review.Members[0].Content != "kind: Cluster\n" {
+		t.Fatalf("the manifest must show when the configuration has no values: %+v", review.Members[0])
+	}
+}
+
+// Entry-level and configuration-level encrypted paths both name encrypted
+// content, so neither may hide the other.
+func TestDraftReviewUnionsEncryptedPaths(t *testing.T) {
+	document := reviewDocument(t, `{"name":"shop","addons":[{"name":"db","encrypted_paths":["a.key","shared"],
+		"configuration":{"values_base64":"eDogMQo=","encrypted_paths":["shared","b.key"]}}]}`)
+
+	review, reviewError := document.DraftReview()
+	if reviewError != nil {
+		t.Fatal(reviewError)
+	}
+	if got := strings.Join(review.Members[0].EncryptedPaths, ","); got != "a.key,shared,b.key" {
+		t.Fatalf("expected the union in order, got %q", got)
+	}
+}
+
+// The listing elides bodies, so a member the read did not carry must not read as
+// one with nothing in it.
+func TestDraftReviewTellsAnUnreadBodyFromAnEmptyOne(t *testing.T) {
+	document := reviewDocument(t, `{"name":"shop","manifests":[
+		{"name":"unread","manifest_base64":null},{"name":"empty","manifest_base64":""}]}`)
+
+	review, reviewError := document.DraftReview()
+	if reviewError != nil {
+		t.Fatal(reviewError)
+	}
+	if review.Members[0].HasContent || !review.Members[1].HasContent {
+		t.Fatalf("an absent body and an empty one are different facts: %+v", review.Members)
+	}
+}
+
+func TestDraftReviewRefusesContentItCannotDecode(t *testing.T) {
+	for name, body := range map[string]string{
+		"a body that is not base64": `{"name":"shop","manifests":[{"name":"api","manifest_base64":"%%%"}]}`,
+		"a list that is not a list": `{"name":"shop","addons":{"name":"db"}}`,
+	} {
+		t.Run(name, func(subtest *testing.T) {
+			if _, reviewError := reviewDocument(subtest, body).DraftReview(); reviewError == nil {
+				subtest.Fatal("a review must never pass off an unread member as a blank one")
+			}
+		})
+	}
+}
+
+func reviewDocument(t *testing.T, body string) ClusterStackDocument {
+	t.Helper()
+	var document ClusterStackDocument
+	if decodeError := json.Unmarshal([]byte(body), &document); decodeError != nil {
+		t.Fatalf("decoding the fixture: %v", decodeError)
+	}
+	return document
+}

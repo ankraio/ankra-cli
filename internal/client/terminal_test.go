@@ -117,6 +117,47 @@ func TestOpenPodTerminalShellSendsNoCommandParameters(t *testing.T) {
 	}
 }
 
+func TestOpenPodTerminalCarriesTheScopeOverrides(t *testing.T) {
+	const organisationID = "org-1"
+	const projectID = "project-1"
+	for _, testCase := range []struct {
+		name         string
+		organisation string
+		project      string
+	}{
+		{name: "no override"},
+		{name: "organisation only", organisation: organisationID},
+		{name: "organisation and project", organisation: organisationID, project: projectID},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			headers := make(chan http.Header, 1)
+			server := newTerminalRelay(t, func(ctx context.Context, connection *websocket.Conn, request *http.Request) {
+				headers <- request.Header.Clone()
+				_ = connection.Close(websocket.StatusNormalClosure, "")
+			})
+			apiClient := New("secret-token", server.URL)
+			apiClient.SetOrganisationOverride(testCase.organisation)
+			apiClient.SetProjectOverride(testCase.project)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			session, openError := apiClient.OpenPodTerminal(ctx, "cluster-1", PodTerminalRequest{
+				Namespace: "default", PodName: "web-1", ContainerName: "app", Shell: "/bin/sh",
+			})
+			if openError != nil {
+				t.Fatalf("open: %v", openError)
+			}
+			defer func() { _ = session.Close() }()
+			received := <-headers
+			if got := received.Get(orgOverrideHeader); got != testCase.organisation {
+				t.Errorf("organisation header = %q, want %q", got, testCase.organisation)
+			}
+			if got := received.Get(projectOverrideHeader); got != testCase.project {
+				t.Errorf("project header = %q, want %q", got, testCase.project)
+			}
+		})
+	}
+}
+
 func nextFrame(t *testing.T, session PodTerminal) PodTerminalFrame {
 	t.Helper()
 	select {

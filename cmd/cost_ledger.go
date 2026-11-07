@@ -21,14 +21,23 @@ import (
 // after it ran. The ledger sends how many days have passed, not the length.
 const costLedgerVerificationDays = 7
 
-// The widest the cluster and lever cells grow before they wrap, so a long
-// name cannot push the table past a 100-column terminal. The cells are
-// wrapped here rather than through a column WidthMax: go-pretty applies a
-// column's WidthMax to a merged cell that starts in it too, which would fold
-// every note under a row into the first column's width.
+// costLedgerApprovalDays is how long a cost approval lasts on the platform
+// (decisionledger.CostApprovalTTL): a change approved longer ago that never
+// started approves nothing any more. The ledger sends the verdict
+// (approval_expired), not the length.
+const costLedgerApprovalDays = 7
+
+// The widest the cluster, lever and status cells grow before they wrap, so a
+// long name or status cannot push the table past a 100-column terminal. The
+// cells are wrapped here rather than through a column WidthMax: go-pretty
+// applies a column's WidthMax to a merged cell that starts in it too, which
+// would fold every note under a row into the first column's width. The status
+// width is that of "unmeasured · coverage moved", so only the longer statuses
+// wrap.
 const (
 	costLedgerClusterWidthMax = 24
 	costLedgerLeverWidthMax   = 22
+	costLedgerStatusWidthMax  = 27
 )
 
 var costLedgerCmd = &cobra.Command{
@@ -49,16 +58,24 @@ its window reads reverted. A right-size also carries its usage verification
 (in progress, passed, failed with a rollback proposed, or unverified when
 metrics were missing), shown under its row.
 
+An approval lasts seven days. A change approved longer ago that never started
+reads "approval lapsed": it will not run until it is approved again. A
+rollback approved that long ago reads "approved · may have lapsed", because
+its approval stands only if it is confirmed to undo its right-size, which
+'ankra cost decisions get' tells.
+
 The header totals cover the whole ledger even when the row list stops at the
 newest changes: the savings measured this calendar month (UTC), everything
 measured so far, and the expected saving of the changes still approved,
-running or verifying, which counts as saved only once it is measured.
+running or verifying, which counts as saved only once it is measured. A
+lapsed approval, or one that may have lapsed, is not in that total.
 
 Every figure is a monthly run rate in the organisation's display currency.`,
 	Args: cobra.NoArgs,
 	Example: `  ankra cost ledger
   ankra cost ledger -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		applyCostProjectScope(cmd)
 		ledger, err := apiClient.GetCloudLedger()
 		if err != nil {
 			return cloudLedgerReadError(err)
@@ -73,6 +90,7 @@ Every figure is a monthly run rate in the organisation's display currency.`,
 
 func init() {
 	registerStructuredOutputFlags(costLedgerCmd)
+	registerCostProjectScopeFlag(costLedgerCmd)
 	costCmd.AddCommand(costLedgerCmd)
 }
 
@@ -126,11 +144,25 @@ func costLedgerStatus(row client.CloudLedgerRow) string {
 		return "unmeasured · coverage moved"
 	case "unmeasured_no_snapshots":
 		return "unmeasured · no snapshots"
+	case "unmeasured_confounded":
+		return "unmeasured · another change overlapped"
+	case "unmeasured_within_noise":
+		return "unmeasured · within normal day-to-day swings"
 	case "reverted":
 		return "reverted"
 	case "not_applicable", "":
 		// Nothing is being measured: the change has not run yet, or it names
-		// no cluster whose snapshots could measure it.
+		// no cluster whose snapshots could measure it. An approval that lapsed
+		// before the change started approves nothing any more, so the row is
+		// not "approved"; one the platform could not judge is said to be
+		// unknown, never lapsed and never standing. A platform that predates
+		// approval_expired keeps the words below.
+		switch costLedgerApprovalState(row) {
+		case costLedgerApprovalLapsed:
+			return "approval lapsed"
+		case costLedgerApprovalUnknown:
+			return "approved · may have lapsed"
+		}
 		switch row.Status {
 		case "approved":
 			return "approved · not run yet"
@@ -166,10 +198,70 @@ func costLedgerVerification(row client.CloudLedgerRow) string {
 	}
 }
 
-// costLedgerNotes is what goes under a row: the platform's reason for an
-// unmeasured or reverted row, then the usage verification.
+// The approval verdicts a ledger row can show besides "it stands".
+const (
+	costLedgerApprovalStands = ""
+	costLedgerApprovalLapsed = "lapsed"
+	// costLedgerApprovalUnknown is approval_expired sent as null: the
+	// platform could not judge the approval. Absent is an older platform,
+	// not an unknown.
+	costLedgerApprovalUnknown = "unknown"
+)
+
+// costLedgerApprovalState is the verdict a row's approval_expired gives, for a
+// change that has not started. A running or succeeded change ran on its
+// approval, which the platform answers false for; were it to send anything
+// else, the change's own status is what the row says. Any other status,
+// including one this CLI predates (the platform judges held approvals too),
+// takes the platform's verdict.
+func costLedgerApprovalState(row client.CloudLedgerRow) string {
+	if row.Status == "running" || row.Status == "succeeded" || !row.ApprovalExpired.Present {
+		return costLedgerApprovalStands
+	}
+	switch {
+	case row.ApprovalExpired.Value == nil:
+		return costLedgerApprovalUnknown
+	case *row.ApprovalExpired.Value:
+		return costLedgerApprovalLapsed
+	default:
+		return costLedgerApprovalStands
+	}
+}
+
+// costLedgerApprovalNote explains a lapsed approval, or one the platform could
+// not judge, and says the expectation beside it is not in the running total.
+// It returns "" for any other row. A measured, running or reverted row is
+// judged by its measurement, so only a row nothing measures gets the note.
+func costLedgerApprovalNote(row client.CloudLedgerRow) string {
+	if row.MeasurementStatus != "not_applicable" && row.MeasurementStatus != "" {
+		return ""
+	}
+	leftOut := ""
+	if row.ExpectedMonthlyCents != nil {
+		leftOut = " Its expected saving is left out of the total above."
+	}
+	switch costLedgerApprovalState(row) {
+	case costLedgerApprovalLapsed:
+		return fmt.Sprintf("Approved more than %d days ago and never started, so the approval has lapsed and the change will not run.%s "+
+			"Read it with 'ankra cost decisions get %s' and approve it again if it is still what you want.",
+			costLedgerApprovalDays, leftOut, row.DecisionID)
+	case costLedgerApprovalUnknown:
+		return fmt.Sprintf("Approved more than %d days ago and not run yet. A rollback keeps its approval past that only when it is "+
+			"confirmed to undo its right-size, which the ledger does not check, so whether this approval still stands is "+
+			"unknown: 'ankra cost decisions get %s' says.%s", costLedgerApprovalDays, row.DecisionID, leftOut)
+	default:
+		return ""
+	}
+}
+
+// costLedgerNotes is what goes under a row: why its approval lapsed or may
+// have, the platform's reason for an unmeasured or reverted row, then the
+// usage verification.
 func costLedgerNotes(row client.CloudLedgerRow) []string {
 	var notes []string
+	if approval := costLedgerApprovalNote(row); approval != "" {
+		notes = append(notes, approval)
+	}
 	if row.MeasurementReason != nil && strings.TrimSpace(*row.MeasurementReason) != "" {
 		notes = append(notes, strings.TrimSpace(*row.MeasurementReason))
 	}
@@ -252,7 +344,7 @@ func renderCloudLedger(out io.Writer, ledger *client.CloudLedger) {
 		rows = append(rows, table.Row{
 			text.WrapSoft(costLedgerCluster(row), costLedgerClusterWidthMax),
 			text.WrapSoft(costLedgerLever(row.Lever), costLedgerLeverWidthMax),
-			costLedgerStatus(row),
+			text.WrapSoft(costLedgerStatus(row), costLedgerStatusWidthMax),
 			formatOptionalCostCents(row.ExpectedMonthlyCents, currency),
 			formatOptionalCostCents(row.MeasuredMonthlyCents, currency),
 		})

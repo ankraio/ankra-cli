@@ -49,6 +49,7 @@ type CreateScalewayClusterRequest struct {
 	GitopsRepository     *string               `json:"gitops_repository,omitempty"`
 	GitopsBranch         *string               `json:"gitops_branch,omitempty"`
 	IncludeNetworking    *bool                 `json:"include_networking,omitempty"`
+	GatewayAPI           bool                  `json:"gateway_api,omitempty"`
 	IncludeDNS           *bool                 `json:"include_dns,omitempty"`
 	RetentionPolicy      string                `json:"retention_policy,omitempty"`
 	Environment          *string               `json:"environment,omitempty"`
@@ -204,7 +205,7 @@ func (c *Client) UpdateScalewayNodeGroupInstanceType(ctx context.Context, cluste
 }
 
 func (c *Client) UpdateScalewayNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/scaleway/%s/node-groups/%s/labels", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/scaleway/%s/node-groups/%s/labels", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, marshalError := json.Marshal(UpdateLabelsRequest{Labels: labels})
 	if marshalError != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", marshalError)
@@ -213,7 +214,7 @@ func (c *Client) UpdateScalewayNodeGroupLabels(ctx context.Context, clusterID, g
 }
 
 func (c *Client) UpdateScalewayNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []NodeTaint, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/scaleway/%s/node-groups/%s/taints", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/scaleway/%s/node-groups/%s/taints", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, marshalError := json.Marshal(UpdateTaintsRequest{Taints: taints})
 	if marshalError != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", marshalError)
@@ -241,8 +242,8 @@ func (c *Client) ChangeScalewayControlPlaneCount(clusterID string, count int) (*
 	return c.changeControlPlaneCount(scalewayKind, clusterID, count)
 }
 
-func (c *Client) ChangeScalewayControlPlaneInstanceType(clusterID, instanceType string, drainOptions DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
-	return c.changeControlPlaneInstanceType(scalewayKind, clusterID, instanceType, drainOptions)
+func (c *Client) ChangeScalewayControlPlaneInstanceType(clusterID, instanceType string, options ControlPlaneInstanceTypeOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
+	return c.changeControlPlaneInstanceType(scalewayKind, clusterID, instanceType, options)
 }
 
 func (c *Client) ListScalewayClusterNodes(clusterID string) (*NodeListResult, error) {

@@ -1,6 +1,6 @@
 ---
 name: ankra-ai-agents
-description: Run and govern Ankra's AI agents - choosing the model provider and catalogue (Ankra, Anthropic, OpenRouter, or an OpenAI-compatible endpoint such as LiteLLM or vLLM), choosing the model per AI function (lanes), registering MCP tool servers and granting individual tools to organisation roles, the AI kill switch and pause, the auto-remediation policy, daily AI spend caps, the board identity, dispatching and supervising agent runs and their transcripts, working the AI board of tickets, and confirming or rejecting the writes an agent proposes. Use when the user mentions Ankra AI, AI agents, sub-agents, agent runs, MCP servers or tools, the AI board or tickets, the model catalogue, or configuring which model Ankra uses.
+description: Run and govern Ankra's AI agents - choosing the model provider and catalogue (Ankra, Anthropic, OpenRouter, or an OpenAI-compatible endpoint such as LiteLLM or vLLM), a member's own Anthropic or OpenRouter API keys for the chats and pull request reviews they start, choosing the model per AI function (lanes), registering MCP tool servers and granting individual tools to organisation roles, the AI kill switch and pause, the auto-remediation policy, daily AI spend caps, the board identity, dispatching and supervising agent runs and their transcripts, working the AI board of tickets, and confirming or rejecting the writes an agent proposes. Use when the user mentions Ankra AI, AI agents, sub-agents, agent runs, MCP servers or tools, the AI board or tickets, the model catalogue, personal AI keys, or configuring which model Ankra uses.
 ---
 
 # Ankra AI agents
@@ -84,6 +84,34 @@ In OpenAI-compatible mode, tool-using paths (the agentic assistant, AI insights,
 generation, deploy analysis) fall back to the Ankra platform provider; stack descriptions and
 summaries run natively against your endpoint. The **What runs where** matrix on the settings page
 is authoritative — check it before promising an air-gapped setup.
+
+### A member's own AI keys
+
+Separate from the organisation's provider: each member can put their own Anthropic Console
+(`sk-ant-api...`) or OpenRouter (`sk-or-...`) API keys on their profile, and the chats they send and
+the reviews of their GitHub pull requests run on those keys, in their order, billed to their own
+account. Background work, scheduled runs and alert analysis stay on the organisation's AI. A key only
+ever serves the member who added it, and no admin role is needed to add one.
+
+```bash
+ankra ai keys list                    # your keys, in the order tried, with status, and whether the org uses them
+ankra ai keys add --label work        # asks for the key with the input hidden
+pass show anthropic | ankra ai keys add --key-stdin   # or pipe it in; the key is never a flag
+ankra ai keys test work               # re-check with the provider; exits 1 when it fails
+ankra ai keys order work              # named keys first, the rest keep their order after them
+ankra ai keys rename work "Personal Max plan"
+ankra ai keys remove work             # asks first; --yes to skip
+ankra ai keys policy                  # does this organisation use members' keys?
+ankra ai keys policy disable          # admin: stop it (members keep their keys, shown as not in use)
+```
+
+`<key>` is the key's id or its label. Never put a key in a flag or a command line, and never echo it
+back: only the masked preview (`sk-ant-...1234`) is ever shown. A Claude subscription token
+(`sk-ant-oat...`) or an Anthropic admin key is refused before anything is sent; the member creates an
+API key in the Claude Console instead. Up to 10 keys per member; a second key of the same Anthropic
+account is refused (they share one balance). An out-of-credit key is tried again an hour later; a
+rejected key stays unused until `test` passes. Members can do the same in the portal: Profile,
+Connected accounts, Your AI keys.
 
 ## 2. Tools: MCP servers
 
@@ -202,6 +230,43 @@ ankra tickets transition T-8 --status investigating --note "Reassigned to the pl
 A ticket is referenced by number (`8`, `T-8`, `#8`) or UUID. Statuses: `triage`, `investigating`,
 `planning`, `awaiting_review`, `awaiting_approval`, `executing`, `verifying`, `blocked`, `done`,
 `cancelled`.
+
+### Structure: roots, symptoms, sub-tickets and links
+
+A **symptom** sits under the root ticket that carries its work: it gets no agent run or thread of
+its own, and it is settled or stands alone again when the root closes. A **sub-ticket** is filed
+under a ticket and worked like any ticket. Links join tickets with a relation: `relates_to` (the
+default), `duplicate_of`, `recurrence_of`, `spawned`, `evidence` or `fix`.
+
+```bash
+ankra tickets get T-42                             # parent, what is under it, links both ways
+ankra tickets list --parent T-42 --include-closed  # every ticket directly under T-42, with its role
+ankra tickets list --top-level                     # only tickets that sit under no other
+ankra tickets nest T-51 --root T-42 --reason "Same expired certificate"
+ankra tickets detach T-51                          # a symptom stands on its own again
+ankra tickets create --title "Renew the wildcard certificate" --parent T-42
+ankra tickets links T-42                           # the LINK column is what unlink takes
+ankra tickets link T-50 T-31 --relation recurrence_of
+ankra tickets unlink T-50 T-31
+ankra tickets close T-50 --duplicate-of T-42       # closes as duplicate and links the keeper
+ankra tickets close T-50 --resolution fixed --note "Renewed the certificate"
+```
+
+`close --duplicate-of` names the open ticket covering the same cause. The platform links the
+closed ticket to that ticket's canonical keeper (naming a symptom or a duplicate resolves to the
+ticket that carries the work) and tells the keeper. The CLI reads the link back and names the
+keeper. If the platform wrote no link, the command fails and prints the `tickets link` command
+that adds it. A refused write prints the platform's sentence. It exits 2 when the request named the
+wrong thing (a root that is the ticket itself, an unknown number, a closed keeper), 3 when the
+ticket is not in your organisation, and 1 when the tickets' state refused it (a closed root, a
+sub-ticket, a loop, or a concurrent change to retry).
+
+`tickets get` says when the tickets under a ticket or its links could not be read, and then exits
+1. It never shows an unread part as empty. With `-o json`, `get` prints the ticket with
+`parent_ticket_number`, `parent_ticket_title`, `parent_ticket_status`, `child_role` (`symptom`,
+`subtask` or null), `live_symptom_count` and `symptoms_needing_person_count`. Read the children with
+`tickets list --parent <ticket> -o json` and the links with `tickets links <ticket> -o json`, which
+prints `links` and `incoming_links` as the platform sent them.
 
 ### Answering a decision
 

@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
 	"ankra/internal/client"
+	"ankra/internal/hiddenunicode"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
@@ -29,25 +31,65 @@ Cost - for reporting and automation.
 Every hour Ankra prices each cluster from its node inventory at the provider
 list price and allocates the result to namespaces by their CPU and memory
 share, so each team sees the share it drives. The fleet summary rolls every
-priced cluster up by provider and lists the costliest clusters; a cluster
+priced cluster up by provider and lists the costliest clusters; its month to
+date also counts what clusters spent this month before they were deleted or
+stopped reporting, and names them, since no provider row includes it; a cluster
 read adds the component breakdown, the namespace allocation and the daily
 trend. The savings model reads the biggest priced clusters and proposes one
 lever per cluster (right-size idle capacity, reduce unallocated run rate, or
 an off-hours schedule for non-production) with the monthly saving each is
 worth. The ledger follows each approved cost change through to the saving
-measured seven days after it ran. Pricing settings (display currency,
-effective discount, network egress estimate) apply to every figure.
+measured seven days after it ran. The display currency and the effective
+discount apply to every figure. The network egress estimate setting is stored,
+not metered yet: no figure includes network egress today.
 
-Pass -o json (or yaml) for the full API document.`,
+The fleet reads (summary, savings, ledger, trend, events, reconcile, budgets,
+and the clusters 'autopilot get' lists) cover the project you act in (see
+'ankra project current'); pass --all-projects to read the whole
+organisation, or the global --project to read another project. Pass -o json
+(or yaml) for the full API document.`,
+}
+
+// costAllProjectsFlag widens a fleet cost read to the whole organisation.
+const costAllProjectsFlag = "all-projects"
+
+// registerCostProjectScopeFlag adds --all-projects to the fleet cost reads
+// that take ?project_id=.
+func registerCostProjectScopeFlag(commands ...*cobra.Command) {
+	for _, command := range commands {
+		command.Flags().Bool(costAllProjectsFlag, false, "Read the whole organisation instead of the project you act in")
+	}
+}
+
+// applyCostProjectScope sets the fleet cost reads' ?project_id= for this
+// command: all with --all-projects, otherwise none, so a scope set by an
+// earlier command on the same client never carries over. A token pinned to
+// a project is refused by the platform (403) for all: the pin is the
+// credential's confinement.
+func applyCostProjectScope(cmd *cobra.Command) {
+	scope := ""
+	if allProjects, _ := cmd.Flags().GetBool(costAllProjectsFlag); allProjects {
+		scope = client.CostProjectScopeAll
+	}
+	apiClient.SetCostProjectScope(scope)
 }
 
 var costSummaryCmd = &cobra.Command{
 	Use:   "summary",
-	Short: "Fleet cost rollup: projected month end, month to date, run rate, by provider and costliest clusters",
+	Short: "Fleet cost rollup: projected month end, month to date, run rate, by provider, by project and costliest clusters",
 	Args:  cobra.NoArgs,
 	Example: `  ankra cost summary
+  ankra cost summary --all-projects
+  ankra cost summary --by credential
+  ankra cost summary --by project --all-projects
   ankra cost summary -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		breakdown, _ := cmd.Flags().GetString("by")
+		breakdown = strings.ToLower(strings.TrimSpace(breakdown))
+		if breakdown != "" && !containsString(fleetCostBreakdowns, breakdown) {
+			return withExitCode(exitUsage, fmt.Errorf("--by must be one of %s, not %q", strings.Join(fleetCostBreakdowns, ", "), breakdown))
+		}
+		applyCostProjectScope(cmd)
 		summary, err := apiClient.GetFleetCloudCost()
 		if err != nil {
 			return fmt.Errorf("reading fleet cost: %w", err)
@@ -55,10 +97,23 @@ var costSummaryCmd = &cobra.Command{
 		if rendered, err := renderStructured(cmd, summary); rendered || err != nil {
 			return err
 		}
-		renderFleetCloudCost(cmd.OutOrStdout(), summary)
+		if breakdown == "" {
+			renderFleetCloudCost(cmd.OutOrStdout(), summary)
+			return nil
+		}
+		renderFleetCloudCostBreakdown(cmd.OutOrStdout(), summary, breakdown)
 		return nil
 	},
 }
+
+// The groupings `cost summary --by` renders on their own.
+const (
+	fleetCostByProvider   = "provider"
+	fleetCostByCredential = "credential"
+	fleetCostByProject    = "project"
+)
+
+var fleetCostBreakdowns = []string{fleetCostByProvider, fleetCostByCredential, fleetCostByProject}
 
 var costSavingsCmd = &cobra.Command{
 	Use:   "savings",
@@ -86,8 +141,10 @@ cloud-waste findings.
 Every figure is a list-price estimate in the organisation's display currency.`,
 	Args: cobra.NoArgs,
 	Example: `  ankra cost savings
+  ankra cost savings --all-projects
   ankra cost savings -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		applyCostProjectScope(cmd)
 		savings, err := apiClient.GetCloudSavings()
 		if err != nil {
 			return cloudSavingsReadError(err)
@@ -95,7 +152,7 @@ Every figure is a list-price estimate in the organisation's display currency.`,
 		if rendered, err := renderStructured(cmd, savings); rendered || err != nil {
 			return err
 		}
-		renderCloudSavings(cmd.OutOrStdout(), savings)
+		renderCloudSavings(cmd.OutOrStdout(), savings, readCloudSavingsScanFailures(cmd.ErrOrStderr(), savings.Waste))
 		return nil
 	},
 }
@@ -151,6 +208,9 @@ var costSettingsSetCmd = &cobra.Command{
 	Long: `Change one or more pricing settings. Only the flags you pass change; the
 other settings keep their current values. The route is organisation-admin
 only and every fleet and cluster figure re-prices on the next read.
+
+--include-egress is stored, not metered yet: no figure includes network egress
+today, whichever way it is set.
 
 --analysed-cluster-limit sets how many of the costliest priced clusters the
 savings model analyses (1 to 50); --analysed-cluster-limit default returns it
@@ -280,51 +340,543 @@ func pluralClusters(count int) string {
 	return fmt.Sprintf("%d clusters", count)
 }
 
+// costCount is a count with its thousands grouped: 1,440.
+func costCount(count int) string {
+	digits := strconv.Itoa(count)
+	sign := ""
+	if strings.HasPrefix(digits, "-") {
+		sign, digits = "-", digits[1:]
+	}
+	for index := len(digits) - 3; index > 0; index -= 3 {
+		digits = digits[:index] + "," + digits[index:]
+	}
+	return sign + digits
+}
+
+// costCountOf is a grouped count with the word that agrees with it.
+func costCountOf(count int, singular string, plural string) string {
+	if count == 1 {
+		return "1 " + singular
+	}
+	return costCount(count) + " " + plural
+}
+
+// costMonthFloorMark marks a table figure built on a month so far that is
+// short of metered hours: it is at least what it says.
+const costMonthFloorMark = "≥ "
+
+// costMonthHours words the hours a month-to-date figure holds
+// (ankra-bn86k4.4.8.2): "Month so far covers 718 of 720 hours; 2 hours were
+// not metered, so the figure is a floor." Short reports that hours are
+// missing, so the month to date and the month end built on it are at least
+// what they say. It says nothing when the platform did not count the hours
+// (nil: a platform that predates them, or a sum with a cluster it could not
+// count), which is not a whole month, and nothing when every hour was metered
+// by a reading of its own, the ordinary case. The counts decide, never the
+// platform's is_short or note, so the line cannot name "0 hours" missing.
+func costMonthHours(hours *client.MonthHours) (line string, short bool) {
+	if hours == nil || hours.HoursElapsed <= 0 {
+		return "", false
+	}
+	metered := min(max(hours.HoursMetered, 0), hours.HoursElapsed)
+	missing := hours.HoursElapsed - metered
+	short = missing > 0
+	estimated := min(max(hours.HoursEstimated, 0), metered)
+	if !short && estimated == 0 {
+		return "", false
+	}
+	// Summed over several clusters the platform counts cluster hours: two
+	// clusters for a day are 48 of them.
+	unit := "hours"
+	if hours.HoursElapsed == 1 {
+		unit = "hour"
+	}
+	if hours.ClusterCount > 1 {
+		unit = "cluster " + unit
+	}
+	if short {
+		across := ""
+		if hours.ClusterCount > 1 && hours.ShortClusterCount > 0 {
+			across = " across " + costCountOf(hours.ShortClusterCount, "cluster", "clusters")
+		}
+		line = fmt.Sprintf("Month so far covers %s of %s %s; %s not metered%s, so the figure is a floor.",
+			costCount(metered), costCount(hours.HoursElapsed), unit, costCountOf(missing, "hour was", "hours were"), across)
+	} else {
+		line = fmt.Sprintf("Month so far covers all %s %s.", costCount(hours.HoursElapsed), unit)
+	}
+	switch {
+	case estimated > 0 && hours.HoursMeasured != nil:
+		// How the covered hours divide once the platform counts the measured
+		// ones (cluster#5909, ankra-bn86k4.4.8.4.2).
+		measured := min(max(*hours.HoursMeasured, 0), metered)
+		estimatedWord := "hours"
+		if estimated == 1 {
+			estimatedWord = "hour"
+		}
+		line += fmt.Sprintf(" Of the covered hours, %s measured and %s estimated: no metering ran for the estimated %s, so the next reading was copied.",
+			costCountOf(measured, "was", "were"), costCount(estimated), estimatedWord)
+	case estimated > 0:
+		// A platform that predates hours_measured: the measured hours are
+		// unknown, so only the estimated ones are named, never "the rest
+		// were measured".
+		estimates := "are estimates"
+		if estimated == 1 {
+			estimates = "is an estimate"
+		}
+		line += fmt.Sprintf(" %s of the covered hours %s: no metering ran then, so the next reading was copied.",
+			costCount(estimated), estimates)
+	}
+	return line, short
+}
+
+// costMonthAtLeast is "at least " before a figure built on a month so far
+// that is short of metered hours, and "" otherwise.
+func costMonthAtLeast(short bool) string {
+	if short {
+		return "at least "
+	}
+	return ""
+}
+
 func renderFleetCloudCost(out io.Writer, summary *client.FleetCloudCost) {
-	if summary.ClusterCount == 0 {
-		_, _ = fmt.Fprintln(out, "No priced clusters yet.")
-		_, _ = fmt.Fprintln(out, "Estimates appear once a cluster on AWS, Google Cloud, Azure, Hetzner, OVHcloud, UpCloud or Scaleway has reported pricing in the last day; AWS, Google Cloud and Azure clusters need a connected cloud credential.")
+	if !renderFleetCloudCostHeader(out, summary) {
 		return
 	}
 	currency := summary.Currency
-	_, _ = fmt.Fprintf(out, "Cloud cost (%s): %s projected month end · %s month to date · %s/mo run rate\n",
-		strings.ToUpper(currency), formatCostCents(summary.ProjectedMonthEndCents, currency),
-		formatCostCents(summary.MonthToDateCents, currency), formatCostCents(summary.MonthlyCostEstimateCents, currency))
-	_, _ = fmt.Fprintf(out, "  %s priced across %d provider(s)\n", pluralClusters(summary.ClusterCount), len(summary.ByProvider))
-	if len(summary.ByProvider) > 0 {
-		_, _ = fmt.Fprintln(out)
-		_, _ = fmt.Fprintln(out, "By provider:")
-		writer := newCostTable(out)
-		writer.AppendHeader(table.Row{"Provider", "Clusters", "Run rate/mo", "Month to date", "Projected"})
-		for _, provider := range summary.ByProvider {
-			writer.AppendRow(table.Row{
-				costProviderLabel(provider.Provider),
-				provider.ClusterCount,
-				formatCostCents(provider.MonthlyCostEstimateCents, currency),
-				formatCostCents(provider.MonthToDateCents, currency),
-				formatCostCents(provider.ProjectedMonthEndCents, currency),
-			})
-		}
-		writer.Render()
-	}
+	renderFleetCostByProvider(out, summary, currency)
+	renderFleetCostByProject(out, summary, currency)
 	if len(summary.TopClusters) > 0 {
 		_, _ = fmt.Fprintln(out)
 		_, _ = fmt.Fprintln(out, "Costliest clusters:")
 		writer := newCostTable(out)
 		writer.AppendHeader(table.Row{"#", "Cluster", "Provider", "Projected", "Month to date", "Confidence", "Cluster ID"})
+		anyShort := false
 		for index, cluster := range summary.TopClusters {
+			mark := ""
+			if _, short := costMonthHours(cluster.MonthHours); short {
+				mark, anyShort = costMonthFloorMark, true
+			}
 			writer.AppendRow(table.Row{
 				index + 1,
 				cluster.ClusterName,
 				costProviderLabel(cluster.Provider),
-				formatCostCents(cluster.ProjectedMonthEndCents, currency),
-				formatCostCents(cluster.MonthToDateCents, currency),
+				mark + formatCostCents(cluster.ProjectedMonthEndCents, currency),
+				mark + formatCostCents(cluster.MonthToDateCents, currency),
 				cluster.ConfidenceLevel,
 				cluster.ClusterID,
 			})
 		}
 		writer.Render()
+		if anyShort {
+			_, _ = fmt.Fprintf(out, "%smarks a cluster whose month so far is short of metered hours, so its figures are floors.\n",
+				costMonthFloorMark)
+		}
 	}
+	renderFleetCostUnmetered(out, summary)
+}
+
+// renderFleetCloudCostHeader prints the totals, when they were computed
+// (whenever the platform sent generated_at, metered clusters or not), the
+// hours of the month the month to date holds when some were not metered,
+// the spend of clusters no longer metered and the scope line, and reports
+// false (after saying so) when nothing is priced yet. Nothing is priced only
+// when no cluster is metered and nothing in scope spent anything this month:
+// a project whose only cluster was deleted still spent what it spent.
+func renderFleetCloudCostHeader(out io.Writer, summary *client.FleetCloudCost) bool {
+	if summary.ClusterCount == 0 && summary.MonthToDateCents == 0 && len(summary.UnmeteredClusters) == 0 {
+		_, _ = fmt.Fprintln(out, "No priced clusters yet.")
+		_, _ = fmt.Fprintln(out, "Estimates appear once a cluster on AWS, Google Cloud, Azure, Hetzner, OVHcloud, UpCloud or Scaleway has reported pricing in the last day; AWS, Google Cloud and Azure clusters need a connected cloud credential.")
+		if line := fleetCostUnpricedLine(summary, false); line != "" {
+			_, _ = fmt.Fprintln(out, line)
+		}
+		if line := fleetCostNotReportedLine(summary, false); line != "" {
+			_, _ = fmt.Fprintln(out, line)
+		}
+		return false
+	}
+	currency := summary.Currency
+	monthHours, monthShort := costMonthHours(summary.MonthHours)
+	atLeast := costMonthAtLeast(monthShort)
+	_, _ = fmt.Fprintf(out, "Cloud cost (%s): %s%s projected month end · %s%s month to date · %s/mo run rate\n",
+		strings.ToUpper(currency), atLeast, formatCostCents(summary.ProjectedMonthEndCents, currency),
+		atLeast, formatCostCents(summary.MonthToDateCents, currency), formatCostCents(summary.MonthlyCostEstimateCents, currency))
+	generatedAt := ""
+	if summary.GeneratedAt != nil {
+		generatedAt = *summary.GeneratedAt
+	}
+	if summary.ClusterCount > 0 {
+		asOf := ""
+		if generatedAt != "" {
+			asOf = " · as of " + generatedAt
+		}
+		_, _ = fmt.Fprintf(out, "  %s priced across %d provider(s)%s\n", pluralClusters(summary.ClusterCount), len(summary.ByProvider), asOf)
+	} else {
+		_, _ = fmt.Fprintln(out, "  No cluster is metered now, so the run rate is zero; the month to date is what clusters no longer metered spent this month.")
+		if generatedAt != "" {
+			_, _ = fmt.Fprintf(out, "  Figures as of %s.\n", generatedAt)
+		}
+	}
+	if monthHours != "" {
+		_, _ = fmt.Fprintf(out, "  %s\n", monthHours)
+	}
+	for _, line := range fleetCostUnmeteredLines(summary) {
+		_, _ = fmt.Fprintf(out, "  %s\n", line)
+	}
+	if line := fleetCostUnpricedLine(summary, true); line != "" {
+		_, _ = fmt.Fprintf(out, "  %s\n", line)
+	}
+	if line := fleetCostNotReportedLine(summary, true); line != "" {
+		_, _ = fmt.Fprintf(out, "  %s\n", line)
+	}
+	if scopeLine := fleetCostScopeLine(summary.Scope); scopeLine != "" {
+		_, _ = fmt.Fprintf(out, "  %s\n", scopeLine)
+	}
+	return true
+}
+
+// fleetCostUnpricedLine says how many clusters in scope have no price, and,
+// when figures are shown above it, what that means for them: "2 clusters in
+// scope have no price from the last day, so what they cost is unknown, not
+// zero: the run rate and the projected month end leave them out and are
+// floors." A count of 0 gets no line: the line is about clusters that are
+// there, never a claim that none are. A platform that did not send the count
+// (nil) gets no line here either; fleetCostNotReportedLine says that instead.
+func fleetCostUnpricedLine(summary *client.FleetCloudCost, figuresShown bool) string {
+	if summary.UnpricedClusterCount == nil || *summary.UnpricedClusterCount <= 0 {
+		return ""
+	}
+	count := *summary.UnpricedClusterCount
+	subject, costClause, pronoun, floorClause := pluralClusters(count)+" in scope have", "they cost", "them", ""
+	if count == 1 {
+		subject, costClause, pronoun = "1 cluster in scope has", "it costs", "it"
+	}
+	if figuresShown {
+		floorClause = ": the run rate and the projected month end leave " + pronoun + " out and are floors"
+	}
+	return fmt.Sprintf("%s no price from the last day, so what %s is unknown, not zero%s.", subject, costClause, floorClause)
+}
+
+// fleetCostNotReportedLine says which readings that qualify the totals the
+// platform did not send (ankra-bn86k4.8.25): the count of clusters in scope
+// it could not price, and the hours the month so far holds. Saying nothing
+// would read as "every cluster priced, every hour metered", which a platform
+// that predates them cannot claim. Only a missing reading counts: a count of
+// 0 says every cluster is priced, and month hours that were sent speak for
+// themselves through costMonthHours. With no figures shown (nothing priced
+// yet) only the clusters half applies.
+func fleetCostNotReportedLine(summary *client.FleetCloudCost, figuresShown bool) string {
+	unpricedUnknown := summary.UnpricedClusterCount == nil
+	hoursUnknown := figuresShown && summary.MonthHours == nil
+	switch {
+	case unpricedUnknown && hoursUnknown:
+		return "The platform did not say how many clusters in scope it could not price, or whether every hour of the month so far " +
+			"was metered, so these figures may be short of what was spent."
+	case unpricedUnknown && figuresShown:
+		return "The platform did not say how many clusters in scope it could not price, so these figures may leave some out."
+	case unpricedUnknown:
+		return "The platform did not say how many clusters in scope it could not price."
+	case hoursUnknown:
+		return "The platform did not say whether every hour of the month so far was metered, so the month to date may be short of what was spent."
+	}
+	return ""
+}
+
+// The reasons a cluster's spend is counted but no longer metered.
+const (
+	fleetUnmeteredDeleted          = "deleted"
+	fleetUnmeteredStoppedReporting = "stopped reporting"
+	fleetUnmeteredMovedOut         = "moved to another project"
+)
+
+// fleetUnmeteredReason is why a cluster's month is in the totals with no
+// fresh snapshot: deleted this month, moved to another project after
+// spending under the one read, or - any other live cluster - stopped
+// reporting.
+func fleetUnmeteredReason(cluster client.FleetUnmeteredCluster) string {
+	switch {
+	case cluster.IsDeleted:
+		return fleetUnmeteredDeleted
+	case cluster.IsMovedOut:
+		return fleetUnmeteredMovedOut
+	default:
+		return fleetUnmeteredStoppedReporting
+	}
+}
+
+// fleetCostUnmeteredLines name the spend the month to date carries from
+// clusters no longer metered, which no provider row includes: "€336.16 of
+// the month to date is from 27 clusters that were deleted or stopped
+// reporting this month (19 deleted, 8 stopped reporting) ...". A live
+// cluster that stopped reporting may still be running, so its cost since it
+// was last metered is in no figure and the month end is a floor. A platform
+// that predates the field (nil) gets no line: it counted no such spend.
+func fleetCostUnmeteredLines(summary *client.FleetCloudCost) []string {
+	if len(summary.UnmeteredClusters) == 0 {
+		return nil
+	}
+	reasons := []string{fleetUnmeteredDeleted, fleetUnmeteredStoppedReporting, fleetUnmeteredMovedOut}
+	spentByReason := map[string]int{}
+	spendingCount := 0
+	stoppedCount := 0
+	var spentCents int64
+	for _, cluster := range summary.UnmeteredClusters {
+		reason := fleetUnmeteredReason(cluster)
+		if reason == fleetUnmeteredStoppedReporting {
+			stoppedCount++
+		}
+		if cluster.MonthToDateCents > 0 {
+			spendingCount++
+			spentByReason[reason]++
+			spentCents += cluster.MonthToDateCents
+		}
+	}
+	if summary.UnmeteredMonthToDateCents != nil {
+		spentCents = *summary.UnmeteredMonthToDateCents
+	}
+	lines := []string{}
+	if spendingCount > 0 && spentCents > 0 {
+		verbs, parts := []string{}, []string{}
+		for _, reason := range reasons {
+			count := spentByReason[reason]
+			if count == 0 {
+				continue
+			}
+			parts = append(parts, fmt.Sprintf("%d %s", count, reason))
+			switch {
+			case reason == fleetUnmeteredDeleted && spendingCount == 1:
+				verbs = append(verbs, "was deleted")
+			case reason == fleetUnmeteredDeleted:
+				verbs = append(verbs, "were deleted")
+			default:
+				verbs = append(verbs, reason)
+			}
+		}
+		line := fmt.Sprintf("%s of the month to date is from %s that %s this month", formatCostCents(spentCents, summary.Currency),
+			pluralClusters(spendingCount), joinAlternatives(verbs))
+		if len(parts) > 1 {
+			line += " (" + strings.Join(parts, ", ") + ")"
+		}
+		lines = append(lines, line+"; no provider row includes it.")
+	}
+	if stoppedCount > 0 {
+		pronoun := "they were"
+		if stoppedCount == 1 {
+			pronoun = "it was"
+		}
+		lines = append(lines, fmt.Sprintf("What the %s that stopped reporting cost since %s last metered is not in these figures, so the projected month end is a floor.",
+			pluralClusters(stoppedCount), pronoun))
+	}
+	return lines
+}
+
+// joinAlternatives joins phrases as "a", "a or b", "a, b or c".
+func joinAlternatives(phrases []string) string {
+	if len(phrases) <= 1 {
+		return strings.Join(phrases, "")
+	}
+	return strings.Join(phrases[:len(phrases)-1], ", ") + " or " + phrases[len(phrases)-1]
+}
+
+// fleetCostUnmeteredRows is how many unmetered clusters the summary lists;
+// -o json carries every one.
+const fleetCostUnmeteredRows = 10
+
+// renderFleetCostUnmetered lists the clusters whose spend the month to date
+// carries without a fresh snapshot, costliest first, with why and when each
+// was last metered. It ranks them itself before the row cap: the platform
+// answers costliest first today, but an older platform makes no such
+// promise, and a cap over an unranked list could hide the biggest spend
+// behind "… and N more".
+func renderFleetCostUnmetered(out io.Writer, summary *client.FleetCloudCost) {
+	if len(summary.UnmeteredClusters) == 0 {
+		return
+	}
+	currency := summary.Currency
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, "Deleted or stopped reporting this month (in the month to date, in no provider row):")
+	writer := newCostTable(out)
+	writer.AppendHeader(table.Row{"Cluster", "Why", "Provider", "Month to date", "Last metered", "Cluster ID"})
+	listed := append([]client.FleetUnmeteredCluster{}, summary.UnmeteredClusters...)
+	sort.SliceStable(listed, func(first int, second int) bool {
+		return listed[first].MonthToDateCents > listed[second].MonthToDateCents
+	})
+	if len(listed) > fleetCostUnmeteredRows {
+		listed = listed[:fleetCostUnmeteredRows]
+	}
+	for _, cluster := range listed {
+		provider := "—"
+		if cluster.Provider != nil {
+			provider = costProviderLabel(*cluster.Provider)
+		}
+		lastMetered := "—"
+		if cluster.LastSnapshotAt != nil && *cluster.LastSnapshotAt != "" {
+			lastMetered = *cluster.LastSnapshotAt
+		}
+		writer.AppendRow(table.Row{
+			cluster.ClusterName,
+			fleetUnmeteredReason(cluster),
+			provider,
+			formatCostCents(cluster.MonthToDateCents, currency),
+			lastMetered,
+			cluster.ClusterID,
+		})
+	}
+	writer.Render()
+	if hidden := len(summary.UnmeteredClusters) - len(listed); hidden > 0 {
+		_, _ = fmt.Fprintf(out, "… and %d more (-o json lists every one)\n", hidden)
+	}
+}
+
+// renderFleetCloudCostBreakdown is `cost summary --by`: the totals and the
+// one grouping asked for. A grouping the platform did not serve says so
+// rather than printing an empty table. The clusters no longer metered are
+// listed after any grouping: the header's month to date carries their spend
+// and its gap line counts them, so the view that shows the money also shows
+// whose it is.
+func renderFleetCloudCostBreakdown(out io.Writer, summary *client.FleetCloudCost, breakdown string) {
+	if !renderFleetCloudCostHeader(out, summary) {
+		return
+	}
+	currency := summary.Currency
+	rendered := false
+	switch breakdown {
+	case fleetCostByProvider:
+		rendered = renderFleetCostByProvider(out, summary, currency)
+	case fleetCostByCredential:
+		rendered = renderFleetCostByCredential(out, summary, currency)
+	case fleetCostByProject:
+		rendered = renderFleetCostByProject(out, summary, currency)
+	}
+	if !rendered {
+		_, _ = fmt.Fprintln(out)
+		_, _ = fmt.Fprintf(out, "No by-%s breakdown in this rollup.\n", breakdown)
+	}
+	renderFleetCostUnmetered(out, summary)
+}
+
+func renderFleetCostByProvider(out io.Writer, summary *client.FleetCloudCost, currency string) bool {
+	if len(summary.ByProvider) == 0 {
+		return false
+	}
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, "By provider:")
+	writer := newCostTable(out)
+	writer.AppendHeader(table.Row{"Provider", "Clusters", "Run rate/mo", "Month to date", "Projected"})
+	for _, provider := range summary.ByProvider {
+		writer.AppendRow(table.Row{
+			costProviderLabel(provider.Provider),
+			provider.ClusterCount,
+			formatCostCents(provider.MonthlyCostEstimateCents, currency),
+			formatCostCents(provider.MonthToDateCents, currency),
+			formatCostCents(provider.ProjectedMonthEndCents, currency),
+		})
+	}
+	writer.Render()
+	return true
+}
+
+func renderFleetCostByCredential(out io.Writer, summary *client.FleetCloudCost, currency string) bool {
+	if len(summary.ByCredential) == 0 {
+		return false
+	}
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, "By credential:")
+	writer := newCostTable(out)
+	writer.AppendHeader(table.Row{"Credential", "Provider", "Clusters", "Run rate/mo", "Month to date", "Projected"})
+	for _, credential := range summary.ByCredential {
+		writer.AppendRow(table.Row{
+			fleetCostCredentialLabel(credential),
+			costProviderLabel(credential.Provider),
+			credential.ClusterCount,
+			formatCostCents(credential.MonthlyCostEstimateCents, currency),
+			formatCostCents(credential.MonthToDateCents, currency),
+			formatCostCents(credential.ProjectedMonthEndCents, currency),
+		})
+	}
+	writer.Render()
+	return true
+}
+
+func renderFleetCostByProject(out io.Writer, summary *client.FleetCloudCost, currency string) bool {
+	if len(summary.ByProject) == 0 {
+		return false
+	}
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, "By project:")
+	writer := newCostTable(out)
+	writer.AppendHeader(table.Row{"Project", "Clusters", "Run rate/mo", "Month to date", "Projected"})
+	for _, project := range summary.ByProject {
+		writer.AppendRow(table.Row{
+			fleetCostProjectLabel(project),
+			project.ClusterCount,
+			formatCostCents(project.MonthlyCostEstimateCents, currency),
+			formatCostCents(project.MonthToDateCents, currency),
+			formatCostCents(project.ProjectedMonthEndCents, currency),
+		})
+	}
+	writer.Render()
+	return true
+}
+
+// fleetCostCredentialLabel names a by-credential row; clusters no
+// credential provisioned are one unnamed bucket.
+func fleetCostCredentialLabel(credential client.FleetCredentialCost) string {
+	if credential.CredentialName != nil && *credential.CredentialName != "" {
+		return *credential.CredentialName
+	}
+	if credential.CredentialID != nil && *credential.CredentialID != "" {
+		return *credential.CredentialID
+	}
+	return "(no credential)"
+}
+
+// fleetCostScopeLine says which project the rollup covered, or "" for a
+// platform that reported no scope. A partial scope is said in words: every
+// figure above it is a floor. It is said even when the scope names no
+// project, because a cut-short rollup without it reads as the whole one.
+func fleetCostScopeLine(scope *client.FleetCostScope) string {
+	label := costScopeLabel(scope)
+	if label == "" {
+		if scope == nil || !scope.Partial {
+			return ""
+		}
+		return "Scope: partial, only the clusters you may read are counted, so every figure is a floor"
+	}
+	line := "Scope: " + label
+	if scope.Partial {
+		line += " (partial: only the clusters you may read are counted, so every figure is a floor)"
+	}
+	return line
+}
+
+// costScopeLabel names what a cost read covered ("project payments", "every
+// project of the organisation"), or "" when the platform named nothing.
+func costScopeLabel(scope *client.FleetCostScope) string {
+	if scope == nil {
+		return ""
+	}
+	switch {
+	case scope.AllProjects:
+		return "every project of the organisation"
+	case scope.ProjectName != nil && *scope.ProjectName != "":
+		return "project " + *scope.ProjectName
+	case scope.ProjectID != nil && *scope.ProjectID != "":
+		return "project " + *scope.ProjectID
+	default:
+		return ""
+	}
+}
+
+// fleetCostProjectLabel names a by-project row; clusters outside any
+// project are one unnamed bucket.
+func fleetCostProjectLabel(project client.FleetProjectCost) string {
+	if project.ProjectName != nil && *project.ProjectName != "" {
+		return *project.ProjectName
+	}
+	if project.ProjectID != nil && *project.ProjectID != "" {
+		return *project.ProjectID
+	}
+	return "(no project)"
 }
 
 // costReadinessExplanation mirrors the portal's readiness copy so a missing
@@ -357,6 +909,47 @@ func costReadinessExplanation(readiness *client.CostReadiness) string {
 	}
 }
 
+// costComponents is one cluster's run rate by component, per month, in cents.
+type costComponents struct {
+	computeOnDemand, computeSpot, storage, network, controlPlane, infrastructure, idle, unallocated int64
+}
+
+// costComponentMonths reads the platform's monthly components when it sends
+// all eight (ankra-bn86k4.4.23): they come from the full-precision hourly
+// figures, so a part under a cent an hour (a stopped cluster's volumes) keeps
+// its month, and the six parts add up to the monthly run rate. Otherwise every
+// component is its whole-cent hourly figure times 730, exactly as before. The
+// two are never mixed in one table.
+func costComponentMonths(summary *client.ClusterCostSummary) costComponents {
+	monthly := []*int64{
+		summary.ComputeOnDemandMonthlyCents, summary.ComputeSpotMonthlyCents, summary.StorageMonthlyCents,
+		summary.NetworkMonthlyCents, summary.ControlPlaneMonthlyCents, summary.InfrastructureMonthlyCents,
+		summary.IdleMonthlyCents, summary.UnallocatedMonthlyCents,
+	}
+	sent := true
+	for _, part := range monthly {
+		sent = sent && part != nil
+	}
+	if sent {
+		return costComponents{
+			computeOnDemand: *summary.ComputeOnDemandMonthlyCents, computeSpot: *summary.ComputeSpotMonthlyCents,
+			storage: *summary.StorageMonthlyCents, network: *summary.NetworkMonthlyCents,
+			controlPlane: *summary.ControlPlaneMonthlyCents, infrastructure: *summary.InfrastructureMonthlyCents,
+			idle: *summary.IdleMonthlyCents, unallocated: *summary.UnallocatedMonthlyCents,
+		}
+	}
+	return costComponents{
+		computeOnDemand: summary.ComputeOnDemandCents * costHoursPerMonth,
+		computeSpot:     summary.ComputeSpotCents * costHoursPerMonth,
+		storage:         summary.StorageCents * costHoursPerMonth,
+		network:         summary.NetworkCents * costHoursPerMonth,
+		controlPlane:    summary.ControlPlaneCents * costHoursPerMonth,
+		infrastructure:  summary.InfrastructureCents * costHoursPerMonth,
+		idle:            summary.IdleHourlyCents * costHoursPerMonth,
+		unallocated:     summary.UnallocatedHourlyCents * costHoursPerMonth,
+	}
+}
+
 func renderClusterCost(out io.Writer, clusterReference string, cost *client.ClusterCost) {
 	if !cost.HasData || cost.Summary == nil {
 		_, _ = fmt.Fprintf(out, "No cost estimate for %s: %s\n", clusterReference, costReadinessExplanation(cost.Readiness))
@@ -364,9 +957,11 @@ func renderClusterCost(out io.Writer, clusterReference string, cost *client.Clus
 	}
 	summary := cost.Summary
 	currency := summary.Currency
-	_, _ = fmt.Fprintf(out, "Cost for %s (%s, %s): %s projected month end · %s month to date · %s/mo run rate · %s/hr\n",
+	monthHours, monthShort := costMonthHours(summary.MonthHours)
+	atLeast := costMonthAtLeast(monthShort)
+	_, _ = fmt.Fprintf(out, "Cost for %s (%s, %s): %s%s projected month end · %s%s month to date · %s/mo run rate · %s/hr\n",
 		clusterReference, costProviderLabel(summary.Provider), strings.ToUpper(currency),
-		formatCostCents(summary.ProjectedMonthEndCents, currency), formatCostCents(summary.MonthToDateCents, currency),
+		atLeast, formatCostCents(summary.ProjectedMonthEndCents, currency), atLeast, formatCostCents(summary.MonthToDateCents, currency),
 		formatCostCents(summary.MonthlyCostEstimateCents, currency), formatCostCents(summary.HourlyCostCents, currency))
 	coverage := fmt.Sprintf("%d of %d nodes priced", summary.PricedNodeCount, summary.TotalNodeCount)
 	if summary.CoverageIncomplete {
@@ -381,26 +976,27 @@ func renderClusterCost(out io.Writer, clusterReference string, cost *client.Clus
 		_, _ = fmt.Fprintf(out, " · snapshot %s", summary.SnapshotAt)
 	}
 	_, _ = fmt.Fprintln(out)
+	if monthHours != "" {
+		_, _ = fmt.Fprintf(out, "  %s\n", monthHours)
+	}
 
 	_, _ = fmt.Fprintln(out)
 	_, _ = fmt.Fprintln(out, "Run rate by component (per month):")
 	writer := newCostTable(out)
 	writer.AppendHeader(table.Row{"Component", "Per month"})
-	monthly := func(hourlyCents int64) string {
-		return formatCostCents(hourlyCents*costHoursPerMonth, currency)
+	parts := costComponentMonths(summary)
+	writer.AppendRow(table.Row{"Compute (on-demand)", formatCostCents(parts.computeOnDemand, currency)})
+	if parts.computeSpot > 0 {
+		writer.AppendRow(table.Row{"Compute (spot)", formatCostCents(parts.computeSpot, currency)})
 	}
-	writer.AppendRow(table.Row{"Compute (on-demand)", monthly(summary.ComputeOnDemandCents)})
-	if summary.ComputeSpotCents > 0 {
-		writer.AppendRow(table.Row{"Compute (spot)", monthly(summary.ComputeSpotCents)})
+	writer.AppendRow(table.Row{"Storage", formatCostCents(parts.storage, currency)})
+	writer.AppendRow(table.Row{"Network", formatCostCents(parts.network, currency)})
+	writer.AppendRow(table.Row{"Control plane", formatCostCents(parts.controlPlane, currency)})
+	if parts.infrastructure > 0 {
+		writer.AppendRow(table.Row{"Bastion & VMs", formatCostCents(parts.infrastructure, currency)})
 	}
-	writer.AppendRow(table.Row{"Storage", monthly(summary.StorageCents)})
-	writer.AppendRow(table.Row{"Network", monthly(summary.NetworkCents)})
-	writer.AppendRow(table.Row{"Control plane", monthly(summary.ControlPlaneCents)})
-	if summary.InfrastructureCents > 0 {
-		writer.AppendRow(table.Row{"Bastion & VMs", monthly(summary.InfrastructureCents)})
-	}
-	writer.AppendRow(table.Row{"of which idle", monthly(summary.IdleHourlyCents)})
-	writer.AppendRow(table.Row{"Unallocated", monthly(summary.UnallocatedHourlyCents)})
+	writer.AppendRow(table.Row{"of which idle", formatCostCents(parts.idle, currency)})
+	writer.AppendRow(table.Row{"Unallocated", formatCostCents(parts.unallocated, currency)})
 	writer.Render()
 
 	if len(cost.Namespaces) > 0 {
@@ -501,13 +1097,52 @@ func renderCloudSavingsOffHoursHint(out io.Writer, recommendations []client.Clou
 	}
 }
 
-func renderCloudSavingsWaste(out io.Writer, waste client.CloudSavingsWaste, currency string) {
+// cloudSavingsScanFailures is what the waste listing said about the scans a
+// savings read's scan_incomplete stands for: the failed scans, or that they
+// could not be read.
+type cloudSavingsScanFailures struct {
+	failures []client.CloudWasteCredentialError
+	isUnread bool
+}
+
+// cloudSavingsScanIncomplete reports whether the platform said the last scan
+// of an account bearing on the read did not finish. A platform that predates
+// scan_incomplete never says so, and its waste line reads as it always did.
+func cloudSavingsScanIncomplete(waste client.CloudSavingsWaste) bool {
+	return waste.Available && waste.ScanIncomplete != nil && *waste.ScanIncomplete
+}
+
+// readCloudSavingsScanFailures reads which scans did not finish, only when
+// the savings read says one did: a complete scan, and a platform that
+// predates scan_incomplete, cost no extra request and get nil. A listing
+// that cannot be read does not fail the command, since the savings read
+// already said the scan is incomplete; the reason goes to stderr.
+func readCloudSavingsScanFailures(stderr io.Writer, waste client.CloudSavingsWaste) *cloudSavingsScanFailures {
+	if !cloudSavingsScanIncomplete(waste) {
+		return nil
+	}
+	failures, readError := apiClient.GetCloudWasteCredentialErrors()
+	if readError != nil {
+		_, _ = fmt.Fprintf(stderr, "Reading which waste scan did not finish failed: %v\n", readError)
+		return &cloudSavingsScanFailures{isUnread: true}
+	}
+	return &cloudSavingsScanFailures{failures: failures}
+}
+
+// renderCloudSavingsWaste is the waste line. When the platform says the last
+// scan did not finish, no findings is unknown rather than none and a count
+// may be short, so the line says that and the failed scans are named under
+// it. Otherwise the line is the one this command always printed.
+func renderCloudSavingsWaste(out io.Writer, waste client.CloudSavingsWaste, currency string, scan *cloudSavingsScanFailures) {
 	_, _ = fmt.Fprintln(out)
+	isIncomplete := cloudSavingsScanIncomplete(waste)
 	switch {
 	case !waste.Available:
 		_, _ = fmt.Fprintln(out, "Waste: the scan could not be read (this is not the same as no waste).")
-	case !waste.HasData:
+	case !waste.HasData && !isIncomplete:
 		_, _ = fmt.Fprintln(out, "Waste: no scan yet.")
+	case waste.FindingCount == 0 && isIncomplete:
+		_, _ = fmt.Fprintln(out, "Waste: none listed, but the last scan did not finish, so that is unknown, not no waste.")
 	case waste.FindingCount == 0:
 		_, _ = fmt.Fprintln(out, "Waste: no open findings.")
 	default:
@@ -518,6 +1153,57 @@ func renderCloudSavingsWaste(out io.Writer, waste client.CloudSavingsWaste, curr
 		}
 		if waste.ScannedAt != nil && *waste.ScannedAt != "" {
 			line += " · scanned " + *waste.ScannedAt
+		}
+		_, _ = fmt.Fprintln(out, line)
+		if isIncomplete {
+			_, _ = fmt.Fprintln(out, "The last scan did not finish, so findings may be missing from that count.")
+		}
+	}
+	if isIncomplete {
+		renderCloudSavingsScanFailures(out, scan)
+	}
+}
+
+// renderCloudSavingsScanFailures names the scans that did not finish: a
+// credential by its name and provider with the provider's error, a scan no
+// credential of the organisation stands behind by its provider alone (not a
+// deleted credential: the platform does not say that), and the scans outside
+// the reader's projects as one line that names none, as the platform gives
+// them. Names and errors are the platform's and the provider's text, flattened
+// to one line. A listing that names no failed scan, as a platform that
+// predates credential_errors answers, or one read after a rescan finished, is
+// said in a line of its own: which scan did not finish is then unknown, and
+// the line under an incomplete scan never just ends.
+func renderCloudSavingsScanFailures(out io.Writer, scan *cloudSavingsScanFailures) {
+	if scan == nil {
+		return
+	}
+	if scan.isUnread {
+		_, _ = fmt.Fprintln(out, "  Which scan did not finish could not be read.")
+		return
+	}
+	if len(scan.failures) == 0 {
+		_, _ = fmt.Fprintln(out, "  Which scan did not finish is not listed by this platform.")
+		return
+	}
+	for _, failed := range scan.failures {
+		if failed.CredentialOutsideProjects {
+			_, _ = fmt.Fprintln(out, "  Did not finish: a scan by a credential outside your projects.")
+			continue
+		}
+		name, _ := hiddenunicode.Line(failed.CredentialName)
+		subject := "a credential Ankra has no name for"
+		switch {
+		case name != "" && failed.Provider != "":
+			subject = name + " (" + costProviderLabel(failed.Provider) + ")"
+		case name != "":
+			subject = name
+		case failed.Provider != "":
+			subject += " (" + costProviderLabel(failed.Provider) + ")"
+		}
+		line := "  Did not finish: " + subject
+		if reason, _ := hiddenunicode.Line(failed.Error); reason != "" {
+			line += ": " + reason
 		}
 		_, _ = fmt.Fprintln(out, line)
 	}
@@ -557,7 +1243,9 @@ func savingsReportsConfidence(savings *client.CloudSavings) bool {
 	return false
 }
 
-func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
+// renderCloudSavings is the human savings read. scan is what the waste
+// listing said about an incomplete scan, nil when the read says none.
+func renderCloudSavings(out io.Writer, savings *client.CloudSavings, scan *cloudSavingsScanFailures) {
 	currency := savings.Currency
 	// A platform that reports confidence counts only measured and billed levers
 	// in the total and says what the estimates add apart from it (ankra-tp6xp);
@@ -575,7 +1263,7 @@ func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
 		_, _ = fmt.Fprintln(out, "Estimates appear once a cluster on AWS, Google Cloud, Azure, Hetzner, OVHcloud, UpCloud or Scaleway has reported pricing in the last day; AWS, Google Cloud and Azure clusters need a connected cloud credential.")
 		renderCloudSavingsClusters(out, "Unpriced clusters (no cost snapshot yet):", savings.UnpricedClusters, true)
 		renderCloudSavingsClusters(out, cloudSavingsStaleHeading(savings.Thresholds), savings.StaleClusters, true)
-		renderCloudSavingsWaste(out, savings.Waste, currency)
+		renderCloudSavingsWaste(out, savings.Waste, currency, scan)
 		return
 	}
 	_, _ = fmt.Fprintf(out, "Cloud savings (%s): %s/mo across %s", strings.ToUpper(currency),
@@ -653,7 +1341,7 @@ func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
 	renderCloudSavingsClusters(out, cloudSavingsStaleHeading(savings.Thresholds), savings.StaleClusters, true)
 	renderCloudSavingsClusters(out, "Unreadable clusters (breakdown could not be read on this pass):", savings.UnreadableClusters, false)
 	renderCloudSavingsClusters(out, "Offline clusters (agent not checked in; nothing is recommended for them until it is):", savings.OfflineClusters, false)
-	renderCloudSavingsWaste(out, savings.Waste, currency)
+	renderCloudSavingsWaste(out, savings.Waste, currency, scan)
 }
 
 func renderCostSettings(out io.Writer, settings *client.CostSettings) {
@@ -663,7 +1351,9 @@ func renderCostSettings(out io.Writer, settings *client.CostSettings) {
 	}
 	_, _ = fmt.Fprintf(out, "Display currency: %s\n", strings.ToUpper(settings.Currency))
 	_, _ = fmt.Fprintf(out, "Effective discount: %g%%\n", settings.EffectiveDiscountPct)
-	_, _ = fmt.Fprintf(out, "Network egress estimate: %s\n", egress)
+	// Nothing meters network egress yet (ankra-bn86k4.8.21): the setting is
+	// stored and moves no figure, so the line says so whichever way it is set.
+	_, _ = fmt.Fprintf(out, "Network egress estimate: %s (stored, not metered yet: no figure includes network egress today)\n", egress)
 	if settings.AnalysedClusterLimit == nil {
 		_, _ = fmt.Fprintln(out, "Analysed-cluster limit: unknown (this platform does not report it)")
 	} else {
@@ -705,9 +1395,11 @@ func cloudSavingsStaleHeading(thresholds client.CloudSavingsThresholds) string {
 func init() {
 	costSettingsSetCmd.Flags().String("currency", "", "Display currency: usd, eur or gbp")
 	costSettingsSetCmd.Flags().Float64("discount", 0, "Effective discount in percent (0-100), applied on top of list prices; 10 means 10%")
-	costSettingsSetCmd.Flags().Bool("include-egress", false, "Include an estimated network egress charge (pass --include-egress=false to drop it)")
+	costSettingsSetCmd.Flags().Bool("include-egress", false, "Whether figures should include a network egress estimate once egress is metered (stored, not metered yet: no figure includes it today; --include-egress=false clears it)")
 	costSettingsSetCmd.Flags().String("analysed-cluster-limit", "", "How many of the costliest priced clusters the savings model analyses (1-50), or default for the platform's 8")
+	costSummaryCmd.Flags().String("by", "", "Show only one breakdown: provider, credential or project (default: the full rollup)")
 	registerStructuredOutputFlags(costSummaryCmd, costSavingsCmd, costClusterCmd, costSettingsGetCmd, costSettingsSetCmd)
+	registerCostProjectScopeFlag(costSummaryCmd, costSavingsCmd)
 	costSettingsCmd.AddCommand(costSettingsGetCmd)
 	costSettingsCmd.AddCommand(costSettingsSetCmd)
 	costCmd.AddCommand(costSummaryCmd)

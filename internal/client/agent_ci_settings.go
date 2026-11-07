@@ -99,6 +99,21 @@ type AgentCISettings struct {
 	// reported", never "none".
 	CIBuildAppArmorProfile       *string `json:"ci_build_apparmor_profile,omitempty" yaml:"ci_build_apparmor_profile,omitempty"`
 	SupportsBuildAppArmorProfile *bool   `json:"supports_build_apparmor_profile,omitempty" yaml:"supports_build_apparmor_profile,omitempty"`
+	// CIStepWorkspaces is the cluster's step workspaces mode (off, shadow or
+	// on): whether a run whose pipeline declares workspace.mode: per_step gets
+	// a workspace for each step, so its steps can run on different nodes,
+	// rather than one volume that keeps the whole run on one node.
+	// SupportsStepWorkspaces says whether the cluster's agent advertises the
+	// capability; without it "on" leaves such a run on the shared volume. Both
+	// are nil on a platform older than the setting, which is "not reported",
+	// never "off".
+	CIStepWorkspaces       *string `json:"ci_step_workspaces,omitempty" yaml:"ci_step_workspaces,omitempty"`
+	SupportsStepWorkspaces *bool   `json:"supports_step_workspaces,omitempty" yaml:"supports_step_workspaces,omitempty"`
+	// AnkraWorkspaceStorageClass is the storage class the cluster's Ankra
+	// Workspaces cut their /work volume from, "" to inherit CIStorageClass. It
+	// is nil on a platform older than the setting, which is "not reported",
+	// never "inherits": nobody chose anything there.
+	AnkraWorkspaceStorageClass *string `json:"ankra_workspace_storage_class,omitempty" yaml:"ankra_workspace_storage_class,omitempty"`
 }
 
 // The run reservation modes. off computes nothing (every cluster's default),
@@ -127,6 +142,22 @@ const (
 // AgentCIImagePrepullModes lists the modes in the order help text and
 // refusals name them.
 var AgentCIImagePrepullModes = []string{AgentCIImagePrepullOff, AgentCIImagePrepullOn}
+
+// The step workspaces modes. off runs every pipeline on one shared volume
+// (every cluster's default), shadow still does and records the mode each
+// per_step run would have taken under on, and on gives each step of a per_step
+// run a workspace of its own.
+const (
+	AgentCIStepWorkspacesOff    = "off"
+	AgentCIStepWorkspacesShadow = "shadow"
+	AgentCIStepWorkspacesOn     = "on"
+)
+
+// AgentCIStepWorkspacesModes lists the modes in the order help text and
+// refusals name them.
+var AgentCIStepWorkspacesModes = []string{
+	AgentCIStepWorkspacesOff, AgentCIStepWorkspacesShadow, AgentCIStepWorkspacesOn,
+}
 
 // The placement modes: required pins every pipeline pod to the selected
 // nodes, preferred favours them and lets pods run elsewhere when they have no
@@ -173,6 +204,15 @@ type AgentCIPlacementToleration struct {
 // when named; a pointer to "" clears the profile. Like the
 // placement they ride the next step's payload rather than the agent's release,
 // so a write naming nothing else re-renders nothing.
+//
+// CIStepWorkspaces is sent only when named too. The dispatcher reads it at a
+// run's first step and the agent's release never carries it, so a write naming
+// nothing else re-renders nothing either.
+//
+// AnkraWorkspaceStorageClass is sent only when named, and a pointer to ""
+// returns the cluster's Ankra Workspaces to inheriting the CI storage class. No
+// pipeline step and no release carries it: an Ankra Workspace reads it at its
+// next use.
 type AgentCISettingsUpdate struct {
 	CIWorkerCount    *int
 	CIStorageClass   *string
@@ -182,6 +222,10 @@ type AgentCISettingsUpdate struct {
 	CIImagePrepull   *string
 	// CIBuildAppArmorProfile is documented on the type.
 	CIBuildAppArmorProfile *string
+	// CIStepWorkspaces is documented on the type.
+	CIStepWorkspaces *string
+	// AnkraWorkspaceStorageClass is documented on the type.
+	AnkraWorkspaceStorageClass *string
 }
 
 // NamesChartSetting reports whether the write names a setting rendered into
@@ -191,6 +235,14 @@ type AgentCISettingsUpdate struct {
 // release as it already was.
 func (update AgentCISettingsUpdate) NamesChartSetting() bool {
 	return update.CIWorkerCount != nil || update.CIStorageClass != nil
+}
+
+// NamesStepPayloadSetting reports whether the write names a setting the
+// platform carries on each pipeline step's payload or reads at a run's first
+// step, which reaches the cluster with the next step dispatched.
+func (update AgentCISettingsUpdate) NamesStepPayloadSetting() bool {
+	return update.CIPlacement != nil || update.ClearPlacement || update.CIRunReservation != nil ||
+		update.CIImagePrepull != nil || update.CIBuildAppArmorProfile != nil || update.CIStepWorkspaces != nil
 }
 
 // MarshalJSON renders the partial body: only the named members, and
@@ -217,6 +269,12 @@ func (update AgentCISettingsUpdate) MarshalJSON() ([]byte, error) {
 	}
 	if update.CIBuildAppArmorProfile != nil {
 		body["ci_build_apparmor_profile"] = *update.CIBuildAppArmorProfile
+	}
+	if update.CIStepWorkspaces != nil {
+		body["ci_step_workspaces"] = *update.CIStepWorkspaces
+	}
+	if update.AnkraWorkspaceStorageClass != nil {
+		body["ankra_workspace_storage_class"] = *update.AnkraWorkspaceStorageClass
 	}
 	return json.Marshal(body)
 }

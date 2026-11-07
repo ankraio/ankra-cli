@@ -52,6 +52,8 @@ type fakeWorkspaceAPI struct {
 	requests        int
 	deleted         []string
 	upRequests      []client.WorkspaceUpRequest
+	// projectHeaders is the project override each API request carried.
+	projectHeaders []string
 	// profilesStatus and profilesBody answer the repository's workspace
 	// profiles read; profileReads counts it.
 	profilesStatus int
@@ -92,6 +94,9 @@ func (api *fakeWorkspaceAPI) workspaceJSON(status string) string {
 func (api *fakeWorkspaceAPI) serve(writer http.ResponseWriter, request *http.Request) {
 	api.mutex.Lock()
 	api.requests++
+	if strings.HasPrefix(request.URL.Path, "/api/") {
+		api.projectHeaders = append(api.projectHeaders, request.Header.Get("X-Ankra-Project-Id"))
+	}
 	api.mutex.Unlock()
 	path := request.URL.Path
 	route := request.Method + " " + path
@@ -310,6 +315,7 @@ func newExecTestEnv(t *testing.T) *execTestEnv {
 	}
 	t.Setenv("ANKRA_EXEC_ORG", "")
 	t.Setenv("ANKRA_ORG", "")
+	t.Setenv(envAnkraProject, "")
 	originalSleep := execSleep
 	execSleep = func(ctx context.Context, _ time.Duration) bool { return ctx.Err() == nil }
 	t.Cleanup(func() { execSleep = originalSleep })

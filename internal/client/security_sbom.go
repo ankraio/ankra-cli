@@ -429,7 +429,7 @@ func (c *Client) ListSecurityNamespaces(options SecurityNamespacesOptions) (*Sec
 		query.Set("cluster_id", options.ClusterID)
 	}
 	var list SecurityNamespaceList
-	if err := c.getJSON(securityURL(c.BaseURL, "/namespaces", query), &list); err != nil {
+	if err := c.getJSON(c.securityScopedURL(securityURL(c.BaseURL, "/namespaces", query)), &list); err != nil {
 		return nil, fmt.Errorf("security namespaces request failed: %w", err)
 	}
 	if list.Result == nil {
@@ -455,7 +455,7 @@ func (c *Client) ListSecurityPods(options SecurityPodsOptions) (*SecurityPodList
 		query.Set("workload_name", options.WorkloadName)
 	}
 	var list SecurityPodList
-	if err := c.getJSON(securityURL(c.BaseURL, "/pods", query), &list); err != nil {
+	if err := c.getJSON(c.securityScopedURL(securityURL(c.BaseURL, "/pods", query)), &list); err != nil {
 		return nil, fmt.Errorf("security pods request failed: %w", err)
 	}
 	if list.Result == nil {
@@ -489,7 +489,7 @@ func (c *Client) ListSecuritySBOMComponents(options SecuritySBOMComponentsOption
 		query.Set("vulnerable", strconv.FormatBool(*options.Vulnerable))
 	}
 	var list SecuritySBOMComponentList
-	if err := c.getJSON(securityURL(c.BaseURL, "/sbom", query), &list); err != nil {
+	if err := c.getJSON(c.securityScopedURL(securityURL(c.BaseURL, "/sbom", query)), &list); err != nil {
 		return nil, fmt.Errorf("security sbom request failed: %w", err)
 	}
 	if list.Result == nil {
@@ -511,7 +511,7 @@ func (c *Client) ListSecuritySBOMImages(options SecuritySBOMImagesOptions) (*Sec
 	}
 	setWorkloadSelector(query, options.WorkloadKind, options.WorkloadName)
 	var list SecuritySBOMImageList
-	if err := c.getJSON(securityURL(c.BaseURL, "/sbom/images", query), &list); err != nil {
+	if err := c.getJSON(c.securityScopedURL(securityURL(c.BaseURL, "/sbom/images", query)), &list); err != nil {
 		return nil, fmt.Errorf("security sbom images request failed: %w", err)
 	}
 	if list.Result == nil {
@@ -531,7 +531,7 @@ func (c *Client) GetSecuritySBOMComponent(options SecuritySBOMComponentOptions) 
 		query.Set("cluster_id", options.ClusterID)
 	}
 	var detail SecuritySBOMComponentDetail
-	if err := c.getJSON(securityURL(c.BaseURL, "/sbom/component", query), &detail); err != nil {
+	if err := c.getJSON(c.securityScopedURL(securityURL(c.BaseURL, "/sbom/component", query)), &detail); err != nil {
 		return nil, fmt.Errorf("security sbom component request failed: %w", err)
 	}
 	return &detail, nil
@@ -550,7 +550,7 @@ func (c *Client) GetSecuritySBOMImage(options SecuritySBOMImageOptions) (*Securi
 	}
 	addLicenseRisks(query, options.LicenseRisks)
 	var detail SecuritySBOMImageDetail
-	if err := c.getJSON(securityURL(c.BaseURL, "/sbom/image", query), &detail); err != nil {
+	if err := c.getJSON(c.securityScopedURL(securityURL(c.BaseURL, "/sbom/image", query)), &detail); err != nil {
 		return nil, fmt.Errorf("security sbom image request failed: %w", err)
 	}
 	if detail.Components == nil {
@@ -632,7 +632,7 @@ func (c *Client) ListSecuritySBOMContainers(options SecuritySBOMContainersOption
 		query.Set("status", trimmed)
 	}
 	var list SecuritySBOMContainerList
-	if err := c.getJSON(securityURL(c.BaseURL, "/sbom/containers", query), &list); err != nil {
+	if err := c.getJSON(c.securityScopedURL(securityURL(c.BaseURL, "/sbom/containers", query)), &list); err != nil {
 		return nil, fmt.Errorf("security sbom containers request failed: %w", err)
 	}
 	if list.Result == nil {
@@ -656,7 +656,7 @@ func (c *Client) ExportSecuritySBOMImage(options SecuritySBOMExportOptions) (*Se
 	if trimmed := strings.TrimSpace(options.Format); trimmed != "" {
 		query.Set("format", trimmed)
 	}
-	request, requestError := http.NewRequest(http.MethodGet, securityURL(c.BaseURL, "/sbom/image/export", query), nil)
+	request, requestError := http.NewRequest(http.MethodGet, c.securityScopedURL(securityURL(c.BaseURL, "/sbom/image/export", query)), nil)
 	if requestError != nil {
 		return nil, requestError
 	}
@@ -703,7 +703,7 @@ func (c *Client) ListSecuritySBOMImageFindings(options SecuritySBOMImageFindings
 		}
 	}
 	var list SecuritySBOMImageFindingList
-	if err := c.getJSON(securityURL(c.BaseURL, "/sbom/image/findings", query), &list); err != nil {
+	if err := c.getJSON(c.securityScopedURL(securityURL(c.BaseURL, "/sbom/image/findings", query)), &list); err != nil {
 		return nil, fmt.Errorf("security sbom image findings request failed: %w", err)
 	}
 	if list.Result == nil {

@@ -59,6 +59,8 @@ type DecisionReceipt struct {
 // superseded. The money fields are USD cents and nil when unknown, never
 // zero. ParentID names the right_size_ladder a wave belongs to; RunAfter is
 // the earliest time the cost autopilot may run a proposal it approved itself.
+// PlanHash identifies the plan this read served: an approval that names it is
+// of that plan or of nothing. It is empty from a platform that predates it.
 type DecisionProposal struct {
 	RawDocument `json:"-" yaml:"-"`
 
@@ -94,6 +96,7 @@ type DecisionProposal struct {
 	CreatedAt            string                    `json:"created_at" yaml:"created_at"`
 	UpdatedAt            string                    `json:"updated_at" yaml:"updated_at"`
 	RunAfter             *string                   `json:"run_after" yaml:"run_after"`
+	PlanHash             string                    `json:"plan_hash" yaml:"plan_hash"`
 }
 
 // DecisionProposalList is GET /org/decisions: the proposals newest first,
@@ -178,6 +181,70 @@ func (e *DecisionConsentRequiredError) Error() string {
 // needs written consent with.
 const decisionConsentRequiredCode = "consent_required"
 
+// DecisionPlanDriftedError is approve's 409 with error_code PLAN_DRIFTED: the
+// proposal was proposed again with another plan after the plan_hash the
+// approval named was read, so nothing was approved and the proposal stands as
+// it was. Current is the proposal as it stands now, with the PlanHash of the
+// plan it holds, when the platform sent it.
+type DecisionPlanDriftedError struct {
+	Detail  string
+	Current *DecisionProposal
+}
+
+func (e *DecisionPlanDriftedError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.Detail
+}
+
+// decisionPlanDriftedCode is the stable code approve answers an approval of a
+// plan the proposal no longer holds with.
+const decisionPlanDriftedCode = "PLAN_DRIFTED"
+
+// decisionPlanDrifted reads approve's refusal of a plan the proposal no
+// longer holds ({error_code, detail, payload: {proposal}}), and nil for any
+// other answer.
+func decisionPlanDrifted(statusCode int, responseBody []byte) error {
+	if statusCode != http.StatusConflict {
+		return nil
+	}
+	var refusal struct {
+		Detail    string `json:"detail"`
+		ErrorCode string `json:"error_code"`
+		Payload   struct {
+			Proposal json.RawMessage `json:"proposal"`
+		} `json:"payload"`
+	}
+	if json.Unmarshal(responseBody, &refusal) != nil || refusal.ErrorCode != decisionPlanDriftedCode {
+		return nil
+	}
+	drifted := &DecisionPlanDriftedError{Detail: refusal.Detail}
+	if len(refusal.Payload.Proposal) > 0 && string(refusal.Payload.Proposal) != "null" {
+		var current DecisionProposal
+		if decodeKeepingRawDocument(refusal.Payload.Proposal, &current) == nil {
+			drifted.Current = &current
+		}
+	}
+	return drifted
+}
+
+// decisionConsentRequired reads execute's refusal of a plan that needs
+// written consent, and nil for any other answer.
+func decisionConsentRequired(statusCode int, responseBody []byte) error {
+	if statusCode != http.StatusUnprocessableEntity {
+		return nil
+	}
+	var refusal struct {
+		Detail    string `json:"detail"`
+		ErrorCode string `json:"error_code"`
+	}
+	if json.Unmarshal(responseBody, &refusal) != nil || refusal.ErrorCode != decisionConsentRequiredCode {
+		return nil
+	}
+	return &DecisionConsentRequiredError{Detail: refusal.Detail}
+}
+
 // Each decision route is written out as a whole /api/v1 literal, so
 // TestClusterRoutesAreRegistered checks every one of them against the cluster
 // route census; a shared prefix plus an appended action would hide the action.
@@ -248,14 +315,18 @@ func decisionNoteBody(note *string) map[string]any {
 }
 
 // ApproveDecision records the caller's approval, with the note when one is
-// given. It needs the area's permission (billing.manage for cost).
+// given, of the plan planHash names (the PlanHash a read of the decision
+// answered). A proposal that holds another plan by then is not approved: the
+// answer is *DecisionPlanDriftedError carrying the proposal as it stands. An
+// empty planHash names no plan, for a platform that predates it. It needs the
+// area's permission (billing.manage for cost).
 // POST /api/v1/org/decisions/{decision_id}/approve
-func (c *Client) ApproveDecision(decisionID string, note *string) (*DecisionProposal, error) {
-	var result DecisionProposal
-	if err := c.sendJSON(http.MethodPost, fmt.Sprintf("%s/api/v1/org/decisions/%s/approve", c.BaseURL, neturl.PathEscape(decisionID)), decisionNoteBody(note), &result); err != nil {
-		return nil, err
+func (c *Client) ApproveDecision(decisionID string, note *string, planHash string) (*DecisionProposal, error) {
+	body := decisionNoteBody(note)
+	if planHash != "" {
+		body["plan_hash"] = planHash
 	}
-	return &result, nil
+	return c.postDecisionWrite(fmt.Sprintf("%s/api/v1/org/decisions/%s/approve", c.BaseURL, neturl.PathEscape(decisionID)), body, decisionPlanDrifted)
 }
 
 // HoldDecision holds an approved proposal before it runs, with the note when
@@ -300,9 +371,18 @@ func (c *Client) SetAsideDecision(decisionID string, note *string) (*DecisionPro
 // shapes it.
 // POST /api/v1/org/decisions/{decision_id}/execute
 func (c *Client) ExecuteDecision(decisionID string, options DecisionExecuteOptions) (*DecisionProposal, error) {
-	url := fmt.Sprintf("%s/api/v1/org/decisions/%s/execute", c.BaseURL, neturl.PathEscape(decisionID))
+	return c.postDecisionWrite(fmt.Sprintf("%s/api/v1/org/decisions/%s/execute", c.BaseURL, neturl.PathEscape(decisionID)),
+		options.Body(), decisionConsentRequired)
+}
+
+// postDecisionWrite posts body (none when nil) to a decision write route and
+// returns the proposal it answers. refused reads a refusal first and returns
+// the typed error the route answers it with (execute's consent_required,
+// approve's PLAN_DRIFTED), or nil to leave it to the shaping every route
+// shares.
+func (c *Client) postDecisionWrite(url string, body map[string]any, refused func(statusCode int, responseBody []byte) error) (*DecisionProposal, error) {
 	var payload []byte
-	if body := options.Body(); body != nil {
+	if body != nil {
 		encoded, marshalError := json.Marshal(body)
 		if marshalError != nil {
 			return nil, fmt.Errorf("marshal request: %w", marshalError)
@@ -324,14 +404,8 @@ func (c *Client) ExecuteDecision(decisionID string, options DecisionExecuteOptio
 	if readError != nil {
 		return nil, fmt.Errorf("read response: %w", readError)
 	}
-	if response.StatusCode == http.StatusUnprocessableEntity {
-		var refusal struct {
-			Detail    string `json:"detail"`
-			ErrorCode string `json:"error_code"`
-		}
-		if json.Unmarshal(responseBody, &refusal) == nil && refusal.ErrorCode == decisionConsentRequiredCode {
-			return nil, &DecisionConsentRequiredError{Detail: refusal.Detail}
-		}
+	if refusal := refused(response.StatusCode, responseBody); refusal != nil {
+		return nil, refusal
 	}
 	switch {
 	case response.StatusCode == http.StatusUnauthorized:
@@ -339,6 +413,9 @@ func (c *Client) ExecuteDecision(decisionID string, options DecisionExecuteOptio
 	case response.StatusCode < 200 || response.StatusCode >= 300:
 		if denied := PermissionDeniedFromResponse(response.StatusCode, responseBody); denied != nil {
 			return nil, denied
+		}
+		if restricted := BillingRestrictedFromResponse(responseBody); restricted != nil {
+			return nil, restricted
 		}
 		if detail := detailFromBody(responseBody); detail != "" {
 			return nil, newBackendDetailError(response.StatusCode, detail)

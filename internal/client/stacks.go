@@ -388,3 +388,52 @@ func (c *Client) CloneStackToCluster(ctx context.Context, targetClusterID string
 
 	return &result, nil
 }
+
+// RedeployStackOperation is one operation a stack redeploy started.
+type RedeployStackOperation struct {
+	OperationID string   `json:"operation_id"`
+	JobCount    int      `json:"job_count"`
+	ResourceIDs []string `json:"resource_ids"`
+}
+
+// RedeploySkippedResource is a member a stack redeploy did not start, and why.
+type RedeploySkippedResource struct {
+	ResourceID string `json:"resource_id"`
+	Reason     string `json:"reason"`
+}
+
+// RedeployStackResult is the platform's answer to a stack redeploy.
+// ForceConflicts echoes what the request asked for, and force reaches only the
+// manifests under Operations, so with no operations nothing was forced.
+type RedeployStackResult struct {
+	StackName          string                    `json:"stack_name"`
+	OperationID        *string                   `json:"operation_id"`
+	JobCount           int                       `json:"job_count"`
+	Operations         []RedeployStackOperation  `json:"operations"`
+	SkippedResourceIDs []string                  `json:"skipped_resource_ids"`
+	SkippedResources   []RedeploySkippedResource `json:"skipped_resources"`
+	// ForceConflicts echoes what the request asked for, not what it reached.
+	ForceConflicts bool `json:"force_conflicts"`
+	// ForcedResourceIDs says what force reached, on a forced request only. Empty
+	// means nothing was forced even with operations started; nil means the
+	// platform did not say, which is not the same answer, so omitzero keeps the
+	// two apart when the result is encoded again.
+	ForcedResourceIDs []string `json:"forced_resource_ids,omitzero"`
+}
+
+// RedeployStack re-runs the deployment jobs of the members the platform's
+// redeploy picks for the stack. force asks for server-side apply force-conflicts
+// on the manifests it re-runs, for this redeploy only. The query member is sent
+// only when forced, so a plain redeploy reads exactly as it always has.
+func (c *Client) RedeployStack(ctx context.Context, clusterID, stackName string, force bool) (*RedeployStackResult, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/%s/redeploy",
+		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(stackName))
+	if force {
+		url += "?force=true"
+	}
+	var result RedeployStackResult
+	if sendError := c.sendJSONContext(ctx, http.MethodPost, url, nil, &result); sendError != nil {
+		return nil, sendError
+	}
+	return &result, nil
+}

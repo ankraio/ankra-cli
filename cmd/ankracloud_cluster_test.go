@@ -74,6 +74,14 @@ func (mock *ankraCloudClusterMock) ListAnkraCloudClusterPlans(clusterID string) 
 	return mock.recordCatalog("cluster-plans:" + clusterID)
 }
 
+func (mock *ankraCloudClusterMock) ListAnkraCloudCPUPools(credentialID, zone string) (*client.AnkraCloudCatalogResult, error) {
+	return mock.recordCatalog("cpu-pools:" + credentialID + ":" + zone)
+}
+
+func (mock *ankraCloudClusterMock) ListAnkraCloudClusterCPUPools(clusterID string) (*client.AnkraCloudCatalogResult, error) {
+	return mock.recordCatalog("cluster-cpu-pools:" + clusterID)
+}
+
 func (mock *ankraCloudClusterMock) ListAnkraCloudTemplates(credentialID string) (*client.AnkraCloudCatalogResult, error) {
 	return mock.recordCatalog("templates:" + credentialID)
 }
@@ -88,7 +96,13 @@ func (mock *ankraCloudClusterMock) ListAnkraCloudPricing(credentialID string) (*
 
 func ankraCloudCatalogFixture() client.AnkraCloudCatalogResult {
 	publicIPv4Cents := 300
+	levelThree := 3
+	hasAVX2 := true
 	return client.AnkraCloudCatalogResult{
+		CPUPools: []client.AnkraCloudCPUPool{
+			{Name: "intel-f6-0123456789", Vendor: "GenuineIntel", Model: "Xeon Gold 6230", X86_64Level: &levelThree, HasAVX2: &hasAVX2, Nodes: 2},
+			{Name: "intel-f6-abcdefabcd", Vendor: "GenuineIntel", Model: "Xeon E5-2667 v2", Nodes: 1},
+		},
 		Zones:                  []client.AnkraCloudZone{{Name: "fi-hel1", Region: "fi", DisplayName: "Helsinki", Country: "FI"}},
 		Plans:                  []client.AnkraCloudPlan{{Name: "s-2", Family: "standard", Cores: 2, MemoryMebibytes: 4096, StorageGibibytes: 80, PriceMonthlyCents: 900, Available: true}, {Name: "s-64", Available: false}},
 		Templates:              []client.AnkraCloudTemplate{{ID: "debian-13", DisplayName: "Debian 13", OperatingSystem: "debian", Version: "13"}},
@@ -113,7 +127,7 @@ func runAnkraCloudCommand(t *testing.T, mock APIClient, arguments ...string) (st
 		cobraOutput, runError = runConfirmCommand(t, mock, "", []*cobra.Command{
 			ankraCloudCmd, ankraCloudCreateCmd, ankraCloudPreflightCmd, ankraCloudDeprovisionCmd,
 			ankraCloudStopCmd, ankraCloudStartCmd, ankraCloudWorkersCmd, ankraCloudK8sVersionCmd,
-			ankraCloudZonesCmd, ankraCloudPlansCmd, ankraCloudTemplatesCmd, ankraCloudNetworksCmd, ankraCloudPricingCmd,
+			ankraCloudZonesCmd, ankraCloudPlansCmd, ankraCloudCPUPoolsCmd, ankraCloudTemplatesCmd, ankraCloudNetworksCmd, ankraCloudPricingCmd,
 			ankraCloudQuotaCmd,
 		}, append([]string{"cluster", "ankracloud"}, arguments...)...)
 	})
@@ -344,6 +358,8 @@ func TestAnkraCloudCatalogCommands(t *testing.T) {
 		{[]string{"zones", "--credential-id", "credential-1"}, "zones:credential-1", "Helsinki"},
 		{[]string{"plans", "--credential-id", "credential-1"}, "plans:credential-1", "9.00 EUR"},
 		{[]string{"plans", "--cluster", testClusterID}, "cluster-plans:" + testClusterID, "s-64"},
+		{[]string{"cpu-pools", "--credential-id", "credential-1", "--zone", "se-sto1"}, "cpu-pools:credential-1:se-sto1", "Xeon Gold 6230"},
+		{[]string{"cpu-pools", "--cluster", testClusterID}, "cluster-cpu-pools:" + testClusterID, "intel-f6-abcdefabcd"},
 		{[]string{"templates", "--credential-id", "credential-1"}, "templates:credential-1", "Debian 13"},
 		{[]string{"networks", "--credential-id", "credential-1", "--zone", "fi-hel1"}, "networks:credential-1:fi-hel1", "10.0.0.0/16"},
 		{[]string{"pricing", "--credential-id", "credential-1"}, "pricing:credential-1", "3.00 EUR"},
@@ -396,6 +412,39 @@ func TestAnkraCloudPlansNeedsExactlyOneSource(t *testing.T) {
 	for _, arguments := range [][]string{
 		{"plans"},
 		{"plans", "--credential-id", "credential-1", "--cluster", testClusterID},
+	} {
+		mock := &ankraCloudClusterMock{}
+		if _, runError := runAnkraCloudCommand(t, mock, arguments...); exitCodeFor(runError) != exitUsage {
+			t.Errorf("%v: error %v, want a usage error", arguments, runError)
+		}
+		if len(mock.catalogCalls) != 0 {
+			t.Errorf("%v: catalog calls = %v, want none", arguments, mock.catalogCalls)
+		}
+	}
+}
+
+func TestAnkraCloudCPUPoolsShowsTheLevelAndAnUnknownOne(t *testing.T) {
+	mock := &ankraCloudClusterMock{catalogResult: ankraCloudCatalogFixture()}
+	output, runError := runAnkraCloudCommand(t, mock, "cpu-pools", "--cluster", testClusterID)
+	if runError != nil {
+		t.Fatalf("cpu-pools: %v", runError)
+	}
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "intel-f6-0123456789") && (!strings.Contains(line, "v3") || !strings.Contains(line, "yes")) {
+			t.Errorf("level-3 pool line = %q, want v3 and AVX2 yes", line)
+		}
+		if strings.Contains(line, "intel-f6-abcdefabcd") && !strings.Contains(line, "unknown") {
+			t.Errorf("unreported pool line = %q, want unknown rather than a low level", line)
+		}
+	}
+}
+
+func TestAnkraCloudCPUPoolsRefusesAmbiguousSources(t *testing.T) {
+	for _, arguments := range [][]string{
+		{"cpu-pools"},
+		{"cpu-pools", "--credential-id", "credential-1"},
+		{"cpu-pools", "--credential-id", "credential-1", "--cluster", testClusterID},
+		{"cpu-pools", "--cluster", testClusterID, "--zone", "se-sto1"},
 	} {
 		mock := &ankraCloudClusterMock{}
 		if _, runError := runAnkraCloudCommand(t, mock, arguments...); exitCodeFor(runError) != exitUsage {

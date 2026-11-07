@@ -81,6 +81,7 @@ type CreateAnkraCloudClusterRequest struct {
 	GitopsRepository          *string               `json:"gitops_repository,omitempty"`
 	GitopsBranch              *string               `json:"gitops_branch,omitempty"`
 	IncludeNetworking         *bool                 `json:"include_networking,omitempty"`
+	GatewayAPI                bool                  `json:"gateway_api,omitempty"`
 	IncludeDNS                *bool                 `json:"include_dns,omitempty"`
 	RetentionPolicy           string                `json:"retention_policy,omitempty"`
 	BastionDiskGibibytes      int                   `json:"bastion_disk_gibibytes,omitempty"`
@@ -166,9 +167,24 @@ type AnkraCloudCatalogResult struct {
 	Templates              []AnkraCloudTemplate     `json:"templates,omitempty"`
 	Networks               []AnkraCloudNetwork      `json:"networks,omitempty"`
 	StoragePrices          []AnkraCloudStoragePrice `json:"storage_prices,omitempty"`
+	CPUPools               []AnkraCloudCPUPool      `json:"cpu_pools,omitempty"`
 	PublicIPv4MonthlyCents *int                     `json:"public_ipv4_monthly_cents,omitempty"`
 	PricingComplete        bool                     `json:"pricing_complete"`
 	IncompleteReasons      []string                 `json:"incomplete_reasons,omitempty"`
+}
+
+// AnkraCloudCPUPool is one CPU pool of an Ankra Cloud zone: compute nodes
+// whose CPUs a guest cannot tell apart. A node group pinned to it with
+// --cpu-pool creates every server there.
+type AnkraCloudCPUPool struct {
+	Name   string `json:"name"`
+	Vendor string `json:"vendor"`
+	Model  string `json:"model"`
+	// X86_64Level is the x86-64 microarchitecture level (1-4) every CPU of
+	// the pool meets; 3 or more has AVX2. Nil when the platform cannot say.
+	X86_64Level *int  `json:"x86_64_level"`
+	HasAVX2     *bool `json:"has_avx2"`
+	Nodes       int   `json:"nodes"`
 }
 
 func (c *Client) CreateAnkraCloudCluster(request CreateAnkraCloudClusterRequest) (*CreateAnkraCloudClusterResponse, error) {
@@ -260,7 +276,7 @@ func (c *Client) UpdateAnkraCloudNodeGroupInstanceType(ctx context.Context, clus
 }
 
 func (c *Client) UpdateAnkraCloudNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/ankracloud/%s/node-groups/%s/labels", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/ankracloud/%s/node-groups/%s/labels", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, marshalError := json.Marshal(UpdateLabelsRequest{Labels: labels})
 	if marshalError != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", marshalError)
@@ -269,7 +285,7 @@ func (c *Client) UpdateAnkraCloudNodeGroupLabels(ctx context.Context, clusterID,
 }
 
 func (c *Client) UpdateAnkraCloudNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []NodeTaint, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/ankracloud/%s/node-groups/%s/taints", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/ankracloud/%s/node-groups/%s/taints", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, marshalError := json.Marshal(UpdateTaintsRequest{Taints: taints})
 	if marshalError != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", marshalError)
@@ -297,8 +313,8 @@ func (c *Client) ChangeAnkraCloudControlPlaneCount(clusterID string, count int) 
 	return c.changeControlPlaneCount(ankraCloudKind, clusterID, count)
 }
 
-func (c *Client) ChangeAnkraCloudControlPlaneInstanceType(clusterID, instanceType string, drainOptions DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
-	return c.changeControlPlaneInstanceType(ankraCloudKind, clusterID, instanceType, drainOptions)
+func (c *Client) ChangeAnkraCloudControlPlaneInstanceType(clusterID, instanceType string, options ControlPlaneInstanceTypeOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
+	return c.changeControlPlaneInstanceType(ankraCloudKind, clusterID, instanceType, options)
 }
 
 func (c *Client) ListAnkraCloudClusterNodes(clusterID string) (*NodeListResult, error) {
@@ -360,6 +376,22 @@ func (c *Client) ListAnkraCloudNetworks(credentialID, zone string) (*AnkraCloudC
 
 func (c *Client) ListAnkraCloudPricing(credentialID string) (*AnkraCloudCatalogResult, error) {
 	return c.ankraCloudCatalog("pricing", credentialID, "")
+}
+
+// ListAnkraCloudCPUPools reads the CPU pools of one zone under a credential.
+func (c *Client) ListAnkraCloudCPUPools(credentialID, zone string) (*AnkraCloudCatalogResult, error) {
+	return c.ankraCloudCatalog("cpu-pools", credentialID, zone)
+}
+
+// ListAnkraCloudClusterCPUPools reads the CPU pools of an existing cluster's
+// zone under its own credential, for choosing a node group's --cpu-pool.
+func (c *Client) ListAnkraCloudClusterCPUPools(clusterID string) (*AnkraCloudCatalogResult, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/ankracloud/%s/cpu-pools", c.BaseURL, url.PathEscape(clusterID))
+	var result AnkraCloudCatalogResult
+	if getError := c.getJSON(endpoint, &result); getError != nil {
+		return nil, getError
+	}
+	return &result, nil
 }
 
 // ListAnkraCloudClusterPlans reads the plan catalog under an existing

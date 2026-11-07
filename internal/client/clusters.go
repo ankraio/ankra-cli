@@ -21,12 +21,20 @@ var ErrClusterNotFound = errors.New("cluster not found")
 // currently render (operation, agent_*, resources, *_count, etc.) are
 // silently ignored by Go's JSON decoder.
 type ClusterListItem struct {
-	ID                string          `json:"id"`
-	Name              string          `json:"name"`
-	State             string          `json:"state"`
-	Description       string          `json:"description"`
-	Environment       string          `json:"environment"`
-	OrganisationID    string          `json:"organisation_id"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	State       string `json:"state"`
+	Description string `json:"description"`
+	Environment string `json:"environment"`
+	// EnvironmentSource is how the environment label was set: person,
+	// automation, default (a create lane's fallback nobody chose) or unknown
+	// (set before the platform recorded it). Empty from a platform that
+	// predates the field.
+	EnvironmentSource string `json:"environment_source,omitempty" yaml:"environment_source,omitempty"`
+	OrganisationID    string `json:"organisation_id"`
+	// ProjectID is the project the cluster belongs to (ADR 0022), when the
+	// platform serves it; nil on platforms whose cluster list predates it.
+	ProjectID         *string         `json:"project_id,omitempty" yaml:"project_id,omitempty"`
 	KubeVersion       string          `json:"kube_version"`
 	ControlPlanes     int             `json:"control_planes"`
 	Nodes             int             `json:"nodes"`
@@ -472,8 +480,15 @@ type CreateResourceSpec struct {
 }
 
 type CreateImportClusterRequest struct {
-	Name        string             `json:"name"`
-	Description string             `json:"description,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// Environment is the file's metadata.environment, what the cluster is
+	// for; omitted when the file declares none. The platform applies it only
+	// when this import creates the cluster, recording who chose it from the
+	// credential (a person's own token: the person; a service account:
+	// automation). An existing cluster's label is changed through
+	// SetClusterEnvironment instead.
+	Environment *string            `json:"environment,omitempty"`
 	Spec        CreateResourceSpec `json:"spec"`
 	// AllowRepoint acknowledges that moving the cluster to a different GitOps
 	// repository or branch prunes whatever the new source does not define.
@@ -716,42 +731,49 @@ func (c *Client) ValidateCluster(ctx context.Context, spec CreateResourceSpec, s
 	return &result, nil
 }
 
-type stackDraftRequest struct {
-	Spec stackDraftSpec `json:"spec"`
+type stackDraftsRequest struct {
+	Spec    stackDraftSpec `json:"spec"`
+	Replace bool           `json:"replace"`
 }
 
 type stackDraftSpec struct {
 	Stacks []Stack `json:"stacks"`
 }
 
-// StackDraftResult captures the outcome of staging a single stack as a draft.
-// NoChange is true when the stack already matches the cluster's desired state
-// (the server reports no diff to save); Errors holds per-resource validation
-// failures, from a 422 or embedded in a 2xx response, and is never empty of
-// messages when set.
-type StackDraftResult struct {
-	DraftID  string
-	NoChange bool
-	Errors   []ImportResponseResourceError
+// StagedStackDraft is what happened to one stack of a staged file. DraftID is
+// empty exactly when NoChange is true: the stack already matches the cluster's
+// desired state, so no draft was kept. ReplacedDraftID names the draft a replace
+// discarded, which can be set beside NoChange.
+type StagedStackDraft struct {
+	StackName       string `json:"stack_name"`
+	DraftID         string `json:"draft_id"`
+	NoChange        bool   `json:"no_change"`
+	ReplacedDraftID string `json:"replaced_draft_id"`
 }
 
-// CreateStackDraft stages a single stack as a reviewable resource draft on an
-// existing cluster, without deploying anything. It reuses the same backend
-// path the stack builder uses.
-func (c *Client) CreateStackDraft(ctx context.Context, clusterID string, stack Stack) (*StackDraftResult, error) {
-	if stack.Manifests == nil {
-		stack.Manifests = make([]Manifest, 0)
-	}
-	if stack.Addons == nil {
-		stack.Addons = make([]Addon, 0)
-	}
+// StackDraftsResult is the outcome of staging a file. Stacks holds one entry per
+// stack of the file when it landed. Errors holds the refusals when it did not, and
+// then nothing of the file was staged: the platform stages a file in one
+// transaction.
+type StackDraftsResult struct {
+	Stacks []StagedStackDraft
+	Errors []ImportResponseResourceError
+}
 
-	payload, err := json.Marshal(stackDraftRequest{Spec: stackDraftSpec{Stacks: []Stack{stack}}})
+// CreateStackDrafts stages every stack as a reviewable draft on an existing
+// cluster in one transaction, without deploying anything. replace discards a
+// stack's existing draft instead of being refused by it.
+//
+// A 404 is an error here, never "no change": this route says no change per stack on
+// a 200, so a 404 means the cluster is not there or the platform does not have the
+// route yet, and neither of those staged anything.
+func (c *Client) CreateStackDrafts(ctx context.Context, clusterID string, stacks []Stack, replace bool) (*StackDraftsResult, error) {
+	payload, err := json.Marshal(stackDraftsRequest{Spec: stackDraftSpec{Stacks: stacks}, Replace: replace})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/stacks/draft", c.BaseURL, neturl.PathEscape(clusterID))
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/stacks/drafts", c.BaseURL, neturl.PathEscape(clusterID))
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("create HTTP request: %w", err)
@@ -772,27 +794,37 @@ func (c *Client) CreateStackDraft(ctx context.Context, clusterID string, stack S
 
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
-		return &StackDraftResult{NoChange: true}, nil
-	case resp.StatusCode == http.StatusUnprocessableEntity:
-		resourceErrors := stackDraftErrorsFromBody(body, stack)
+		return nil, newUnexpectedResponseErrorWithMessage(http.StatusNotFound, fmt.Sprintf(
+			"nothing was staged: the platform did not find cluster %s, or it does not support staging a whole file yet (body: %s)",
+			clusterID, redactedBodyForError(body, 200)))
+	case resp.StatusCode == http.StatusUnprocessableEntity || resp.StatusCode == http.StatusConflict:
+		resourceErrors := stackDraftErrorsFromBody(body, stacks)
 		if len(resourceErrors) == 0 {
-			return nil, fmt.Errorf("draft failed: status 422, body: %s", redactedBodyForError(body, 500))
+			return nil, newUnexpectedResponseError("draft failed", resp.StatusCode, redactedBodyForError(body, 500))
 		}
-		return &StackDraftResult{Errors: resourceErrors}, nil
+		return &StackDraftsResult{Errors: resourceErrors}, nil
 	case resp.StatusCode < 200 || resp.StatusCode >= 300:
 		return nil, newUnexpectedResponseError("draft request failed", resp.StatusCode, redactedBodyForError(body, 500))
 	}
 
 	var parsed struct {
-		DraftID string `json:"draft_id"`
+		Stacks []StagedStackDraft `json:"stacks"`
 	}
 	if parseError := json.Unmarshal(body, &parsed); parseError != nil {
 		return nil, fmt.Errorf("parse response: %w", parseError)
 	}
-	if resourceErrors := stackDraftEmbeddedErrors(body, stack); len(resourceErrors) > 0 {
-		return &StackDraftResult{DraftID: parsed.DraftID, Errors: resourceErrors}, nil
+	// A stack the answer never mentioned is not a stack that was staged.
+	if len(parsed.Stacks) != len(stacks) {
+		return nil, fmt.Errorf("the platform answered for %d stack(s) of a file of %d, so what it staged is unknown; check with 'ankra cluster stacks show-draft'",
+			len(parsed.Stacks), len(stacks))
 	}
-	return &StackDraftResult{DraftID: parsed.DraftID}, nil
+	for _, staged := range parsed.Stacks {
+		if staged.DraftID == "" && !staged.NoChange {
+			return nil, fmt.Errorf("the platform answered for stack %q with neither a draft nor \"no change\", so what it staged is unknown; check with 'ankra cluster stacks show-draft'",
+				staged.StackName)
+		}
+	}
+	return &StackDraftsResult{Stacks: parsed.Stacks}, nil
 }
 
 // MoveClusterRequest names the organisation a cluster moves into.

@@ -140,9 +140,9 @@ func TestCostObjectClusterPriced(t *testing.T) {
 		"Confidence:        high",
 		"Coverage:          complete",
 		"Open waste:        3 findings open, priced at $120.00/mo, 1 unpriced (not in that figure)",
-		"Trend (2026-08-27 to 2026-09-25, UTC)",
+		"Daily spend (2026-08-27 to 2026-09-25, UTC), what each day cost, one mark per day scaled to the peak whole day:",
 		strings.Repeat("█", 30),
-		"30 of 30 days metered · peak $40.00 on 2026-08-27 · latest $40.00 on 2026-09-25",
+		"30 of 30 days metered · peak $40.00 on 2026-08-27 · latest whole day $40.00 on 2026-09-25\n",
 		"CLUSTER", "prod-eu", "yes",
 	} {
 		if !strings.Contains(output, want) {
@@ -300,7 +300,8 @@ func TestCostObjectNamespaceBasedMarksSharedAndUnavailableWaste(t *testing.T) {
 
 // TestCostObjectTrendTellsUnmeteredFromZero pins the trend's marks: a day
 // nobody metered is '·', a metered day that cost nothing is '_', the rest
-// scale to the peak day, and the latest day reads unknown when unmetered.
+// scale to the peak day, and the latest whole day reads unknown when
+// unmetered.
 func TestCostObjectTrendTellsUnmeteredFromZero(t *testing.T) {
 	cents := make([]*int64, 30)
 	cents[10], cents[11], cents[12], cents[13] = namespaceCents(800), namespaceCents(0), namespaceCents(100), namespaceCents(400)
@@ -326,7 +327,7 @@ func TestCostObjectTrendTellsUnmeteredFromZero(t *testing.T) {
 	for _, want := range []string{
 		"Cost of namespace shop on cluster prod-eu, in GBP",
 		"  " + wantTrend + "\n",
-		"4 of 30 days metered · peak £8.00 on 2026-09-06 · latest unknown on 2026-09-25",
+		"4 of 30 days metered · peak £8.00 on 2026-09-06 · latest whole day unknown on 2026-09-25\n",
 		"Share of fleet:    unknown",
 	} {
 		if !strings.Contains(output, want) {
@@ -558,5 +559,189 @@ func TestCostObjectFloorWithFlagsButNoClusterToName(t *testing.T) {
 	if !strings.Contains(output, "  Floor:             the platform marks the figure a floor but names no cluster behind it\n") ||
 		strings.Contains(output, "every cluster behind it contributed") || strings.Contains(output, "Partly priced") {
 		t.Fatalf("output:\n%s", output)
+	}
+}
+
+// pinCostObjectToday pins the clock that names today when the platform does
+// not flag the day still metering.
+func pinCostObjectToday(t *testing.T, now time.Time) {
+	t.Helper()
+	previous := costObjectNow
+	costObjectNow = func() time.Time { return now }
+	t.Cleanup(func() { costObjectNow = previous })
+}
+
+// objectCostMeteredDay is one trend day as a platform that flags the day
+// still metering serves it (cluster#5617).
+type objectCostMeteredDay struct {
+	cents           *int64
+	hours           int
+	partial         bool
+	clustersMetered int
+}
+
+// objectCostMeteredTrendJSON is the days, oldest first from
+// objectCostTrendStart, each with its partial flag and hours metered.
+func objectCostMeteredTrendJSON(days []objectCostMeteredDay, clustersTotal int) string {
+	encodedDays := make([]map[string]any, len(days))
+	for index, day := range days {
+		encodedDays[index] = map[string]any{"date": objectCostTrendStart.AddDate(0, 0, index).Format("2006-01-02"),
+			"cents": day.cents, "partial": day.partial, "hours_metered": day.hours,
+			"clusters_metered": day.clustersMetered, "clusters_total": clustersTotal}
+	}
+	encoded, _ := json.Marshal(encodedDays)
+	return string(encoded)
+}
+
+// todayStillMetering is 29 whole days of the given cents over 24 hours, then
+// today, still metering: today's cents over today's hours.
+func todayStillMetering(whole int64, today int64, todayHours int) []objectCostMeteredDay {
+	days := make([]objectCostMeteredDay, 30)
+	for index := range days[:29] {
+		days[index] = objectCostMeteredDay{cents: namespaceCents(whole), hours: 24, clustersMetered: 1}
+	}
+	days[29] = objectCostMeteredDay{cents: namespaceCents(today), hours: todayHours, partial: true, clustersMetered: 1}
+	return days
+}
+
+// meteredClusterProjection is a priced cluster in EUR whose trend is the
+// given days, from a platform that flags the day still metering.
+func meteredClusterProjection(days []objectCostMeteredDay, clustersTotal int) string {
+	return `{
+  "kind": "cluster",
+  "object": {"id": "` + costObjectClusterID + `", "name": "prod-hel1", "cluster_id": "` + costObjectClusterID + `", "cluster_name": "prod-hel1"},
+  "currency": "eur", "priced": true, "unpriced_reason": null,
+  "monthly_cents": 246000, "idle_pct": 10, "share_of_fleet_pct": 50, "confidence": "high", "coverage_incomplete": false,
+  "open_waste": {"available": true, "reason": null, "count": 0, "monthly_cents": 0, "unpriced_count": 0},
+  "trend_30d": ` + objectCostMeteredTrendJSON(days, clustersTotal) + `,
+  "clusters": [{"cluster_id": "` + costObjectClusterID + `", "cluster_name": "prod-hel1", "priced": true, "monthly_cents": 246000, "confidence": "high"}],
+  "namespaces": [],
+  "snapshot_stale_after_hours": 26
+}`
+}
+
+// TestCostObjectTrendKeepsTodayApartFromTheLatestWholeDay pins
+// ankra-bn86k4.8.3.1: the series is labelled daily spend, the day the
+// platform marks partial is drawn as still metering and printed on its own
+// line with its hours, and the latest figure is the last whole day. prod-hel1
+// read 6748 cents for 2026-10-25 so far against 8100 on whole days, which
+// "latest EUR67.48" presented as a 17% drop. The platform's flag decides,
+// not the local date, and -o json keeps both fields as served.
+func TestCostObjectTrendKeepsTodayApartFromTheLatestWholeDay(t *testing.T) {
+	pinCostObjectToday(t, time.Date(2026, 10, 31, 9, 0, 0, 0, time.UTC))
+	document := meteredClusterProjection(todayStillMetering(8100, 6748, 17), 1)
+	output, runError := runCostObjectCommand(t, &costObjectMock{projection: decodeObjectCost(t, document)},
+		"cost", "object", "cluster", costObjectClusterID)
+	if runError != nil {
+		t.Fatalf("run: %v", runError)
+	}
+	for _, want := range []string{
+		"Daily spend (2026-08-27 to 2026-09-25, UTC), what each day cost, one mark per day scaled to the peak whole day:\n",
+		"  " + strings.Repeat("█", 29) + "…\n",
+		"_ metered, cost nothing   … today, still metering\n",
+		"30 of 30 days metered · peak €81.00 on 2026-08-27 · latest whole day €81.00 on 2026-09-24\n",
+		"  Today so far (2026-09-25, 17 of 24 h): €67.48, still metering, so not comparable to a whole day.\n",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output lacks %q:\n%s", want, output)
+		}
+	}
+	if strings.Count(output, "€67.48") != 1 || strings.Contains(output, "latest €") {
+		t.Fatalf("today's figure may only print on its own line, never as the latest:\n%s", output)
+	}
+
+	resetTreeFlags(t, costObjectClusterCmd)
+	jsonOutput, jsonError := runCostObjectCommand(t, &costObjectMock{projection: decodeObjectCost(t, document)},
+		"cost", "object", "cluster", costObjectClusterID, "-o", "json")
+	var want, got map[string]any
+	if jsonError != nil || json.Unmarshal([]byte(document), &want) != nil || json.Unmarshal([]byte(jsonOutput), &got) != nil ||
+		!reflect.DeepEqual(want, got) {
+		t.Fatalf("-o json must keep partial and hours_metered as served (%v):\nwant %s\ngot  %s", jsonError, document, jsonOutput)
+	}
+
+	// The platform's own flag wins over the date: a last day it calls whole
+	// is the latest whole day even on the date the clock calls today, and a
+	// whole day metered for fewer than 24 hours says so.
+	pinCostObjectToday(t, time.Date(2026, 9, 25, 18, 0, 0, 0, time.UTC))
+	whole := todayStillMetering(8100, 6748, 17)
+	whole[29].partial = false
+	resetTreeFlags(t, costObjectClusterCmd)
+	wholeOutput, wholeError := runCostObjectCommand(t, &costObjectMock{projection: decodeObjectCost(t, meteredClusterProjection(whole, 1))},
+		"cost", "object", "cluster", costObjectClusterID)
+	if wholeError != nil || !strings.Contains(wholeOutput, "latest whole day €67.48 on 2026-09-25 (metered 17 of 24 h)\n") ||
+		strings.Contains(wholeOutput, "Today so far") || strings.Contains(wholeOutput, "…") {
+		t.Fatalf("a last day the platform calls whole = %v:\n%s", wholeError, wholeOutput)
+	}
+}
+
+// TestCostObjectTrendFlagsTodayOnAnOlderPlatform pins the fallback for a
+// platform that predates partial and hours_metered: the day that is today in
+// UTC is still metering, says the hours were not reported, and is not the
+// latest whole day; once the UTC day has ended, the same day is whole.
+func TestCostObjectTrendFlagsTodayOnAnOlderPlatform(t *testing.T) {
+	cents := steadyTrend(8100)
+	cents[29] = namespaceCents(6748)
+	document := strings.Replace(pricedClusterProjection(), objectCostTrendJSON(steadyTrend(4000), 1, nil),
+		objectCostTrendJSON(cents, 1, nil), 1)
+	if strings.Contains(document, `"partial"`) || strings.Contains(document, `"hours_metered"`) {
+		t.Fatalf("the older platform's fixture must carry neither field: %s", document)
+	}
+
+	pinCostObjectToday(t, time.Date(2026, 9, 25, 17, 20, 0, 0, time.FixedZone("CEST", 2*60*60)))
+	output, runError := runCostObjectCommand(t, &costObjectMock{projection: decodeObjectCost(t, document)},
+		"cost", "object", "cluster", costObjectClusterID)
+	if runError != nil {
+		t.Fatalf("run: %v", runError)
+	}
+	for _, want := range []string{
+		"  " + strings.Repeat("█", 29) + "…\n",
+		"30 of 30 days metered · peak $81.00 on 2026-08-27 · latest whole day $81.00 on 2026-09-24\n",
+		"  Today so far (2026-09-25, hours metered not reported): $67.48, still metering, so not comparable to a whole day.\n",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output lacks %q:\n%s", want, output)
+		}
+	}
+
+	pinCostObjectToday(t, time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC))
+	resetTreeFlags(t, costObjectClusterCmd)
+	ended, endedError := runCostObjectCommand(t, &costObjectMock{projection: decodeObjectCost(t, document)},
+		"cost", "object", "cluster", costObjectClusterID)
+	if endedError != nil || !strings.Contains(ended, "latest whole day $67.48 on 2026-09-25\n") || strings.Contains(ended, "Today so far") {
+		t.Fatalf("after the day ended = %v:\n%s", endedError, ended)
+	}
+}
+
+// TestCostObjectTrendWithOnlyTodayMetered pins a new object: no whole day
+// was metered yet, so there is no peak and the latest whole day is unknown,
+// and today's figure names the clusters metered so far. A today nobody has
+// metered yet reads unknown, never zero.
+func TestCostObjectTrendWithOnlyTodayMetered(t *testing.T) {
+	pinCostObjectToday(t, time.Date(2026, 10, 31, 9, 0, 0, 0, time.UTC))
+	days := make([]objectCostMeteredDay, 30)
+	days[29] = objectCostMeteredDay{cents: namespaceCents(1200), hours: 3, partial: true, clustersMetered: 1}
+	output, runError := runCostObjectCommand(t, &costObjectMock{projection: decodeObjectCost(t, meteredClusterProjection(days, 2))},
+		"cost", "object", "cluster", costObjectClusterID)
+	if runError != nil {
+		t.Fatalf("run: %v", runError)
+	}
+	for _, want := range []string{
+		"  " + strings.Repeat("·", 29) + "…\n",
+		"1 of 30 days metered · no whole day metered yet · latest whole day unknown on 2026-09-24\n",
+		"  Today so far (2026-09-25, 3 of 24 h, 1 of 2 clusters): €12.00, still metering, so not comparable to a whole day.\n",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output lacks %q:\n%s", want, output)
+		}
+	}
+
+	days = todayStillMetering(8100, 0, 0)
+	days[29] = objectCostMeteredDay{partial: true}
+	resetTreeFlags(t, costObjectClusterCmd)
+	unmetered, unmeteredError := runCostObjectCommand(t, &costObjectMock{projection: decodeObjectCost(t, meteredClusterProjection(days, 1))},
+		"cost", "object", "cluster", costObjectClusterID)
+	if unmeteredError != nil || !strings.Contains(unmetered, "  Today so far (2026-09-25, 0 of 24 h): nothing metered yet, unknown, not zero.\n") ||
+		!strings.Contains(unmetered, "29 of 30 days metered · peak €81.00 on 2026-08-27 · latest whole day €81.00 on 2026-09-24\n") {
+		t.Fatalf("a today nobody metered yet = %v:\n%s", unmeteredError, unmetered)
 	}
 }

@@ -36,6 +36,10 @@ type RegistryRobot struct {
 	ProjectName string `json:"project_name" yaml:"project_name"`
 	// Projects is every registry project the login reaches.
 	Projects []string `json:"projects" yaml:"projects"`
+	// ProjectAccess is every project the login reaches with the grants it
+	// holds there. Absent from a platform that predates robots of several
+	// projects.
+	ProjectAccess []RegistryRobotProjectAccess `json:"project_access,omitempty" yaml:"project_access,omitempty"`
 	// Scope is push, pull, or custom when the permissions are neither preset.
 	Scope string `json:"scope" yaml:"scope"`
 	// Permissions is every grant the robot holds, written resource:action.
@@ -121,11 +125,39 @@ type CreateRegistryRobotRequest struct {
 	// organisation's own. With Registry it is that registry's project and is
 	// required: the platform binds the robot to exactly the project named.
 	Project string `json:"project,omitempty"`
+	// Projects makes one robot that reaches several projects, instead of
+	// Project, Scope and Permissions, each project stating its own grants.
+	Projects []RegistryRobotProjectGrant `json:"projects,omitempty"`
 	// Registry names an integrated OCI registry entry to mint the robot on
 	// instead of the Ankra registry, with AdminCredentialName - the
 	// organisation's credential that may manage robots there.
 	Registry            string `json:"registry,omitempty"`
 	AdminCredentialName string `json:"admin_credential_name,omitempty"`
+}
+
+// RegistryRobotProjectGrant is one project of a robot that reaches several and
+// what the robot may do there: a preset Scope or its own Permissions.
+type RegistryRobotProjectGrant struct {
+	Project     string   `json:"project"`
+	Scope       string   `json:"scope,omitempty"`
+	Permissions []string `json:"permissions,omitempty"`
+}
+
+// UpdateRegistryRobotProjectsRequest is every project a robot should reach from
+// now on. AllowNewSecret lets the platform replace the robot when the registry
+// cannot change it in place, which gives it a new secret and can change its login.
+type UpdateRegistryRobotProjectsRequest struct {
+	Projects       []RegistryRobotProjectGrant `json:"projects"`
+	AllowNewSecret bool                        `json:"allow_new_secret"`
+}
+
+// RegistryRobotProjectAccess is one project a robot reaches, as the platform
+// answers it.
+type RegistryRobotProjectAccess struct {
+	Project     string   `json:"project" yaml:"project"`
+	ProjectName string   `json:"project_name" yaml:"project_name"`
+	Scope       string   `json:"scope" yaml:"scope"`
+	Permissions []string `json:"permissions" yaml:"permissions"`
 }
 
 // The robot scope vocabulary, mirroring the platform's.
@@ -204,6 +236,33 @@ func (c *Client) RotateRegistryRobotSecret(ctx context.Context, robotName string
 		return nil, fmt.Errorf("parse response: %w", unmarshalError)
 	}
 	return &rotated, nil
+}
+
+// RegistryRobotProjectsUpdated is a robot after its projects changed. With
+// SecretChanged it was replaced and Secret is the only copy of its new secret;
+// without it, its login and secret still work and Secret is empty.
+type RegistryRobotProjectsUpdated struct {
+	RegistryRobotWithSecret
+	SecretChanged bool `json:"secret_changed" yaml:"secret_changed"`
+}
+
+// UpdateRegistryRobotProjects changes which projects a robot reaches.
+func (c *Client) UpdateRegistryRobotProjects(ctx context.Context, robotName string,
+	request UpdateRegistryRobotProjectsRequest) (*RegistryRobotProjectsUpdated, error) {
+	encoded, marshalError := json.Marshal(request)
+	if marshalError != nil {
+		return nil, fmt.Errorf("encode request: %w", marshalError)
+	}
+	body, requestError := c.doRegistryRobotRequest(ctx, http.MethodPut,
+		registryRobotsAPIPath+"/"+url.PathEscape(robotName)+"/projects", encoded, http.StatusOK)
+	if requestError != nil {
+		return nil, requestError
+	}
+	var updated RegistryRobotProjectsUpdated
+	if unmarshalError := json.Unmarshal(body, &updated); unmarshalError != nil {
+		return nil, fmt.Errorf("parse response: %w", unmarshalError)
+	}
+	return &updated, nil
 }
 
 // DeleteRegistryRobot deletes the robot on the registry and the credential

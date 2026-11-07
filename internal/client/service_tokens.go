@@ -46,6 +46,9 @@ type CreateServiceTokenRequest struct {
 	RoleSlug  string   `json:"role_slug"`
 	ExpiresAt *string  `json:"expires_at,omitempty"`
 	Scopes    []string `json:"scopes,omitempty"`
+	// ProjectID pins the token to one project of the organisation (ADR
+	// 0022); omitted, the platform pins it to the caller's current project.
+	ProjectID *string `json:"project_id,omitempty"`
 }
 
 // CreateServiceTokenResponse carries the new token value, shown once.

@@ -348,3 +348,64 @@ func TestSupportAttach_UploadsEachFile(t *testing.T) {
 		t.Errorf("unexpected attach calls: %v", mock.attachCalls)
 	}
 }
+
+// TestSupportList_ShowsWhoRepliedLast pins the last-reply column: a ticket
+// the team answered reads "team <time>", one nobody replied on reads "-", and
+// -o json carries last_comment_at/last_comment_by straight from the platform.
+func TestSupportList_ShowsWhoRepliedLast(t *testing.T) {
+	repliedAt := time.Date(2026, 10, 29, 12, 54, 7, 0, time.UTC)
+	team := "team"
+	mock := &supportMock{list: &client.SupportTicketListResponse{
+		Result: []client.SupportTicketSummary{
+			{ID: "t-answered", Subject: "Upgrade window", Status: "in_progress",
+				CreatedAt: repliedAt.Add(-24 * time.Hour), UpdatedAt: repliedAt,
+				LastCommentAt: &repliedAt, LastCommentBy: &team},
+			{ID: "t-quiet", Subject: "Nobody yet", Status: "open",
+				CreatedAt: repliedAt, UpdatedAt: repliedAt},
+		},
+		Pagination: client.SupportTicketPagination{Page: 1, PageSize: 25, TotalPages: 1, TotalCount: 2},
+	}}
+	out, err := runSupport(t, mock, "support", "list")
+	if err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out)
+	}
+	if !strings.Contains(out, "LAST REPLY") || !strings.Contains(out, "team 2026-10-29T12:54:07Z") {
+		t.Errorf("expected the last reply in the table, got:\n%s", out)
+	}
+
+	resetSupportFlags(t)
+	out, err = runSupport(t, mock, "support", "list", "-o", "json")
+	if err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out)
+	}
+	if !strings.Contains(out, `"last_comment_at": "2026-10-29T12:54:07Z"`) ||
+		!strings.Contains(out, `"last_comment_by": "team"`) {
+		t.Errorf("expected last_comment_* in json output, got: %s", out)
+	}
+}
+
+// TestSupportGet_ShowsUpdatedAndLastReply pins the detail view's activity
+// lines.
+func TestSupportGet_ShowsUpdatedAndLastReply(t *testing.T) {
+	repliedAt := time.Date(2026, 10, 29, 12, 54, 7, 0, time.UTC)
+	customer := "customer"
+	mock := &supportMock{got: &client.SupportTicket{
+		ID: "t-1", Subject: "Upgrade window", Status: "in_progress",
+		CreatedAt: repliedAt.Add(-time.Hour), UpdatedAt: repliedAt,
+		LastCommentAt: &repliedAt, LastCommentBy: &customer,
+	}}
+	out, err := runSupport(t, mock, "support", "get", "t-1")
+	if err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out)
+	}
+	if !strings.Contains(out, "Updated:    2026-10-29T12:54:07Z") ||
+		!strings.Contains(out, "Last reply: customer 2026-10-29T12:54:07Z") {
+		t.Errorf("expected updated and last reply lines, got:\n%s", out)
+	}
+}
+
+func TestLastReplyLabel_NoReply(t *testing.T) {
+	if got := lastReplyLabel(nil, nil); got != "-" {
+		t.Errorf("lastReplyLabel(nil, nil) = %q, want -", got)
+	}
+}

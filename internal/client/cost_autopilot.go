@@ -53,8 +53,9 @@ type CostAutopilotCluster struct {
 	Tier            string                 `json:"tier" yaml:"tier"`
 }
 
-// CostAutopilotPolicy is GET /org/cloud-cost/autopilot: how much Ankra may do
-// about cost unasked. Defaults holds the tier every environment kind defaults
+// CostAutopilotPolicy is GET /org/cloud-cost/autopilot: which cost changes
+// Ankra proposes on its own (it never makes one itself; each proposal waits
+// for a person). Defaults holds the tier every environment kind defaults
 // to. IsSet is false for an organisation that never set a policy, when every
 // kind is hands-off; RecommendedDefaults is the policy the portal offers to
 // turn on. QuietHours and NotificationRouteID are nil for none and for the
@@ -73,13 +74,19 @@ type CostAutopilotPolicy struct {
 	EnvironmentKinds    []string                 `json:"environment_kinds" yaml:"environment_kinds"`
 	Tiers               []CostAutopilotTier      `json:"tiers" yaml:"tiers"`
 	Clusters            []CostAutopilotCluster   `json:"clusters" yaml:"clusters"`
+	// Scope says which project's clusters Clusters lists, or every project's,
+	// and whether the caller's cluster permissions left some out (Partial).
+	// The policy itself is the organisation's whatever the scope. Nil from a
+	// platform that lists every cluster of the organisation unscoped.
+	Scope *FleetCostScope `json:"scope,omitempty" yaml:"scope,omitempty"`
 }
 
 // CostAutopilotPolicyUpdate is a partial policy write. Only what is set is
 // sent, so every other part of the policy keeps its value: Defaults names
 // only the environment kinds it changes, QuietHours or ClearQuietHours sets
 // or clears the quiet hours (null), and NotificationRouteID or
-// ClearNotificationRoute sets or clears the pre-notice route (null).
+// ClearNotificationRoute sets or clears the notification route stored with
+// the policy (null); no notice is sent to it today.
 type CostAutopilotPolicyUpdate struct {
 	Defaults               map[string]string
 	QuietHours             *CostAutopilotQuietHours
@@ -118,12 +125,14 @@ type CostAutopilotOverrideRequest struct {
 	ExpiresAt *string `json:"expires_at,omitempty"`
 }
 
-// GetCostAutopilot returns the organisation's autopilot policy with every
-// live cluster's tier under it.
+// GetCostAutopilot returns the organisation's autopilot policy with the tier
+// of every live cluster in the cost project scope: the caller's current
+// project unless SetCostProjectScope names one or all, the whole
+// organisation while it has no projects.
 // GET /api/v1/org/cloud-cost/autopilot
 func (c *Client) GetCostAutopilot() (*CostAutopilotPolicy, error) {
 	var result CostAutopilotPolicy
-	if err := c.sendJSON(http.MethodGet, c.BaseURL+"/api/v1/org/cloud-cost/autopilot", nil, &result); err != nil {
+	if err := c.sendJSON(http.MethodGet, c.costScopedURL(c.BaseURL+"/api/v1/org/cloud-cost/autopilot"), nil, &result); err != nil {
 		return nil, err
 	}
 	normaliseCostAutopilotPolicy(&result)

@@ -113,10 +113,16 @@ type DataRun struct {
 	StorageClassMapping map[string]string `json:"storage_class_mapping" yaml:"storage_class_mapping"`
 	BatchID             *string           `json:"batch_id" yaml:"batch_id"`
 	BlockedReason       *string           `json:"blocked_reason" yaml:"blocked_reason"`
+	BlockedDetail       string            `json:"blocked_detail,omitempty" yaml:"blocked_detail,omitempty"`
 	AttemptBudget       int               `json:"attempt_budget" yaml:"attempt_budget"`
 	RetryOfDataRunID    *string           `json:"retry_of_data_run_id" yaml:"retry_of_data_run_id"`
 	Steps               []DataRunStep     `json:"steps,omitempty" yaml:"steps,omitempty"`
 }
+
+// DataRunBlockedAwaitingDeploy is the blocked reason of a run waiting on the
+// target stack to come up: a draft nobody has deployed yet, or a deploy still
+// landing.
+const DataRunBlockedAwaitingDeploy = "awaiting_deploy"
 
 // Run is one row of the organisation's run history. DataRun is attached for
 // the backup, restore and clone kinds and absent for every other, so one

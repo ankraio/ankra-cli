@@ -39,8 +39,17 @@ const (
 
 var (
 	usageGranularities = []string{"month", "day"}
-	usageGroupings     = []string{"meter", "cluster", "application", "instance"}
+	usageGroupings     = []string{"meter", "cluster", "application", "instance", usageGroupingProject}
 )
+
+// usageGroupingProject is the one grouping the usage read itself does not
+// serve: it is answered by the by-project showback, which splits the
+// organisation's worker vCPU-hours by project over the window.
+const usageGroupingProject = "project"
+
+// usageShowbackHoursMaximum is the longest window the by-project showback
+// reads.
+const usageShowbackHoursMaximum = 8760
 
 func newOrgUsageCommand() *cobra.Command {
 	command := &cobra.Command{
@@ -56,6 +65,9 @@ or last month; --from and --to (exclusive) pick any stretch of UTC days up to
 93 days long, within the 400 days usage is kept. --granularity splits it
 into calendar months or days, and --group-by splits each meter by cluster,
 by the application a managed service serves, or by managed service instance.
+--group-by project answers a different question: how the organisation's
+worker vCPU-hours over the window split across its projects (showback -
+billing stays one invoice per organisation). Only the window applies to it.
 
 Each line says how completely it was measured. A quantity is exact when
 every hour of the period was measured, a lower bound (shown as >=) when
@@ -84,7 +96,8 @@ Needs the billing.read permission.`,
   ankra org usage --period last-month
   ankra org usage --from 2026-09-01 --to 2026-10-01 --granularity day
   ankra org usage --group-by cluster
-  ankra org usage --group-by application -o json`,
+  ankra org usage --group-by application -o json
+  ankra org usage --group-by project --period last-month`,
 		Args: cobra.NoArgs,
 		RunE: runOrgUsage,
 	}
@@ -92,7 +105,7 @@ Needs the billing.read permission.`,
 	command.Flags().String("to", "", "The day after the last UTC day to read, YYYY-MM-DD (default: tomorrow, so today is included)")
 	command.Flags().String("period", "", "A ready-made window: this-month or last-month (instead of --from/--to)")
 	command.Flags().String("granularity", "month", "Period length of each line: month or day")
-	command.Flags().String("group-by", "meter", "Split each meter by: meter, cluster, application or instance")
+	command.Flags().String("group-by", "meter", "Split each meter by: meter, cluster, application or instance; project splits worker vCPU-hours by project")
 	command.Flags().StringP("output", "o", usageOutputTable, "Output format: table, json or yaml")
 	return command
 }
@@ -111,6 +124,9 @@ func runOrgUsage(command *cobra.Command, _ []string) error {
 	if optionsError != nil {
 		return optionsError
 	}
+	if options.GroupBy == usageGroupingProject {
+		return runOrgUsageByProject(command, format, options)
+	}
 	report, readError := apiClient.GetOrganisationUsage(command.Context(), options)
 	if readError != nil {
 		return usageReadError(readError)
@@ -125,6 +141,109 @@ func runOrgUsage(command *cobra.Command, _ []string) error {
 	}
 	printUsageReport(command.OutOrStdout(), report, applicationNames)
 	return nil
+}
+
+// runOrgUsageByProject answers --group-by project from the by-project
+// showback over the window's hours.
+func runOrgUsageByProject(command *cobra.Command, format outputFormat, options client.UsageOptions) error {
+	hours, hoursError := usageShowbackHours(options, usageNow().UTC())
+	if hoursError != nil {
+		return hoursError
+	}
+	showback, readError := apiClient.GetProjectShowback(hours)
+	if readError != nil {
+		return usageShowbackReadError(readError)
+	}
+	if format != outputDefault {
+		_, encodeError := encodeStructuredCounting(command.OutOrStdout(), format, showback, command.ErrOrStderr())
+		return encodeError
+	}
+	printUsageShowback(command.OutOrStdout(), showback)
+	return nil
+}
+
+// usageShowbackHours turns the usage window into the showback's hours: from
+// the window's first day (the first of this month when unset) to its end
+// (now when unset), clamped to the showback's 1..8760 hours.
+func usageShowbackHours(options client.UsageOptions, now time.Time) (int, error) {
+	from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	if options.From != "" {
+		parsed, parseError := time.Parse(usageDateLayout, options.From)
+		if parseError != nil {
+			return 0, withExitCode(exitUsage, fmt.Errorf("--from must be a UTC day as YYYY-MM-DD, not %q", options.From))
+		}
+		from = parsed
+	}
+	to := now
+	if options.To != "" {
+		parsed, parseError := time.Parse(usageDateLayout, options.To)
+		if parseError != nil {
+			return 0, withExitCode(exitUsage, fmt.Errorf("--to must be a UTC day as YYYY-MM-DD, not %q", options.To))
+		}
+		to = parsed
+	}
+	if !to.After(from) {
+		return 0, withExitCode(exitUsage, fmt.Errorf("the window ends (%s) before it starts (%s): --to is the day after the last day read",
+			to.Format(usageDateLayout), from.Format(usageDateLayout)))
+	}
+	if to.After(now) {
+		to = now
+	}
+	hours := int(to.Sub(from).Hours())
+	if hours < 1 {
+		hours = 1
+	}
+	if hours > usageShowbackHoursMaximum {
+		hours = usageShowbackHoursMaximum
+	}
+	return hours, nil
+}
+
+// usageShowbackReadError classifies a failed by-project read the way
+// usageReadError does: the route has no resource to miss, so a 404 means
+// the platform predates it.
+func usageShowbackReadError(readError error) error {
+	var unexpected *client.UnexpectedResponseError
+	if errors.As(readError, &unexpected) && unexpected.StatusCode == http.StatusNotFound {
+		return withExitCode(exitError, errors.New(
+			"this platform does not serve usage by project: GET /api/v1/org/billing/analytics/by-project is not registered, "+
+				"so this platform predates it"))
+	}
+	return fmt.Errorf("reading usage by project: %w", readError)
+}
+
+// printUsageShowback renders the by-project split: one row per project and
+// the hours no project could be attributed, which are never folded into a
+// project.
+func printUsageShowback(out io.Writer, showback *client.ProjectShowback) {
+	_, _ = fmt.Fprintf(out, "Worker vCPU-hours by project over the last %d hours: %s in total\n",
+		showback.WindowHours, formatUsageShowbackHours(showback.TotalWorkerVcpuHours))
+	if len(showback.Projects) == 0 {
+		_, _ = fmt.Fprintln(out, "No project used any worker vCPU-hours in the window.")
+	} else {
+		writer := table.NewWriter()
+		writer.SetOutputMirror(out)
+		writer.SetStyle(table.StyleRounded)
+		writer.AppendHeader(table.Row{"Project", "Clusters", "Worker vCPU now", "Worker vCPU-hours", "Share"})
+		for _, row := range showback.Projects {
+			writer.AppendRow(table.Row{
+				row.ProjectName,
+				row.ClusterCount,
+				row.CurrentWorkerVcpu,
+				formatUsageShowbackHours(row.WorkerVcpuHours),
+				fmt.Sprintf("%.1f%%", row.SharePct),
+			})
+		}
+		writer.Render()
+	}
+	if showback.UnattributedWorkerVcpuHours > 0 || showback.UnattributedClusterCount > 0 {
+		_, _ = fmt.Fprintf(out, "Not attributed to any project: %s over %d cluster(s).\n",
+			formatUsageShowbackHours(showback.UnattributedWorkerVcpuHours), showback.UnattributedClusterCount)
+	}
+}
+
+func formatUsageShowbackHours(hours float64) string {
+	return strconv.FormatFloat(hours, 'f', 1, 64) + " vCPU-h"
 }
 
 // usageOutputFormat reads -o: table (the default) is the human rendering,

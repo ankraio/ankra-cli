@@ -1,6 +1,6 @@
 ---
 name: ankra-cloud-clusters
-description: Provision and operate clusters Ankra builds on cloud infrastructure - Hetzner, OVHcloud, UpCloud, DigitalOcean, Scaleway, AWS (self-managed EC2), Ankra Cloud servers, Proxmox VE and HPE Morpheus - laying out a hub-and-spoke estate (infrastructure cluster first, then production and development), choosing the region and the right instance family, picking kubeadm (the default) or k3s and the etcd topology, wiring the generated stack straight into a GitOps repository, taking the ingress/DNS/TLS batteries at create time, then scaling, node groups, availability zones, upgrades and teardown. Use when the user wants Ankra to build a cluster rather than import one, plans a multi-cluster platform, asks which server type or region to pick, or mentions Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, AWS EC2 (not EKS), Ankra Cloud, Proxmox or Morpheus clusters, or the playground.
+description: Provision and operate clusters Ankra builds on cloud infrastructure - Hetzner, OVHcloud, UpCloud, DigitalOcean, Scaleway, AWS (self-managed EC2), Ankra Cloud servers, Proxmox VE and HPE Morpheus - laying out a hub-and-spoke estate (infrastructure cluster first, then production and development), choosing the region and the right instance family, picking kubeadm (the default) or k3s and the etcd topology, wiring the generated stack straight into a GitOps repository, taking the ingress/DNS/TLS batteries (and the optional Gateway API) at create time, then scaling, node groups, availability zones, upgrades and teardown. Use when the user wants Ankra to build a cluster rather than import one, plans a multi-cluster platform, asks which server type or region to pick, or mentions Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, AWS EC2 (not EKS), Ankra Cloud, Proxmox or Morpheus clusters, or the playground.
 ---
 
 # Ankra cloud clusters
@@ -56,12 +56,22 @@ provider with no managed offering; `managed` when you want the provider to own t
 uptime. To just try something, `ankra cluster playground create` gives the organisation one
 short-lived virtual cluster with the agent installed (`plans`, `status`, `resize`, `destroy`).
 
-## 1. Credentials first
+## 1. Payment method and credentials first
 
-`create` takes credential **IDs**, not names, so store them and read the IDs back.
+**A payment method on the organisation comes before anything else.** Creating a self-managed
+cluster (Hetzner and every other provider here) is refused on an organisation without one: "The
+cluster was not created ... Add a payment method". This is policy, not a bug; the user saves a card
+under **Billing** in the portal. Only `ankra cluster playground create` works without one. Tell the
+user up front instead of discovering it at `create`.
+
+`create` takes credential **IDs**, not names, so store them and read the IDs back. Hetzner needs
+both a Hetzner credential (a **Read & Write** project API token) and at least one SSH key
+credential. In the new portal (`/next`) both are at **Integrations & alerts → Credentials → Add
+credential** (**Hetzner Cloud**, **SSH key** - paste a public key, or generate a 4096-bit RSA pair
+in the browser, which downloads the private key once).
 
 ```bash
-ankra credentials hetzner create --name hetzner-prod
+ankra credentials hetzner create --name hetzner-prod   # prompts for the token; there is no token flag
 ankra credentials ssh-key create --name ops-key --public-key-file ~/.ssh/id_ed25519.pub   # org-wide, any provider
 ankra credentials ovh create --name ovh-prod
 ankra credentials upcloud create --name upcloud-prod
@@ -98,7 +108,12 @@ each has a discovery command that lists what the credential can actually deploy:
 | Proxmox VE | `ankra cluster proxmox hosts`, `storages`, `bridges`, `templates` | `ankra cluster proxmox sizes` (presets) | `--worker-instance-type`, `--control-plane-instance-type` |
 | Morpheus | `ankra cluster morpheus clouds` / `groups` / `networks` | `ankra cluster morpheus plans`, `layouts` | `--worker-plan-id`, `--control-plane-plan-id` |
 
-All discovery commands take `--credential-id`. **A region not enabled on the account fails the
+All discovery commands take `--credential-id`. **Hetzner's `cx` line is often unavailable** (on
+2026-10-28 `fsn1` offered only `cpx`, `ccx` and `cax`): run `ankra cluster hetzner server-types
+--credential-id <id> --location <loc>` and pass `--bastion-server-type`,
+`--control-plane-server-type` and `--worker-server-type` from rows with `AVAILABLE=yes`. A cheap set
+that works: `cpx12` for the bastion, `cpx22` for the control plane and workers. Never copy a `cx*`
+type from an example without checking. **A region not enabled on the account fails the
 reconcile late, at private-network setup** — list first rather than guessing from the provider's
 public docs.
 
@@ -114,7 +129,8 @@ plane, a general worker, a memory-heavy or CPU-heavy workload, and GPU.
 
 ## 3. Create
 
-The flag shape is the same everywhere; only the compute flag names change.
+The flag shape is the same everywhere; only the compute flag names change. Take the server types
+from the discovery listing (`AVAILABLE=yes` rows on Hetzner), not from this example.
 
 ```bash
 ankra cluster hetzner create \
@@ -122,8 +138,9 @@ ankra cluster hetzner create \
   --credential-id <hetzner_cred_id> \
   --ssh-key-credential-id <ssh_key_id> \
   --location nbg1 \
-  --control-plane-count 3 --control-plane-server-type cx33 \
-  --worker-count 3 --worker-server-type cx43 \
+  --bastion-server-type cpx12 \
+  --control-plane-count 3 --control-plane-server-type cpx22 \
+  --worker-count 3 --worker-server-type cpx22 \
   --distribution kubeadm \
   --kubernetes-version <from kubeadm-versions>
 ```
@@ -179,6 +196,40 @@ hosts on your own domains are ignored and their records stay yours to create —
 
 Pass `--include-dns=false` / `--include-networking=false` only when you are bringing your own
 ingress and DNS, and say so in the stack.
+
+**`--gateway-api`** (CLI v0.61.0+, API `gateway_api`) is off by default, unlike the batteries
+above. With it the networking stack's Traefik also serves the Kubernetes Gateway API, and Ingress
+keeps working (`traefik` stays the default IngressClass). It adds the `gateway-api-crds` addon
+(Gateway API v1.5.1 standard CRDs, kept when the addon is uninstalled), the GatewayClass
+`traefik`, and one shared Gateway `traefik-gateway` in namespace `traefik` with a single HTTP
+listener `web` that admits routes from every namespace. cert-manager and external-dns read
+Gateways and HTTPRoutes too, so an HTTPRoute host under the generated subdomain gets its record.
+The custom-zone external-dns reads only Ingress and Service, so HTTPRoute hosts on your own
+domains need a record you create. It needs the networking stack: without it the CLI exits 2 and
+the API answers 400. Choose it at create time, or turn it on later for a cluster that already
+exists (CLI v0.66.0+): `ankra cluster gateway-api status --cluster <c>` shows the platform's
+plan, and `ankra cluster gateway-api enable --cluster <c> --yes --wait` records the option,
+installs the CRDs (or uses the ones the cluster already has), then writes the Traefik and
+cert-manager values in one stack write. Values you wrote yourself are never changed: a key that
+says the opposite is reported as a conflict (exit 1), and nothing is written until you decide.
+There is no disable: to stop the shared Gateway, set `gateway.enabled: false` in Traefik's values.
+
+- Listener ports are Traefik entry-point container ports: `8000` (`web`, served on 80) and `8443`
+  (`websecure`, served on 443). An HTTPRoute on the shared Gateway uses `parentRefs` name
+  `traefik-gateway`, namespace `traefik`, `sectionName: web`.
+- **HTTPS: the team creates its own Gateway**; the shared one is HTTP only. Class `traefik`,
+  annotation `cert-manager.io/cluster-issuer: letsencrypt-prod`, a listener with `port: 8443`,
+  `protocol: HTTPS`, a `hostname` and `tls.certificateRefs` naming a Secret. cert-manager's
+  Gateway shim creates the Certificate into that Secret. The HTTPRoute sits in the Gateway's
+  namespace and names the listener with `sectionName`.
+- On an `ipv6_only` Ankra Cloud cluster, HTTPRoute hosts are proxied by default like Ingress hosts,
+  and the relay sends plain HTTP to port 80. A route attached only to an HTTPS listener gets none
+  of it: annotate it `external-dns.alpha.kubernetes.io/webhook-ankra-cloud-proxied: "false"`.
+- Read them with the singular kind:
+  `ankra cluster get resources gateway --group gateway.networking.k8s.io -n traefik` (and
+  `httproute`).
+
+Walkthrough with the YAML: https://docs.ankra.ai/guides/gateway-api
 
 ### Commit the generated stack to Git at create time
 
@@ -253,7 +304,8 @@ The provider is detected from the cluster, so these work everywhere:
 
 ```bash
 ankra cluster scale <cluster_id> 5                    # default worker pool
-ankra cluster upgrade <cluster_id> <target_version>   # kubeadm or k3s; --force to override a blocked drain
+ankra cluster upgrade preflight <cluster_id> <target_version>   # read-only; exit 0 ready, 8 blocked
+ankra cluster upgrade <cluster_id> <target_version>   # kubeadm or k3s; runs the preflight first; --force to override a blocked drain
 ankra cluster ssh-keys get|set|resync <cluster_id>   # get names each attached key; set REPLACES the attached set
 
 ankra cluster node-group list <cluster_id>
@@ -313,6 +365,33 @@ are evicted anyway. It applies to that one request and only matters for the live
 stopped cluster's offline resize drains nothing and ignores it, and so does a running cluster with
 fewer than three controllers (the rolling resize refuses it) or one already on that type. Same rule
 as for workers: say so before using it, never add it by reflex.
+
+The instance type changes in one of three modes, and `control-plane get` says which one applies now:
+
+| Mode | When | Effect |
+|---|---|---|
+| `rolling` | Running, three or more controllers, any provider | One controller at a time; the API stays up |
+| `live_with_api_downtime` | Running, ONE controller, **Hetzner only** | That server is resized in place (disk and IP kept); the Kubernetes API is down a few minutes |
+| `offline` | Stopped cluster, any provider | Applied at the next start, which creates the servers again |
+
+A running single-controller cluster on any other provider (or with two controllers) cannot resize
+live: grow it to three controllers first, or stop it. For the Hetzner single-controller lane,
+`control-plane get` shows `Change type: yes - live with a few minutes of API downtime (single
+controller)` with the platform's reason underneath. Workloads on the workers keep running, but
+kubectl, deploys, the Ankra agent and controllers pause until the server is back (a test run took
+about 2.5 minutes for the whole step; say "a few minutes"). Ankra snapshots etcd on the node, drains
+it, changes the type and waits for Ready. `set-instance-type` refuses it before sending anything
+unless `--accept-api-downtime` is given (CLI v0.49.0+); the API answers 409 without
+`"accept_api_downtime": true`, and the MCP tool `change_control_plane` takes the same
+`accept_api_downtime` argument. Tell the user about the downtime and get their explicit go-ahead
+before setting it, and offer scaling to three controllers first as the no-downtime alternative. The
+portal asks for the same acceptance with **Resize with API downtime**. The resize refuses to start
+while another cluster operation runs (a scheduled etcd snapshot, an upgrade); retry once it ends.
+
+```bash
+ankra cluster hetzner control-plane get <cluster>
+ankra cluster hetzner control-plane set-instance-type <cluster> cpx32 --accept-api-downtime
+```
 
 ## 5. Teardown - power is not deletion
 

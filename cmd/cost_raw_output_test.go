@@ -278,9 +278,11 @@ func TestStructuredDocumentKeepsKeyOrderAndNumberLiterals(t *testing.T) {
 	}
 }
 
-// --kind narrows the page on the CLI side into a fresh list that carries no
-// document, so -o json prints the narrowed proposals, never the platform's
-// whole page; without a filter it prints the platform's document.
+// --kind narrows the page on the CLI side, and -o json prints the platform's
+// own document narrowed the same way (ankra-bn86k4.8.25): the proposals and
+// unsettled ids filtered out are gone, and every field the CLI does not know,
+// on the page or on a kept proposal, is still there. Without a filter it
+// prints the platform's document as sent.
 func TestCostDecisionsListFilteredStructuredOutputIsTheNarrowedList(t *testing.T) {
 	const page = `{"proposals":[` +
 		`{"id":"kept-1","area":"cost","kind":"waste_cleanup","status":"proposed","zz_future_proposal_field":1},` +
@@ -297,8 +299,11 @@ func TestCostDecisionsListFilteredStructuredOutputIsTheNarrowedList(t *testing.T
 	if len(proposals) != 1 || proposals[0].(map[string]any)["id"] != "kept-1" || strings.Contains(output, "filtered-out-2") {
 		t.Fatalf("a filtered -o json must print only the kept proposal:\n%s", output)
 	}
-	if _, leaked := narrowed["zz_future_page_field"]; leaked {
-		t.Fatalf("a filtered list is built by the CLI, not the platform's page:\n%s", output)
+	if narrowed["zz_future_page_field"] != true || proposals[0].(map[string]any)["zz_future_proposal_field"] != float64(1) {
+		t.Fatalf("a filtered list keeps the fields of the platform's page the CLI does not know:\n%s", output)
+	}
+	if unsettled, isList := narrowed["unsettled_proposal_ids"].([]any); !isList || len(unsettled) != 0 {
+		t.Fatalf("the unsettled ids are narrowed with the proposals:\n%s", output)
 	}
 
 	output, _, executeError = runCostDecisionsCommand(t, realClient, "", "cost", "decisions", "list", "-o", "json")

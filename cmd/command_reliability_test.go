@@ -54,7 +54,7 @@ func TestClusterOperationsListReturnsErrorWhenNoSelection(t *testing.T) {
 
 func TestClusterOperationsRetryReturnsErrorOnAPIFailure(t *testing.T) {
 	setMockClient(t, &failingRetryExecutionMock{})
-	_, err := executeCommand("cluster", "operations", "retry", "exec-id-123")
+	_, err := executeCommand("cluster", "operations", "retry", "aaaaaaaa-1111-4222-8333-444444444444")
 	if err == nil {
 		t.Fatalf("expected error exit")
 	}

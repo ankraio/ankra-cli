@@ -15,7 +15,7 @@ type ResyncSSHKeysResult struct {
 }
 
 func (c *Client) getClusterSSHKeys(kind, clusterID string) (*ClusterSSHKeysResult, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/%s/ssh-keys", c.BaseURL, kind, url.PathEscape(clusterID))
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/%s/ssh-keys", c.BaseURL, url.PathEscape(kind), url.PathEscape(clusterID))
 	var result ClusterSSHKeysResult
 	if err := c.getJSON(endpoint, &result); err != nil {
 		return nil, err
@@ -24,7 +24,7 @@ func (c *Client) getClusterSSHKeys(kind, clusterID string) (*ClusterSSHKeysResul
 }
 
 func (c *Client) updateClusterSSHKeys(kind, clusterID string, sshKeyCredentialIDs []string) (*UpdateClusterSSHKeysResult, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/%s/ssh-keys", c.BaseURL, kind, url.PathEscape(clusterID))
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/%s/ssh-keys", c.BaseURL, url.PathEscape(kind), url.PathEscape(clusterID))
 	payload, err := json.Marshal(UpdateClusterSSHKeysRequest{SSHKeyCredentialIDs: sshKeyCredentialIDs})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -59,7 +59,7 @@ func (c *Client) updateClusterSSHKeys(kind, clusterID string, sshKeyCredentialID
 }
 
 func (c *Client) resyncClusterSSHKeys(kind, clusterID string) (*ResyncSSHKeysResult, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/%s/ssh-keys/resync", c.BaseURL, kind, url.PathEscape(clusterID))
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/%s/ssh-keys/resync", c.BaseURL, url.PathEscape(kind), url.PathEscape(clusterID))
 
 	req, err := http.NewRequest(http.MethodPost, endpoint, nil)
 	if err != nil {

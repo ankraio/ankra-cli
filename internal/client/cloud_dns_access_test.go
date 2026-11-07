@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -41,5 +43,25 @@ func TestCloudDNSAccessPermissionDenialIsTyped(t *testing.T) {
 	var denial *PermissionDeniedError
 	if !errors.As(updateError, &denial) || denial.Permission != "members.manage" {
 		t.Fatalf("denial = %v", updateError)
+	}
+}
+
+func TestUpdateCloudDNSAccessSendsAProjectOnlyWhenChanging(t *testing.T) {
+	var bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		bodies = append(bodies, string(body))
+		_, _ = writer.Write([]byte(`{"access":{"mode":"organisation","roles":[]}}`))
+	}))
+	defer server.Close()
+	api := New(testToken, server.URL)
+	project, cleared := "1ed7f4df-23b0-4571-ad50-89b968748bc4", ""
+	for _, change := range []*string{nil, &project, &cleared} {
+		if _, updateError := api.UpdateCloudDNSAccess(context.Background(), "zone", CloudDNSAccessPolicy{Mode: "organisation", ProjectChange: change}); updateError != nil {
+			t.Fatal(updateError)
+		}
+	}
+	if strings.Contains(bodies[0], "project_id") || !strings.Contains(bodies[1], project) || !strings.Contains(bodies[2], `"project_id":""`) {
+		t.Fatalf("bodies = %q", bodies)
 	}
 }

@@ -34,6 +34,42 @@ func TestGetFleetCloudCost_Success(t *testing.T) {
 	}
 }
 
+// TestGetFleetCloudCost_KeepsUnreportedUnmeteredSpendApartFromNone pins the
+// three states of the unmetered fields (review finding 4432419878): a
+// platform that does not report them (key absent or null) decodes as nil, and
+// one that reports nothing unmetered decodes as an empty, non-nil list and a
+// zero total. The client must not fill in a nil list the way it does for
+// by_provider, or "not reported" would read as "none".
+func TestGetFleetCloudCost_KeepsUnreportedUnmeteredSpendApartFromNone(t *testing.T) {
+	const totals = `"currency": "eur", "cluster_count": 1, "month_to_date_cents": 4000, "by_provider": [], "top_clusters": []`
+	for name, scenario := range map[string]struct {
+		body         string
+		wantReported bool
+	}{
+		"absent":         {body: `{` + totals + `}`},
+		"null":           {body: `{` + totals + `, "unmetered_clusters": null, "unmetered_month_to_date_cents": null}`},
+		"reported, none": {body: `{` + totals + `, "unmetered_clusters": [], "unmetered_month_to_date_cents": 0}`, wantReported: true},
+	} {
+		body := scenario.body
+		testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(body))
+		})
+		result, err := testClient.GetFleetCloudCost()
+		if err != nil {
+			t.Fatalf("%s: GetFleetCloudCost: %v", name, err)
+		}
+		listReported := result.UnmeteredClusters != nil
+		totalReported := result.UnmeteredMonthToDateCents != nil
+		if listReported != scenario.wantReported || totalReported != scenario.wantReported {
+			t.Fatalf("%s: list reported %v, total reported %v, want %v", name, listReported, totalReported, scenario.wantReported)
+		}
+		if scenario.wantReported && (len(result.UnmeteredClusters) != 0 || *result.UnmeteredMonthToDateCents != 0) {
+			t.Fatalf("%s: a platform that reports nothing unmetered must decode as an empty list and a zero total: %+v", name, result)
+		}
+	}
+}
+
 func TestGetCloudSavings_Success(t *testing.T) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -120,6 +156,33 @@ func TestGetCloudSavings_DecodesConfidenceAndLeavesItAbsentOnAnOlderPlatform(t *
 	}
 	if legacy.EstimatedMonthlySavingsCents != nil || legacy.Recommendations[0].Confidence != nil || legacy.OfflineClusters != nil {
 		t.Fatalf("an older platform's response must leave the confidence members absent: %+v", legacy)
+	}
+}
+
+// TestGetCloudSavings_DecodesScanIncompleteAndLeavesItAbsentOnAnOlderPlatform
+// pins cluster#6020's scan_incomplete: true and false decode as said, and a
+// platform that predates it leaves the field nil, which the command reads as
+// it always read the waste block.
+func TestGetCloudSavings_DecodesScanIncompleteAndLeavesItAbsentOnAnOlderPlatform(t *testing.T) {
+	for _, testCase := range []struct {
+		waste string
+		want  *bool
+	}{
+		{`{"available":true,"has_data":true,"finding_count":0,"scan_incomplete":true}`, func() *bool { value := true; return &value }()},
+		{`{"available":true,"has_data":true,"finding_count":0,"scan_incomplete":false}`, func() *bool { value := false; return &value }()},
+		{`{"available":true,"has_data":true,"finding_count":0}`, nil},
+	} {
+		handler := func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"currency":"eur","recommendations":[],"waste":` + testCase.waste + `}`))
+		}
+		result, err := newTestClient(t, handler).GetCloudSavings()
+		if err != nil {
+			t.Fatalf("GetCloudSavings: %v", err)
+		}
+		got := result.Waste.ScanIncomplete
+		if (got == nil) != (testCase.want == nil) || (got != nil && *got != *testCase.want) {
+			t.Fatalf("waste %s: scan_incomplete = %v, want %v", testCase.waste, got, testCase.want)
+		}
 	}
 }
 

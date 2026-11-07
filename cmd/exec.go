@@ -110,7 +110,9 @@ environment forwarded (GOFLAGS, GOMEMLIMIT, NODE_OPTIONS, TZ, ... and the
 names in ANKRA_EXEC_FORWARD_ENV).
 
 The workspace is this checkout's (origin remote, a repository connected to
-Ankra Pipelines) of the --kind given, brought up on first use.
+Ankra Pipelines) of the --kind given, brought up on first use. Like every
+command this one acts in the project --project, ANKRA_PROJECT or 'ankra project
+switch' names, so --check looks for the repository in that project.
 
   --apply       the command rewrites files (gofmt -w, go generate): its changes
                 come back as a patch applied to this worktree. A patch that no
@@ -239,8 +241,9 @@ func (runner *execRunner) notRun(reason string) int {
 	return execExitNotRun
 }
 
-// ensureClient resolves credentials the way every command does, which the
-// auth annotation skipped so a missing login is "not run".
+// ensureExecClient resolves credentials and the organisation and project scope
+// the way every command does, which the auth annotation skipped so a missing
+// login is "not run".
 func ensureExecClient(cmd *cobra.Command) error {
 	var tokenSource credentialSource
 	if apiClient == nil {
@@ -262,10 +265,13 @@ func ensureExecClient(cmd *cobra.Command) error {
 				return orgError
 			}
 			apiClient.SetOrganisationOverride(orgID)
-			return nil
+			return applyProjectOverride(cmd, tokenSource)
 		}
 	}
-	return applyOrganisationOverride(cmd, tokenSource)
+	if organisationError := applyOrganisationOverride(cmd, tokenSource); organisationError != nil {
+		return organisationError
+	}
+	return applyProjectOverride(cmd, tokenSource)
 }
 
 // isTransientWorkspaceError reports whether a failed call is worth retrying:
@@ -274,7 +280,7 @@ func isTransientWorkspaceError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) || isRefusedBeforeSending(err) {
 		return false
 	}
 	var workspaceError *client.WorkspaceAPIError
@@ -436,7 +442,7 @@ func (runner *execRunner) run(parent context.Context) int {
 		return runner.notRun("the worktree has no commit yet")
 	}
 	if clientError := ensureExecClient(runner.cmd); clientError != nil {
-		return runner.finishNotRun("no Ankra credentials: " + clientError.Error())
+		return runner.finishNotRun("no usable Ankra credentials or scope: " + clientError.Error())
 	}
 
 	temporaryDir, temporaryError := os.MkdirTemp("", "ankra-exec.")
@@ -617,7 +623,8 @@ func (runner *execRunner) follow(ctx context.Context, runID string) execAttempt 
 			}
 			lastProblem = streamError.Error()
 			var workspaceError *client.WorkspaceAPIError
-			if errors.As(streamError, &workspaceError) && !workspaceError.IsRetryable() {
+			if isRefusedBeforeSending(streamError) ||
+				(errors.As(streamError, &workspaceError) && !workspaceError.IsRetryable()) {
 				// The stream itself was refused (the run or the workspace is
 				// gone): the run's state is the answer.
 				return runner.settle(ctx, runID, hasOutput, lastProblem)
