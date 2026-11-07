@@ -844,6 +844,25 @@ func TestClusterNodeGroupRemoveNodeDoesNotResolveASharedProviderID(t *testing.T)
 	}
 }
 
+// A providerID that one Kubernetes node reports, while no server a removal
+// can name has that node's name (here its server is down), is said as that,
+// not as a providerID nothing reports; the reference goes as typed.
+func TestClusterNodeGroupRemoveNodeSaysWhichNodeReportsAnUnpairedProviderID(t *testing.T) {
+	mock := newRemoveNodeMock("hetzner")
+	mock.nodes[0].State = "down"
+	_, prompt, runError := runRemoveNode(t, mock, "y\n", testClusterID, "opensearch", "hcloud://168428300")
+	if runError != nil {
+		t.Fatalf("remove-node failed: %v", runError)
+	}
+	if !strings.Contains(prompt, `the Kubernetes node "depict-opensearch-0" reports that providerID, but no live `+
+		"server in the cluster's records has that name") {
+		t.Errorf("the prompt must name the node that reports the providerID:\n%s", prompt)
+	}
+	if len(mock.calls) != 1 || mock.calls[0].node != "hcloud://168428300" {
+		t.Errorf("calls = %+v, want the reference as typed", mock.calls)
+	}
+}
+
 // The platform refuses every removal from a stopped cluster, so the CLI
 // refuses it first, whatever the reference and with --yes too: the
 // platform's sentence, exit 1 as its 409 has, and nothing read, asked or

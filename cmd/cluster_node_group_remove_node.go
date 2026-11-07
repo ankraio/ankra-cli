@@ -437,15 +437,16 @@ type kubernetesNodeView struct {
 	unread            string
 }
 
-// nodesReporting is how many of the Kubernetes nodes read report providerID,
-// without regard to case.
-func (view kubernetesNodeView) nodesReporting(providerID string) int {
-	reporting := 0
-	for _, reported := range view.providerIDs {
+// nodesReporting is the names of the Kubernetes nodes read that report
+// providerID, without regard to case, in name order.
+func (view kubernetesNodeView) nodesReporting(providerID string) []string {
+	var reporting []string
+	for name, reported := range view.providerIDs {
 		if reported != "" && strings.EqualFold(reported, providerID) {
-			reporting++
+			reporting = append(reporting, name)
 		}
 	}
+	sort.Strings(reporting)
 	return reporting
 }
 
@@ -581,9 +582,10 @@ func resolveRemoveNodeTarget(kind, clusterID, reference string) removeNodeTarget
 // (nodesTheRemovalCanName).
 func matchRemoveNodeReference(nodes []client.NodeSummary, kubernetes kubernetesNodeView,
 	reference string) removeNodeTarget {
-	if reporting := kubernetes.nodesReporting(reference); reporting > 1 {
+	reporting := kubernetes.nodesReporting(reference)
+	if len(reporting) > 1 {
 		return removeNodeTarget{unresolved: fmt.Sprintf("%d of the cluster's Kubernetes nodes report that providerID",
-			reporting)}
+			len(reporting))}
 	}
 	candidates := nodesAnswering(nodes, kubernetes, reference)
 	switch {
@@ -604,6 +606,11 @@ func matchRemoveNodeReference(nodes []client.NodeSummary, kubernetes kubernetesN
 	case kubernetes.providerIDs == nil && providerIDShape.MatchString(reference):
 		return removeNodeTarget{unresolved: kubernetes.unread + ", so the CLI could not tell which node reports " +
 			"that providerID"}
+	case len(reporting) == 1:
+		// The node reporting it pairs with no server a removal can name: one
+		// that is down or deleted, or a node not named after its server.
+		return removeNodeTarget{unresolved: fmt.Sprintf("the Kubernetes node %q reports that providerID, but no "+
+			"live server in the cluster's records has that name", reporting[0])}
 	default:
 		return removeNodeTarget{unresolved: "no node in the cluster's records has that server id, name or providerID"}
 	}
