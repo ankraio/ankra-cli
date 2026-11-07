@@ -5,6 +5,8 @@
 ### Changed
 
 - **`ankra cluster node-group autoscaling set` moves a node group inside the bounds you set, instead of refusing.** A `--max` below the group's current node count used to fail with "scale the group down first"; it is now accepted and the platform scales the group down to `--max`, removing the least busy nodes first. Each node it removes is cordoned, waits up to 15 minutes for the pipeline steps running on it, and is then drained, one node at a time. A `--min` above the node count scales the group up to `--min`. The command says what will happen (for example "Node group 'ci-large' will scale down from 5 to 3 nodes as running pipeline steps finish") and names the operation doing it, and `--wait` now waits for that operation to finish and fails with its reason if it does not succeed. `--timeout` defaults to one hour for this command. Needs a platform that reports the new outcome; an older one answers as before.
+- **`ankra application environments set --branches` turns pushes on for the environment, as the portal does.** Setting a branch rule on an environment that did not deploy pushes saved a rule that never deployed anything; the environment now follows the rule from the next matching push. Add `--disable` to save the rule with pushes still off. `--clear` keeps the environment's switch as it was.
+- **`ankra application environments set` accepts `--follow` and `--follow-branches` for `--branches`, and `--none` for `--clear`**, the words the portal and `ankra application deploy --follow-branches` use, so `ankra application environments set my-app staging --follow develop,release/*` works as written. `ankra application auto-deploy --help` and the bundled skills now point at the command instead of the portal.
 
 ### Fixed
 
