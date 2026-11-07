@@ -10,6 +10,7 @@ package cmd
 // environment variable, which the person exports from `ankra mcp token`.
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -212,7 +213,13 @@ func runMCPConnect(command *cobra.Command, _ []string) error {
 	}
 
 	serverURL := strings.TrimRight(baseURL, "/") + mcpServerPath
-	previous, _ := readMCPStoredToken(clientName)
+	previousContent, previousExists := readMCPStoredTokenFile(clientName)
+	previous, previousError := readMCPStoredToken(clientName)
+	if previousError != nil && !errors.Is(previousError, os.ErrNotExist) {
+		_, _ = fmt.Fprintf(command.ErrOrStderr(),
+			"note: the previous token file could not be read (%v), so its token is not revoked; find it with 'ankra tokens list'\n",
+			previousError)
+	}
 
 	expiresAt := time.Now().UTC().AddDate(0, 0, expiryDays).Format(time.RFC3339)
 	created, createError := apiClient.CreateAPIToken(client.CreateAPITokenRequest{
@@ -237,7 +244,7 @@ func runMCPConnect(command *cobra.Command, _ []string) error {
 		// A token nothing can use must not stay valid, and the client's working
 		// token, if it had one, must stay the one on disk.
 		_, _ = apiClient.RevokeAPIToken(created.ID)
-		restoreMCPStoredToken(clientName, previous)
+		restoreMCPStoredTokenFile(clientName, previousContent, previousExists)
 		return fmt.Errorf("connecting %s (the new token was revoked): %w", clientName, storeError)
 	}
 	progress := command.ErrOrStderr()
@@ -349,15 +356,32 @@ func writeMCPStoredToken(clientName string, stored mcpStoredToken) (string, erro
 	return path, nil
 }
 
-// restoreMCPStoredToken puts back what a failed connect replaced.
-func restoreMCPStoredToken(clientName string, previous *mcpStoredToken) {
-	if previous != nil {
-		_, _ = writeMCPStoredToken(clientName, *previous)
+// readMCPStoredTokenFile answers the token file's bytes as they are, readable
+// or not, so a failed connect can put back exactly what it replaced.
+func readMCPStoredTokenFile(clientName string) ([]byte, bool) {
+	path, pathError := mcpTokenFile(clientName)
+	if pathError != nil {
+		return nil, false
+	}
+	content, readError := os.ReadFile(path)
+	if readError != nil {
+		return nil, false
+	}
+	return content, true
+}
+
+// restoreMCPStoredTokenFile puts back what a failed connect replaced: the
+// previous file's bytes, or no file when there was none.
+func restoreMCPStoredTokenFile(clientName string, previousContent []byte, previousExists bool) {
+	path, pathError := mcpTokenFile(clientName)
+	if pathError != nil {
 		return
 	}
-	if path, pathError := mcpTokenFile(clientName); pathError == nil {
+	if !previousExists {
 		_ = os.Remove(path)
+		return
 	}
+	_ = os.WriteFile(path, previousContent, 0o600)
 }
 
 func readMCPStoredToken(clientName string) (*mcpStoredToken, error) {
@@ -461,6 +485,7 @@ func registerMCPCursor(path string, serverURL string) error {
 	document := map[string]any{}
 	content, readError := os.ReadFile(path)
 	switch {
+	case readError == nil && len(bytes.TrimSpace(content)) == 0:
 	case readError == nil:
 		if decodeError := json.Unmarshal(content, &document); decodeError != nil {
 			return fmt.Errorf("%s is not valid JSON, so it was left alone: %w", path, decodeError)
@@ -488,45 +513,98 @@ func registerMCPCursor(path string, serverURL string) error {
 	return writeMCPClientConfig(path, append(encoded, '\n'))
 }
 
-// registerMCPCodex appends the server to Codex's TOML config, or rewrites its
-// url in place. The rest of the file is left byte for byte, comments included,
-// which a decode and encode would not do.
+// registerMCPCodex adds the server to Codex's TOML config. In a table that is
+// already there it sets url and bearer_token_env_var and keeps every other key;
+// the rest of the file is left byte for byte, comments included, which a
+// decode and encode would not do.
 func registerMCPCodex(path string, serverURL string) error {
 	content, readError := os.ReadFile(path)
 	if readError != nil && !errors.Is(readError, os.ErrNotExist) {
 		return readError
 	}
-	section := fmt.Sprintf("[mcp_servers.%s]\nurl = %q\nbearer_token_env_var = %q\n", mcpServerName, serverURL, mcpTokenEnvironment)
-	updated, replaced := replaceTOMLSection(string(content), "[mcp_servers."+mcpServerName+"]", section)
-	if !replaced {
+	header := "[mcp_servers." + mcpServerName + "]"
+	keys := []tomlKeyValue{
+		{Key: "url", Line: fmt.Sprintf("url = %q\n", serverURL)},
+		{Key: "bearer_token_env_var", Line: fmt.Sprintf("bearer_token_env_var = %q\n", mcpTokenEnvironment)},
+	}
+	updated, isFound := setTOMLSectionKeys(string(content), header, keys)
+	if !isFound {
 		updated = strings.TrimRight(string(content), "\n")
 		if updated != "" {
 			updated += "\n\n"
 		}
-		updated += section
+		updated += header + "\n"
+		for _, key := range keys {
+			updated += key.Line
+		}
 	}
 	return writeMCPClientConfig(path, []byte(updated))
 }
 
-// replaceTOMLSection swaps one whole table of a TOML document, up to the next
-// table header, keeping every other line as it is.
-func replaceTOMLSection(document string, header string, section string) (string, bool) {
+// tomlKeyValue is one key of a TOML table and the whole line that sets it.
+type tomlKeyValue struct {
+	Key  string
+	Line string
+}
+
+// setTOMLSectionKeys sets the given keys in one table of a TOML document,
+// replacing the line of a key that is already set and adding the others under
+// the header. Every other line, in the table and outside it, is kept.
+func setTOMLSectionKeys(document string, header string, keys []tomlKeyValue) (string, bool) {
 	lines := strings.SplitAfter(document, "\n")
 	for start, line := range lines {
 		if tomlHeaderOf(line) != header {
 			continue
 		}
 		end := start + 1
-		for end < len(lines) && !strings.HasPrefix(strings.TrimSpace(lines[end]), "[") {
+		for end < len(lines) && !isTOMLTableHeader(lines[end]) {
 			end++
 		}
-		replacement := section
-		if end < len(lines) {
-			replacement += "\n"
+		section := append([]string{}, lines[start+1:end]...)
+		var missing []string
+		for _, key := range keys {
+			isSet := false
+			for index, sectionLine := range section {
+				if tomlKeyOf(sectionLine) == key.Key {
+					section[index] = key.Line
+					isSet = true
+				}
+			}
+			if !isSet {
+				missing = append(missing, key.Line)
+			}
 		}
-		return strings.Join(lines[:start], "") + replacement + strings.Join(lines[end:], ""), true
+		headerLine := lines[start]
+		if !strings.HasSuffix(headerLine, "\n") {
+			headerLine += "\n"
+		}
+		rebuilt := strings.Join(lines[:start], "") + headerLine + strings.Join(missing, "") +
+			strings.Join(section, "") + strings.Join(lines[end:], "")
+		return rebuilt, true
 	}
 	return document, false
+}
+
+// tomlKeyOf answers the key a line sets, or "" for a line that sets none.
+func tomlKeyOf(line string) string {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return ""
+	}
+	equalsAt := strings.Index(trimmed, "=")
+	if equalsAt <= 0 {
+		return ""
+	}
+	return strings.TrimSpace(trimmed[:equalsAt])
+}
+
+// tomlTableHeaderPattern is a table or array-of-tables header: bare or quoted
+// key parts, never a comma, so a line of a multi-line array value that starts
+// with "[" does not end the table.
+var tomlTableHeaderPattern = regexp.MustCompile(`^\[\[?[A-Za-z0-9_.\-"' ]+\]\]?$`)
+
+func isTOMLTableHeader(line string) bool {
+	return tomlTableHeaderPattern.MatchString(tomlHeaderOf(line))
 }
 
 // tomlHeaderOf answers a line with any trailing comment removed, so a table

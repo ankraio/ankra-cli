@@ -409,3 +409,58 @@ func TestRegisterMCPCodexReplacesAHeaderWithATrailingComment(t *testing.T) {
 		t.Errorf("the commented section must be replaced, not duplicated:\n%s", content)
 	}
 }
+
+func TestRegisterMCPCodexKeepsOtherKeysOfItsTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	original := "[mcp_servers.ankra]\nurl = \"https://old\"\nstartup_timeout_ms = 20000\nenv_vars = [\n  \"A\",\n  [\"nested\"],\n]\n\n[profiles.fast]\nmodel = \"x\"\n"
+	if writeError := os.WriteFile(path, []byte(original), 0o600); writeError != nil {
+		t.Fatal(writeError)
+	}
+	if registerError := registerMCPCodex(path, "https://platform.test/api/v1/mcp"); registerError != nil {
+		t.Fatal(registerError)
+	}
+	content, _ := os.ReadFile(path)
+	for _, want := range []string{"startup_timeout_ms = 20000", "[\"nested\"],", `url = "https://platform.test/api/v1/mcp"`, `bearer_token_env_var = "ANKRA_MCP_TOKEN"`, "[profiles.fast]"} {
+		if !strings.Contains(string(content), want) {
+			t.Errorf("config must contain %q:\n%s", want, content)
+		}
+	}
+	if strings.Contains(string(content), "https://old") || strings.Count(string(content), "url = ") != 1 {
+		t.Errorf("the url must be set once, in place:\n%s", content)
+	}
+}
+
+func TestRegisterMCPCursorTreatsAnEmptyConfigAsMissing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp.json")
+	if writeError := os.WriteFile(path, []byte("  \n"), 0o600); writeError != nil {
+		t.Fatal(writeError)
+	}
+	if registerError := registerMCPCursor(path, "https://platform.test/api/v1/mcp"); registerError != nil {
+		t.Fatalf("an empty config must be written, got %v", registerError)
+	}
+	if content, _ := os.ReadFile(path); !strings.Contains(string(content), "https://platform.test/api/v1/mcp") {
+		t.Errorf("the server must be registered:\n%s", content)
+	}
+}
+
+func TestRestoreMCPStoredTokenFilePutsBackUnreadableContent(t *testing.T) {
+	stubMCPEnvironment(t, false)
+	path, pathError := mcpTokenFile("codex")
+	if pathError != nil {
+		t.Fatal(pathError)
+	}
+	if makeError := os.MkdirAll(filepath.Dir(path), 0o700); makeError != nil {
+		t.Fatal(makeError)
+	}
+	if writeError := os.WriteFile(path, []byte("not json"), 0o600); writeError != nil {
+		t.Fatal(writeError)
+	}
+	previousContent, previousExists := readMCPStoredTokenFile("codex")
+	if _, storeError := writeMCPStoredToken("codex", mcpStoredToken{TokenID: "token-new", Token: "new"}); storeError != nil {
+		t.Fatal(storeError)
+	}
+	restoreMCPStoredTokenFile("codex", previousContent, previousExists)
+	if content, _ := os.ReadFile(path); string(content) != "not json" {
+		t.Errorf("the unreadable previous file must be put back as it was, got %q", content)
+	}
+}
