@@ -484,6 +484,8 @@ type APIClient interface {
 	DeleteAPIToken(tokenID string) (*client.DeleteAPITokenResponse, error)
 	RotateAPIToken(tokenID string, overlapHours *int) (*client.RotateTokenResponse, error)
 	RotateServiceToken(tokenID string, overlapHours *int) (*client.RotateTokenResponse, error)
+	RevokeServiceToken(tokenID string) (*client.RevokeAPITokenResponse, error)
+	DeleteServiceToken(tokenID string) (*client.DeleteAPITokenResponse, error)
 	ListServiceTokens() ([]client.ServiceToken, error)
 	CreateServiceToken(request client.CreateServiceTokenRequest) (*client.CreateServiceTokenResponse, error)
 

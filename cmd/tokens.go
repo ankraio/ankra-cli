@@ -3,7 +3,9 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,10 +23,10 @@ var tokensCmd = &cobra.Command{
 	Short:   "Manage API tokens",
 	Long: `Commands to list, create, rotate, revoke, and delete API tokens.
 
-By default they act on your personal tokens. --service on list, create and
-rotate acts on the organisation's service tokens instead: tokens that belong
-to a service account rather than a person, for pipelines and other
-automation. Listing and creating them needs the members.manage permission.`,
+By default they act on your personal tokens. --service acts on the
+organisation's service tokens instead: tokens that belong to a service
+account rather than a person, for pipelines and other automation. Managing
+them needs the members.manage permission.`,
 }
 
 var tokenSortFields = []sortField[client.APIToken]{
@@ -361,13 +363,31 @@ func createServiceToken(cmd *cobra.Command, accountName string, expiresAt string
 var tokensRevokeCmd = &cobra.Command{
 	Use:   "revoke <token_id>",
 	Short: "Revoke an API token (can be deleted after)",
-	Args:  cobra.ExactArgs(1),
+	Long: `Revoke an API token: it stops working at once. Delete it afterwards with
+"ankra tokens delete <token_id>".
+
+--service revokes an organisation service token instead of a personal one;
+find its id with "ankra tokens list --service". The service account and its
+other tokens keep working. It needs members.manage (exit 7 without it).`,
+	Example: `  ankra tokens revoke 5b1c0d52-0000-0000-0000-000000000000
+  ankra tokens revoke <token_id> --service`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		tokenID := args[0]
 
+		if isService, _ := cmd.Flags().GetBool("service"); isService {
+			if _, err := apiClient.RevokeServiceToken(tokenID); err != nil {
+				return fmt.Errorf("revoking service token: %w", err)
+			}
+			fmt.Println("Service token revoked.")
+			fmt.Println("You can now delete it with: ankra tokens delete", tokenID, "--service")
+			return nil
+		}
+
 		result, err := apiClient.RevokeAPIToken(tokenID)
 		if err != nil {
-			return fmt.Errorf("revoking token: %w", err)
+			return withServiceTokenHint(fmt.Errorf("revoking token: %w", err), "revoke", tokenID,
+				http.StatusNotFound, http.StatusConflict)
 		}
 
 		if result.Success {
@@ -381,14 +401,31 @@ var tokensRevokeCmd = &cobra.Command{
 var tokensDeleteCmd = &cobra.Command{
 	Use:   "delete <token_id>",
 	Short: "Delete a revoked API token",
-	Long:  "Delete an API token. The token must be revoked first.",
-	Args:  cobra.ExactArgs(1),
+	Long: `Delete an API token. The token must be revoked first.
+
+--service deletes a revoked organisation service token instead of a personal
+one. It needs members.manage (exit 7 without it). Deleting a service
+account's last token takes the account's role away, but the account stays a
+member of the organisation; the command then prints the
+"ankra org remove <account_id>" that removes it. The account_id of every
+service token is in "ankra tokens list --service -o json".`,
+	Example: `  ankra tokens delete 5b1c0d52-0000-0000-0000-000000000000
+  ankra tokens delete <token_id> --service`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		tokenID := args[0]
 
+		if isService, _ := cmd.Flags().GetBool("service"); isService {
+			return deleteServiceToken(tokenID)
+		}
+
 		result, err := apiClient.DeleteAPIToken(tokenID)
 		if err != nil {
-			return fmt.Errorf("deleting token (tokens must be revoked before they can be deleted): %w", err)
+			// A personal token that is still live answers 409; only the 404
+			// can be a service token's id.
+			return withServiceTokenHint(
+				fmt.Errorf("deleting token (tokens must be revoked before they can be deleted): %w", err),
+				"delete", tokenID, http.StatusNotFound)
 		}
 
 		if result.Success {
@@ -396,6 +433,52 @@ var tokensDeleteCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+// deleteServiceToken is 'ankra tokens delete <id> --service'. It reads the
+// listing first, best effort, so that when the token is its account's last
+// it can say the account lost its role and how to remove the account itself.
+func deleteServiceToken(tokenID string) error {
+	var listed *client.ServiceToken
+	otherTokens := 0
+	if tokens, listError := apiClient.ListServiceTokens(); listError == nil {
+		for index := range tokens {
+			if tokens[index].ID == tokenID {
+				listed = &tokens[index]
+			}
+		}
+		if listed != nil {
+			for _, token := range tokens {
+				if token.AccountID == listed.AccountID && token.ID != tokenID {
+					otherTokens++
+				}
+			}
+		}
+	}
+
+	if _, err := apiClient.DeleteServiceToken(tokenID); err != nil {
+		return fmt.Errorf("deleting service token (service tokens must be revoked before they can be deleted): %w", err)
+	}
+	fmt.Println("Service token deleted.")
+	if listed != nil && otherTokens == 0 && listed.AccountID != "" {
+		fmt.Fprintf(os.Stderr, "That was the last token of service account %q, so it no longer holds a role. "+
+			"To remove the account from the organisation: ankra org remove %s\n", listed.AccountName, listed.AccountID)
+	}
+	return nil
+}
+
+// withServiceTokenHint adds the --service form to a personal-token failure
+// whose status is one the personal routes answer for an id they do not own:
+// a service token's id is refused there exactly like an unknown one (revoke
+// 409 "Failed to revoke user token", delete 404 "Failed to delete user
+// token"). The status stays in the chain, so the exit code is unchanged.
+func withServiceTokenHint(err error, verb string, tokenID string, statuses ...int) error {
+	var unexpected *client.UnexpectedResponseError
+	if !errors.As(err, &unexpected) || !slices.Contains(statuses, unexpected.StatusCode) {
+		return err
+	}
+	return fmt.Errorf("%w\nIf %s is a service token (ankra tokens list --service), add --service: ankra tokens %s %s --service",
+		err, tokenID, verb, tokenID)
 }
 
 const (
@@ -613,6 +696,8 @@ func init() {
 	tokensListCmd.Flags().Bool("service", false, "List the organisation's service tokens instead of your personal tokens")
 
 	tokensRotateCmd.Flags().Bool("service", false, "Rotate an organisation service token instead of a personal token")
+	tokensRevokeCmd.Flags().Bool("service", false, "Revoke an organisation service token instead of a personal token")
+	tokensDeleteCmd.Flags().Bool("service", false, "Delete an organisation service token instead of a personal token")
 	tokensRotateCmd.Flags().Int("overlap-hours", rotateDefaultOverlapHours,
 		"Hours the old token keeps working (0-168)")
 
