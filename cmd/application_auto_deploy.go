@@ -24,7 +24,11 @@ func newApplicationAutoDeployCommand() *cobra.Command {
 
 With auto-deploy on, a build Ankra observes on the application's tracked branch
 is rolled out to its deployments unattended. With it off, a push still builds -
-it just waits for an explicit 'ankra application deploy'.`,
+it just waits for an explicit 'ankra application deploy'.
+
+This switch is application-wide. Which branches each environment follows, and
+whether pushes deploy to that environment, is 'ankra application environments
+set'.`,
 	}
 	autoDeployCommand.AddCommand(
 		newApplicationAutoDeployGetCommand(),

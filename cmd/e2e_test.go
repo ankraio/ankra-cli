@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -380,6 +381,18 @@ func (m baseMock) PutStackProfileLogo(requestContext context.Context, profileID 
 }
 
 func (m baseMock) DeleteStackProfileLogo(requestContext context.Context, profileID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationEnvironments(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PreviewApplicationPromotion(requestContext context.Context, applicationID string, query url.Values) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StartApplicationPromotion(requestContext context.Context, applicationID string, promotion map[string]string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1558,6 +1571,10 @@ func (m baseMock) GetSlackStatus(context.Context) (*client.SlackStatus, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetApplicationBranchBuilds(context.Context, string) (*client.ApplicationBranchBuilds, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateAPIToken(client.CreateAPITokenRequest) (*client.CreateAPITokenResponse, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1707,6 +1724,38 @@ func (m baseMock) ListAILaneModels() ([]client.AILaneModel, error) {
 }
 
 func (m baseMock) SetAILaneModel(lane string, modelKey string) ([]client.AILaneModel, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListPersonalAIKeys() (*client.PersonalAIKeyListing, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AddPersonalAIKey(request client.AddPersonalAIKeyRequest) (*client.PersonalAIKey, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ReorderPersonalAIKeys(keyIDs []string) (*client.PersonalAIKeyList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RenamePersonalAIKey(keyID string, label string) (*client.PersonalAIKey, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeletePersonalAIKey(keyID string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) TestPersonalAIKey(keyID string) (*client.PersonalAIKeyTestResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetPersonalAIKeysPolicy() (*client.PersonalAIKeysPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetPersonalAIKeysPolicy(allowed bool) (*client.PersonalAIKeysPolicy, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1896,6 +1945,10 @@ func (m baseMock) GetStateSnapshotRetention(context.Context, string) (*client.St
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetLatestStateSnapshot(string, string) (*client.LatestStateSnapshotResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) SetStateSnapshotRetention(context.Context, string, int) (*client.StateSnapshotRetention, error) {
 	return nil, errors.New("not implemented")
 }
@@ -2041,6 +2094,14 @@ func (m baseMock) DiagnoseClusterNode(ctx context.Context, provider, clusterID, 
 }
 
 func (m baseMock) OvhNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) OvhNodeConsoleLog(ctx context.Context, clusterID, nodeID string) (*client.NodeConsoleLogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetNodeKubeletConfig(clusterID, nodeName string) (*client.NodeKubeletConfig, error) {
 	return nil, errors.New("not implemented")
 }
 

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"ankra/internal/client"
+	"github.com/google/uuid"
 	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
 )
@@ -52,6 +53,92 @@ func preserveStateFlag(cmd *cobra.Command) *bool {
 func restoreStateFlag(cmd *cobra.Command) *bool {
 	return threeStateFlag(cmd, "restore-state")
 }
+
+const restoreSnapshotIDFlagUsage = "State snapshot to restore on start, by id: for a cluster the start will not " +
+	"restore on its own (no snapshot was captured after its last start while older ones exist, for example a " +
+	"cluster whose control plane was lost); the refusal of a plain start names the newest. Implies --restore-state=true."
+
+const restoreOverKeptEtcdFlagUsage = "With --restore-snapshot-id: confirm that the cluster's control-plane machines, " +
+	"and the etcd its stop kept on them, are lost, so the named snapshot may reset it (a provider that keeps its " +
+	"servers across a stop, such as Ankra Cloud, after a host failure). The install still refuses to restore over an " +
+	"etcd it finds alive."
+
+// registerRestoreFlags declares a start command's --restore-state, --restore-snapshot-id and
+// --restore-over-kept-etcd, and refuses the combinations that contradict each other before any
+// request is made.
+func registerRestoreFlags(cmd *cobra.Command) {
+	registerThreeStateFlag(cmd, "restore-state", restoreStateFlagUsage)
+	cmd.Flags().Var(&snapshotIdentifierValue{}, "restore-snapshot-id", restoreSnapshotIDFlagUsage)
+	cmd.Flags().Bool("restore-over-kept-etcd", false, restoreOverKeptEtcdFlagUsage)
+	existingPreRun := cmd.PreRunE
+	cmd.PreRunE = func(command *cobra.Command, arguments []string) error {
+		if validationError := validateRestoreFlags(command); validationError != nil {
+			return validationError
+		}
+		if existingPreRun != nil {
+			return existingPreRun(command, arguments)
+		}
+		return nil
+	}
+}
+
+// validateRestoreFlags refuses a snapshot id with --restore-state=false, which asks to restore
+// and not to restore at once, and --restore-over-kept-etcd without the snapshot it applies to.
+func validateRestoreFlags(cmd *cobra.Command) error {
+	snapshotID := restoreSnapshotIDFlag(cmd)
+	restoreState := restoreStateFlag(cmd)
+	if snapshotID != "" && restoreState != nil && !*restoreState {
+		return withExitCode(exitUsage, fmt.Errorf("--restore-snapshot-id restores a snapshot and cannot be combined with --restore-state=false"))
+	}
+	if restoreOverKeptEtcdFlag(cmd) && snapshotID == "" {
+		return withExitCode(exitUsage, fmt.Errorf("--restore-over-kept-etcd needs --restore-snapshot-id: it confirms the named snapshot may reset the kept etcd"))
+	}
+	return nil
+}
+
+// restoreOverKeptEtcdFlag reads --restore-over-kept-etcd; false when the command does not declare it.
+func restoreOverKeptEtcdFlag(cmd *cobra.Command) bool {
+	isConfirmed, flagError := cmd.Flags().GetBool("restore-over-kept-etcd")
+	return flagError == nil && isConfirmed
+}
+
+// restoreSnapshotIDFlag reads --restore-snapshot-id; "" when it is not given.
+func restoreSnapshotIDFlag(cmd *cobra.Command) string {
+	flag := cmd.Flags().Lookup("restore-snapshot-id")
+	if flag == nil {
+		return ""
+	}
+	return flag.Value.String()
+}
+
+// snapshotIdentifierValue refuses anything but a UUID, so a mistyped id is a usage error (exit 2) before any
+// request is made rather than a start the backend refuses after deciding nothing.
+type snapshotIdentifierValue struct {
+	identifier string
+}
+
+func (value *snapshotIdentifierValue) String() string {
+	if value == nil {
+		return ""
+	}
+	return value.identifier
+}
+
+func (value *snapshotIdentifierValue) Set(raw string) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		value.identifier = ""
+		return nil
+	}
+	parsed, parseError := uuid.Parse(trimmed)
+	if parseError != nil {
+		return fmt.Errorf("must be a state snapshot id (a UUID), got %q", raw)
+	}
+	value.identifier = parsed.String()
+	return nil
+}
+
+func (value *snapshotIdentifierValue) Type() string { return "snapshot-id" }
 
 // threeStateValue is the pflag.Value behind every tri-state flag. Parsing
 // refuses anything but the spellings of true and false: the first shape of

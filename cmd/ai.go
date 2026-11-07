@@ -25,7 +25,11 @@ var aiCmd = &cobra.Command{
 OpenAI-compatible endpoints, and the model catalog the chat picker offers.
 
 Mutations require the ai.manage permission (organisation admins by default);
-the provider status and the model listing are available to every member.`,
+the provider status and the model listing are available to every member.
+
+Your own Anthropic or OpenRouter API keys, for the chats and pull request
+reviews you start, are under 'ankra ai keys'; adding them needs no extra
+permission.`,
 }
 
 // --- status ---

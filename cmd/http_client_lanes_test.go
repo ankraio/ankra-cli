@@ -18,6 +18,7 @@ import (
 // package's own scan (internal/client/request_path_guard_test.go) covers
 // what it builds.
 var cmdHTTPClients = map[string]string{
+	"application_ship_url.go:shipURLHTTPClient":          "the application's own public URL, to see that it answers",
 	"clone.go:httpDownloadClient":                        "a remote cluster YAML and its files, at URLs the user gives",
 	"login_github_oidc.go:githubIDTokenHTTPClient":       "GitHub's ID token endpoint, at the URL the Actions runner gives",
 	"migrate_modules_install.go:newModuleDownloadClient": "migration module release downloads",

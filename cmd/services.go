@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/url"
 
 	"ankra/internal/client"
 )
@@ -386,6 +387,7 @@ type APIClient interface {
 	GetApplicationContainerSecurity(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationCodeSecurity(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationSecurityVersions(requestContext context.Context, applicationID string, component string) (*client.ApplicationSecurityVersions, error)
+	GetApplicationBranchBuilds(requestContext context.Context, applicationID string) (*client.ApplicationBranchBuilds, error)
 	GetApplicationDemos(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	CheckApplicationDemoBuild(requestContext context.Context, applicationID string, branch string) (json.RawMessage, error)
 	DeployApplicationDemo(requestContext context.Context, applicationID string, demoRequest client.DeployApplicationDemoRequest) (json.RawMessage, error)
@@ -422,6 +424,9 @@ type APIClient interface {
 	UpdateRegistryStorageAddon(requestContext context.Context, blocks int, expectedVersion string) (*client.RegistryStorageAddonUpdateResult, error)
 	GetApplicationRepositoryCredential(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	SetApplicationRepositoryCredential(requestContext context.Context, applicationID string, credentialRequest client.SetApplicationRepositoryCredentialRequest) (json.RawMessage, error)
+	GetApplicationEnvironments(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	PreviewApplicationPromotion(requestContext context.Context, applicationID string, query url.Values) (json.RawMessage, error)
+	StartApplicationPromotion(requestContext context.Context, applicationID string, promotion map[string]string) (json.RawMessage, error)
 	GetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	UpdateApplicationAIConfig(requestContext context.Context, applicationID string, configuration json.RawMessage) (json.RawMessage, error)
 	ResetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error)
@@ -549,6 +554,14 @@ type APIClient interface {
 	DiscoverEndpointModels(endpointID string) ([]string, error)
 	ListAILaneModels() ([]client.AILaneModel, error)
 	SetAILaneModel(lane string, modelKey string) ([]client.AILaneModel, error)
+	ListPersonalAIKeys() (*client.PersonalAIKeyListing, error)
+	AddPersonalAIKey(request client.AddPersonalAIKeyRequest) (*client.PersonalAIKey, error)
+	ReorderPersonalAIKeys(keyIDs []string) (*client.PersonalAIKeyList, error)
+	RenamePersonalAIKey(keyID string, label string) (*client.PersonalAIKey, error)
+	DeletePersonalAIKey(keyID string) error
+	TestPersonalAIKey(keyID string) (*client.PersonalAIKeyTestResult, error)
+	GetPersonalAIKeysPolicy() (*client.PersonalAIKeysPolicy, error)
+	SetPersonalAIKeysPolicy(allowed bool) (*client.PersonalAIKeysPolicy, error)
 	ListRelatedRepositories(ctx context.Context, installationID string) ([]client.RelatedRepository, error)
 	CreateRelatedRepository(ctx context.Context, installationID string, repoFullName string,
 		relatedRepoFullName string) (*client.RelatedRepository, error)
@@ -617,6 +630,7 @@ type APIClient interface {
 	GetControlPlaneHeal(ctx context.Context, clusterID string) (*client.ControlPlaneHeal, error)
 	SetControlPlaneHeal(ctx context.Context, clusterID string, enabled bool) (*client.ControlPlaneHeal, error)
 	GetStateSnapshotRetention(ctx context.Context, clusterID string) (*client.StateSnapshotRetention, error)
+	GetLatestStateSnapshot(kind, clusterID string) (*client.LatestStateSnapshotResponse, error)
 	SetStateSnapshotRetention(ctx context.Context, clusterID string, retentionDays int) (*client.StateSnapshotRetention, error)
 
 	GetOrganisationProvenancePolicy(ctx context.Context) (*client.OrganisationProvenancePolicy, error)
@@ -719,6 +733,8 @@ type APIClient interface {
 	GetOvhClusterNode(clusterID, nodeID string) (*client.NodeDetail, error)
 	RestartOvhClusterNode(clusterID, nodeID string) (*client.RestartNodeResult, error)
 	OvhNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error)
+	OvhNodeConsoleLog(ctx context.Context, clusterID, nodeID string) (*client.NodeConsoleLogResult, error)
+	GetNodeKubeletConfig(clusterID, nodeName string) (*client.NodeKubeletConfig, error)
 	UpdateOvhBastionInstanceType(ctx context.Context, clusterID, instanceType string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error)
 	UpdateOvhBastionAllowedIPs(ctx context.Context, clusterID string, allowedIPs []string) (*client.UpdateBastionAllowedIPsResult, error)
 	GetOvhBastionHealth(clusterID string) (*client.BastionHealthResult, error)
