@@ -118,7 +118,7 @@ func TestSlackConnectNoWaitReturnsAtOnce(t *testing.T) {
 	mock := &slackMock{installURL: slackTestURL, statuses: []*client.SlackStatus{{Configured: true}}}
 	setMockClient(t, mock)
 	output, executeError := executeCommand("slack", "connect", "--no-wait")
-	if executeError != nil || !strings.Contains(output, slackTestURL) || mock.statusCalls != 1 {
+	if executeError != nil || !strings.Contains(output, slackTestURL) || mock.statusCalls != 0 {
 		t.Errorf("error = %v, status reads = %d, output = %s", executeError, mock.statusCalls, output)
 	}
 }

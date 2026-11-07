@@ -104,9 +104,13 @@ func runSlackConnect(command *cobra.Command, _ []string) error {
 
 	// What exists before the install, so a workspace that was already connected
 	// is not mistaken for this one finishing.
-	before, statusError := apiClient.GetSlackStatus(command.Context())
-	if statusError != nil {
-		return slackRouteError(statusError)
+	var before *client.SlackStatus
+	if !skipWait {
+		status, statusError := apiClient.GetSlackStatus(command.Context())
+		if statusError != nil {
+			return slackRouteError(statusError)
+		}
+		before = status
 	}
 	install, installError := apiClient.GetSlackInstallURL(command.Context())
 	if installError != nil {
