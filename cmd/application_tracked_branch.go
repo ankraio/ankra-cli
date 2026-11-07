@@ -25,8 +25,8 @@ func newApplicationTrackedBranchCommand() *cobra.Command {
 
 The tracked branch decides which branch's builds auto-deploy, which pipeline
 runs are attributed to the application, and which branch Ankra's setup pull
-requests target. List the repository's branches with 'ankra application
-branches'.`,
+requests target. 'ankra pipeline branches --application <application>' lists
+the branches its pipeline has run on.`,
 	}
 	trackedBranchCommand.AddCommand(newApplicationTrackedBranchGetCommand())
 	trackedBranchCommand.AddCommand(newApplicationTrackedBranchSetCommand())
@@ -52,12 +52,15 @@ func newApplicationTrackedBranchGetCommand() *cobra.Command {
 				return getError
 			}
 			var application struct {
-				Branch string `json:"app_repo_branch"`
+				Branch *string `json:"app_repo_branch"`
 			}
 			if decodeError := json.Unmarshal(applicationPayload, &application); decodeError != nil {
 				return fmt.Errorf("reading the application's tracked branch: %w", decodeError)
 			}
-			payload, encodeError := json.Marshal(map[string]string{"branch": application.Branch})
+			if application.Branch == nil || strings.TrimSpace(*application.Branch) == "" {
+				return errors.New("the application's detail names no tracked branch (no app_repo_branch in the answer)")
+			}
+			payload, encodeError := json.Marshal(map[string]string{"branch": *application.Branch})
 			if encodeError != nil {
 				return fmt.Errorf("encoding the tracked branch: %w", encodeError)
 			}

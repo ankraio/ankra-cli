@@ -66,6 +66,16 @@ func TestApplicationTrackedBranchGetReadsTheApplication(t *testing.T) {
 	}
 }
 
+func TestApplicationTrackedBranchGetRefusesAnAnswerWithoutABranch(t *testing.T) {
+	mockClient := &applicationTrackedBranchMock{
+		applicationPayload: json.RawMessage(`{"id":"x","name":"shop"}`),
+	}
+	output, executeError := runApplicationCommand(t, mockClient, "tracked-branch", "get", testApplicationID)
+	if executeError == nil {
+		t.Fatalf("tracked-branch get succeeded with no app_repo_branch; output %q", output)
+	}
+}
+
 func TestApplicationTrackedBranchSetSendsTheTrimmedBranch(t *testing.T) {
 	mockClient := &applicationTrackedBranchMock{
 		setPayload: json.RawMessage(`{"branch":"develop","previous_branch":"main"}`),
