@@ -242,9 +242,10 @@ func newServicesPolicyCommand() *cobra.Command {
 runs in, the data boundary its data may stay within, and whether services on
 it are local-only.
 
-This is the organisation's declaration, not verified location evidence. Setup
-refuses a cluster without one, and a setup's region and data boundary default
-to it.`,
+This is the organisation's declaration, not verified location evidence. It is
+optional: a cluster without one is set up under the platform's default
+location (unspecified). Once declared, a setup's region and data boundary
+default to it and every setup on the cluster is held to it.`,
 	}
 	policyCommand.AddCommand(newServicesPolicyGetCommand())
 	policyCommand.AddCommand(newServicesPolicySetCommand())
@@ -398,7 +399,8 @@ Setup takes one or more consumer ids (--consumer), and the plan records each
 with the cluster policy it was resolved against. A binding normally resolves
 to the application's installation on that cluster; --allow-planned binds a
 namespace the application is not installed in yet. A binding a service still
-uses cannot be unbound until that service is retired.`,
+uses cannot be unbound: disconnect the application from the service first
+('ankra services disconnect <service> --consumer <id>'), or retire the service.`,
 	}
 	consumersCommand.AddCommand(newServicesConsumersListCommand())
 	consumersCommand.AddCommand(newServicesConsumersGetCommand())
@@ -542,13 +544,15 @@ func newServicesConsumersBindCommand() *cobra.Command {
 		Long: `Bind an application's namespace on a cluster as a service consumer and print
 its consumer id, which 'ankra services setup --consumer' takes.
 
-The cluster needs a placement policy first ('ankra services policy set'). The
-application must be installed in that namespace unless --allow-planned is
-given. A binding is created once per application, cluster and namespace;
+The application must be installed in that namespace unless --allow-planned
+is given. A binding is created once per application, cluster and namespace;
 changing an existing one needs --revision with its current revision
 ('ankra services consumers list --application <app>' shows it); a setting
 not given on the command line keeps the binding's current value. Binding
-deploys nothing and delivers no credentials.`,
+deploys nothing. Once a service set up for this consumer is running on the
+same cluster, Ankra delivers its connection: without a redeploy while none of
+the application's running pods reads it, otherwise it is left to the
+application's next deploy. 'ankra services get <service>' shows its pickup.`,
 		Example: "  ankra services consumers bind --application orders --cluster prod --namespace orders\n" +
 			"  ankra services consumers bind --application orders --cluster prod --namespace orders --allow-planned",
 		Args: cobra.NoArgs,
@@ -642,9 +646,10 @@ func newServicesConsumersUnbindCommand() *cobra.Command {
 		Long: `Remove a consumer binding: the application namespace stops being a consumer
 services can be set up for. Nothing is deployed or removed on any cluster.
 
-A binding a service still uses - one that has not been retired - is kept; retire
-the service first ('ankra services delete'). A setup review still pending that
-names the binding can no longer be confirmed.
+A binding a service still uses is kept. Disconnect the application from the
+service first ('ankra services disconnect <service> --consumer <id>'), or
+retire the service ('ankra services delete'); then unbind it. A setup review
+still pending that names the binding can no longer be confirmed.
 
 The platform removes a binding only at the revision you last read. Without
 --revision the current one is read from the binding. A binding whose
@@ -730,23 +735,33 @@ func serviceUnbindError(command *cobra.Command, consumerID string, revision int6
 		return fmt.Errorf("%w - the binding is no longer at revision %d; run the command again without --revision to read the current one",
 			unbindError, revision)
 	}
-	hint := "retire the service with 'ankra services delete <service> --acknowledge-data-loss' first"
+	hint := fmt.Sprintf("disconnect the application from the service with 'ankra services disconnect <service> --consumer %s', "+
+		"or retire the service with 'ankra services delete <service> --acknowledge-data-loss', first", consumerID)
 	if instances, listError := listAllServiceInstances(command.Context()); listError == nil {
-		var users []string
+		var users []client.ServiceInstance
 		for _, instance := range instances {
 			if instance.ReleasedAt != nil {
 				continue
 			}
 			for _, consumer := range instance.Consumers {
 				if consumer.ID == consumerID {
-					users = append(users, fmt.Sprintf("%s (%s)", instance.Name, instance.ID))
+					users = append(users, instance)
 					break
 				}
 			}
 		}
-		if len(users) > 0 {
-			hint = fmt.Sprintf("it is used by %s; retire it with 'ankra services delete <service> --acknowledge-data-loss' first",
-				strings.Join(users, ", "))
+		described := make([]string, 0, len(users))
+		for _, instance := range users {
+			described = append(described, fmt.Sprintf("%s (%s)", instance.Name, instance.ID))
+		}
+		switch {
+		case len(users) == 1:
+			// The id, not the name: a name can run on several clusters.
+			hint = fmt.Sprintf("it is used by %s; disconnect the application from it with 'ankra services disconnect %s --consumer %s', "+
+				"or retire it with 'ankra services delete %s --acknowledge-data-loss', first", described[0], users[0].ID, consumerID, users[0].ID)
+		case len(users) > 1:
+			hint = fmt.Sprintf("it is used by %s; disconnect the application from each with 'ankra services disconnect <service> --consumer %s', "+
+				"or retire them with 'ankra services delete <service> --acknowledge-data-loss', first", strings.Join(described, ", "), consumerID)
 		}
 	}
 	return fmt.Errorf("%w - %s", unbindError, hint)

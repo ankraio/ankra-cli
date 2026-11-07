@@ -336,7 +336,7 @@ func TestCostBudgetsSetCreateRefusesAnIncompleteBudget(t *testing.T) {
 		{[]string{"--name", "Fleet"}, "a new budget needs --scope, --amount, --currency"},
 		{[]string{"--scope", "organisation", "--scope-id", "x", "--name", "F", "--amount", "1", "--currency", "eur"}, "an organisation budget names no --scope-id"},
 		{[]string{"--scope", "environment", "--name", "F", "--amount", "1", "--currency", "eur"}, "an environment budget needs --scope-id"},
-		{[]string{"--scope", "team", "--name", "F", "--amount", "1", "--currency", "eur"}, "--scope must be organisation, cluster, environment or application"},
+		{[]string{"--scope", "team", "--name", "F", "--amount", "1", "--currency", "eur"}, "--scope must be organisation, project, cluster, environment or application"},
 		{[]string{"--scope", "organisation", "--name", "F", "--amount", "12.345", "--currency", "eur"}, `--amount "12.345" is not an amount`},
 		{[]string{"--scope", "organisation", "--name", "F", "--amount", "-5", "--currency", "eur"}, `--amount "-5" is not an amount`},
 		{[]string{"--clear-owner"}, "--clear-owner changes an existing budget"},

@@ -27,7 +27,7 @@ inspect the result before the next one.
 ```bash
 ankra migrate up ./app --cluster shop --plan     # print the plan, change nothing
 ankra migrate up ./app --cluster shop            # rehearse: convert, deploy, dump, restore
-ankra migrate up ./app --cluster shop --stop-source --yes   # the cutover
+ankra migrate up ./app --cluster shop --stop-source --overwrite-database db/office --yes   # the cutover
 ```
 
 `up` runs five steps: **plan** (what will move, how big the databases are, what stays behind),
@@ -35,10 +35,14 @@ ankra migrate up ./app --cluster shop --stop-source --yes   # the cutover
 plus a wait for the database workloads), **export** (every database dumped into `<out>/data`),
 **restore** (the dumps go through the backup vault into the cluster).
 
-It is idempotent by design: run it into the same output directory as often as you like - the
-stack is re-applied, the databases are dumped and restored again. **Rehearse while the source
-is still serving, then run once more with `--stop-source`**: that stops the source's
-non-database services first, so the final dump is the last word on the data.
+Run it into the same output directory as often as you like - the stack is re-applied and the
+databases are dumped again. A restore replaces everything in a database, so a database that an
+earlier restore already loaded is restored over only when you name it with
+`--overwrite-database <server>/<database>`; otherwise the run stops before uploading and names
+each one. **Rehearse while the source is still serving, then run once more with `--stop-source`
+and `--overwrite-database` for each database**: that stops the source's non-database services
+first, so the final dump is the last word on the data. Never pass `--overwrite-database` after
+the cutover: by then the cluster's database is the live one, and a restore reverts it.
 
 - `--plan` before anything else. The plan names every item that will *not* be carried.
 - `--stack` / `--namespace` name the target (default: the source's own project name); `--vault`
@@ -143,7 +147,10 @@ a module that calls itself something else.
 ## Rules
 
 - **Plan, rehearse, then cut over.** `--plan` first; a full rehearsal while the source runs;
-  `--stop-source` exactly once, when you are ready to switch.
+  `--stop-source` exactly once, when you are ready to switch, naming the rehearsal's databases
+  with `--overwrite-database`.
+- **Never restore over a database after the cutover.** It holds the live data; a refusal that
+  names `--overwrite-database` is the platform protecting it, not a step to push through.
 - **Every dump is a snapshot of a live server** - only a `--stop-source` run (or exporting
   after stopping the writers yourself) is consistent with the moment of cutover.
 - **Never commit an export.** `<out>/data` holds real production data; keep it out of Git and

@@ -37,6 +37,7 @@ type CreateProxmoxClusterRequest struct {
 	// for the overlay; required with wireguard_mesh.
 	SitePublicIP      string  `json:"site_public_ip,omitempty"`
 	IncludeNetworking bool    `json:"include_networking"`
+	GatewayAPI        bool    `json:"gateway_api,omitempty"`
 	IncludeDNS        bool    `json:"include_dns"`
 	Environment       *string `json:"environment,omitempty"`
 	Criticality       *string `json:"criticality,omitempty"`
@@ -94,12 +95,14 @@ func (c *Client) CreateProxmoxCluster(request CreateProxmoxClusterRequest) (*Cre
 	return &result, nil
 }
 
-// DeprovisionProxmoxCluster tears the cluster down. force asks the platform to
+// DeprovisionProxmoxCluster tears the cluster down. Force asks the platform to
 // finish even when Proxmox itself cannot be reached: the VMs are marked down
 // and may leak, which is the only way a cluster whose host or jumphost is gone
-// can leave "deprovisioning" (ankra-4tret).
-func (c *Client) DeprovisionProxmoxCluster(clusterID string, force bool) (*ProviderDeprovisionClusterResponse, error) {
-	return c.deprovisionProviderCluster(proxmoxKind, clusterID, DeprovisionOptions{Force: force})
+// can leave "deprovisioning" (ankra-4tret). AcceptVolumeDataLoss lets the
+// platform delete the disks the cluster's CSI driver provisioned; without it
+// a cluster that has some is refused with 409.
+func (c *Client) DeprovisionProxmoxCluster(clusterID string, options DeprovisionOptions) (*ProviderDeprovisionClusterResponse, error) {
+	return c.deprovisionProviderCluster(proxmoxKind, clusterID, options)
 }
 
 func (c *Client) StopProxmoxCluster(clusterID string, options StopClusterOptions) (*ProviderStopClusterResponse, error) {
@@ -143,7 +146,7 @@ func (c *Client) UpdateProxmoxNodeGroupInstanceType(ctx context.Context, cluster
 }
 
 func (c *Client) UpdateProxmoxNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/proxmox/%s/node-groups/%s/labels", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/proxmox/%s/node-groups/%s/labels", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, err := json.Marshal(UpdateLabelsRequest{Labels: labels})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
@@ -152,7 +155,7 @@ func (c *Client) UpdateProxmoxNodeGroupLabels(ctx context.Context, clusterID, gr
 }
 
 func (c *Client) UpdateProxmoxNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []NodeTaint, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/proxmox/%s/node-groups/%s/taints", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/proxmox/%s/node-groups/%s/taints", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, err := json.Marshal(UpdateTaintsRequest{Taints: taints})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
@@ -180,8 +183,8 @@ func (c *Client) ChangeProxmoxControlPlaneCount(clusterID string, count int) (*C
 	return c.changeControlPlaneCount(proxmoxKind, clusterID, count)
 }
 
-func (c *Client) ChangeProxmoxControlPlaneInstanceType(clusterID, instanceType string, drainOptions DrainOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
-	return c.changeControlPlaneInstanceType(proxmoxKind, clusterID, instanceType, drainOptions)
+func (c *Client) ChangeProxmoxControlPlaneInstanceType(clusterID, instanceType string, options ControlPlaneInstanceTypeOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
+	return c.changeControlPlaneInstanceType(proxmoxKind, clusterID, instanceType, options)
 }
 
 func (c *Client) ListProxmoxClusterNodes(clusterID string) (*NodeListResult, error) {

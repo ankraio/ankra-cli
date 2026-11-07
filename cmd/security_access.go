@@ -241,6 +241,7 @@ func renderSecurityAccessPosture(out io.Writer, clusterLabel string, posture *cl
 
 func init() {
 	securityCmd.AddCommand(securityAccessCmd)
+	registerSecurityProjectScopeFlag(securityAccessCmd)
 	securityAccessCmd.Flags().String("cluster", "", "Cluster (name or id), required")
 	registerStructuredOutputFlags(securityAccessCmd)
 }

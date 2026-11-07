@@ -801,6 +801,61 @@ func TestApplicationShipFailedDeploySurfacesTheErrorAndEvents(t *testing.T) {
 	}
 }
 
+// A deploy the platform refused because the cluster has no CloudNativePG
+// operator applied nothing, so the namespace's events say nothing: the error
+// names --set-up-database instead (ankra-f4i7dr). An operator that was already
+// requested and did not arrive is not fixed by asking again.
+func TestApplicationShipMissingDatabaseOperatorPointsAtSetUpDatabase(t *testing.T) {
+	refusal := postgresOperatorRefusalTitle + ". Nothing was applied. Add the Postgres (CloudNativePG) add-on to this cluster and deploy again."
+	cases := []struct {
+		message  string
+		wantHint bool
+	}{
+		{refusal, true},
+		{refusal + " " + postgresOperatorRequestedLead + "CustomResourceDefinition did not appear within 5 minutes.", false},
+	}
+	for _, testCase := range cases {
+		fastShipPolling(t)
+		mockClient := newApplicationShipMock()
+		failed, _ := json.Marshal(map[string]any{"installations": []map[string]any{{
+			"id": shipTestInstallationID, "cluster_id": shipTestClusterID, "namespace": "shop",
+			"status": "failed", "error_message": testCase.message}}})
+		mockClient.installationsPayloads = [][]byte{[]byte(`{"installations":[]}`), failed}
+		_, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
+		if executeError == nil {
+			t.Fatalf("a refused deploy must fail the command\nprogress: %s", progress)
+		}
+		if got := strings.Contains(executeError.Error(), "re-run with --set-up-database"); got != testCase.wantHint {
+			t.Errorf("hint present = %v, want %v: %v", got, testCase.wantHint, executeError)
+		}
+	}
+}
+
+// --set-up-database is the caller's consent on the deploy (prepare_database),
+// absent by default; the deploy's warnings reach the caller.
+func TestApplicationShipSetUpDatabaseSendsTheConsentAndSaysTheWarnings(t *testing.T) {
+	for _, withFlag := range []bool{false, true} {
+		fastShipPolling(t)
+		mockClient := newApplicationShipMock()
+		mockClient.deployPayload = json.RawMessage(`{"installation_id":"` + shipTestInstallationID +
+			`","status":"pending","message":"Deploy started.","warnings":["Ankra could not set up PostgreSQL support"]}`)
+		arguments := []string{"--cluster", "production"}
+		if withFlag {
+			arguments = append(arguments, "--set-up-database")
+		}
+		_, progress, _ := runApplicationShipCommand(t, mockClient, arguments...)
+		if mockClient.deployCalls == 0 {
+			t.Fatalf("no deploy was issued\nprogress: %s", progress)
+		}
+		if mockClient.deployRequest.PrepareDatabase != withFlag {
+			t.Errorf("--set-up-database=%v: prepare_database = %v", withFlag, mockClient.deployRequest.PrepareDatabase)
+		}
+		if !strings.Contains(progress, "Warning: Ankra could not set up PostgreSQL support") {
+			t.Errorf("the deploy's warning must reach the caller: %s", progress)
+		}
+	}
+}
+
 // --timeout expiry exits with the wait-timeout code and points at the
 // designed recovery: re-running ship resumes from the current state.
 func TestApplicationShipTimeoutExitsResumable(t *testing.T) {

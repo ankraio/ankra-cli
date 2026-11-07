@@ -176,6 +176,11 @@ func ExchangeGitHubOIDCToken(ctx context.Context, httpClient *http.Client, baseU
 		return nil, requestError
 	}
 	request.Header.Set("Content-Type", "application/json")
+	// httpClient is the caller's, so the path check runs here rather than in
+	// a transport this package built.
+	if refusal := checkRequestPath(request.Method, request.URL); refusal != nil {
+		return nil, refusal
+	}
 	response, sendError := httpClient.Do(request)
 	if sendError != nil {
 		return nil, fmt.Errorf("token exchange request failed: %w", sendError)

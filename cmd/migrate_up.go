@@ -32,6 +32,7 @@ var (
 	migrateUpStopSource bool
 	migrateUpYes        bool
 	migrateUpPlanOnly   bool
+	migrateUpOverwrite  []string
 )
 
 // migrateUpPodPollInterval is how often the database workloads are checked
@@ -64,9 +65,13 @@ into a cluster that Ankra runs, end to end:
               into the cluster, as 'ankra migrate restore' does, and wait.
 
 The command is safe to run more than once, into the same output directory:
-the stack is re-applied, the databases are dumped and restored again.
-Rehearse while the source runs, then run it once more with --stop-source
-when you are ready to switch.
+the stack is re-applied and the databases are dumped again. A restore
+replaces everything in a database, so once the cluster's copy may hold
+writes of its own, a re-run restores into it only when you name it with
+--overwrite-database <server>/<database>; otherwise it stops before
+uploading and names every such database. Rehearse while the source runs,
+then run it once more with --stop-source and --overwrite-database for each
+database when you are ready to switch.
 --timeout bounds each waiting step (deploy, readiness, restore).
 
 Not carried: files kept in the volumes of non-database workloads, and data
@@ -74,7 +79,7 @@ in engines the export does not dump (Redis, MongoDB, search indexes). The
 plan names every such item so nothing is left behind unnoticed.`,
 	Example: `  ankra migrate up ./app --cluster shop --plan
   ankra migrate up ./app --cluster shop --option ingress.app=shop.example.com --option cluster-issuer=letsencrypt-prod
-  ankra migrate up ./app --cluster shop --stop-source --yes
+  ankra migrate up ./app --cluster shop --stop-source --overwrite-database db/office --yes
   ankra migrate up ./app --cluster shop --option docker-host=ssh://root@203.0.113.7`,
 	Args:        cobra.MaximumNArgs(1),
 	Annotations: map[string]string{annotationRequiresAuth: "true"},
@@ -94,6 +99,7 @@ func init() {
 	migrateUpCmd.Flags().BoolVar(&migrateUpStopSource, "stop-source", false, "Stop the source's non-database services before the export, so the dump is final (the cutover)")
 	migrateUpCmd.Flags().BoolVarP(&migrateUpYes, "yes", "y", false, "Skip the confirmation prompt")
 	migrateUpCmd.Flags().BoolVar(&migrateUpPlanOnly, "plan", false, "Print the plan and stop; change nothing")
+	migrateUpCmd.Flags().StringArrayVar(&migrateUpOverwrite, "overwrite-database", nil, overwriteDatabaseFlagUsage)
 	registerAsyncWriteFlags(migrateUpCmd)
 	_ = migrateUpCmd.Flags().MarkHidden("wait")
 	registerStructuredOutputFlags(migrateUpCmd)
@@ -240,7 +246,7 @@ func runMigrateUp(cmd *cobra.Command, args []string) error {
 		_, _ = fmt.Fprintf(progress, "\n==> Restoring into cluster %s\n", plan.ClusterName)
 		imported, restoreError := performMigrateRestore(cmd, exported.Out, migrateRestoreTargets{
 			clusterID: plan.ClusterID, clusterName: plan.ClusterName, vaultID: plan.VaultID, stackName: plan.Stack,
-		}, true)
+		}, true, migrateUpOverwrite)
 		if restoreError != nil {
 			return restoreError
 		}

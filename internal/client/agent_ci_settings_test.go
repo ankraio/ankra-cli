@@ -72,6 +72,23 @@ func TestAgentCISettingsLaneParity(t *testing.T) {
 		},
 	})
 
+	stepWorkspaces := AgentCIStepWorkspacesShadow
+	lanes = append(lanes, struct {
+		name       string
+		wantMethod string
+		wantBody   map[string]any
+		call       func(testClient *Client) error
+	}{
+		name:       "set sends only the step workspaces when they alone are named",
+		wantMethod: http.MethodPut,
+		wantBody:   map[string]any{"ci_step_workspaces": "shadow"},
+		call: func(testClient *Client) error {
+			_, updateError := testClient.UpdateAgentCISettings(context.Background(), "cluster-1",
+				AgentCISettingsUpdate{CIStepWorkspaces: &stepWorkspaces})
+			return updateError
+		},
+	})
+
 	for _, lane := range lanes {
 		t.Run(lane.name, func(t *testing.T) {
 			var seenMethod, seenPath string
@@ -136,6 +153,57 @@ func TestUpdateAgentCISettingsSendsExplicitZeroValues(t *testing.T) {
 	}
 }
 
+// An empty value returns the workspaces to inheriting, so a pointer to "" has to
+// reach the platform, and a write that does not name the class must not send it:
+// a member sent by accident would undo the class an operator pinned.
+func TestUpdateAgentCISettingsSendsTheAnkraWorkspaceClassOnlyWhenNamed(t *testing.T) {
+	var seenBody map[string]any
+	testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		seenBody = nil
+		if decodeError := json.NewDecoder(request.Body).Decode(&seenBody); decodeError != nil {
+			t.Fatalf("decode request body: %v", decodeError)
+		}
+		jsonResponse(t, writer, http.StatusOK, AgentCISettings{})
+	})
+
+	workspaceClass := ""
+	if _, updateError := testClient.UpdateAgentCISettings(context.Background(), "cluster-1",
+		AgentCISettingsUpdate{AnkraWorkspaceStorageClass: &workspaceClass}); updateError != nil {
+		t.Fatalf("UpdateAgentCISettings error = %v", updateError)
+	}
+	if value, present := seenBody["ankra_workspace_storage_class"]; !present || value != "" {
+		t.Errorf("an explicit empty workspace class was not sent: %v", seenBody)
+	}
+
+	workerCount := 2
+	if _, updateError := testClient.UpdateAgentCISettings(context.Background(), "cluster-1",
+		AgentCISettingsUpdate{CIWorkerCount: &workerCount}); updateError != nil {
+		t.Fatalf("UpdateAgentCISettings error = %v", updateError)
+	}
+	if _, present := seenBody["ankra_workspace_storage_class"]; present {
+		t.Errorf("a write that does not name the workspace class sent it: %v", seenBody)
+	}
+}
+
+// A platform older than the setting does not send the member, which has to read
+// as not reported rather than as an empty class.
+func TestAgentCISettingsTellsAnAbsentWorkspaceClassFromAnEmptyOne(t *testing.T) {
+	var absent AgentCISettings
+	if decodeError := json.Unmarshal([]byte(`{"ci_worker_count": 1}`), &absent); decodeError != nil {
+		t.Fatal(decodeError)
+	}
+	if absent.AnkraWorkspaceStorageClass != nil {
+		t.Errorf("an absent member decoded as %q", *absent.AnkraWorkspaceStorageClass)
+	}
+	var empty AgentCISettings
+	if decodeError := json.Unmarshal([]byte(`{"ankra_workspace_storage_class": ""}`), &empty); decodeError != nil {
+		t.Fatal(decodeError)
+	}
+	if empty.AnkraWorkspaceStorageClass == nil || *empty.AnkraWorkspaceStorageClass != "" {
+		t.Errorf("an empty member decoded as %v", empty.AnkraWorkspaceStorageClass)
+	}
+}
+
 func TestGetAgentCISettingsDecodesTheResponse(t *testing.T) {
 	updatedAt := "2026-09-06T10:00:00Z"
 	testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
@@ -196,6 +264,43 @@ func TestGetAgentCISettingsDecodesTheRunReservation(t *testing.T) {
 			if (settings.SupportsRunReservation == nil) != (testCase.wantSupported == nil) ||
 				(settings.SupportsRunReservation != nil && *settings.SupportsRunReservation != *testCase.wantSupported) {
 				t.Errorf("supports_run_reservation = %v, want %v", settings.SupportsRunReservation, testCase.wantSupported)
+			}
+		})
+	}
+}
+
+// ci_step_workspaces and supports_step_workspaces decode when the platform
+// sends them, and stay nil when it predates them: "not reported" is never read
+// as "off" or "not supported".
+func TestGetAgentCISettingsDecodesTheStepWorkspaces(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		body          string
+		wantMode      *string
+		wantSupported *bool
+	}{
+		"current platform": {
+			body:          `{"ci_worker_count":2,"ci_step_workspaces":"shadow","supports_step_workspaces":true}`,
+			wantMode:      strPtr(AgentCIStepWorkspacesShadow),
+			wantSupported: boolPtr(true),
+		},
+		"older platform": {body: `{"ci_worker_count":2}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				_, _ = writer.Write([]byte(testCase.body))
+			})
+			settings, getError := testClient.GetAgentCISettings(context.Background(), "cluster-1")
+			if getError != nil {
+				t.Fatalf("GetAgentCISettings error = %v", getError)
+			}
+			if (settings.CIStepWorkspaces == nil) != (testCase.wantMode == nil) ||
+				(settings.CIStepWorkspaces != nil && *settings.CIStepWorkspaces != *testCase.wantMode) {
+				t.Errorf("ci_step_workspaces = %v, want %v", settings.CIStepWorkspaces, testCase.wantMode)
+			}
+			if (settings.SupportsStepWorkspaces == nil) != (testCase.wantSupported == nil) ||
+				(settings.SupportsStepWorkspaces != nil && *settings.SupportsStepWorkspaces != *testCase.wantSupported) {
+				t.Errorf("supports_step_workspaces = %v, want %v", settings.SupportsStepWorkspaces, testCase.wantSupported)
 			}
 		})
 	}

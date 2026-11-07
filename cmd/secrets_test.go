@@ -198,6 +198,37 @@ func TestSecretsCreateGeneratePrintsOnlyTheSentinelOnStdout(t *testing.T) {
 	}
 }
 
+// A generated secret has no expiry unless --ttl is given (ankra-e1ifg.28):
+// without the flag the request carries no ttl_seconds, so the platform
+// stores it without one, and the help says so.
+func TestSecretsCreateGenerateWithoutTTLSendsNoExpiry(t *testing.T) {
+	mock := &secretsMock{}
+	setMockClient(t, mock)
+
+	if _, _, executeError := executeSecrets(t, "", "secrets", "create", "db-password", "--generate"); executeError != nil {
+		t.Fatalf("execute: %v", executeError)
+	}
+	if len(mock.created) != 1 || mock.created[0].Generate == nil || mock.created[0].TTLSeconds != 0 {
+		t.Fatalf("created = %+v, want a generate request without a ttl", mock.created)
+	}
+	encoded, marshalError := json.Marshal(mock.created[0])
+	if marshalError != nil || strings.Contains(string(encoded), "ttl_seconds") {
+		t.Errorf("request body = %s (%v), want no ttl_seconds", encoded, marshalError)
+	}
+
+	help := secretsCreateCmd.Long + "\n" + secretsCreateCmd.Flags().Lookup("ttl").Usage
+	for _, stale := range []string{"one day", "defaults to 24h"} {
+		if strings.Contains(help, stale) {
+			t.Errorf("create help still says a generated secret expires by default (%q): %s", stale, help)
+		}
+	}
+	for _, want := range []string{"does not expire", "unless --ttl is given", "at most a week", "at most 168h"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("create help is missing %q: %s", want, help)
+		}
+	}
+}
+
 func TestSecretsCreateFromStdin(t *testing.T) {
 	mock := &secretsMock{}
 	setMockClient(t, mock)

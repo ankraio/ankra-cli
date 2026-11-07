@@ -19,8 +19,8 @@ ankra cluster morpheus layouts     --credential-id <id>
 
 | Provider | Family prefix | Shape | Reach for it when |
 |----------|---------------|-------|-------------------|
-| **Hetzner** | `cx` | Shared vCPU, Intel | Default workers, control planes, anything not latency-critical |
-| | `cpx` | Shared vCPU, AMD | Same as `cx` with more clock per core |
+| **Hetzner** | `cpx` | Shared vCPU, AMD | Default workers, control planes, anything not latency-critical (`cpx12` bastion, `cpx22` and up for nodes) |
+| | `cx` | Shared vCPU, Intel | Cheaper than `cpx`, but sold in limited quantities and often unavailable per location - check `server-types` first |
 | | `cax` | Shared vCPU, Ampere **ARM64** | Cheapest per core — only if every image is multi-arch |
 | | `ccx` | **Dedicated** vCPU | Steady CPU-bound work, databases, CI runners, noisy-neighbour sensitivity |
 | **DigitalOcean** | `s-` | Basic, shared | Dev clusters, small workers |
@@ -83,8 +83,8 @@ Two traps that cost a rebuild:
 
 Same concepts, different names. `--name`, `--credential-id`, `--ssh-key-credential-id`,
 `--distribution`, `--kubernetes-version`, `--control-plane-count`, `--worker-count`,
-`--etcd-topology`, `--etcd-node-count`, `--include-networking` and `--include-dns` are common to
-every provider. `--gitops-repository`, `--gitops-credential-name` and `--gitops-branch` exist on
+`--etcd-topology`, `--etcd-node-count`, `--include-networking`, `--include-dns` and `--gateway-api`
+are common to every provider. `--gitops-repository`, `--gitops-credential-name` and `--gitops-branch` exist on
 Hetzner, DigitalOcean, OVH, UpCloud, AWS and Ankra Cloud (not Scaleway, Proxmox or Morpheus);
 `--external-cloud-provider` only on Hetzner, DigitalOcean, OVH and UpCloud.
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 type APIToken struct {
@@ -27,6 +28,10 @@ type CreateAPITokenRequest struct {
 	// Scopes is the optional permission allowlist (RBAC, backend ADR 0007);
 	// nil/omitted keeps the token at the full authority of its user.
 	Scopes []string `json:"scopes,omitempty"`
+	// ProjectID pins the token to one project of the organisation (ADR
+	// 0022). Omitted, a token with MCP scopes is pinned to the caller's
+	// current project by the platform and a REST token follows its user.
+	ProjectID *string `json:"project_id,omitempty"`
 }
 
 type CreateAPITokenResponse struct {
@@ -55,9 +60,8 @@ func (c *Client) ListAPITokens() ([]APIToken, error) {
 	return tokens, nil
 }
 
-func (c *Client) CreateAPIToken(name string, expiresAt *string, scopes []string) (*CreateAPITokenResponse, error) {
+func (c *Client) CreateAPIToken(reqBody CreateAPITokenRequest) (*CreateAPITokenResponse, error) {
 	url := c.BaseURL + "/api/v1/org/account/tokens"
-	reqBody := CreateAPITokenRequest{Name: name, ExpiresAt: expiresAt, Scopes: scopes}
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -92,7 +96,7 @@ func (c *Client) CreateAPIToken(name string, expiresAt *string, scopes []string)
 }
 
 func (c *Client) RevokeAPIToken(tokenID string) (*RevokeAPITokenResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/org/account/tokens/%s/revoke", c.BaseURL, tokenID)
+	url := fmt.Sprintf("%s/api/v1/org/account/tokens/%s/revoke", c.BaseURL, url.PathEscape(tokenID))
 	req, err := http.NewRequest(http.MethodPost, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -118,7 +122,7 @@ func (c *Client) RevokeAPIToken(tokenID string) (*RevokeAPITokenResponse, error)
 }
 
 func (c *Client) DeleteAPIToken(tokenID string) (*DeleteAPITokenResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/org/account/tokens/%s", c.BaseURL, tokenID)
+	url := fmt.Sprintf("%s/api/v1/org/account/tokens/%s", c.BaseURL, url.PathEscape(tokenID))
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

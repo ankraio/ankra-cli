@@ -111,6 +111,23 @@ ankra cluster gitops conflicts resolve --all --keep git --yes
 `--keep git` overwrites the platform version; `--keep cluster` pushes the platform version over
 Git. If Git is the authority for a cluster, change it only through Git.
 
+A file in the repository that Ankra did not write (a cluster file edited by hand) is a **preserved
+path**: Ankra keeps Git's version, pauses nothing, and its own later changes to that file do not
+reach Git until someone decides. `ankra cluster gitops status` counts them; `conflicts` does not
+list them. Read the difference before deciding:
+
+```bash
+ankra cluster gitops preserved list [cluster]
+ankra cluster gitops preserved show <path>
+ankra cluster gitops preserved resolve <path> --keep git|ankra
+ankra cluster gitops preserved resolve <path> --withdraw
+```
+
+`--keep git` imports Git's version and the cluster changes to match it: whatever only Ankra's
+version declares (stacks, add-ons, newer chart versions) is removed or rolled back. `--keep ankra`
+writes Ankra's version into Git over the hand edit; it is refused for SOPS-encrypted files.
+`resolve` prints what the choice discards and asks; pass `--yes` only after reading it.
+
 ## Rules
 
 - **Git is the source of truth.** Do not hand-edit cluster state out of band; change the repo and let it sync.

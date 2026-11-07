@@ -157,6 +157,42 @@ func TestSetApplicationAutoDeploySendsOffAsAnExplicitFalse(t *testing.T) {
 	}
 }
 
+// An empty branch rule removes the rule, which is a different request from
+// leaving it alone, so an empty list must ride as [] and an absent one must be
+// omitted.
+func TestUpdateApplicationAutoDeployTellsAnEmptyRuleFromNoRule(t *testing.T) {
+	cases := map[string]struct {
+		branches         *[]string
+		expectedBranches string
+	}{
+		"absent": {nil, ""},
+		"clear":  {&[]string{}, "[]"},
+		"set":    {&[]string{"main", "release/*"}, `["main","release/*"]`},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+				var body map[string]json.RawMessage
+				if decodeError := json.NewDecoder(request.Body).Decode(&body); decodeError != nil {
+					t.Fatalf("decode request: %v", decodeError)
+				}
+				if string(body["environment_id"]) != `"env-1"` {
+					t.Errorf("environment_id = %s", body["environment_id"])
+				}
+				if string(body["branches"]) != testCase.expectedBranches {
+					t.Errorf("branches = %s, want %s", body["branches"], testCase.expectedBranches)
+				}
+				jsonResponse(t, writer, http.StatusOK, map[string]any{"enabled": true})
+			})
+			_, updateError := testClient.UpdateApplicationAutoDeploy(context.Background(), "app-1",
+				SetApplicationAutoDeployRequest{Enabled: true, EnvironmentID: "env-1", Branches: testCase.branches})
+			if updateError != nil {
+				t.Fatalf("UpdateApplicationAutoDeploy error = %v", updateError)
+			}
+		})
+	}
+}
+
 // The settings routes sit on a static segment under the applications
 // collection, not under an application id.
 func TestGetApplicationSettingsTargetsTheCollectionSettingsRoute(t *testing.T) {

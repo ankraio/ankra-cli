@@ -66,7 +66,7 @@ func (c *Client) httpClientForAsyncWrite(wait bool) *http.Client {
 	waitBaseTransport := &http.Transport{
 		ResponseHeaderTimeout: 0,
 	}
-	waitTransport := &orgOverrideTransport{base: waitBaseTransport, orgID: &c.orgOverride}
+	waitTransport := &scopeOverrideTransport{base: waitBaseTransport, orgID: &c.orgOverride, projectID: &c.projectOverride, baseURL: &c.BaseURL}
 	return &http.Client{
 		Transport: waitTransport,
 	}
@@ -98,6 +98,9 @@ func parseAsyncWriteResponse(
 	}
 	if deferral := gitPushDeferralFromResponse(response.StatusCode, responseBody); deferral != nil {
 		return nil, &gitPushDeferredError{deferral: *deferral}
+	}
+	if refusal := memberRemovalUnconfirmedFromBody(response.StatusCode, responseBody); refusal != nil {
+		return nil, refusal
 	}
 	if wait {
 		if response.StatusCode < 200 || response.StatusCode >= 300 {

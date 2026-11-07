@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -86,8 +87,34 @@ type ClusterAccessPolicy struct {
 	IsConfigured          bool    `json:"is_configured" yaml:"is_configured"`
 }
 
-type clusterAccessPolicyResponse struct {
+// ClusterAccessPolicyOrganisation names the organisation a policy or
+// proposal response describes. The platform acts on the organisation the
+// request selects (the token's own, or the one --org names), and before it
+// named it a read made in the wrong organisation looked like the right
+// one's answer. Both fields are empty from a platform that predates them;
+// OrganisationName is nil for an organisation without a name.
+type ClusterAccessPolicyOrganisation struct {
+	OrganisationID   string  `json:"organisation_id,omitempty" yaml:"organisation_id,omitempty"`
+	OrganisationName *string `json:"organisation_name,omitempty" yaml:"organisation_name,omitempty"`
+}
+
+// Describe names the organisation for a person: "Depict (2f85...)", the
+// id alone when it has no name, and "" when the platform did not say.
+func (organisation ClusterAccessPolicyOrganisation) Describe() string {
+	if organisation.OrganisationID == "" {
+		return ""
+	}
+	if organisation.OrganisationName == nil || *organisation.OrganisationName == "" {
+		return organisation.OrganisationID
+	}
+	return fmt.Sprintf("%s (%s)", *organisation.OrganisationName, organisation.OrganisationID)
+}
+
+// ClusterAccessPolicyRead is the policy read: the policy and the
+// organisation it belongs to.
+type ClusterAccessPolicyRead struct {
 	Policy ClusterAccessPolicy `json:"policy"`
+	ClusterAccessPolicyOrganisation
 }
 
 // accessRefusal is the body of a grant refused by the organisation policy
@@ -247,7 +274,7 @@ type DeleteClusterAccessGrantResponse struct {
 }
 
 func (c *Client) ListClusterAccessGrants(ctx context.Context, clusterID string) (*ListClusterAccessGrantsResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/access/grants", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/access/grants", c.BaseURL, url.PathEscape(clusterID))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -276,7 +303,7 @@ func (c *Client) ListClusterAccessGrants(ctx context.Context, clusterID string) 
 }
 
 func (c *Client) CreateClusterAccessGrant(ctx context.Context, clusterID string, request CreateClusterAccessGrantRequest) (*CreateClusterAccessGrantResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/access/grants", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/access/grants", c.BaseURL, url.PathEscape(clusterID))
 	payload, err := json.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -311,7 +338,7 @@ func (c *Client) CreateClusterAccessGrant(ctx context.Context, clusterID string,
 }
 
 func (c *Client) DeleteClusterAccessGrant(ctx context.Context, clusterID string, grantID string) (*DeleteClusterAccessGrantResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/access/grants/%s", c.BaseURL, clusterID, grantID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/access/grants/%s", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(grantID))
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -342,7 +369,7 @@ func (c *Client) DeleteClusterAccessGrant(ctx context.Context, clusterID string,
 // ElevateClusterAccess grants the caller itself time-boxed access to a
 // cluster (break-glass, kube_access.elevate).
 func (c *Client) ElevateClusterAccess(ctx context.Context, clusterID string, request ElevateClusterAccessRequest) (*CreateClusterAccessGrantResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/access/elevate", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/access/elevate", c.BaseURL, url.PathEscape(clusterID))
 	payload, err := json.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -374,8 +401,9 @@ func (c *Client) ElevateClusterAccess(ctx context.Context, clusterID string, req
 	return &created, nil
 }
 
-// GetClusterAccessPolicy reads the organisation's cluster access policy.
-func (c *Client) GetClusterAccessPolicy(ctx context.Context) (*ClusterAccessPolicy, error) {
+// GetClusterAccessPolicy reads the organisation's cluster access policy and
+// the organisation the platform read it in.
+func (c *Client) GetClusterAccessPolicy(ctx context.Context) (*ClusterAccessPolicyRead, error) {
 	url := fmt.Sprintf("%s/api/v1/org/cluster-access-policy", c.BaseURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -396,9 +424,9 @@ func (c *Client) GetClusterAccessPolicy(ctx context.Context) (*ClusterAccessPoli
 	if resp.StatusCode != http.StatusOK {
 		return nil, accessResponseError("read cluster access policy failed", resp.StatusCode, body)
 	}
-	var policy clusterAccessPolicyResponse
+	var policy ClusterAccessPolicyRead
 	if err := parseJSON(body, &policy); err != nil {
 		return nil, err
 	}
-	return &policy.Policy, nil
+	return &policy, nil
 }

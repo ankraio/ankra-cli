@@ -47,6 +47,12 @@ type SupportTicket struct {
 	Comments        []SupportTicketComment `json:"comments"`
 	CreatedAt       time.Time              `json:"created_at"`
 	UpdatedAt       time.Time              `json:"updated_at"`
+	// LastCommentAt and LastCommentBy describe the latest visible reply:
+	// when it was written and by which side ("customer" or "team"). Both
+	// are nil when nobody has replied yet, or when the platform predates
+	// the fields.
+	LastCommentAt *time.Time `json:"last_comment_at,omitempty"`
+	LastCommentBy *string    `json:"last_comment_by,omitempty"`
 }
 
 type SupportTicketSummary struct {
@@ -62,6 +68,9 @@ type SupportTicketSummary struct {
 	IsTrackedByTeam bool      `json:"is_tracked_by_team"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
+	// LastCommentAt and LastCommentBy: see SupportTicket.
+	LastCommentAt *time.Time `json:"last_comment_at,omitempty"`
+	LastCommentBy *string    `json:"last_comment_by,omitempty"`
 }
 
 type SupportTicketPagination struct {

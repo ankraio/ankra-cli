@@ -252,6 +252,7 @@ func encodeStructuredCounting(out io.Writer, format outputFormat, value interfac
 	default:
 		return stripStats{}, nil
 	}
+	value = structuredDocumentFor(format, value)
 	cleaned, stats, err := sanitizeStructured(format, value)
 	if err != nil {
 		return stripStats{}, err
@@ -434,12 +435,15 @@ func mapPatchError(perr *client.PatchStackError) error {
 		if denied := client.PermissionDeniedFromResponse(perr.StatusCode, perr.Body); denied != nil {
 			return denied
 		}
-		// Any other 403 is a rejected credential/permission: classify as
-		// exitAuth while keeping the human-readable message identical.
+		// Any other 403 is the platform refusing an authenticated caller - a
+		// sandbox cluster, or a refusal that carries only a sentence - so it
+		// is exitForbidden like every other command's 403 (exitCodeFor), not
+		// exitAuth: logging in again cannot change it. A rejected credential
+		// answers 401.
 		if strings.Contains(strings.ToLower(string(perr.Body)), "sandbox") {
-			return withExitCode(exitAuth, errors.New("sandbox clusters cannot be patched via the CLI; promote the cluster first"))
+			return withExitCode(exitForbidden, errors.New("sandbox clusters cannot be patched via the CLI; promote the cluster first"))
 		}
-		return withExitCode(exitAuth, fmt.Errorf("forbidden: %s", detail))
+		return withExitCode(exitForbidden, fmt.Errorf("forbidden: %s", detail))
 	case http.StatusNotFound:
 		// The stack or cluster does not exist: classify as exitNotFound while
 		// preserving the historical default-branch message shape.

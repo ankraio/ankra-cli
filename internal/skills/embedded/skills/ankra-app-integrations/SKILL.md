@@ -163,7 +163,29 @@ per-application push robot, hands it to each pipeline build as `registry_auth` (
 workflow reads it from Actions secrets), and creates a missing project or refuses the declaration.
 That is the pattern to prefer: the admin credential stays with the platform, the application gets
 a narrow robot. For a project kept apart inside Ankra's own registry, `ankra registry projects
-create` and a robot bound to it with `ankra registry robots create --project`.
+create` and a robot bound to it with `ankra registry robots create --registry-project`.
+
+One robot can reach several projects: repeat `--registry-project` or separate with commas, up to
+20. That suits a consumer whose charts and images live in separate projects, since it needs one
+pull secret instead of two. On a Harbor the organisation runs, it needs an admin credential that
+may make system-level robots: a Harbor system administrator, or a system-level robot with robot
+create, read, list and delete at system level that itself holds the access on every project.
+
+Change what a robot reaches later with `ankra registry robots update <name> --registry-project
+a,b`, which replaces the list: projects it keeps keep their access, and new ones get `--scope`.
+Read what comes next before running it:
+
+- **In place** keeps the login and secret. Harbor only does this for a robot already reaching
+  several projects, staying on several, with a *user* as the admin credential.
+- **Anything else replaces the robot**, so it fails unless you pass `--new-secret`. That includes
+  every change when the admin credential is itself a robot, because Harbor never lets a robot
+  change a robot. The secret is new, the login changes when moving between one project and
+  several, and whatever logs in with the old one stops working. Say so before running it, and
+  update its consumers straight after.
+- **Over MCP or in chat**, `list_registry_robots` reads robots and `update_registry_robot_projects`
+  changes them in place only. It never replaces a robot, so a secret never reaches a model: it
+  answers the command for a person to run. Do not try to work around that.
+- Google Artifact Registry robots cannot be changed this way yet.
 
 Declare the registry at `ankra application add` time. Adding it afterwards leaves a build
 pipeline that logs in with the wrong registry — see `ankra-applications`.
@@ -193,10 +215,18 @@ SeaweedFS S3, VictoriaLogs, VictoriaMetrics) answer only inside their cluster, a
 `<name>.<service>.svc.cluster.local` with credentials in a Secret in the service's namespace
 (`postgresql-app` with `fqdn-uri` for PostgreSQL). `ankra services list|get <service>` shows them,
 `ankra services consumers bind --application <app> --cluster <cluster> --namespace <ns>` records
-the consumer (it deploys nothing and delivers no credential). Ankra does not deliver the
-credentials into the application yet: read the value with `--reveal` above and set it as an
-env-secret (the service page's **Use it in <application>** opens that form), then `apply`. Use the
-`fqdn-` keys from another namespace; wait for the service's **Readiness: Ready** before relying on it.
+the consumer (it deploys nothing). An application on the **service's own cluster** receives the
+connection once the service is running, without a redeploy while none of its running pods reads it
+(otherwise Ankra leaves it to its next deploy, which rolls those pods together): a `<service>-connection` Secret in its
+namespace, read through `envFrom` as `DATABASE_URL`/`PG*`, `REDIS_URL`, `NATS_URL`, `OPENSEARCH_*`,
+`S3_ENDPOINT`/`AWS_*` or `VICTORIA_*_URL` (the first service of a kind gets these names, every
+service also `<SERVICE_NAME>_`-prefixed ones). Do not also set those names as env-secrets: two
+sources for one variable is a bug. `ankra services get <service>` shows each consumer's delivery
+(delivered, pending, unsupported, unknown) and its pickup (`waiting_for_service`, `delivering`,
+`holder_gone`, `redeploy_needed`, `restart_needed`, `in_use`), which says what is left to do. Only an application on **another
+cluster** is wired by hand: read the value with `--reveal` above, set it as an env-secret, `apply`,
+and give it an address your own network path exposes. Wait for **Readiness: Ready** before relying
+on the service.
 
 ## Pattern: an internal API or third-party SaaS
 

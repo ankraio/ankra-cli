@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"ankra/internal/client"
 	"github.com/spf13/cobra"
@@ -36,6 +37,15 @@ func init() {
 		"Allow this apply to change the cluster's GitOps repository or branch. Ankra writes the cluster's current state to the new source first, then syncs from it; anything that later leaves that source is pruned. A target that cannot be written leaves the cluster unchanged")
 	clusterApplyCmd.Flags().Bool("allow-repoint-destroying-data", false,
 		"Additionally allow a repoint on a cluster holding PersistentVolumeClaims, whose data is destroyed if the new source stops defining their workloads. Requires --allow-repoint")
+	// The apply replaces every stack the file names, so a member of such a
+	// stack that the file no longer lists is uninstalled - which is also what
+	// a file saved before that member was added looks like. The platform
+	// refuses such an apply unless one of these declares the removal
+	// (ankra-kwr1sp).
+	clusterApplyCmd.Flags().Bool("prune", false,
+		"Remove the members (add-ons, manifests, applications) of the file's stacks that the file no longer lists. Use it when the file is the complete, current definition of those stacks; without it, or --confirm-removal, such an apply is refused and changes nothing")
+	clusterApplyCmd.Flags().StringArray("confirm-removal", nil,
+		"Allow the apply to remove this member, which the file no longer lists, as kind/name (kind addon, manifest or application; repeatable)")
 	registerAsyncWriteFlags(clusterApplyCmd)
 	// The shared wording ("wait for the operation to finish") is true of the
 	// node-group and bastion writes, but on apply it promises more than it
@@ -83,6 +93,26 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	importRequest.Prune, err = cmd.Flags().GetBool("prune")
+	if err != nil {
+		return fmt.Errorf("reading --prune: %w", err)
+	}
+	confirmRemovalFlags, err := cmd.Flags().GetStringArray("confirm-removal")
+	if err != nil {
+		return fmt.Errorf("reading --confirm-removal: %w", err)
+	}
+	for _, value := range confirmRemovalFlags {
+		if strings.Contains(value, ":") {
+			return withExitCode(exitUsage, fmt.Errorf("--confirm-removal %q: apply writes one cluster, so name the member as kind/name", value))
+		}
+	}
+	confirmations, err := parseConfirmedRemovals(confirmRemovalFlags, nil)
+	if err != nil {
+		return err
+	}
+	for _, confirmation := range confirmations {
+		importRequest.ConfirmedMemberRemovals = append(importRequest.ConfirmedMemberRemovals, confirmation.Member)
+	}
 	printUnreadImportMetadataWarnings(cmd, filePath)
 	if dryRun {
 		fmt.Printf("Validation succeeded for %q; no changes applied (--dry-run).\n", filePath)
@@ -99,6 +129,10 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	if targetNote != "" {
 		fmt.Println(targetNote)
 	}
+	environmentChange, err := planDeclaredEnvironmentChange(importRequest)
+	if err != nil {
+		return err
+	}
 
 	wait, err := asyncWriteWaitFlag(cmd)
 	if err != nil {
@@ -111,9 +145,28 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	defer cancelRequestContext()
 
 	importResponse, submitted, err := applyImportCluster(requestContext, importRequest, wait)
+	if refusal, isRemovalRefusal := asMemberRemovalRefusal(err); isRemovalRefusal {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), refusal.Message)
+		if len(refusal.Members) > 0 {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "If these should go, apply again with %s, or with --prune when the file is the complete, current definition of its stacks. Otherwise add them to the file.\n",
+				confirmApplyRemovalFlags(refusal.Members))
+		}
+		return withExitCode(exitError, errors.New("the apply would remove members the file no longer lists; nothing was changed"))
+	}
 	if err != nil {
 		return err
 	}
+	if reportError := reportApplyResult(cmd, importResponse, submitted); reportError != nil {
+		return reportError
+	}
+	return applyDeclaredEnvironment(cmd, environmentChange)
+}
+
+// reportApplyResult renders the platform's answer to the apply. It returns an
+// error only when the platform refused the configuration (or rendering
+// failed), so the environment change runs after every apply the platform took
+// and after none it refused.
+func reportApplyResult(cmd *cobra.Command, importResponse *client.ImportResponse, submitted bool) error {
 	if submitted {
 		operationID := ""
 		if importResponse != nil {
@@ -183,6 +236,15 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+// confirmApplyRemovalFlags renders --confirm-removal flags for a hint.
+func confirmApplyRemovalFlags(members []string) string {
+	flags := make([]string, 0, len(members))
+	for _, member := range members {
+		flags = append(flags, "--confirm-removal "+member)
+	}
+	return strings.Join(flags, " ")
+}
+
 // applyClusterOverride makes --cluster the target of the apply. The document's
 // metadata.name is the cluster name the platform addresses, so a file written
 // for one cluster (or exported from a profile, where the name is the profile's)
@@ -222,25 +284,220 @@ func loadImportCluster(filePath string, allowRepoint bool, allowRepointDestroyin
 	return importRequest, nil
 }
 
-// unreadImportMetadata lists the metadata keys a cluster file plausibly
-// carries that apply does not send, with what each one names and the
-// 'ankra cluster update' flag that does change it. A file setting one passed
-// validate and apply in silence, leaving its author unable to tell whether
-// the value took effect (PLA-913). It does not: this CLI never sends it, and
-// the platform applies an import's environment only when the import creates
-// the cluster, so no file edit changes an existing cluster's.
-var unreadImportMetadata = []struct{ key, names, flag string }{
-	{"environment", "environment", "--environment"},
-	{"criticality", "reporting level", "--criticality"},
+// declaredClusterEnvironment reads metadata.environment, what the file says
+// the cluster is for. An absent or empty-valued key declares nothing (nil).
+// A preset matched case-insensitively is sent as the preset, the label the
+// portal and 'ankra cluster update' write, so re-applying a file compares
+// equal to the label it set; any other name is trimmed and kept as typed.
+// A value the platform would refuse is refused here, naming the key, before
+// anything is sent.
+func declaredClusterEnvironment(metadata map[string]interface{}) (*string, error) {
+	value, present := metadata["environment"]
+	if !present || value == nil {
+		return nil, nil
+	}
+	text, isText := value.(string)
+	if !isText {
+		return nil, fmt.Errorf("'metadata.environment' must be text, such as production or staging, but found %v", value)
+	}
+	environment := strings.TrimSpace(text)
+	if environment == "" {
+		return nil, errors.New("'metadata.environment' is empty: name what the cluster is for (production, staging, development, testing, local, or a name of your own), or remove the key")
+	}
+	if len(environment) > clusterEnvironmentNameLimit {
+		return nil, fmt.Errorf("'metadata.environment' must be at most %d bytes (a letter outside ASCII counts as two or more)",
+			clusterEnvironmentNameLimit)
+	}
+	if _, isPreset := presetEnvironmentReportingLevels[strings.ToLower(environment)]; isPreset {
+		environment = strings.ToLower(environment)
+	}
+	return &environment, nil
 }
 
-// unreadImportMetadataWarnings returns one line per unread key the file at
-// filePath sets. A file that cannot be read or parsed yields none; loading it
-// reports that. It parses with the same yaml.Unmarshal as
-// buildImportRequestFromBytes, which reads only the first document of a
-// '---' stream, so it inspects exactly the document apply sends. The
-// suggestion says "once the cluster exists" because validate, a dry run, or
-// the apply that creates the cluster all print it before there is one.
+// declaredEnvironmentChange is what an apply does about the environment of a
+// cluster that already exists. The platform applies the import body's
+// environment only when that import creates the cluster: its own GitOps sync
+// re-applies the same document on a schedule, and a label somebody chose
+// since must not be reverted by it. apply keeps that promise. It changes an
+// existing cluster's label, through the environment route 'ankra cluster
+// update' uses, only when nobody chose the stored one (environment_source
+// 'default', a create lane's fallback): the file is then the first statement
+// of what the cluster is for. A label a person or automation set, or one set
+// before the platform recorded who did, is left as it is and the apply says
+// how to change it. Either way the platform records who chose a label it
+// writes from the credential: a person's own token records the person, a
+// service account records automation.
+type declaredEnvironmentChange struct {
+	clusterID   string
+	clusterName string
+	from        string
+	to          string
+	// criticality is the reporting level the preset environment brings (the
+	// pairing 'ankra cluster update' and the portal write), empty for a name
+	// of your own, which leaves the stored level alone.
+	criticality string
+	// chosenBy is set when the stored label was chosen (its
+	// environment_source), and the apply leaves it and warns instead.
+	chosenBy string
+}
+
+// environmentSourceDefault is the environment_source of a label a create lane
+// fell back to: the one source that is nobody's choice.
+const environmentSourceDefault = "default"
+
+// planDeclaredEnvironmentChange answers what to do once the apply is taken,
+// or nil when there is nothing: the file declares no environment, the cluster
+// does not exist yet (the import creates it with the declared label), or its
+// label already is the declared one. That last case sends nothing on purpose:
+// the environment route records a person's write of an unchanged label as a
+// fresh confirmation of what the cluster is for, and re-applying a file is
+// not one, least of all a file that only echoes a label the platform
+// defaulted. The cluster is read before the apply, so a lookup that fails
+// stops the apply before anything is written.
+func planDeclaredEnvironmentChange(importRequest client.CreateImportClusterRequest) (*declaredEnvironmentChange, error) {
+	if importRequest.Environment == nil {
+		return nil, nil
+	}
+	cluster, lookupError := apiClient.GetCluster(importRequest.Name)
+	if errors.Is(lookupError, client.ErrClusterNotFound) {
+		return nil, nil
+	}
+	if lookupError != nil {
+		return nil, fmt.Errorf("looking up cluster %q to compare its environment with metadata.environment: %w",
+			importRequest.Name, lookupError)
+	}
+	return compareDeclaredEnvironment(cluster, *importRequest.Environment), nil
+}
+
+// compareDeclaredEnvironment is the plan for one reading of the cluster: nil
+// when its label already is the declared one, else the change, marked chosen
+// unless the label is the platform's own default.
+func compareDeclaredEnvironment(cluster client.ClusterListItem, declared string) *declaredEnvironmentChange {
+	if sameEnvironmentLabel(cluster.Environment, declared) {
+		return nil
+	}
+	change := &declaredEnvironmentChange{
+		clusterID:   cluster.ID,
+		clusterName: cluster.Name,
+		from:        cluster.Environment,
+		to:          declared,
+		criticality: presetEnvironmentReportingLevels[declared],
+	}
+	if cluster.EnvironmentSource != environmentSourceDefault {
+		change.chosenBy = describeEnvironmentChooser(cluster.EnvironmentSource)
+	}
+	return change
+}
+
+// sameEnvironmentLabel compares a stored label with a declared one. A declared
+// preset arrives lower-cased, so a stored preset in other casing ('Production'
+// from an older writer) is the same label, not a change to send: sending it
+// would record a fresh choice and, on a chosen label, warn about a difference
+// nobody can see. A name of your own is compared exactly, as typed.
+func sameEnvironmentLabel(stored string, declared string) bool {
+	if _, isPreset := presetEnvironmentReportingLevels[declared]; isPreset {
+		return strings.EqualFold(stored, declared)
+	}
+	return stored == declared
+}
+
+// rereadDeclaredEnvironmentChange plans the change again from the cluster as
+// it is now. The first reading was taken before the apply, which can run for
+// minutes under --wait, and a person may choose the label meanwhile; reading
+// again right before the write shrinks that window to one request. It cannot
+// close it: the platform's environment route takes no expected source to
+// compare against.
+func rereadDeclaredEnvironmentChange(change *declaredEnvironmentChange) (*declaredEnvironmentChange, error) {
+	cluster, lookupError := apiClient.GetCluster(change.clusterName)
+	if lookupError != nil {
+		return nil, fmt.Errorf("the configuration was applied, but cluster %q kept its environment %s instead of %q (metadata.environment): reading it again before the change failed: %w",
+			change.clusterName, describeEnvironmentLabel(change.from), change.to, lookupError)
+	}
+	return compareDeclaredEnvironment(cluster, change.to), nil
+}
+
+// describeEnvironmentChooser says who chose a stored label, for the warning.
+// A source this CLI does not know, or none from an older platform, is read as
+// a choice: only 'default' says nobody made one.
+func describeEnvironmentChooser(source string) string {
+	switch source {
+	case "person":
+		return "a person chose it"
+	case "automation":
+		return "automation set it"
+	case "unknown":
+		return "it was set before Ankra recorded who chose it"
+	default:
+		return "the platform does not say who chose it"
+	}
+}
+
+// applyDeclaredEnvironment carries out the plan once the configuration is
+// applied. A chosen label is left, with a warning naming the command that
+// changes it. A change the platform refuses (for one, only a person may move
+// a cluster off production) says the configuration was applied and exits 1,
+// so a script never reads the cluster as matching the file. The note goes to
+// stderr under -o json/yaml, so the structured result on stdout stays
+// parseable.
+func applyDeclaredEnvironment(cmd *cobra.Command, change *declaredEnvironmentChange) error {
+	if change == nil {
+		return nil
+	}
+	if change.chosenBy == "" {
+		current, rereadError := rereadDeclaredEnvironmentChange(change)
+		if rereadError != nil {
+			return rereadError
+		}
+		if current == nil {
+			return nil
+		}
+		change = current
+	}
+	if change.chosenBy != "" {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+			"warning: metadata.environment is %q but cluster '%s' keeps its environment %s: %s, and a cluster file sets the environment only where nobody has. To change it: ankra cluster update %s --environment %s\n",
+			change.to, change.clusterName, describeEnvironmentLabel(change.from), change.chosenBy,
+			shellWordOrQuoted(change.clusterName), shellWordOrQuoted(change.to))
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+	defer cancel()
+	result, updateError := apiClient.SetClusterEnvironment(ctx, change.clusterID, change.to, change.criticality)
+	if updateError != nil {
+		return fmt.Errorf("the configuration was applied, but cluster %q kept its environment %s instead of %q (metadata.environment): %w",
+			change.clusterName, describeEnvironmentLabel(change.from), change.to, updateError)
+	}
+	out := cmd.OutOrStdout()
+	if format, _ := structuredFormatFromFlags(cmd); format != outputDefault {
+		out = cmd.ErrOrStderr()
+	}
+	_, _ = fmt.Fprintf(out, "Environment of cluster '%s' changed from %s to '%s', as metadata.environment declares.\n",
+		change.clusterName, describeEnvironmentLabel(change.from), result.Environment)
+	return nil
+}
+
+// describeEnvironmentLabel quotes a stored label, and names the empty label
+// an unclassified import carries instead of printing empty quotes.
+func describeEnvironmentLabel(label string) string {
+	if label == "" {
+		return "(none)"
+	}
+	return fmt.Sprintf("'%s'", label)
+}
+
+// unreadImportMetadataWarnings returns a line for the metadata key a cluster
+// file plausibly carries that apply does not send: metadata.criticality. A
+// file setting it passed validate and apply in silence, leaving its author
+// unable to tell whether the value took effect (PLA-913). It does not: the
+// reporting level follows the environment (the platform derives it when the
+// import creates the cluster, and an environment change sends the preset's
+// level), and is set on its own only by 'ankra cluster update'. A file that
+// cannot be read or parsed yields none; loading it reports that. It parses
+// with the same yaml.Unmarshal as buildImportRequestFromBytes, which reads
+// only the first document of a '---' stream, so it inspects exactly the
+// document apply sends. The suggestion says "once the cluster exists" because
+// validate, a dry run, or the apply that creates the cluster all print it
+// before there is one.
 func unreadImportMetadataWarnings(filePath string) []string {
 	data, readError := os.ReadFile(filePath)
 	if readError != nil {
@@ -252,22 +509,23 @@ func unreadImportMetadataWarnings(filePath string) []string {
 	if yaml.Unmarshal(data, &document) != nil {
 		return nil
 	}
-	clusterName, _ := document.Metadata["name"].(string)
-	var warnings []string
-	for _, unread := range unreadImportMetadata {
-		value, present := document.Metadata[unread.key]
-		if !present {
-			continue
-		}
-		suggestedValue := "<value>"
-		if text, isText := value.(string); isText && strings.TrimSpace(text) != "" {
-			suggestedValue = shellWordOrQuoted(strings.TrimSpace(text))
-		}
-		warnings = append(warnings, fmt.Sprintf(
-			"metadata.%s is not read: a cluster file does not set or change the cluster's %s. Once the cluster exists, set it with: ankra cluster update %s %s %s",
-			unread.key, unread.names, shellWordOrQuoted(clusterName), unread.flag, suggestedValue))
+	value, present := document.Metadata["criticality"]
+	if !present {
+		return nil
 	}
-	return warnings
+	clusterName, _ := document.Metadata["name"].(string)
+	suggestedEnvironment := "<environment>"
+	if declared, declaredError := declaredClusterEnvironment(document.Metadata); declaredError == nil && declared != nil {
+		suggestedEnvironment = shellWordOrQuoted(*declared)
+	}
+	suggestedValue := "<value>"
+	if text, isText := value.(string); isText && strings.TrimSpace(text) != "" {
+		suggestedValue = shellWordOrQuoted(strings.TrimSpace(text))
+	}
+	return []string{fmt.Sprintf(
+		"metadata.criticality is not read: a cluster file does not set the cluster's reporting level, which follows its environment. "+
+			"Once the cluster exists, set it with: ankra cluster update %s --environment %s --criticality %s",
+		shellWordOrQuoted(clusterName), suggestedEnvironment, suggestedValue)}
 }
 
 // printUnreadImportMetadataWarnings writes those lines to stderr, so a
@@ -339,6 +597,10 @@ func buildImportRequestFromBytes(data []byte, baseDirectory string) (client.Crea
 		return client.CreateImportClusterRequest{}, errors.New("'metadata.name' is required (this is the cluster name)")
 	}
 	clusterDescription, _ := meta["description"].(string)
+	clusterEnvironment, environmentError := declaredClusterEnvironment(meta)
+	if environmentError != nil {
+		return client.CreateImportClusterRequest{}, environmentError
+	}
 
 	spec, ok := raw["spec"].(map[string]interface{})
 	if !ok {
@@ -395,6 +657,7 @@ func buildImportRequestFromBytes(data []byte, baseDirectory string) (client.Crea
 	return client.CreateImportClusterRequest{
 		Name:        clusterName,
 		Description: clusterDescription,
+		Environment: clusterEnvironment,
 		Spec: client.CreateResourceSpec{
 			GitRepository:     gitRepository,
 			PrometheusMetrics: prometheusMetrics,

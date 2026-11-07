@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"ankra/internal/cachenotice"
 	"ankra/internal/client"
 
 	"github.com/jedib0t/go-pretty/v6/table"
@@ -92,7 +93,7 @@ func runClusterEvents(cmd *cobra.Command, _ []string) error {
 	if clusterError != nil {
 		return clusterError
 	}
-	events, eventsError := fetchEvents(cluster.ID, namespace, fieldSelectors, nameFilter, labelSelector)
+	events, eventsAnswer, eventsError := fetchEvents(cluster.ID, namespace, fieldSelectors, nameFilter, labelSelector)
 	if eventsError != nil {
 		return eventsError
 	}
@@ -114,6 +115,7 @@ func runClusterEvents(cmd *cobra.Command, _ []string) error {
 		fmt.Print(string(encoded))
 		return nil
 	}
+	announceCachedAnswer(eventsAnswer)
 	if len(events) == 0 {
 		fmt.Println("No events found.")
 		return nil
@@ -181,18 +183,21 @@ func involvedObjectSelectors(kind string, name string, namespace string) []clien
 
 // fetchEventsForObject is the describe path's use of the same scoping.
 func fetchEventsForObject(clusterID string, kind string, name string, namespace string) ([]map[string]interface{}, error) {
-	return fetchEvents(clusterID, namespace, involvedObjectSelectors(kind, name, namespace), "", "")
+	events, _, eventsError := fetchEvents(clusterID, namespace, involvedObjectSelectors(kind, name, namespace), "", "")
+	return events, eventsError
 }
 
 // fetchEvents reads the Event list, newest last, so a terminal rendering
-// reads top-to-bottom in the order the cluster produced them.
+// reads top-to-bottom in the order the cluster produced them. The answer
+// says whether the platform served the list from the agent's cache, for the
+// notice a table prints above it.
 func fetchEvents(
 	clusterID string,
 	namespace string,
 	fieldSelectors []client.FieldSelector,
 	nameFilter string,
 	labelSelector string,
-) ([]map[string]interface{}, error) {
+) ([]map[string]interface{}, cachenotice.Answer, error) {
 	request := client.ResourceRequestItem{Kind: "Event", Version: "v1"}
 	if namespace != "" {
 		request.Namespace = namespace
@@ -210,11 +215,12 @@ func fetchEvents(
 		ResourceRequests: []client.ResourceRequestItem{request},
 	})
 	if requestError != nil {
-		return nil, requestError
+		return nil, cachenotice.Answer{}, requestError
 	}
 	if len(response.ResourceResponses) == 0 {
-		return []map[string]interface{}{}, nil
+		return []map[string]interface{}{}, cachenotice.Answer{}, nil
 	}
+	answer := cachenotice.FromResource(response.ResourceResponses[0].CacheMetadata)
 	events := make([]map[string]interface{}, 0, len(response.ResourceResponses[0].Items))
 	for _, item := range response.ResourceResponses[0].Items {
 		if event, isEvent := item.(map[string]interface{}); isEvent {
@@ -224,7 +230,7 @@ func fetchEvents(
 	sort.SliceStable(events, func(first int, second int) bool {
 		return eventTimestamp(events[first]).Before(eventTimestamp(events[second]))
 	})
-	return events, nil
+	return events, answer, nil
 }
 
 // eventTimestamp picks the most recent time an event carries. Series

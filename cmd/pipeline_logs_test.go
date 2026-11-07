@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -414,6 +415,32 @@ func shortenPipelineLiveTailStatusCheck(t *testing.T) {
 	t.Cleanup(func() { pipelineLiveTailStatusCheckInterval = previous })
 }
 
+// shortenPipelineLogStreamReconnect makes --follow's reconnect backoff
+// testable: the production values are a two-second first wait doubling to
+// thirty seconds, and ten failed connections in a row. The healthy-connection
+// threshold stays well above anything a mock connection can last, so a test's
+// connections count as failures unless they carry a line. Like the helpers
+// above it writes package-level vars.
+func shortenPipelineLogStreamReconnect(t *testing.T, bound int) {
+	t.Helper()
+	previousDelay, previousMaxDelay := pipelineLogStreamReconnectDelay, pipelineLogStreamReconnectMaxDelay
+	previousBound, previousHealthy := pipelineLogStreamReconnectBound, pipelineLogStreamHealthyConnection
+	pipelineLogStreamReconnectDelay = time.Millisecond
+	pipelineLogStreamReconnectMaxDelay = 4 * time.Millisecond
+	pipelineLogStreamReconnectBound = bound
+	pipelineLogStreamHealthyConnection = time.Minute
+	t.Cleanup(func() {
+		pipelineLogStreamReconnectDelay = previousDelay
+		pipelineLogStreamReconnectMaxDelay = previousMaxDelay
+		pipelineLogStreamReconnectBound = previousBound
+		pipelineLogStreamHealthyConnection = previousHealthy
+	})
+}
+
+// streamFaultFromPeer is the fault the reports were filed against: the
+// client's own read failing when the HTTP/2 stream was reset under it.
+const streamFaultFromPeer = "stream error: stream ID 3; INTERNAL_ERROR; received from peer"
+
 // pendingStepLog is a step_log row whose upload the platform has not
 // confirmed yet.
 func pendingStepLog(stepID string) client.PipelineArtifact {
@@ -533,6 +560,8 @@ func TestPipelineLogsLiveTailStopsWhenTheStepConcludes(t *testing.T) {
 }
 
 func TestPipelineLogsConcludedStepArchiveFailed(t *testing.T) {
+	// A step that never reached an execution has no retained stream to fall
+	// back to, so the archive's own failure is still the answer.
 	stepID := "step-1"
 	mockClient := &pipelineLaneMock{
 		getResult: &client.PipelineRunDetail{Steps: []client.PipelineStep{concludedStep()}},
@@ -545,18 +574,64 @@ func TestPipelineLogsConcludedStepArchiveFailed(t *testing.T) {
 	if executeError == nil || !strings.Contains(executeError.Error(), "the vault rejected the upload") {
 		t.Fatalf("error = %v, want it to carry the artifact's own error message", executeError)
 	}
+	if len(mockClient.streamOptions) != 0 {
+		t.Errorf("stream calls = %d, want none for a step that never ran", len(mockClient.streamOptions))
+	}
+}
+
+// TestPipelineLogsFailedArchiveFallsBackToTheRetainedStream pins the product
+// half of the CI egress report: an upload that broke on the way to object
+// storage left the step_log row failed, and the command reported only that,
+// while the platform's retained stream still held the step's output. A
+// pending archive already fell through to that stream; a failed one does
+// now too, and says why the archive was not read.
+func TestPipelineLogsFailedArchiveFallsBackToTheRetainedStream(t *testing.T) {
+	stepID := "step-1"
+	mockClient := &pipelineLaneMock{
+		getResult: &client.PipelineRunDetail{Steps: []client.PipelineStep{concludedStepThatRan()}},
+		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{
+			{ID: "artifact-1", StepID: &stepID, Kind: client.PipelineArtifactKindStepLog,
+				Status: client.PipelineArtifactStatusFailed, ErrorMessage: "upload to object storage timed out."},
+		}},
+		streamEvents: []client.PipelineLogEvent{
+			{Type: "line", Stream: "stdout", Line: "Fetching advisory database", Seq: 1},
+			{Type: "line", Stream: "stderr", Line: "error: failed to fetch advisory database", Seq: 2},
+		},
+	}
+	standardOutput, standardError, executeError := runPipelineCommandSeparately(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if executeError != nil {
+		t.Fatalf("logs error = %v, want the retained stream read instead", executeError)
+	}
+	if standardOutput != "[stdout] Fetching advisory database\n[stderr] error: failed to fetch advisory database\n" {
+		t.Errorf("stdout = %q, want the retained stream's lines", standardOutput)
+	}
+	if !strings.Contains(standardError,
+		`Step "checkout"'s log was not archived (upload to object storage timed out); replaying the platform's retained log stream instead.`) {
+		t.Errorf("stderr = %q, want it to say why the archive was not read", standardError)
+	}
+	if len(mockClient.streamOptions) != 1 || mockClient.streamOptions[0].IsFollowing == nil ||
+		*mockClient.streamOptions[0].IsFollowing || mockClient.streamOptions[0].FromSequence != 0 {
+		t.Errorf("stream options = %+v, want one follow=false replay from the start", mockClient.streamOptions)
+	}
+	if mockClient.downloadArtifactID != "" {
+		t.Errorf("downloaded %q, want no download of an archive that failed", mockClient.downloadArtifactID)
+	}
 }
 
 func TestPipelineLogsRunningStepStillStreamsLive(t *testing.T) {
 	// A step that has not concluded must not take the archive-log branch,
 	// even when the run also carries an (irrelevant) artifacts result -
-	// resolving to the live relay is what --follow documents.
-	executionID, executionStepID := "execution-1", "execution-step-1"
+	// resolving to the live relay is what --follow documents. The
+	// connection is held open the way the relay holds a running step's, so
+	// the tail ends on the step's conclusion rather than on a dropped stream.
+	shortenPipelineLiveTailStatusCheck(t)
 	mockClient := &pipelineLaneMock{
-		getResult: &client.PipelineRunDetail{Steps: []client.PipelineStep{
-			{ID: "step-1", StepKey: "checkout", Status: "running",
-				ExecutionID: &executionID, ExecutionStepID: &executionStepID},
-		}},
+		getResults: []client.PipelineRunDetail{
+			runDetailWithStep("running", runningStepThatStarted()),
+			runDetailWithStep(pipelineRunStatusConcluded, concludedStepThatRan()),
+		},
+		streamNeverEnds: true,
 	}
 	_, executeError := runPipelineCommand(t, mockClient, "logs", "run-1", "--application", testApplicationID, "--step", "checkout")
 	if executeError != nil {
@@ -578,13 +653,16 @@ func TestPipelineLogsRunningStepReplayAsksForTheOutputAlreadyProduced(t *testing
 	// --replay is the only way a live connection sees what the step printed
 	// before it was opened, and it must reach the wire as replay=true rather
 	// than change anything the CLI does locally.
+	shortenPipelineLiveTailStatusCheck(t)
 	mockClient := &pipelineLaneMock{
-		getResult: &client.PipelineRunDetail{Steps: []client.PipelineStep{
-			runningStepThatStarted(),
-		}},
+		getResults: []client.PipelineRunDetail{
+			runDetailWithStep("running", runningStepThatStarted()),
+			runDetailWithStep(pipelineRunStatusConcluded, concludedStepThatRan()),
+		},
 		streamEvents: []client.PipelineLogEvent{
 			{Type: "line", Stream: "stdout", Line: "already printed", Seq: 1},
 		},
+		streamNeverEnds: true,
 	}
 	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
 		"--application", testApplicationID, "--step", "checkout", "--replay")
@@ -660,27 +738,39 @@ func TestPipelineLogsRetainedStreamWithNoOutputSaysSo(t *testing.T) {
 	}
 }
 
-func TestPipelineLogsRetainedStreamFaultIsNotReportedAsEmpty(t *testing.T) {
-	// A replay that ended on the relay's own error frame observed nothing
-	// about the step's output, so it must not also be stated as an empty
-	// stream - the fault is the answer.
+func TestPipelineLogsRetainedStreamFaultExitsNonzero(t *testing.T) {
+	// A replay that broke off on a fault printed only part of the step's
+	// output. It used to print the fault and exit 0, which a script reading
+	// the exit status took for a log that printed in full; it is an error
+	// now, carrying the fault, and it is still never stated as an observed
+	// empty stream.
 	mockClient := &pipelineLaneMock{
 		getResult:       &client.PipelineRunDetail{Steps: []client.PipelineStep{concludedStepThatRan()}},
 		artifactsResult: &client.PipelineArtifactList{Artifacts: []client.PipelineArtifact{}},
 		streamEvents: []client.PipelineLogEvent{
+			{Type: "line", Stream: "stdout", Line: "the part that arrived", Seq: 1},
 			{Type: "error", Error: "stream closed"},
 		},
 	}
-	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+	standardOutput, standardError, executeError := runPipelineCommandSeparately(t, mockClient, "logs", "run-1",
 		"--application", testApplicationID, "--step", "checkout")
-	if executeError != nil {
-		t.Fatalf("logs error = %v", executeError)
+	if executeError == nil {
+		t.Fatalf("logs error = nil, want the broken replay reported; stderr: %s", standardError)
 	}
-	if !strings.Contains(output, "Log stream fault: stream closed") {
-		t.Errorf("output = %q, want the relay's fault reported", output)
+	if exitCode := exitCodeFor(executeError); exitCode != exitError {
+		t.Errorf("exit code = %d, want %d", exitCode, exitError)
 	}
-	if strings.Contains(output, "held no output") {
-		t.Errorf("output = %q, want a faulted read never stated as an observed empty one", output)
+	for _, want := range []string{"stream closed", "incomplete",
+		"ankra pipeline logs run-1 --application " + testApplicationID + " --step checkout"} {
+		if !strings.Contains(executeError.Error(), want) {
+			t.Errorf("error = %q, want it to say %q", executeError.Error(), want)
+		}
+	}
+	if standardOutput != "[stdout] the part that arrived\n" {
+		t.Errorf("stdout = %q, want the lines that did arrive and nothing else", standardOutput)
+	}
+	if strings.Contains(standardError, "held no output") {
+		t.Errorf("stderr = %q, want a faulted read never stated as an observed empty one", standardError)
 	}
 }
 
@@ -895,8 +985,11 @@ func TestPipelineLogsFollowWaitsForABlockedStepThenStreams(t *testing.T) {
 	// The moment a live tail is actually asked for: the run was just
 	// dispatched, so the step is blocked on its dependencies and the relay
 	// would refuse it. --follow waits through blocked and pending, says what
-	// it is waiting on, and attaches as soon as the step starts.
+	// it is waiting on, and attaches as soon as the step starts. The live
+	// connection stays open the way the relay holds a running step's, so the
+	// tail ends on the conclusion it observes.
 	shortenPipelineStepStartWait(t, time.Minute)
+	shortenPipelineLiveTailStatusCheck(t)
 	mockClient := &pipelineLaneMock{
 		getResults: []client.PipelineRunDetail{
 			runDetailWithStep("running", blockedStep()),
@@ -907,6 +1000,7 @@ func TestPipelineLogsFollowWaitsForABlockedStepThenStreams(t *testing.T) {
 		streamEvents: []client.PipelineLogEvent{
 			{Type: "line", Stream: "stdout", Line: "compiling", Seq: 1},
 		},
+		streamNeverEnds: true,
 	}
 	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
 		"--application", testApplicationID, "--step", "build", "--follow")
@@ -1147,7 +1241,13 @@ func TestPipelineLogsFollowPicksUpTheRetryThatSupersededTheAttemptItWasTailing(t
 	// lost one on the run as evidence. --follow must read the step by key,
 	// notice its attempt was superseded, wait for the new row and tail that -
 	// not report the lost attempt's conclusion as the step's own.
+	//
+	// Each connection stays open the way the relay holds a running step's,
+	// so it is the tail's own quiet-stretch read that sees each attempt stop
+	// - which is why the retry's pending row answers twice: once to that
+	// read, once to the re-read after the connection is closed.
 	shortenPipelineStepStartWait(t, time.Minute)
+	shortenPipelineLiveTailStatusCheck(t)
 	firstAttempt := startedBuildStep()
 	firstAttempt.ID, firstAttempt.Attempt = "step-1-attempt-1", 1
 	lost := lostAttemptOf(startedBuildStep())
@@ -1158,12 +1258,14 @@ func TestPipelineLogsFollowPicksUpTheRetryThatSupersededTheAttemptItWasTailing(t
 		getResults: []client.PipelineRunDetail{
 			runDetailWithStep("running", firstAttempt),
 			runDetailWithSteps("running", lost, retryPending),
+			runDetailWithSteps("running", lost, retryPending),
 			runDetailWithSteps("running", lost, retryRunning),
 			runDetailWithSteps("running", lost, retryConcluded),
 		},
 		streamEvents: []client.PipelineLogEvent{
 			{Type: "line", Stream: "stdout", Line: "compiling", Seq: 1},
 		},
+		streamNeverEnds: true,
 	}
 	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
 		"--application", testApplicationID, "--step", "build", "--follow")
@@ -1190,10 +1292,16 @@ func TestPipelineLogsResolvesAStepKeyToItsNewestAttempt(t *testing.T) {
 	// A run carries every attempt of a retried step. Naming the key must
 	// reach the row doing the work now, not the lost attempt the listing
 	// happens to return first.
+	shortenPipelineLiveTailStatusCheck(t)
 	lost := lostAttemptOf(startedBuildStep())
 	live := retryOf(startedBuildStep())
-	detail := runDetailWithSteps("running", lost, live)
-	mockClient := &pipelineLaneMock{getResult: &detail}
+	mockClient := &pipelineLaneMock{
+		getResults: []client.PipelineRunDetail{
+			runDetailWithSteps("running", lost, live),
+			runDetailWithSteps(pipelineRunStatusConcluded, lost, retryOf(concludedBuildStep())),
+		},
+		streamNeverEnds: true,
+	}
 	_, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
 		"--application", testApplicationID, "--step", "build")
 	if executeError != nil {
@@ -1280,10 +1388,16 @@ func TestPipelineLogsCountsStepsByKeyNotByAttemptRow(t *testing.T) {
 	// A run with one step that Ankra retried carries two rows. Without
 	// --step that must still resolve to the live attempt rather than refuse
 	// as a run with two steps to choose between.
+	shortenPipelineLiveTailStatusCheck(t)
 	lost := lostAttemptOf(startedBuildStep())
 	live := retryOf(startedBuildStep())
-	detail := runDetailWithSteps("running", lost, live)
-	mockClient := &pipelineLaneMock{getResult: &detail}
+	mockClient := &pipelineLaneMock{
+		getResults: []client.PipelineRunDetail{
+			runDetailWithSteps("running", lost, live),
+			runDetailWithSteps(pipelineRunStatusConcluded, lost, retryOf(concludedBuildStep())),
+		},
+		streamNeverEnds: true,
+	}
 	_, executeError := runPipelineCommand(t, mockClient, "logs", "run-1", "--application", testApplicationID)
 	if executeError != nil {
 		t.Fatalf("logs error = %v, want the retried single-step run resolved", executeError)
@@ -1350,5 +1464,439 @@ func TestPipelineStepStartWaitHandsBackWhatItDidNotSpend(t *testing.T) {
 	if unspent <= 0 || unspent >= budget {
 		t.Errorf("unspent = %v, want the remainder of the %v budget so a later wait cannot restart it",
 			unspent, budget)
+	}
+}
+
+// runPipelineCommandWithin is runPipelineCommand under a deadline, for a test
+// whose regression is a command that never returns: the deadline turns a
+// hang into a failure that names itself, instead of the whole package
+// timing out.
+func runPipelineCommandWithin(t *testing.T, mockClient APIClient, deadline time.Duration,
+	arguments ...string) (string, error) {
+	t.Helper()
+	previousClient := apiClient
+	apiClient = mockClient
+	t.Cleanup(func() { apiClient = previousClient })
+
+	deadlineContext, cancel := context.WithTimeout(context.Background(), deadline)
+	t.Cleanup(cancel)
+	pipelineCommand := newPipelineCommand()
+	var output bytes.Buffer
+	pipelineCommand.SetOut(&output)
+	pipelineCommand.SetErr(&output)
+	pipelineCommand.SetArgs(arguments)
+	executeError := pipelineCommand.ExecuteContext(deadlineContext)
+	return output.String(), executeError
+}
+
+// TestPipelineLogsStreamFaultOnARunningStepExitsNonzero pins the report this
+// was filed for (ankra-7gnhdc): the HTTP/2 stream under a running step's
+// tail was reset, the command printed the fault and "Log stream ended." and
+// exited 0, and the automation reading its exit status stopped collecting
+// the log of a build that went on running. Without --follow there is no
+// reconnect, so the answer is exit 1, saying the output is incomplete and
+// how to reopen it.
+func TestPipelineLogsStreamFaultOnARunningStepExitsNonzero(t *testing.T) {
+	detail := runDetailWithStep("running", runningStepThatStarted())
+	mockClient := &pipelineLaneMock{
+		getResult: &detail,
+		streamEvents: []client.PipelineLogEvent{
+			{Type: "line", Stream: "stdout", Line: "Compiling serde v1.0.210", Seq: 41},
+			{Type: "error", Error: streamFaultFromPeer},
+		},
+	}
+	standardOutput, standardError, executeError := runPipelineCommandSeparately(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if executeError == nil {
+		t.Fatalf("logs error = nil, want the broken stream reported; stderr: %s", standardError)
+	}
+	if exitCode := exitCodeFor(executeError); exitCode != exitError {
+		t.Errorf("exit code = %d, want %d", exitCode, exitError)
+	}
+	for _, want := range []string{
+		streamFaultFromPeer,
+		"the output above is incomplete",
+		"'ankra pipeline get run-1 --application " + testApplicationID + "'",
+		"'ankra pipeline logs run-1 --application " + testApplicationID + " --step checkout --follow --replay'",
+	} {
+		if !strings.Contains(executeError.Error(), want) {
+			t.Errorf("error = %q, want it to say %q", executeError.Error(), want)
+		}
+	}
+	if standardOutput != "[stdout] Compiling serde v1.0.210\n" {
+		t.Errorf("stdout = %q, want the line that did arrive and nothing else", standardOutput)
+	}
+	if strings.Contains(standardError, "Log stream ended") {
+		t.Errorf("stderr = %q, want a broken stream never announced as an ended one", standardError)
+	}
+	if len(mockClient.streamOptions) != 1 {
+		t.Errorf("stream calls = %d, want no reconnect without --follow", len(mockClient.streamOptions))
+	}
+}
+
+// TestPipelineLogsStreamThatClosesUnderARunningStepExitsNonzero is the same
+// break without a fault frame. The relay never ends a running step's
+// connection of its own accord, but it does return without an error frame
+// when its JetStream fetch fails (sserelay's relayOneBatch), which the
+// client reads as a clean end. The output past that point is just as
+// missing, so it exits 1 the same way.
+func TestPipelineLogsStreamThatClosesUnderARunningStepExitsNonzero(t *testing.T) {
+	detail := runDetailWithStep("running", runningStepThatStarted())
+	mockClient := &pipelineLaneMock{
+		getResult: &detail,
+		streamEvents: []client.PipelineLogEvent{
+			{Type: "line", Stream: "stdout", Line: "running 412 tests", Seq: 7},
+		},
+	}
+	_, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if exitCode := exitCodeFor(executeError); exitCode != exitError {
+		t.Fatalf("exit code = %d, want %d (error %v)", exitCode, exitError, executeError)
+	}
+	if !strings.Contains(executeError.Error(), "the connection closed") ||
+		!strings.Contains(executeError.Error(), "incomplete") {
+		t.Errorf("error = %q, want it to say the connection closed and the output is incomplete",
+			executeError.Error())
+	}
+}
+
+// TestPipelineLogsStreamFaultAsTheStepConcludesFinishesFromTheRetainedStream
+// is the other half of the acceptance: a stream that breaks as its step
+// concludes used to print "Log stream ended: the step has concluded." and
+// exit 0 with whatever came after the break missing. Those lines are still
+// on the retained stream, so the command reads them from there, after the
+// last sequence it printed: nothing lost, nothing twice, and exit 0 because
+// the replay finished.
+func TestPipelineLogsStreamFaultAsTheStepConcludesFinishesFromTheRetainedStream(t *testing.T) {
+	mockClient := &pipelineLaneMock{
+		getResults: []client.PipelineRunDetail{
+			runDetailWithStep("running", runningStepThatStarted()),
+			runDetailWithStep(pipelineRunStatusConcluded, concludedStepThatRan()),
+		},
+		streamEventsByCall: [][]client.PipelineLogEvent{
+			{
+				{Type: "line", Stream: "stdout", Line: "exporting layers", Seq: 11},
+				{Type: "line", Stream: "stdout", Line: "exporting manifest", Seq: 12},
+				{Type: "error", Error: streamFaultFromPeer},
+			},
+			{
+				{Type: "line", Stream: "stdout", Line: "writing image cache", Seq: 13},
+			},
+		},
+	}
+	standardOutput, standardError, executeError := runPipelineCommandSeparately(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if executeError != nil {
+		t.Fatalf("logs error = %v, want the remainder read and exit 0; stderr: %s", executeError, standardError)
+	}
+	if standardOutput != "[stdout] exporting layers\n[stdout] exporting manifest\n[stdout] writing image cache\n" {
+		t.Errorf("stdout = %q, want every line once, in order", standardOutput)
+	}
+	if len(mockClient.streamOptions) != 2 {
+		t.Fatalf("stream calls = %d, want the live tail then one retained replay", len(mockClient.streamOptions))
+	}
+	resumed := mockClient.streamOptions[1]
+	if resumed.FromSequence != 12 || resumed.IsFollowing == nil || *resumed.IsFollowing {
+		t.Errorf("replay options = %+v, want follow=false resuming after sequence 12", resumed)
+	}
+	if mockClient.artifactsRunID != "" {
+		t.Errorf("read artifacts of %q, want the archive left alone: it is the whole log, and part of it "+
+			"is already printed", mockClient.artifactsRunID)
+	}
+	for _, want := range []string{streamFaultFromPeer, "Log stream ended: the step has concluded."} {
+		if !strings.Contains(standardError, want) {
+			t.Errorf("stderr = %q, want it to say %q", standardError, want)
+		}
+	}
+}
+
+// TestPipelineLogsRetainedRemainderThatFaultsExitsNonzero: exit 0 after a
+// break depends on the remainder actually arriving. A replay that faults as
+// well leaves the output incomplete, and says so.
+func TestPipelineLogsRetainedRemainderThatFaultsExitsNonzero(t *testing.T) {
+	mockClient := &pipelineLaneMock{
+		getResults: []client.PipelineRunDetail{
+			runDetailWithStep("running", runningStepThatStarted()),
+			runDetailWithStep(pipelineRunStatusConcluded, concludedStepThatRan()),
+		},
+		streamEventsByCall: [][]client.PipelineLogEvent{
+			{
+				{Type: "line", Stream: "stdout", Line: "exporting layers", Seq: 11},
+				{Type: "error", Error: streamFaultFromPeer},
+			},
+			{
+				{Type: "error", Error: "stream closed"},
+			},
+		},
+	}
+	output, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if exitCode := exitCodeFor(executeError); exitCode != exitError {
+		t.Fatalf("exit code = %d, want %d (error %v)", exitCode, exitError, executeError)
+	}
+	if !strings.Contains(executeError.Error(), "retained log stream") ||
+		!strings.Contains(executeError.Error(), "stream closed") {
+		t.Errorf("error = %q, want the retained replay's own fault", executeError.Error())
+	}
+	if strings.Contains(output, "Log stream ended: the step has concluded.") {
+		t.Errorf("output = %q, want no claim that the log ended when its remainder broke off", output)
+	}
+}
+
+// TestPipelineLogsRetainedRemainderThatNeverEndsExitsNonzero: the idle guard
+// stops a replay that never ends, and a whole-log read reports that and exits
+// 0 as it always did. A read resuming after a break cannot do the same: exit 0
+// says the remainder arrived, and a replay that never said it was done cannot
+// show that.
+func TestPipelineLogsRetainedRemainderThatNeverEndsExitsNonzero(t *testing.T) {
+	shortenPipelineLogReplayIdleTimeout(t)
+	mockClient := &pipelineLaneMock{
+		getResults: []client.PipelineRunDetail{
+			runDetailWithStep("running", runningStepThatStarted()),
+			runDetailWithStep(pipelineRunStatusConcluded, concludedStepThatRan()),
+		},
+		streamEventsByCall: [][]client.PipelineLogEvent{
+			{
+				{Type: "line", Stream: "stdout", Line: "exporting layers", Seq: 11},
+				{Type: "error", Error: streamFaultFromPeer},
+			},
+			{},
+		},
+		streamNeverEnds: true,
+	}
+	output, executeError := runPipelineCommandWithin(t, mockClient, 10*time.Second, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if exitCode := exitCodeFor(executeError); exitCode != exitError {
+		t.Fatalf("exit code = %d, want %d (error %v)", exitCode, exitError, executeError)
+	}
+	if !strings.Contains(executeError.Error(), "never ended") ||
+		!strings.Contains(executeError.Error(), "the output above is incomplete") {
+		t.Errorf("error = %q, want it to say the replay never ended and the output is incomplete",
+			executeError.Error())
+	}
+	if strings.Contains(output, "Log stream ended: the step has concluded.") {
+		t.Errorf("output = %q, want no claim that the log ended", output)
+	}
+}
+
+// TestPipelineLogsFollowResumesAfterTheLastLinePrinted pins what --follow
+// does with a break under a running step: reconnect, asking for the output
+// after the last sequence it printed, so the reconnected tail neither
+// repeats nor skips a line.
+func TestPipelineLogsFollowResumesAfterTheLastLinePrinted(t *testing.T) {
+	shortenPipelineLiveTailStatusCheck(t)
+	shortenPipelineLogStreamReconnect(t, 3)
+	mockClient := &pipelineLaneMock{
+		getResults: []client.PipelineRunDetail{
+			runDetailWithStep("running", runningStepThatStarted()),
+			runDetailWithStep("running", runningStepThatStarted()),
+			runDetailWithStep(pipelineRunStatusConcluded, concludedStepThatRan()),
+		},
+		streamEventsByCall: [][]client.PipelineLogEvent{
+			{
+				{Type: "line", Stream: "stdout", Line: "before the break", Seq: 5},
+				{Type: "error", Error: streamFaultFromPeer},
+			},
+			{
+				{Type: "line", Stream: "stdout", Line: "after the reconnect", Seq: 6},
+			},
+		},
+		streamNeverEnds: true,
+	}
+	output, executeError := runPipelineCommandWithin(t, mockClient, 10*time.Second, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout", "--follow")
+	if executeError != nil {
+		t.Fatalf("logs --follow error = %v; output: %s", executeError, output)
+	}
+	if len(mockClient.streamOptions) != 2 {
+		t.Fatalf("stream calls = %d, want the broken connection and one reconnect", len(mockClient.streamOptions))
+	}
+	if mockClient.streamOptions[0].FromSequence != 0 || mockClient.streamOptions[1].FromSequence != 5 {
+		t.Errorf("from_seq = %d then %d, want 0 then 5 (after the last line printed)",
+			mockClient.streamOptions[0].FromSequence, mockClient.streamOptions[1].FromSequence)
+	}
+	for _, want := range []string{
+		"[stdout] before the break", "[stdout] after the reconnect",
+		"Log stream interrupted (" + streamFaultFromPeer + "); reconnecting in",
+		"Log stream ended: the step has concluded.",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output = %q, want it to say %q", output, want)
+		}
+	}
+}
+
+// TestPipelineLogsFollowGivesUpAfterTheReconnectBound pins the bound: a
+// relay that drops every connection at once used to be reconnected to every
+// two seconds for as long as the command was left running. Now the waits
+// grow, and the bound-th failure in a row ends the command with exit 1 and
+// the incomplete-output diagnostic, naming the last failure.
+func TestPipelineLogsFollowGivesUpAfterTheReconnectBound(t *testing.T) {
+	shortenPipelineLogStreamReconnect(t, 3)
+	detail := runDetailWithStep("running", runningStepThatStarted())
+	mockClient := &pipelineLaneMock{
+		getResult:    &detail,
+		streamEvents: []client.PipelineLogEvent{{Type: "error", Error: streamFaultFromPeer}},
+	}
+	output, executeError := runPipelineCommandWithin(t, mockClient, 10*time.Second, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout", "--follow")
+	if executeError == nil {
+		t.Fatalf("logs --follow error = nil, want the bound to end it; output: %s", output)
+	}
+	if exitCode := exitCodeFor(executeError); exitCode != exitError {
+		t.Errorf("exit code = %d, want %d", exitCode, exitError)
+	}
+	for _, want := range []string{
+		"gave up after 3 connections in a row failed", streamFaultFromPeer,
+		"the output above is incomplete", "--step checkout --follow --replay",
+	} {
+		if !strings.Contains(executeError.Error(), want) {
+			t.Errorf("error = %q, want it to say %q", executeError.Error(), want)
+		}
+	}
+	if len(mockClient.streamOptions) != 3 {
+		t.Errorf("stream calls = %d, want exactly the bound's 3", len(mockClient.streamOptions))
+	}
+	if count := strings.Count(output, "reconnecting in"); count != 2 {
+		t.Errorf("reconnect lines = %d, want one per wait between the 3 connections; output: %s", count, output)
+	}
+}
+
+// TestPipelineLogsStatusReadThatFailsAfterAFaultStillSaysIncomplete: the blip
+// that cut the stream often takes the next request with it. Without --follow
+// the answer is still the incomplete-output diagnostic, not a bare 502 that
+// never mentions the log.
+func TestPipelineLogsStatusReadThatFailsAfterAFaultStillSaysIncomplete(t *testing.T) {
+	detail := runDetailWithStep("running", runningStepThatStarted())
+	mockClient := &pipelineLaneMock{
+		getResult:       &detail,
+		getErrorsOnCall: map[int]error{2: errors.New("bad gateway")},
+		streamEvents: []client.PipelineLogEvent{
+			{Type: "line", Stream: "stdout", Line: "linking", Seq: 3},
+			{Type: "error", Error: streamFaultFromPeer},
+		},
+	}
+	_, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if exitCode := exitCodeFor(executeError); exitCode != exitError {
+		t.Fatalf("exit code = %d, want %d (error %v)", exitCode, exitError, executeError)
+	}
+	for _, want := range []string{streamFaultFromPeer, "bad gateway", "the output above is incomplete"} {
+		if !strings.Contains(executeError.Error(), want) {
+			t.Errorf("error = %q, want it to say %q", executeError.Error(), want)
+		}
+	}
+}
+
+// TestPipelineLogsStatusRefusalAfterAFaultKeepsItsExitCode: a read refused
+// outright is an answer rather than a blip, so a script keeps the exit code
+// that says what to do about it.
+func TestPipelineLogsStatusRefusalAfterAFaultKeepsItsExitCode(t *testing.T) {
+	detail := runDetailWithStep("running", runningStepThatStarted())
+	mockClient := &pipelineLaneMock{
+		getResult:       &detail,
+		getErrorsOnCall: map[int]error{2: client.ErrUnauthorized},
+		streamEvents:    []client.PipelineLogEvent{{Type: "error", Error: streamFaultFromPeer}},
+	}
+	_, executeError := runPipelineCommand(t, mockClient, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout")
+	if exitCode := exitCodeFor(executeError); exitCode != exitAuth {
+		t.Errorf("exit code = %d, want %d (error %v)", exitCode, exitAuth, executeError)
+	}
+}
+
+// TestPipelineLogsFollowSurvivesAStatusReadThatFailsAfterAFault: under
+// --follow that failed read is one more reason to reconnect, not the end of
+// the command, and the reconnect still resumes after the last line printed.
+func TestPipelineLogsFollowSurvivesAStatusReadThatFailsAfterAFault(t *testing.T) {
+	shortenPipelineLiveTailStatusCheck(t)
+	shortenPipelineLogStreamReconnect(t, 3)
+	mockClient := &pipelineLaneMock{
+		getResults: []client.PipelineRunDetail{
+			runDetailWithStep("running", runningStepThatStarted()),
+			runDetailWithStep("running", runningStepThatStarted()),
+			runDetailWithStep(pipelineRunStatusConcluded, concludedStepThatRan()),
+		},
+		getErrorsOnCall: map[int]error{2: errors.New("bad gateway")},
+		streamEventsByCall: [][]client.PipelineLogEvent{
+			{
+				{Type: "line", Stream: "stdout", Line: "before the break", Seq: 5},
+				{Type: "error", Error: streamFaultFromPeer},
+			},
+			{
+				{Type: "line", Stream: "stdout", Line: "after the reconnect", Seq: 6},
+			},
+		},
+		streamNeverEnds: true,
+	}
+	output, executeError := runPipelineCommandWithin(t, mockClient, 10*time.Second, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout", "--follow")
+	if executeError != nil {
+		t.Fatalf("logs --follow error = %v; output: %s", executeError, output)
+	}
+	if len(mockClient.streamOptions) != 2 || mockClient.streamOptions[1].FromSequence != 5 {
+		t.Errorf("stream options = %+v, want a reconnect resuming after sequence 5", mockClient.streamOptions)
+	}
+	if !strings.Contains(output, "[stdout] after the reconnect") {
+		t.Errorf("output = %q, want the reconnected connection's line", output)
+	}
+}
+
+// TestPipelineLogsFollowBoundsAnUnavailableRelayToo: the relay's 503 was
+// retried on the same unbounded loop, so it shares the bound.
+func TestPipelineLogsFollowBoundsAnUnavailableRelayToo(t *testing.T) {
+	shortenPipelineLogStreamReconnect(t, 3)
+	detail := runDetailWithStep("running", runningStepThatStarted())
+	mockClient := &pipelineLaneMock{
+		getResult:   &detail,
+		streamError: &client.PipelineLogStreamUnavailableError{Detail: "The log stream is unavailable right now."},
+	}
+	output, executeError := runPipelineCommandWithin(t, mockClient, 10*time.Second, "logs", "run-1",
+		"--application", testApplicationID, "--step", "checkout", "--follow")
+	if exitCode := exitCodeFor(executeError); exitCode != exitError {
+		t.Fatalf("exit code = %d, want %d (error %v)", exitCode, exitError, executeError)
+	}
+	if !strings.Contains(executeError.Error(), "gave up after 3 connections in a row failed") ||
+		!strings.Contains(executeError.Error(), "The log stream is unavailable right now.") {
+		t.Errorf("error = %q, want the bound and the relay's own reason", executeError.Error())
+	}
+	if len(mockClient.streamOptions) != 3 {
+		t.Errorf("stream calls = %d, want exactly the bound's 3", len(mockClient.streamOptions))
+	}
+	if count := strings.Count(output, "Log stream unavailable"); count != 2 {
+		t.Errorf("retry lines = %d, want one per wait; output: %s", count, output)
+	}
+}
+
+// TestPipelineLogStreamBackoffDoublesToItsCapAndStops pins the pacing on
+// its own: each failure in a row doubles the wait up to the cap, the
+// bound-th answers false, and progress starts the count again.
+func TestPipelineLogStreamBackoffDoublesToItsCapAndStops(t *testing.T) {
+	previousDelay, previousMaxDelay, previousBound := pipelineLogStreamReconnectDelay,
+		pipelineLogStreamReconnectMaxDelay, pipelineLogStreamReconnectBound
+	pipelineLogStreamReconnectDelay = 2 * time.Second
+	pipelineLogStreamReconnectMaxDelay = 30 * time.Second
+	pipelineLogStreamReconnectBound = 10
+	t.Cleanup(func() {
+		pipelineLogStreamReconnectDelay = previousDelay
+		pipelineLogStreamReconnectMaxDelay = previousMaxDelay
+		pipelineLogStreamReconnectBound = previousBound
+	})
+
+	backoff := pipelineLogStreamBackoff{}
+	want := []time.Duration{2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second,
+		30 * time.Second, 30 * time.Second, 30 * time.Second, 30 * time.Second, 30 * time.Second}
+	for index, wantDelay := range want {
+		delay, canRetry := backoff.fail()
+		if !canRetry || delay != wantDelay {
+			t.Fatalf("failure %d: delay = %v, retry = %v; want %v, true", index+1, delay, canRetry, wantDelay)
+		}
+	}
+	if _, canRetry := backoff.fail(); canRetry {
+		t.Fatal("failure 10: retry = true, want the bound to stop it")
+	}
+	backoff.reset()
+	if delay, canRetry := backoff.fail(); !canRetry || delay != 2*time.Second {
+		t.Errorf("after progress: delay = %v, retry = %v; want the first wait again", delay, canRetry)
 	}
 }

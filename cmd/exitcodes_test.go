@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"testing"
 
 	"ankra/internal/client"
@@ -24,7 +25,9 @@ func TestExitCodeForClassification(t *testing.T) {
 		{"cancelled sentinel", errCancelled, exitCancelled},
 		{"cancelled wrapped", fmt.Errorf("delete: %w", errCancelled), exitCancelled},
 		{"unauthorized response", &client.UnexpectedResponseError{StatusCode: 401}, exitAuth},
-		{"forbidden response", &client.UnexpectedResponseError{StatusCode: 403}, exitAuth},
+		{"unauthorized response with a detail", fmt.Errorf("reading: %w", &client.UnexpectedResponseError{StatusCode: 401, Detail: "Not authenticated"}), exitAuth},
+		{"forbidden response", &client.UnexpectedResponseError{StatusCode: 403}, exitForbidden},
+		{"bare-detail 403 refusal", fmt.Errorf("updating cost settings: %w", &client.UnexpectedResponseError{StatusCode: 403, Detail: "Only organisation admins can change cost settings"}), exitForbidden},
 		{"RBAC permission denied", &client.PermissionDeniedError{Permission: "clusters.write"}, exitForbidden},
 		{"RBAC permission denied wrapped", fmt.Errorf("applying cluster: %w", &client.PermissionDeniedError{}), exitForbidden},
 		{"not-found response", &client.UnexpectedResponseError{StatusCode: 404}, exitNotFound},
@@ -34,6 +37,10 @@ func TestExitCodeForClassification(t *testing.T) {
 		{"unknown command", errors.New(`unknown command "clusterz" for "ankra"`), exitUsage},
 		{"required flag", errors.New(`required flag(s) "file" not set`), exitUsage},
 		{"flag group violation", errors.New(`if any flags in the group [file cluster] are set none of the others can be; [cluster file] were all set`), exitUsage},
+		{"unsafe request path refused before sending", fmt.Errorf("deleting node group: request failed: %w",
+			&url.Error{Op: "Delete", URL: "https://platform.ankra.app/x/..", Err: &client.UnsafeRequestPathError{Method: "DELETE", Path: "/x/..", Segment: ".."}}), exitUsage},
+		{"unsafe request path under an explicit code", withExitCode(exitNotFound, fmt.Errorf("lookup: %w",
+			&client.UnsafeRequestPathError{Method: "GET", Path: "/x/", Trailing: true})), exitUsage},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

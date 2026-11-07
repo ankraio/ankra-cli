@@ -152,9 +152,12 @@ func (c *Client) OpenPodTerminal(ctx context.Context, clusterID string, request 
 	if c.orgOverride != "" {
 		headers.Set(orgOverrideHeader, c.orgOverride)
 	}
+	if c.projectOverride != "" {
+		headers.Set(projectOverrideHeader, c.projectOverride)
+	}
 	connection, response, dialError := websocket.Dial(ctx, endpoint.String(), &websocket.DialOptions{
 		HTTPHeader: headers,
-		HTTPClient: &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment}},
+		HTTPClient: &http.Client{Transport: guardedDefaultTransport()},
 	})
 	if dialError != nil {
 		if response != nil {

@@ -94,6 +94,15 @@ ankra cluster manifests upgrade <name>
 cluster these CLI changes are committed back to the repository; prefer editing the file in a pull
 request so the change is reviewed.
 
+## Re-running a stack
+
+`ankra cluster stacks redeploy <stack>` re-runs the deployment jobs of the members a redeploy
+picks, and lists what it started and what it skipped. `--force` is only for a manifest whose
+apply failed with `conflict with "<manager>"`: it overwrites those fields on the live objects for
+that one redeploy, cannot be undone, asks for confirmation (`--yes` without a terminal), and
+needs `clusters.write` on top of `stacks.deploy`. See
+`ankra-troubleshooting` before reaching for it.
+
 ## One stack, many clusters
 
 The moment a stack would be copy-pasted to a second cluster and edited, stop and capture it as a

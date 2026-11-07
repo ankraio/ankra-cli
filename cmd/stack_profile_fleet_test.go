@@ -39,6 +39,56 @@ type rolloutMock struct {
 	legacyServer    bool
 	legacyDeployed  bool
 	deletedStacks   []string
+	// the removal plan's reads: members the live stacks carry beyond the
+	// version's (by cluster id), a cluster whose stacks cannot be listed, and
+	// a cluster whose upgrade the platform refuses for unconfirmed removals.
+	extraLiveMembers      map[string][]string
+	unlistableCluster     string
+	removalRefusedCluster string
+}
+
+// rolloutVersionPayload is the version detail the plan reads: the same one
+// manifest rolloutExportDocument carries.
+const rolloutVersionPayload = `{"version": 2, "spec": {"stacks": [{"name": "hello-fleet",
+  "manifests": [{"name": "hello-namespace"}], "addons": [], "applications": []}]}}`
+
+func (mock *rolloutMock) GetStackProfileVersion(requestContext context.Context, profileID string, version int) (json.RawMessage, error) {
+	return json.RawMessage(rolloutVersionPayload), nil
+}
+
+// ListClusterStackDocuments serves every stack the deployments name on the
+// cluster, carrying the version's manifest plus any extra live members.
+func (mock *rolloutMock) ListClusterStackDocuments(clusterID string) ([]client.ClusterStackDocument, error) {
+	if clusterID == mock.unlistableCluster {
+		return nil, errors.New("cluster api unavailable")
+	}
+	var deployments stackProfileDeployments
+	if unmarshalError := json.Unmarshal([]byte(mock.deployments), &deployments); unmarshalError != nil {
+		return nil, unmarshalError
+	}
+	documents := []client.ClusterStackDocument{}
+	for _, deployment := range deployments.Result {
+		if deployment.TargetClusterID != clusterID {
+			continue
+		}
+		manifests := []map[string]string{{"name": "hello-namespace"}}
+		addons := []map[string]string{}
+		for _, member := range mock.extraLiveMembers[clusterID] {
+			kind, name, _ := strings.Cut(member, "/")
+			if kind == "addon" {
+				addons = append(addons, map[string]string{"name": name})
+			} else {
+				manifests = append(manifests, map[string]string{"name": name})
+			}
+		}
+		encodedManifests, _ := json.Marshal(manifests)
+		encodedAddons, _ := json.Marshal(addons)
+		encodedName, _ := json.Marshal(deployment.StackName)
+		documents = append(documents, client.ClusterStackDocument{
+			"name": encodedName, "manifests": encodedManifests, "addons": encodedAddons,
+		})
+	}
+	return documents, nil
 }
 
 func (mock *rolloutMock) DeleteStack(ctx context.Context, clusterID string, stackName string) (*client.DeleteStackResult, error) {
@@ -57,6 +107,11 @@ func (mock *rolloutMock) InstantiateStackProfile(ctx context.Context, clusterID 
 	}
 	if name == mock.failCluster {
 		return nil, errors.New("cluster is offline")
+	}
+	if name == mock.removalRefusedCluster && len(request.ConfirmedMemberRemovals) == 0 {
+		return nil, &client.MemberRemovalUnconfirmedError{StatusCode: 422,
+			Message: "This change was not deployed: it would remove 1 member of stack 'hello-fleet' (addon/team-exporter). Nothing was changed.",
+			Members: []string{"addon/team-exporter"}}
 	}
 	if mock.legacyServer {
 		return &client.InstantiateStackProfileResult{DraftID: "draft-9", StackName: request.NewStackName + "-copy", ProfileVersion: 2, Deployed: mock.legacyDeployed}, nil
@@ -151,7 +206,7 @@ func TestStackProfilesRolloutViaApplyByClusterRollsEveryVersion(t *testing.T) {
 	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
 	mock := newRolloutMock()
 	output, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet",
-		"--cluster", "prod-eu", "--cluster", "22222222-2222-2222-2222-222222222222", "--version", "v2", "--via-apply")
+		"--cluster", "prod-eu", "--cluster", "22222222-2222-2222-2222-222222222222", "--version", "v2", "--via-apply", "--yes")
 	if executeError != nil {
 		t.Fatalf("rollout failed: %v\n%s", executeError, output)
 	}
@@ -182,18 +237,36 @@ func TestStackProfilesRolloutDryRunWritesNothing(t *testing.T) {
 	if len(mock.applied) != 0 || mock.exportVersion != 0 {
 		t.Errorf("dry run must not export or apply: applied=%d export=%d", len(mock.applied), mock.exportVersion)
 	}
-	for _, want := range []string{"Dry run", "prod-eu", "prod-us", "planned"} {
+	for _, want := range []string{"Dry run", "prod-eu", "prod-us", "WOULD REMOVE", "nothing"} {
 		if !strings.Contains(output, want) {
 			t.Errorf("output lacks %q:\n%s", want, output)
 		}
 	}
 }
 
-func TestStackProfilesRolloutViaApplyKeepsGoingPastAFailure(t *testing.T) {
+// A broken version must not keep rolling across the fleet: the loop stops at
+// the first failure and names what it did not attempt (ankra-sgqurr).
+func TestStackProfilesRolloutViaApplyStopsAtTheFirstFailure(t *testing.T) {
 	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
 	mock := newRolloutMock()
 	mock.failCluster = "prod-eu"
-	output, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all", "--via-apply")
+	output, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all", "--via-apply", "--yes")
+	if executeError == nil || !strings.Contains(executeError.Error(), "1 not attempted") {
+		t.Fatalf("expected the failure and the skipped target to be reported, got %v", executeError)
+	}
+	if len(mock.applied) != 1 {
+		t.Fatalf("nothing should be applied after the first failure: %+v", mock.applied)
+	}
+	if !strings.Contains(output, "failed (cluster is offline)") || !strings.Contains(output, "skipped") {
+		t.Errorf("output = %s", output)
+	}
+}
+
+func TestStackProfilesRolloutViaApplyContinueOnErrorKeepsGoing(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
+	mock := newRolloutMock()
+	mock.failCluster = "prod-eu"
+	output, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all", "--via-apply", "--yes", "--continue-on-error")
 	if executeError == nil {
 		t.Fatal("expected the failed cluster to be reported")
 	}
@@ -236,7 +309,7 @@ func TestStackProfilesRolloutViaApplyStructuredOutputStillFailsOnPartialFailure(
 	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
 	mock := newRolloutMock()
 	mock.failCluster = "prod-eu"
-	output, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all", "--via-apply", "-o", "json")
+	output, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all", "--via-apply", "-o", "json", "--yes", "--continue-on-error")
 	if executeError == nil {
 		t.Fatal("-o json must still exit non-zero when a target failed")
 	}
@@ -387,7 +460,7 @@ func TestStackProfilesRolloutInPlaceDetectsALegacyPlatform(t *testing.T) {
 	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
 	mock := newRolloutMock()
 	mock.legacyServer = true
-	output, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all")
+	output, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all", "--yes")
 	if executeError == nil {
 		t.Fatal("a platform that answers with a renamed draft must be reported as a failure")
 	}
@@ -437,7 +510,7 @@ func TestStackProfilesRolloutInPlaceNeverDeletesADeployedRename(t *testing.T) {
 	mock := newRolloutMock()
 	mock.legacyServer = true
 	mock.legacyDeployed = true
-	output, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all")
+	output, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all", "--yes")
 	if executeError == nil {
 		t.Fatal("a renamed answer must be reported as a failure")
 	}
@@ -449,11 +522,27 @@ func TestStackProfilesRolloutInPlaceNeverDeletesADeployedRename(t *testing.T) {
 	}
 }
 
-func TestStackProfilesRolloutInPlaceKeepsGoingPastAFailure(t *testing.T) {
+func TestStackProfilesRolloutInPlaceStopsAtTheFirstFailure(t *testing.T) {
 	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
 	mock := newRolloutMock()
 	mock.failCluster = "prod-eu"
-	output, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all", "-o", "json")
+	output, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all", "-o", "json", "--yes")
+	if executeError == nil || !strings.Contains(executeError.Error(), "1 not attempted") {
+		t.Fatalf("expected the failure and the skipped target to be reported, got %v", executeError)
+	}
+	if len(mock.upgraded) != 1 {
+		t.Fatalf("nothing should be sent after the first failure: %+v", mock.upgraded)
+	}
+	if !strings.Contains(output, `"status": "failed"`) || !strings.Contains(output, `"status": "skipped"`) {
+		t.Errorf("output = %s", output)
+	}
+}
+
+func TestStackProfilesRolloutInPlaceContinueOnErrorKeepsGoing(t *testing.T) {
+	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
+	mock := newRolloutMock()
+	mock.failCluster = "prod-eu"
+	output, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all", "-o", "json", "--yes", "--continue-on-error")
 	if executeError == nil {
 		t.Fatal("expected the failed cluster to be reported")
 	}

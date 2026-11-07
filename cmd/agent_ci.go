@@ -107,7 +107,16 @@ The image pre-pull decides whether the agent keeps the images the platform's
 own steps run in - the checkout's git client, the scanners, the rootless
 builder - pulled on every node pipeline steps can land on, so a node that
 just joined pulls them as it joins rather than while a step waits: off (the
-default) or on.`,
+default) or on.
+
+The step workspaces setting decides whether a pipeline that declares
+workspace.mode: per_step gets a workspace for each step, so its steps can run
+on different nodes, rather than one volume that keeps the whole run on one
+node: off (the default), shadow (recorded, nothing changes) or on.
+
+The Ankra Workspace class is the storage class the cluster's Ankra Workspaces
+cut their volume from, when they cannot share the one pipeline steps use. Left
+empty, they inherit it.`,
 	}
 	ciCommand.AddCommand(newClusterAgentCIGetCommand(), newClusterAgentCISetCommand())
 	return ciCommand
@@ -121,9 +130,11 @@ func newClusterAgentCIGetCommand() *cobra.Command {
 that has to honour them, whether that agent currently advertises it can run
 pipeline steps, and how the last write was applied. The placement block names
 the node group, node selector, tolerations and mode, and how many Ready nodes
-it admits right now. The run reservation and image pre-pull modes are shown
-with whether the agent advertises each; a platform that predates a setting
-shows neither of its lines.
+it admits right now. The run reservation, image pre-pull and step workspaces
+modes are shown with whether the agent advertises each; a platform that
+predates a setting shows neither of its lines. The Ankra Workspace class is
+the storage class the cluster's Ankra Workspaces use, and says when they
+inherit it; a platform that predates it shows no such line.
 
 An agent that has not yet re-rendered its release reports pipeline steps as
 not advertised even with a non-zero worker count stored: the capability is
@@ -165,7 +176,7 @@ func runClusterAgentCIGet(command *cobra.Command) error {
 	}
 	out := command.OutOrStdout()
 	_, _ = fmt.Fprintf(out, "Agent CI settings for cluster '%s':\n\n", cluster.Name)
-	printAgentCISettings(out, settings, false)
+	printAgentCISettings(out, settings, agentCIApplyStateSentence(settings))
 	return nil
 }
 
@@ -180,6 +191,21 @@ class its step workspaces are carved from, and where its pipeline pods run.
 its agent and everything else it does. --storage-class is only sent when you
 pass it, so setting the worker count alone keeps the storage class already
 stored; pass an empty value to fall back to the cluster's default class.
+
+--storage-class reaches two things at different times. Pipeline steps take it
+at the agent's next re-render. Ankra Workspaces on the cluster that have no
+workspace class of their own read it at their next use, so changing it replaces
+each of them then, and whatever runs in one stops. An Ankra Workspace stays off
+the nodes pipeline steps run on, so a class only those nodes can use would leave
+it Pending for good.
+
+--ankra-workspace-storage-class gives the cluster's Ankra Workspaces a class of
+their own, so that cannot happen. To move pipeline steps to such a class with
+no workspace replaced, first pass the class the workspaces use now, which
+changes nothing for them, and then change --storage-class. Naming a different
+class replaces each workspace at its next use. It reaches no pipeline step and
+restarts no agent. Pass an empty value to inherit --storage-class again; a
+workspace is replaced then if that is a different class.
 
 --workers is the agent's CI slots: how many pipeline steps it watches at
 once. A slot is not a node; the nodes steps run on come from the cluster's
@@ -232,6 +258,19 @@ next step dispatched. Each node keeps about 0.9 GB of images it would
 otherwise pull on demand. It needs an agent that advertises image pre-pull;
 off (the default) removes it with the next step dispatched.
 
+--step-workspaces off|shadow|on decides whether a pipeline that declares
+workspace.mode: per_step gets a workspace for each step, so its steps can run
+on different nodes, rather than one volume that keeps the whole run on one
+node. off (every cluster's default) runs every pipeline on the shared volume,
+whatever it declares. shadow still does, and records the mode each per_step
+run would have taken under on: use it to check a cluster first. on gives each
+step its own workspace; it needs an agent that advertises step workspaces and
+a ready backup vault to hand files between steps through, and a run without
+either stays on the shared volume. A pipeline that does not declare per_step
+never changes. A run takes its mode at its first step, with no agent restart,
+and keeps it, so off is the way back for new runs and a run already started
+finishes in the mode it has.
+
 --build-apparmor-profile <name> runs the rootless image builder under a
 Localhost AppArmor profile installed on the cluster's nodes under that name.
 On nodes whose container runtime confines the builder with its default
@@ -247,11 +286,13 @@ probed in-cluster again even if the cluster was known to confine the builder.`,
 		Example: `  ankra cluster agent ci set
   ankra cluster agent ci set --workers 50 --storage-class proxmox-csi
   ankra cluster agent ci set --workers 0 --cluster edge-01
+  ankra cluster agent ci set --ankra-workspace-storage-class ankra-ci-disposable --cluster ci-01
   ankra cluster agent ci set --node-group pipelines
   ankra cluster agent ci set --node-selector pool=ci --toleration dedicated=ci:NoSchedule --placement preferred
   ankra cluster agent ci set --clear-placement
   ankra cluster agent ci set --run-reservation shadow --cluster ci-01
   ankra cluster agent ci set --image-prepull on --cluster ci-01
+  ankra cluster agent ci set --step-workspaces shadow --cluster ci-01
   ankra cluster agent ci set --build-apparmor-profile ankra-rootless-buildkit --cluster ci-01`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
@@ -263,7 +304,12 @@ probed in-cluster again even if the cluster was known to confine the builder.`,
 			"autoscaler); up to 128 on agents that support live resize, 32 otherwise; 0 disables the scheduler; "+
 			"omitted with no other flag on a cluster with pipeline steps off, 50")
 	setCommand.Flags().String("storage-class", "",
-		"Storage class for pipeline step workspaces; pass empty to use the cluster default (omit the flag to keep the stored value)")
+		"Storage class for pipeline step workspaces: pipeline steps take it at the next agent re-render, and "+
+			"Ankra Workspaces on the cluster that have no workspace class of their own are replaced on next use; "+
+			"pass empty to use the cluster default (omit the flag to keep the stored value)")
+	setCommand.Flags().String("ankra-workspace-storage-class", "",
+		"Storage class for the cluster's Ankra Workspaces, apart from pipeline steps; a different class replaces "+
+			"each workspace on next use; pass empty to inherit --storage-class (omit the flag to keep the stored value)")
 	setCommand.Flags().String("node-group", "",
 		"Run every pipeline pod on this Ankra node group: selects its nodes and tolerates its taints")
 	setCommand.Flags().StringArray("node-selector", nil,
@@ -280,6 +326,9 @@ probed in-cluster again even if the cluster was known to confine the builder.`,
 	setCommand.Flags().String("image-prepull", "",
 		"Image pre-pull: off (default) pulls the platform's step images on demand, on keeps them pulled on "+
 			"every node pipeline steps can land on")
+	setCommand.Flags().String("step-workspaces", "",
+		"Step workspaces: off (default) runs every pipeline on one shared volume, shadow records the mode each "+
+			"per_step run would take without changing it, on gives each step of a per_step pipeline its own workspace")
 	setCommand.Flags().String("build-apparmor-profile", "",
 		"Node-installed AppArmor profile the rootless image builder runs under (Localhost); pass empty to "+
 			"use the runtime's default (omit the flag to keep the stored value)")
@@ -410,6 +459,23 @@ func agentCIImagePrepullFromFlag(command *cobra.Command) (*string, error) {
 		strings.Join(client.AgentCIImagePrepullModes, ", "), mustFlagString(command, "image-prepull")))
 }
 
+// agentCIStepWorkspacesFromFlag reads --step-workspaces, nil when it is not
+// named. The vocabulary is closed, so a misspelling is refused here before
+// anything is sent; the platform validates it again.
+func agentCIStepWorkspacesFromFlag(command *cobra.Command) (*string, error) {
+	if !command.Flags().Changed("step-workspaces") {
+		return nil, nil
+	}
+	mode := strings.ToLower(strings.TrimSpace(mustFlagString(command, "step-workspaces")))
+	for _, known := range client.AgentCIStepWorkspacesModes {
+		if mode == known {
+			return &mode, nil
+		}
+	}
+	return nil, withExitCode(exitUsage, fmt.Errorf("--step-workspaces must be %s, got %q",
+		strings.Join(client.AgentCIStepWorkspacesModes, ", "), mustFlagString(command, "step-workspaces")))
+}
+
 // agentCIBuildAppArmorProfilePattern is the DNS-1123 subdomain grammar, label
 // by label, that the platform and the agent hold the profile name to.
 var agentCIBuildAppArmorProfilePattern = regexp.MustCompile(
@@ -460,6 +526,10 @@ func runClusterAgentCISet(command *cobra.Command) error {
 	if imagePrepullError != nil {
 		return imagePrepullError
 	}
+	stepWorkspaces, stepWorkspacesError := agentCIStepWorkspacesFromFlag(command)
+	if stepWorkspacesError != nil {
+		return stepWorkspacesError
+	}
 	buildAppArmorProfile, buildAppArmorProfileError := agentCIBuildAppArmorProfileFromFlag(command)
 	if buildAppArmorProfileError != nil {
 		return buildAppArmorProfileError
@@ -472,9 +542,12 @@ func runClusterAgentCISet(command *cobra.Command) error {
 		CIRunReservation:       runReservation,
 		CIImagePrepull:         imagePrepull,
 		CIBuildAppArmorProfile: buildAppArmorProfile,
+		CIStepWorkspaces:       stepWorkspaces,
+
+		AnkraWorkspaceStorageClass: changedStringFlag(command, "ankra-workspace-storage-class"),
 	}
-	isNamingNothing := !update.NamesChartSetting() && placement == nil && !isClearingPlacement && runReservation == nil &&
-		imagePrepull == nil && buildAppArmorProfile == nil
+	isNamingNothing := !update.NamesChartSetting() && !update.NamesStepPayloadSetting() &&
+		update.AnkraWorkspaceStorageClass == nil
 	if isNamingNothing {
 		current, getError := apiClient.GetAgentCISettings(command.Context(), cluster.ID)
 		if getError != nil {
@@ -488,7 +561,7 @@ func runClusterAgentCISet(command *cobra.Command) error {
 	}
 	if isNamingNothing {
 		return withExitCode(exitUsage, fmt.Errorf(`required flag(s) "workers" not set: pass --workers, `+
-			`--storage-class, --run-reservation, --image-prepull, --build-apparmor-profile, or a placement flag (--node-group, `+
+			`--storage-class, --ankra-workspace-storage-class, --run-reservation, --image-prepull, --step-workspaces, --build-apparmor-profile, or a placement flag (--node-group, `+
 			`--node-selector, --toleration, --placement, --clear-placement)`))
 	}
 
@@ -504,7 +577,8 @@ func runClusterAgentCISet(command *cobra.Command) error {
 	// without ci_run_reservation. Saying "updated" and exiting 0 would tell
 	// the caller a mode is in force that the platform never stored.
 	unstoredError := errors.Join(agentCIRunReservationNotStored(update, settings),
-		agentCIImagePrepullNotStored(update, settings), agentCIBuildAppArmorProfileNotStored(update, settings))
+		agentCIImagePrepullNotStored(update, settings), agentCIStepWorkspacesNotStored(update, settings),
+		agentCIBuildAppArmorProfileNotStored(update, settings), agentCIAnkraWorkspaceStorageClassNotStored(update, settings))
 	if format != outputDefault {
 		if encodeError := encodeStructured(command.OutOrStdout(), format, settings); encodeError != nil {
 			return encodeError
@@ -513,7 +587,13 @@ func runClusterAgentCISet(command *cobra.Command) error {
 	}
 	out := command.OutOrStdout()
 	_, _ = fmt.Fprintf(out, "Agent CI settings updated for cluster '%s'.\n\n", cluster.Name)
-	printAgentCISettings(out, settings, !update.NamesChartSetting())
+	printAgentCISettings(out, settings, agentCIWriteOutcomeSentence(update, settings))
+	if update.CIStepWorkspaces != nil && settings.CIStepWorkspaces != nil {
+		_, _ = fmt.Fprintf(out, "\n%s\n", agentCIStepWorkspacesFirstStepSentence)
+	}
+	if update.AnkraWorkspaceStorageClass != nil && settings.AnkraWorkspaceStorageClass != nil {
+		_, _ = fmt.Fprintf(out, "\n%s\n", agentCIAnkraWorkspaceStorageClassSentence)
+	}
 	return unstoredError
 }
 
@@ -539,6 +619,17 @@ func agentCIImagePrepullNotStored(update client.AgentCISettingsUpdate, settings 
 		"setting; the other settings shown were stored", *update.CIImagePrepull)
 }
 
+// agentCIStepWorkspacesNotStored is the error for a write that named a step
+// workspaces mode the platform's answer does not carry: the platform predates
+// the setting, so whatever else the write named is stored and the mode is not.
+func agentCIStepWorkspacesNotStored(update client.AgentCISettingsUpdate, settings *client.AgentCISettings) error {
+	if update.CIStepWorkspaces == nil || settings.CIStepWorkspaces != nil {
+		return nil
+	}
+	return fmt.Errorf("the platform did not store --step-workspaces %s: it predates the step workspaces "+
+		"setting; the other settings shown were stored", *update.CIStepWorkspaces)
+}
+
 // agentCIBuildAppArmorProfileNotStored is the error for a write that named a
 // build AppArmor profile the platform's answer does not carry: the platform
 // predates the setting, so whatever else the write named is stored and the
@@ -552,6 +643,35 @@ func agentCIBuildAppArmorProfileNotStored(update client.AgentCISettingsUpdate,
 		"profile setting; the other settings shown were stored", *update.CIBuildAppArmorProfile)
 }
 
+// agentCIAnkraWorkspaceStorageClassNotStored is the error for a write that named
+// an Ankra Workspace class the platform's answer does not carry: the platform
+// predates the setting, so whatever else the write named is stored and the class
+// is not, and its Ankra Workspaces still read the storage class.
+func agentCIAnkraWorkspaceStorageClassNotStored(update client.AgentCISettingsUpdate,
+	settings *client.AgentCISettings) error {
+	if update.AnkraWorkspaceStorageClass == nil || settings.AnkraWorkspaceStorageClass != nil {
+		return nil
+	}
+	return fmt.Errorf("the platform did not store --ankra-workspace-storage-class %q: it predates the Ankra "+
+		"Workspace class setting; the other settings shown were stored", *update.AnkraWorkspaceStorageClass)
+}
+
+// agentCIWriteOutcomeSentence is what a set says about how its write landed. A
+// write naming a chart setting has the apply state, a write naming only settings
+// a step carries has agentCIPayloadOnlySentence, and a write naming only the
+// Ankra Workspace class reached neither the agent nor a step, so it has neither:
+// agentCIAnkraWorkspaceStorageClassSentence says when it applies.
+func agentCIWriteOutcomeSentence(update client.AgentCISettingsUpdate, settings *client.AgentCISettings) string {
+	switch {
+	case update.NamesChartSetting():
+		return agentCIApplyStateSentence(settings)
+	case update.NamesStepPayloadSetting():
+		return agentCIPayloadOnlySentence
+	default:
+		return ""
+	}
+}
+
 // agentCIPayloadOnlySentence reports a write that named only settings the
 // platform carries on each step's payload (the placement, the run
 // reservation, the image pre-pull, the build AppArmor profile). Nothing was published to the agent, so the apply state, which
@@ -560,12 +680,26 @@ func agentCIBuildAppArmorProfileNotStored(update client.AgentCISettingsUpdate,
 const agentCIPayloadOnlySentence = "Stored; it applies to the next pipeline step dispatched, " +
 	"with no agent restart."
 
-// printAgentCISettings renders the settings block. isPayloadOnlyWrite is a
-// set that named neither the worker count nor the storage class, whose
-// outcome is agentCIPayloadOnlySentence rather than the apply state.
-func printAgentCISettings(out io.Writer, settings *client.AgentCISettings, isPayloadOnlyWrite bool) {
+// agentCIStepWorkspacesFirstStepSentence qualifies a write that named the step
+// workspaces mode: the dispatcher decides a run's mode once, at its first step,
+// so "the next pipeline step dispatched" alone would promise a change to a run
+// already under way.
+const agentCIStepWorkspacesFirstStepSentence = "A run takes its workspace mode at its first step, " +
+	"so a run already started keeps the one it has."
+
+// agentCIAnkraWorkspaceStorageClassSentence qualifies a write that named the
+// Ankra Workspace class: nothing happens to a workspace until its next use, and
+// then it may be replaced, which an operator has to hear before a run dies.
+const agentCIAnkraWorkspaceStorageClassSentence = "An Ankra Workspace reads this class at its next use, with no " +
+	"agent restart. One already on a different class is replaced then, and whatever runs in it stops."
+
+// printAgentCISettings renders the settings block. outcomeSentence says how the
+// values landed: the apply state on a read (agentCIApplyStateSentence), and on a
+// write what agentCIWriteOutcomeSentence answers. Empty prints none.
+func printAgentCISettings(out io.Writer, settings *client.AgentCISettings, outcomeSentence string) {
 	_, _ = fmt.Fprintf(out, "  Pipeline-step workers: %d\n", settings.CIWorkerCount)
 	_, _ = fmt.Fprintf(out, "  Storage class:         %s\n", agentCIStorageClassLabel(settings.CIStorageClass))
+	printAgentCIAnkraWorkspaceStorageClass(out, settings)
 	_, _ = fmt.Fprintf(out, "  Agent version:         %s\n", agentCIVersionLabel(settings.AgentVersion))
 	_, _ = fmt.Fprintf(out, "  Pipeline steps:        %s\n", agentCICapabilityLabel(settings.SupportsPipelineSteps))
 	if settings.UpdatedAt != nil && *settings.UpdatedAt != "" {
@@ -575,12 +709,11 @@ func printAgentCISettings(out io.Writer, settings *client.AgentCISettings, isPay
 	}
 	printAgentCIRunReservation(out, settings)
 	printAgentCIImagePrepull(out, settings)
+	printAgentCIStepWorkspaces(out, settings)
 	printAgentCIBuildAppArmorProfile(out, settings)
 	printAgentCIPlacement(out, settings)
-	if isPayloadOnlyWrite {
-		_, _ = fmt.Fprintf(out, "\n%s\n", agentCIPayloadOnlySentence)
-	} else if sentence := agentCIApplyStateSentence(settings); sentence != "" {
-		_, _ = fmt.Fprintf(out, "\n%s\n", sentence)
+	if outcomeSentence != "" {
+		_, _ = fmt.Fprintf(out, "\n%s\n", outcomeSentence)
 	}
 	if note := agentCIRunReservationNote(settings); note != "" {
 		_, _ = fmt.Fprintf(out, "\n%s\n", note)
@@ -588,9 +721,29 @@ func printAgentCISettings(out io.Writer, settings *client.AgentCISettings, isPay
 	if note := agentCIImagePrepullNote(settings); note != "" {
 		_, _ = fmt.Fprintf(out, "\n%s\n", note)
 	}
+	if note := agentCIStepWorkspacesNote(settings); note != "" {
+		_, _ = fmt.Fprintf(out, "\n%s\n", note)
+	}
 	if note := agentCIBuildAppArmorProfileNote(settings); note != "" {
 		_, _ = fmt.Fprintf(out, "\n%s\n", note)
 	}
+}
+
+// printAgentCIAnkraWorkspaceStorageClass renders the class the cluster's Ankra
+// Workspaces use. A platform that predates the setting sends nothing, and the
+// line is left out rather than printed as inherited: nobody chose that there.
+// An empty stored value inherits the storage class, and the line names what that
+// resolves to, since that is what an operator moving the storage class has to
+// pin first.
+func printAgentCIAnkraWorkspaceStorageClass(out io.Writer, settings *client.AgentCISettings) {
+	if settings.AnkraWorkspaceStorageClass == nil {
+		return
+	}
+	storageClass := *settings.AnkraWorkspaceStorageClass
+	if storageClass == "" {
+		storageClass = agentCIStorageClassLabel(settings.CIStorageClass) + " (inherited from the storage class)"
+	}
+	_, _ = fmt.Fprintf(out, "  Ankra Workspace class: %s\n", storageClass)
 }
 
 // printAgentCIBuildAppArmorProfile renders the profile and whether the agent
@@ -658,6 +811,35 @@ func agentCIImagePrepullNote(settings *client.AgentCISettings) string {
 	}
 	return "Image pre-pull is on, but this cluster's agent does not advertise it: steps pull the " +
 		"platform's images on demand, as under off, until the agent is upgraded."
+}
+
+// printAgentCIStepWorkspaces renders the mode and whether the agent can honour
+// it. A platform that predates the setting sends neither, and the lines are
+// left out rather than printed as "off": nobody chose off there.
+func printAgentCIStepWorkspaces(out io.Writer, settings *client.AgentCISettings) {
+	if settings.CIStepWorkspaces == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "  Step workspaces:       %s\n", *settings.CIStepWorkspaces)
+	if settings.SupportsStepWorkspaces != nil {
+		_, _ = fmt.Fprintf(out, "  Workspaces support:    %s\n",
+			agentCICapabilityLabel(*settings.SupportsStepWorkspaces))
+	}
+}
+
+// agentCIStepWorkspacesNote says what "on" means when the agent cannot do it:
+// with an agent that does not advertise step workspaces a per_step run stays
+// on the shared volume, and an operator reading "on" would otherwise believe
+// its steps can spread over the cluster.
+func agentCIStepWorkspacesNote(settings *client.AgentCISettings) string {
+	if settings.CIStepWorkspaces == nil || *settings.CIStepWorkspaces != client.AgentCIStepWorkspacesOn {
+		return ""
+	}
+	if settings.SupportsStepWorkspaces == nil || *settings.SupportsStepWorkspaces {
+		return ""
+	}
+	return "Step workspaces are on, but this cluster's agent does not advertise them: per_step runs stay " +
+		"on the shared volume, as under off, until the agent is upgraded."
 }
 
 // printAgentCIRunReservation renders the mode and whether the agent can honour

@@ -160,6 +160,18 @@ func TestClusterBackupsStatusExplainsAnInstallingDataPlane(t *testing.T) {
 	}
 }
 
+func TestClusterBackupsStatusSaysWhyTheDataPlaneIsNotRunning(t *testing.T) {
+	mock := newClusterBackupsMock()
+	mock.page = sampleClusterBackupsPage()
+	mock.page.BackupStackState = client.ClusterBackupStackAbsent
+	mock.page.BackupStackIssue = "the cluster already uses a resource name the backup stack needs"
+
+	output, _ := runClusterBackups(t, mock, "cluster", "backups", "status", "--cluster", "demo")
+	if !strings.Contains(stripANSICodes(output), "Why: "+mock.page.BackupStackIssue) {
+		t.Errorf("the platform's reason must be shown, got:\n%s", output)
+	}
+}
+
 func TestClusterBackupsStatusNudgesAnOrganisationWithNoReadyVault(t *testing.T) {
 	mock := newClusterBackupsMock()
 	mock.page = sampleClusterBackupsPage()

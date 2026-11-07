@@ -373,7 +373,7 @@ func requiredClusterIDFromFlags(cmd *cobra.Command) (string, error) {
 	if strings.TrimSpace(clusterFlag) == "" {
 		return "", withExitCode(exitUsage, errors.New("--cluster is required"))
 	}
-	return resolveClusterID(clusterFlag)
+	return resolveSecurityClusterID(cmd, clusterFlag)
 }
 
 // clusterReadError turns the agent's 503 envelope into one line the reader
@@ -850,6 +850,7 @@ func init() {
 	securityComplianceCmd.AddCommand(securityComplianceFrameworksCmd, securityComplianceExportCmd)
 	securityComplianceFrameworksCmd.AddCommand(securityComplianceFrameworksEnableCmd, securityComplianceFrameworksDisableCmd, securityComplianceFrameworkReportCmd)
 	securityBenchmarksCmd.AddCommand(securityBenchmarksResourcesCmd)
+	registerSecurityProjectScopeFlag(securityBenchmarksCmd, securityBenchmarksResourcesCmd, securityViolationsCmd, securityNetworkExposureCmd, securityAddonCmd)
 
 	securityComplianceFrameworkReportCmd.Flags().String("month", "", "Recorded month to read (YYYY-MM); the default is the live evaluation")
 

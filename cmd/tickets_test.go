@@ -18,14 +18,144 @@ type ticketsMock struct {
 	transitions   []string
 	decisions     []client.TicketDecision
 	decisionError error
+
+	// receipts are listed only when the filter asks for them, as the board
+	// leaves chat-fix receipts out by default.
+	receipts []client.Ticket
+	// textSearchOnly is a platform that reads search as text and finds no
+	// ticket by its number.
+	textSearchOnly bool
+	childrenError  error
+
+	links      map[string]*client.TicketLinkList
+	linksError error
+	writeError error
+	// closeLinksKeeper is the link a duplicate close writes; nil writes none.
+	closeLinksKeeper *client.TicketLink
+	nestResult       *client.Ticket
+	detachResult     *client.Ticket
+
+	addedLinks       []client.TicketLinkRequest
+	removedLinks     []string
+	nestRequests     []client.TicketNestRequest
+	detachReasons    []string
+	closeRequests    []client.TicketCloseRequest
+	createRequests   []client.TicketCreateRequest
+	subTicketParents []string
 }
 
 func (m *ticketsMock) ListTickets(filter client.TicketListFilter) (*client.TicketListResponse, error) {
 	m.listFilters = append(m.listFilters, filter)
-	if filter.Offset >= len(m.tickets) {
-		return &client.TicketListResponse{Tickets: []client.Ticket{}, TotalCount: len(m.tickets)}, nil
+	pool := m.tickets
+	if filter.IncludeReceipts {
+		pool = append(append([]client.Ticket{}, m.tickets...), m.receipts...)
 	}
-	return &client.TicketListResponse{Tickets: m.tickets[filter.Offset:], TotalCount: len(m.tickets)}, nil
+	if filter.ParentTicketID != "" {
+		if m.childrenError != nil {
+			return nil, m.childrenError
+		}
+		children := []client.Ticket{}
+		for _, ticket := range pool {
+			if ticket.ParentTicketID != nil && *ticket.ParentTicketID == filter.ParentTicketID {
+				children = append(children, ticket)
+			}
+		}
+		return &client.TicketListResponse{Tickets: children, TotalCount: len(children)}, nil
+	}
+	if filter.Search != "" {
+		matches := []client.Ticket{}
+		if number, isNumber := parseTicketNumber(filter.Search); isNumber && !m.textSearchOnly {
+			for _, ticket := range pool {
+				if ticket.TicketNumber == number {
+					matches = append(matches, ticket)
+				}
+			}
+		}
+		return &client.TicketListResponse{Tickets: matches, TotalCount: len(matches)}, nil
+	}
+	if filter.Offset >= len(pool) {
+		return &client.TicketListResponse{Tickets: []client.Ticket{}, TotalCount: len(pool)}, nil
+	}
+	return &client.TicketListResponse{Tickets: pool[filter.Offset:], TotalCount: len(pool)}, nil
+}
+
+func (m *ticketsMock) ListTicketLinks(ticketID string) (*client.TicketLinkList, error) {
+	if m.linksError != nil {
+		return nil, m.linksError
+	}
+	if list, found := m.links[ticketID]; found {
+		return list, nil
+	}
+	return &client.TicketLinkList{Links: []client.TicketLink{}, IncomingLinks: []client.TicketLink{}}, nil
+}
+
+func (m *ticketsMock) AddTicketLink(ticketID string, link client.TicketLinkRequest) (*client.TicketLink, error) {
+	m.addedLinks = append(m.addedLinks, link)
+	if m.writeError != nil {
+		return nil, m.writeError
+	}
+	relation := link.Relation
+	if relation == "" {
+		relation = "relates_to"
+	}
+	return &client.TicketLink{ID: "8d0c6f1e-0000-4000-8000-000000000001", TicketID: ticketID,
+		TargetKind: link.TargetKind, TargetID: rootTicketID, Relation: relation, Direction: "outgoing",
+		LinkedTicket: &client.TicketLinkedTicket{ID: rootTicketID, TicketNumber: 42,
+			Title: "Ingress certificate expired", Status: "investigating"}}, nil
+}
+
+func (m *ticketsMock) RemoveTicketLink(holderTicketID string, linkID string) error {
+	m.removedLinks = append(m.removedLinks, holderTicketID+"/"+linkID)
+	return m.writeError
+}
+
+func (m *ticketsMock) NestTicket(ticketID string, request client.TicketNestRequest) (*client.Ticket, error) {
+	m.nestRequests = append(m.nestRequests, request)
+	if m.writeError != nil {
+		return nil, m.writeError
+	}
+	return m.nestResult, nil
+}
+
+func (m *ticketsMock) DetachTicket(ticketID string, reason string) (*client.Ticket, error) {
+	m.detachReasons = append(m.detachReasons, reason)
+	if m.writeError != nil {
+		return nil, m.writeError
+	}
+	return m.detachResult, nil
+}
+
+func (m *ticketsMock) CloseTicket(ticketID string, request client.TicketCloseRequest) (*client.Ticket, error) {
+	m.closeRequests = append(m.closeRequests, request)
+	if m.writeError != nil {
+		return nil, m.writeError
+	}
+	closed := m.tickets[0]
+	closed.Status = "done"
+	resolution := request.Resolution
+	closed.Resolution = &resolution
+	if request.DuplicateOf != nil && m.closeLinksKeeper != nil {
+		if m.links == nil {
+			m.links = map[string]*client.TicketLinkList{}
+		}
+		m.links[ticketID] = &client.TicketLinkList{
+			Links: []client.TicketLink{*m.closeLinksKeeper}, IncomingLinks: []client.TicketLink{}}
+	}
+	return &closed, nil
+}
+
+func (m *ticketsMock) CreateTicket(request client.TicketCreateRequest) (*client.Ticket, error) {
+	m.createRequests = append(m.createRequests, request)
+	if m.writeError != nil {
+		return nil, m.writeError
+	}
+	return &client.Ticket{ID: "0f1e2d3c-0000-4000-8000-000000000060", TicketNumber: 60, Title: request.Title,
+		Kind: "request", Priority: "medium", Status: "triage"}, nil
+}
+
+func (m *ticketsMock) CreateSubTicket(parentTicketID string, request client.TicketCreateRequest) (*client.Ticket, error) {
+	m.subTicketParents = append(m.subTicketParents, parentTicketID)
+	return m.CreateTicket(request)
 }
 
 func (m *ticketsMock) GetTicket(ticketID string) (*client.Ticket, error) {
@@ -140,8 +270,14 @@ func TestTicketsGetByUUIDDoesNotWalkTheListing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tickets get failed: %v", err)
 	}
-	if !strings.Contains(out, "T-8") || len(mock.listFilters) != 0 {
-		t.Fatalf("a UUID must be fetched directly: listFilters=%+v out=%s", mock.listFilters, out)
+	// The only listing a UUID leads to is the one for the tickets under it.
+	for _, filter := range mock.listFilters {
+		if filter.ParentTicketID != ticketsTestID {
+			t.Fatalf("a UUID must be fetched directly: listFilters=%+v out=%s", mock.listFilters, out)
+		}
+	}
+	if !strings.Contains(out, "T-8") {
+		t.Fatalf("tickets get by UUID lacks the ticket: %s", out)
 	}
 }
 

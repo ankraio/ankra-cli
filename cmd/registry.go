@@ -58,12 +58,16 @@ func newRegistryProjectsCommand() *cobra.Command {
 		Short:   "Create, list and delete the organisation's registry projects",
 		Long: `Create, list and delete the organisation's registry projects.
 
+These are projects of the organisation's container registry (a Harbor
+concept), not the Ankra projects that scope clusters and applications - those
+are 'ankra project'.
+
 Every organisation has one project on the Ankra registry, named default here,
 and everything it publishes lands there. A robot account is bound to one
 project, so a robot on the default project reaches all of it. An extra project
 is how you give a login less: push what should be kept apart into the extra
 project and bind a robot to it with 'ankra registry robots create <name>
---project <project>'.
+--registry-project <project>'.
 
 An extra project is private and has the same scan policy, retention policy and
 storage quota as the default one. Deleting one never deletes anything else on
@@ -88,7 +92,7 @@ it holds and how many of your robot accounts are bound to it.
 With --registry and --admin-credential it lists the projects of a Harbor your
 organisation runs itself instead, as that credential sees them - the names to
 bind a robot to with 'ankra registry robots create <name> --registry ...
---project <project>'. That listing acts as the admin credential, so it needs
+--registry-project <project>'. That listing acts as the admin credential, so it needs
 credentials.reveal.`,
 		Example: "  ankra registry projects list\n  ankra registry projects list -o json\n" +
 			"  ankra registry projects list --registry smartoptics-harbor --admin-credential smartoptics-harbor-robot-admin",
@@ -195,9 +199,9 @@ func newRegistryProjectsCreateCommand() *cobra.Command {
 The name is 2 to 30 lower-case letters, digits and single hyphens; 'default' is the
 organisation's own project and is reserved. The project is private and has the
 same scan policy, retention policy and storage quota as the default one. Bind
-a robot account to it with 'ankra registry robots create <name> --project
+a robot account to it with 'ankra registry robots create <name> --registry-project
 <project>'.`,
-		Example: "  ankra registry projects create staging\n  ankra registry robots create staging-ci --project staging",
+		Example: "  ankra registry projects create staging\n  ankra registry robots create staging-ci --registry-project staging",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -213,7 +217,7 @@ a robot account to it with 'ankra registry robots create <name> --project
 			out := command.OutOrStdout()
 			_, _ = fmt.Fprintf(out, "Registry project %q created.\n", created.Name)
 			_, _ = fmt.Fprintf(out, "  Push to: %s/%s\n", created.Host, created.Project)
-			_, _ = fmt.Fprintf(out, "Bind a robot account to it with 'ankra registry robots create <name> --project %s'.\n", created.Name)
+			_, _ = fmt.Fprintf(out, "Bind a robot account to it with 'ankra registry robots create <name> --registry-project %s'.\n", created.Name)
 			return nil
 		},
 	}
@@ -285,6 +289,7 @@ the builds and clusters that use it, so 'rotate' and 'delete' refuse them.`,
 	robotsCommand.AddCommand(newRegistryRobotsPermissionsCommand())
 	robotsCommand.AddCommand(newRegistryRobotsGetCommand())
 	robotsCommand.AddCommand(newRegistryRobotsRotateCommand())
+	robotsCommand.AddCommand(newRegistryRobotsUpdateCommand())
 	robotsCommand.AddCommand(newRegistryRobotsDeleteCommand())
 	return robotsCommand
 }
@@ -304,7 +309,7 @@ what it needs with --permission, repeated or comma-separated, instead of a
 scope; 'ankra registry robots permissions' lists what can be granted. Whatever
 it holds, the robot reaches the organisation's project and no other.
 --expires-in-days makes the registry stop honouring the robot after that many
-days; without it the robot never expires. --project binds the robot to one of
+days; without it the robot never expires. --registry-project binds the robot to one of
 the organisation's extra registry projects instead of its own ('ankra registry
 projects list' shows them); it then reaches that project and nothing else.
 
@@ -313,11 +318,17 @@ name the OCI registry entry it is integrated as ('ankra helm registries list'
 shows them) and, with --admin-credential, a registry credential of the organisation
 that may manage robot accounts there (project administrator on the project).
 Ankra acts on that registry only with that credential, never its own; a robot
-login Ankra manages cannot be used. --project is required there: the one
+login Ankra manages cannot be used. --registry-project is required there: the
 project of that registry the robot is bound to, such as collectorcharts, and
 the only one it reaches ('ankra registry projects list --registry ...
 --admin-credential ...' shows them). Rotate, delete, get and list work the
 same afterwards.
+
+Repeat --registry-project or separate with commas to make one robot that reaches
+up to 20 projects, each with the same scope or permissions. On a Harbor your
+organisation runs that is a system-level robot, so the admin credential must be
+a Harbor system administrator, or a system-level robot with robot create, read,
+list and delete at system level that itself holds that access on every project.
 
 The secret is printed exactly once, with
 a docker login command that reads it from stdin - copy it now, it is not stored
@@ -331,7 +342,7 @@ moving tags, and the like) also needs credentials.reveal, and so does a robot on
 an integrated registry (--registry), which is minted by acting as the admin
 credential. With --permission or
 --expires-in-days the CLI first checks that the platform offers them by
-reading the robot listing, and with --project that the organisation has the
+reading the robot listing, and with --registry-project that the organisation has the
 project; a token without credentials.read skips those checks, and if the
 robot then comes back broader, longer-lived or on another project than asked
 it is deleted again before its secret is shown.`,
@@ -339,9 +350,11 @@ it is deleted again before its secret is shown.`,
   ankra registry robots create edge-cluster --scope pull
   ankra registry robots create contractor --scope pull --expires-in-days 30
   ankra registry robots create cleanup --permission repository:pull,artifact:list,artifact:delete
-  ankra registry robots create staging-ci --project staging
+  ankra registry robots create staging-ci --registry-project staging
   ankra registry robots create jenkins --registry smartoptics-harbor \
-    --admin-credential smartoptics-harbor-robot-admin --project smart-hub-images
+    --admin-credential smartoptics-harbor-robot-admin --registry-project smart-hub-images
+  ankra registry robots create consumer --scope pull --registry smartoptics-harbor \
+    --admin-credential smartoptics-harbor-robot-admin --registry-project commerce-charts,commerce-images
   ankra registry robots create jenkins -o json | jq -r .secret`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
@@ -394,42 +407,64 @@ it is deleted again before its secret is shown.`,
 			if flagError != nil {
 				return flagError
 			}
-			projectName, _ := command.Flags().GetString("project")
-			projectName = strings.ToLower(strings.TrimSpace(projectName))
-			if registryName != "" && projectName == "" {
-				return withExitCode(exitUsage, fmt.Errorf("--registry needs --project: the one project of that registry "+
+			projectNames := registryProjectFlagValues(command)
+			if registryName != "" && len(projectNames) == 0 {
+				return withExitCode(exitUsage, fmt.Errorf("--registry needs --registry-project: the project of that registry "+
 					"the robot is bound to ('ankra registry projects list --registry %s --admin-credential %s' shows them)",
 					registryName, adminCredentialName))
+			}
+			if len(projectNames) > registryRobotMaximumProjects {
+				return withExitCode(exitUsage, fmt.Errorf("--registry-project names %d projects; one robot reaches at most %d",
+					len(projectNames), registryRobotMaximumProjects))
+			}
+			isSeveralProjects := len(projectNames) > 1
+			projectName := ""
+			if len(projectNames) == 1 {
+				projectName = projectNames[0]
 			}
 			if projectName == client.RegistryDefaultProjectName && registryName == "" {
 				projectName = ""
 			}
 			projectChecked := true
-			if projectName != "" && registryName == "" {
-				projectError := requireRegistryProject(command, projectName)
-				switch {
-				case projectError == nil:
-				case exitCodeFor(projectError) == exitForbidden:
-					// The project check reads the project listing, which
-					// needs credentials.read, like the support check above:
-					// a create-only token goes ahead and the answer is
-					// checked below instead.
-					projectChecked = false
-				default:
-					return projectError
+			if registryName == "" {
+				for _, candidateName := range projectNames {
+					if candidateName == client.RegistryDefaultProjectName {
+						continue
+					}
+					projectError := requireRegistryProject(command, candidateName)
+					switch {
+					case projectError == nil:
+					case exitCodeFor(projectError) == exitForbidden:
+						// The project check reads the project listing, which
+						// needs credentials.read, like the support check above:
+						// a create-only token goes ahead and the answer is
+						// checked below instead.
+						projectChecked = false
+					default:
+						return projectError
+					}
 				}
 			}
 			description, _ := command.Flags().GetString("description")
-			created, createError := apiClient.CreateRegistryRobot(command.Context(), client.CreateRegistryRobotRequest{
+			createRequest := client.CreateRegistryRobotRequest{
 				Name:                strings.TrimSpace(arguments[0]),
-				Scope:               scope,
-				Permissions:         permissions,
 				Description:         description,
 				ExpiresInDays:       expiresInDays,
-				Project:             projectName,
 				Registry:            registryName,
 				AdminCredentialName: adminCredentialName,
-			})
+			}
+			if isSeveralProjects {
+				for _, candidateName := range projectNames {
+					createRequest.Projects = append(createRequest.Projects, client.RegistryRobotProjectGrant{
+						Project: candidateName, Scope: scope, Permissions: permissions,
+					})
+				}
+			} else {
+				createRequest.Scope = scope
+				createRequest.Permissions = permissions
+				createRequest.Project = projectName
+			}
+			created, createError := apiClient.CreateRegistryRobot(command.Context(), createRequest)
 			if createError != nil {
 				return createError
 			}
@@ -439,11 +474,17 @@ it is deleted again before its secret is shown.`,
 					ignored = append(ignored, ignoredFlags)
 				}
 			}
-			if !projectChecked && created.ProjectName != projectName {
-				// A platform without registry projects ignores --project and
+			if isSeveralProjects && !registryRobotReachesExactly(created.ProjectAccess, projectNames, registryName != "") {
+				// A platform without robots of several projects ignores the
+				// list and binds the robot to one project: a login that cannot
+				// reach what was asked for.
+				ignored = append(ignored, "--registry-project")
+			}
+			if !isSeveralProjects && !projectChecked && created.ProjectName != projectName {
+				// A platform without registry projects ignores --registry-project and
 				// binds the robot to the organisation's own project, which
 				// reaches more than was asked for.
-				ignored = append(ignored, "--project")
+				ignored = append(ignored, "--registry-project")
 			}
 			if registryName != "" && created.Registry != registryName {
 				// A platform without integrated-registry robots ignores
@@ -461,12 +502,63 @@ it is deleted again before its secret is shown.`,
 	createCommand.Flags().StringSlice("permission", nil, "A permission to grant instead of a preset scope, written resource:action; "+
 		"repeat the flag or separate with commas ('ankra registry robots permissions' lists them)")
 	createCommand.Flags().Int("expires-in-days", 0, "Days until the registry stops honouring the robot (default: it never expires)")
-	createCommand.Flags().String("project", "", "The registry project to bind the robot to (default: the organisation's own; "+
-		"'ankra registry projects list' shows the others)")
+	createCommand.Flags().StringSlice(registryProjectFlag, nil, "The registry project to bind the robot to (default: the organisation's own; "+
+		"'ankra registry projects list' shows the others); repeat the flag or separate with commas for a robot that reaches several")
+	createCommand.Flags().String("project", "", "Deprecated spelling of --"+registryProjectFlag)
+	_ = createCommand.Flags().MarkDeprecated("project", "use --"+registryProjectFlag+" for the registry project; "+
+		"the global --project now selects the Ankra project (see 'ankra project')")
 	registerIntegratedRegistryFlags(createCommand)
 	createCommand.Flags().String("description", "", "What this robot is for (shown in the listing)")
 	registerStructuredOutputFlags(createCommand)
 	return createCommand
+}
+
+// registryProjectFlag names the registry project a robot is bound to. It
+// used to be --project, which now is the global Ankra project flag (ADR
+// 0022); the old spelling is kept for one minor as a deprecated local flag
+// that shadows the global one on this command.
+const registryProjectFlag = "registry-project"
+
+// registryRobotMaximumProjects is the platform's ceiling on the projects one
+// robot reaches.
+const registryRobotMaximumProjects = 20
+
+// registryRobotReachesExactly reports whether a robot's answered access is the
+// projects asked for and no others, one grant to one project. A member asks by
+// the name the lane addresses a project by: the registry's own on an integrated
+// registry, and the member-facing one on the Ankra registry, whose Project is
+// the organisation-prefixed name on Harbor.
+func registryRobotReachesExactly(access []client.RegistryRobotProjectAccess, projectNames []string, isIntegrated bool) bool {
+	answeredNames := make([]string, 0, len(access))
+	for _, grant := range access {
+		answeredName := grant.ProjectName
+		if isIntegrated {
+			answeredName = grant.Project
+		}
+		answeredNames = append(answeredNames, strings.ToLower(answeredName))
+	}
+	slices.Sort(answeredNames)
+	return slices.Equal(answeredNames, slices.Sorted(slices.Values(projectNames)))
+}
+
+// registryProjectFlagValues reads --registry-project, or the deprecated
+// --project when only that was passed, lower-cased, without blanks or repeats.
+func registryProjectFlagValues(command *cobra.Command) []string {
+	var rawNames []string
+	if command.Flags().Changed(registryProjectFlag) {
+		rawNames, _ = command.Flags().GetStringSlice(registryProjectFlag)
+	} else {
+		deprecatedName, _ := command.Flags().GetString("project")
+		rawNames = []string{deprecatedName}
+	}
+	var projectNames []string
+	for _, rawName := range rawNames {
+		projectName := strings.ToLower(strings.TrimSpace(rawName))
+		if projectName != "" && !slices.Contains(projectNames, projectName) {
+			projectNames = append(projectNames, projectName)
+		}
+	}
+	return projectNames
 }
 
 // registryProjectsRouteError turns the answer of a platform that does not
@@ -500,7 +592,7 @@ func requireRegistryProject(command *cobra.Command, projectName string) error {
 		}
 		projectNames = append(projectNames, project.Name)
 	}
-	return withExitCode(exitUsage, fmt.Errorf("--project %q is not one of this organisation's registry projects (%s); "+
+	return withExitCode(exitUsage, fmt.Errorf("--registry-project %q is not one of this organisation's registry projects (%s); "+
 		"create it with 'ankra registry projects create %s'", projectName, strings.Join(projectNames, ", "), projectName))
 }
 
@@ -678,7 +770,7 @@ func registryRobotAccessSummary(robot client.RegistryRobot) string {
 // registryRobotProjectsSummary names the projects a robot reaches, falling
 // back to the single project a platform that predates the list states. An
 // extra project is named the way a member addresses it, since that is what
-// --project and 'registry projects' take.
+// --registry-project and 'registry projects' take.
 func registryRobotProjectsSummary(robot client.RegistryRobot) string {
 	if robot.ProjectName != "" && robot.ProjectName != client.RegistryDefaultProjectName && robot.Project != "" {
 		return robot.ProjectName + " (" + robot.Project + ")"
@@ -865,6 +957,140 @@ The secret is never shown here; rotate the robot to get a new one.`,
 	}
 	registerStructuredOutputFlags(getCommand)
 	return getCommand
+}
+
+func newRegistryRobotsUpdateCommand() *cobra.Command {
+	updateCommand := &cobra.Command{
+		Use:   "update <name>",
+		Short: "Change which projects a robot account reaches",
+		Long: `Change which projects a robot account reaches.
+
+--registry-project lists every project the robot should reach from now on,
+repeated or comma-separated, up to 20. Projects it keeps keep the access they
+have; projects it gains get --scope, pull unless you say push.
+
+Where the registry can change the robot in place, its login and secret keep
+working. On Harbor that takes a robot reaching several projects, and a user as
+the admin credential, because Harbor never lets a robot change a robot.
+
+Anything else has to replace the robot, so it fails unless you pass --new-secret.
+The robot then gets a new secret, shown once, and its login changes when it moves
+between one project and several. Whatever logs in with the current secret stops
+working. Asks first; --yes skips the prompt for scripts.
+
+A Google Artifact Registry robot cannot be changed this way yet.`,
+		Example: "  ankra registry robots update consumer --registry-project commerce-charts,commerce-images\n" +
+			"  ankra registry robots update consumer --registry-project commerce-charts,commerce-images --new-secret\n" +
+			"  ankra registry robots update release --registry-project staging,production --scope push --new-secret --yes -o json",
+		Args: cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
+				return formatError
+			}
+			robotName := strings.TrimSpace(arguments[0])
+			projectNames := registryProjectFlagValues(command)
+			if len(projectNames) == 0 {
+				return withExitCode(exitUsage, errors.New("--registry-project names no project: list every project the robot should reach"))
+			}
+			if len(projectNames) > registryRobotMaximumProjects {
+				return withExitCode(exitUsage, fmt.Errorf("--registry-project names %d projects; one robot reaches at most %d",
+					len(projectNames), registryRobotMaximumProjects))
+			}
+			scope, _ := command.Flags().GetString("scope")
+			scope = strings.ToLower(strings.TrimSpace(scope))
+			if scope != client.RegistryRobotScopePush && scope != client.RegistryRobotScopePull {
+				return withExitCode(exitUsage, fmt.Errorf("--scope must be %q (push and pull) or %q, got %q",
+					client.RegistryRobotScopePush, client.RegistryRobotScopePull, scope))
+			}
+			current, currentError := apiClient.GetRegistryRobot(command.Context(), robotName)
+			if currentError != nil {
+				return currentError
+			}
+			if len(current.ProjectAccess) == 0 {
+				// Empty means unknown, not nothing: going ahead would read every project as
+				// new and quietly reset what the robot holds to --scope.
+				return fmt.Errorf("the platform did not say what robot %q holds on each project, so its access cannot be kept; "+
+					"upgrade the platform, or make a new robot", robotName)
+			}
+			grants, grantsError := registryRobotUpdatedGrants(current, projectNames, scope)
+			if grantsError != nil {
+				return grantsError
+			}
+			allowNewSecret, _ := command.Flags().GetBool("new-secret")
+			if allowNewSecret {
+				yes, _ := command.Flags().GetBool("yes")
+				if confirmError := confirmPrompt(command.InOrStdin(), command.ErrOrStderr(),
+					fmt.Sprintf("Change the projects of robot account %q, replacing it if the registry has to? Everything logging in with the current secret then stops working.", robotName),
+					yes); confirmError != nil {
+					return confirmError
+				}
+			}
+			updated, updateError := apiClient.UpdateRegistryRobotProjects(command.Context(), robotName, client.UpdateRegistryRobotProjectsRequest{
+				Projects:       grants,
+				AllowNewSecret: allowNewSecret,
+			})
+			if updateError != nil {
+				if !allowNewSecret && strings.Contains(updateError.Error(), "needs a new secret") {
+					return fmt.Errorf("%w (run it again with --new-secret to replace the robot)", updateError)
+				}
+				return updateError
+			}
+			if updated.SecretChanged {
+				if rendered, renderError := renderStructured(command, updated); rendered || renderError != nil {
+					return renderError
+				}
+				return renderRegistryRobotSecret(command, &updated.RegistryRobotWithSecret,
+					"Robot replaced with the new projects. The previous secret no longer works.")
+			}
+			if rendered, renderError := renderStructured(command, updated); rendered || renderError != nil {
+				return renderError
+			}
+			_, _ = fmt.Fprintln(command.OutOrStdout(), "Robot's projects changed. Its login and secret keep working.")
+			_, _ = fmt.Fprintln(command.OutOrStdout())
+			printRegistryRobot(command, nil, &updated.RegistryRobot)
+			if updated.Warning != "" {
+				_, _ = fmt.Fprintf(command.ErrOrStderr(), "Warning: %s\n", updated.Warning)
+			}
+			return nil
+		},
+	}
+	updateCommand.Flags().StringSlice(registryProjectFlag, nil, "Every project the robot should reach from now on; repeat the flag or separate with commas")
+	updateCommand.Flags().String("scope", client.RegistryRobotScopePull, "Rights on projects the robot gains: pull or push (push and pull)")
+	updateCommand.Flags().Bool("new-secret", false, "Replace the robot if the registry cannot change it in place: its current secret stops working")
+	updateCommand.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
+	registerStructuredOutputFlags(updateCommand)
+	return updateCommand
+}
+
+// registryRobotUpdatedGrants states every project asked for: one the robot
+// already reaches keeps what it holds there, and any other gets scope. A kept
+// project the platform states neither a preset nor permissions for is refused:
+// the platform reads a project with neither as push, which would widen it.
+func registryRobotUpdatedGrants(current *client.RegistryRobot, projectNames []string, scope string) ([]client.RegistryRobotProjectGrant, error) {
+	grants := make([]client.RegistryRobotProjectGrant, 0, len(projectNames))
+	for _, projectName := range projectNames {
+		grant := client.RegistryRobotProjectGrant{Project: projectName, Scope: scope}
+		for _, held := range current.ProjectAccess {
+			name := held.ProjectName
+			if current.Registry != "" {
+				name = held.Project
+			}
+			if strings.ToLower(name) != projectName {
+				continue
+			}
+			grant.Scope = held.Scope
+			if held.Scope != client.RegistryRobotScopePush && held.Scope != client.RegistryRobotScopePull {
+				if len(held.Permissions) == 0 {
+					return nil, fmt.Errorf("the platform did not say what robot %q holds on project %q, so its access cannot be kept",
+						current.Name, projectName)
+				}
+				grant.Scope = ""
+				grant.Permissions = held.Permissions
+			}
+		}
+		grants = append(grants, grant)
+	}
+	return grants, nil
 }
 
 func newRegistryRobotsRotateCommand() *cobra.Command {

@@ -86,6 +86,55 @@ func TestMigrateModulesInstallFromAURL(t *testing.T) {
 	}
 }
 
+func TestMigrateModulesStageBesideDestinationAndPreserveInstalledOnRefusal(t *testing.T) {
+	home := moduleInstallEnvironment(t)
+	source := filepath.Join(t.TempDir(), "download")
+	directory := filepath.Dir(installedModulePath(home))
+	t.Setenv("ANKRA_TEST_MODULE_DIRECTORY", directory)
+	// The executable verifies where describe runs; this catches cross-filesystem
+	// staging without requiring the test host to provide a second mounted volume.
+	content := strings.Replace(installableModule, "#!/bin/sh\n",
+		"#!/bin/sh\n[ \"${0%/*}\" = \"$ANKRA_TEST_MODULE_DIRECTORY\" ] || exit 7\n", 1)
+	if writeError := os.WriteFile(source, []byte(content), 0o644); writeError != nil {
+		t.Fatal(writeError)
+	}
+	if _, _, installError := runMigrate(t, "modules", "install", source, "--yes"); installError != nil {
+		t.Fatal(installError)
+	}
+	if writeError := os.WriteFile(source, []byte("#!/bin/sh\nexit 2\n"), 0o644); writeError != nil {
+		t.Fatal(writeError)
+	}
+	if _, _, installError := runMigrate(t, "modules", "install", source, "--yes", "--force"); installError == nil {
+		t.Fatal("a failed describe must refuse replacement")
+	}
+	installed, readError := os.ReadFile(installedModulePath(home))
+	if readError != nil || string(installed) != content {
+		t.Fatalf("refusal must preserve installed bytes: %v", readError)
+	}
+	entries, readError := os.ReadDir(directory)
+	if readError != nil || len(entries) != 1 || entries[0].Name() != "ankra-module-procz" {
+		t.Fatalf("installation and refusal must leave no staging files: %v, %v", entries, readError)
+	}
+}
+
+func TestMigrateModuleStagingIsPrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file permissions")
+	}
+	directory := t.TempDir()
+	staging, stagingError := writeModuleStaging(directory, []byte(installableModule))
+	if stagingError != nil {
+		t.Fatal(stagingError)
+	}
+	info, statError := os.Stat(staging)
+	if statError != nil {
+		t.Fatal(statError)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Fatalf("unverified executable mode = %o, want 700", info.Mode().Perm())
+	}
+}
+
 func TestMigrateModulesInstallRefusals(t *testing.T) {
 	home := moduleInstallEnvironment(t)
 	source := filepath.Join(t.TempDir(), "some-download")

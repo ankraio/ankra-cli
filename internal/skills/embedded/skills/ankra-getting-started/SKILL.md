@@ -61,9 +61,17 @@ ankra skills install --with-hooks   # also ask before an assistant runs a cluste
 ankra skills clients
 ```
 
-## 2. Credentials
+## 2. Payment method and credentials
 
-Store these before creating anything; several later steps take credential **IDs**.
+**Building a cluster on Hetzner (or any self-managed provider) needs a payment method on the
+organisation.** Without one the create is refused with "The cluster was not created ... Add a
+payment method"; that is intentional. Have the user save a card under **Billing** first. The
+playground (below) is the only cluster that works without one.
+
+Store these before creating anything; several later steps take credential **IDs**. A Hetzner
+cluster needs a Hetzner credential (a **Read & Write** project token; the CLI prompts for it) and
+at least one SSH key credential. In the new portal (`/next`) both are added at **Integrations &
+alerts → Credentials → Add credential**.
 
 ```bash
 ankra credentials list
@@ -139,11 +147,19 @@ ankra cluster hetzner locations --credential-id <id>
 ankra cluster hetzner server-types --credential-id <id> --location nbg1 --available-only
 ankra cluster kubeadm-versions
 
+# server types from the AVAILABLE=yes rows; the cx line is often unavailable
 ankra cluster hetzner create --name prod --credential-id <id> \
   --ssh-key-credential-id <ssh_id> --location nbg1 \
-  --control-plane-count 3 --worker-count 3 --worker-server-type cx43 \
+  --bastion-server-type cpx12 --control-plane-server-type cpx22 \
+  --control-plane-count 3 --worker-count 3 --worker-server-type cpx22 \
   --gitops-repository my-org/platform-gitops --gitops-credential-name github-acme
 ```
+
+In the portal the same flow is the new portal's wizard: **Infrastructure → Clusters → Add a
+cluster → Hetzner** (`/next/clusters/new?provider=hetzner`) - name and purpose, credential, SSH
+key, location, 1 or 3 control plane nodes, management server type, node groups, kubeadm (default,
+Cilium) or k3s, version, an optional Git repository, then **Review** (with a cost estimate) and
+**Create**. Point users there, not at Classic.
 
 **Take the batteries.** `--external-cloud-provider`, `--include-networking` and `--include-dns`
 default on and give you load balancers, persistent volumes, ingress, DNS and TLS from the first

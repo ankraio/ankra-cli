@@ -243,10 +243,26 @@ func resolveGatewayClusterID(clusterFlag string, notify io.Writer) (string, bool
 	// the same treatment as an ID typed at the prompt rather than trusting it:
 	// omitting --cluster must not fail where passing the very same ID
 	// succeeds.
+	adoptSelectedClusterProject(cluster)
 	if isLikelyClusterID(cluster.ID) {
 		return resolveGatewayClusterByID(cluster.ID, notify)
 	}
 	return cluster.ID, false, nil
+}
+
+// adoptSelectedClusterProject scopes this invocation to the project the
+// selected cluster was saved in, when the selection recorded one, it was made
+// in the organisation in scope, and no --project or ANKRA_PROJECT pin says
+// otherwise. That saves the project sweep on every kubectl call.
+func adoptSelectedClusterProject(cluster client.ClusterListItem) {
+	if projectPinnedExplicitly || cluster.ProjectID == nil {
+		return
+	}
+	projectID := strings.TrimSpace(*cluster.ProjectID)
+	if projectID == "" || cluster.OrganisationID == "" || cluster.OrganisationID != effectiveOrganisationID() {
+		return
+	}
+	apiClient.SetProjectOverride(projectID)
 }
 
 // resolveGatewayClusterByID settles the organisation for a cluster ID and

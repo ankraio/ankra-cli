@@ -93,7 +93,14 @@ func runMigrateModulesInstall(cmd *cobra.Command, args []string) error {
 		return confirmError
 	}
 
-	staging, stagingError := writeModuleStaging(content)
+	directory, directoryError := migrate.HomeModulesDir()
+	if directoryError != nil {
+		return directoryError
+	}
+	if mkdirError := os.MkdirAll(directory, 0o755); mkdirError != nil {
+		return mkdirError
+	}
+	staging, stagingError := writeModuleStaging(directory, content)
 	if stagingError != nil {
 		return stagingError
 	}
@@ -110,16 +117,12 @@ func runMigrateModulesInstall(cmd *cobra.Command, args []string) error {
 		return withExitCode(exitUsage, fmt.Errorf("the module calls itself %q, not %q; drop --name or fetch the module you meant", description.Name, migrateModulesInstallName))
 	}
 
-	directory, directoryError := migrate.HomeModulesDir()
-	if directoryError != nil {
-		return directoryError
-	}
-	if mkdirError := os.MkdirAll(directory, 0o755); mkdirError != nil {
-		return mkdirError
-	}
 	destination := filepath.Join(directory, migrate.ExternalModulePrefix+description.Name)
 	if _, statError := os.Stat(destination); statError == nil && !migrateModulesInstallForce {
 		return withExitCode(exitUsage, fmt.Errorf("module %s is already installed at %s; pass --force to replace it", description.Name, destination))
+	}
+	if chmodError := os.Chmod(staging, 0o755); chmodError != nil {
+		return chmodError
 	}
 	if renameError := os.Rename(staging, destination); renameError != nil {
 		return renameError
@@ -177,14 +180,21 @@ var newModuleDownloadClient = func() *http.Client {
 	return &http.Client{Timeout: moduleDownloadClientTimeout}
 }
 
-// writeModuleStaging puts the content in an executable temporary file, so
-// describe can run before anything lands in the modules directory.
-func writeModuleStaging(content []byte) (string, error) {
-	staging, createError := os.CreateTemp("", "ankra-module-staging-*")
+// writeModuleStaging keeps unverified bytes private and outside module discovery.
+// Staging beside the destination makes the final rename atomic even when the
+// user's home and system temporary directory are on different filesystems.
+func writeModuleStaging(directory string, content []byte) (string, error) {
+	staging, createError := os.CreateTemp(directory, ".ankra-module-staging-*")
 	if createError != nil {
 		return "", createError
 	}
 	path := staging.Name()
+	ready := false
+	defer func() {
+		if !ready {
+			_ = os.Remove(path)
+		}
+	}()
 	_, writeError := staging.Write(content)
 	closeError := staging.Close()
 	if writeError != nil {
@@ -193,9 +203,10 @@ func writeModuleStaging(content []byte) (string, error) {
 	if closeError != nil {
 		return "", closeError
 	}
-	if chmodError := os.Chmod(path, 0o755); chmodError != nil {
+	if chmodError := os.Chmod(path, 0o700); chmodError != nil {
 		return "", chmodError
 	}
+	ready = true
 	return path, nil
 }
 
