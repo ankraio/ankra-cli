@@ -255,7 +255,13 @@ stages:
       else
         echo "WARNING: no GitHub login was delivered to this step, so the route census was not fetched and TestClusterRoutesAreRegistered will skip, not pass."
       fi
-      go test -race -count=1 -timeout=5m -coverprofile=/workspace/coverage.out ./...
+      # -timeout is go test's per-binary alarm for a hung test, not a budget
+      # (the step has its own 40m). On this runner ankra/cmd takes 270-300s
+      # with -race and coverage (129s on lint-build.yml's GitHub runner), so
+      # 5m failed passing runs at random, once while the binary was already
+      # exiting after every test passed (ankra-kdo0b7). 10m still stops a
+      # hang well inside the step.
+      go test -race -count=1 -timeout=10m -coverprofile=/workspace/coverage.out ./...
       go tool cover -func=/workspace/coverage.out
       if [ "$GO_CACHE_WRITER" = "true" ]; then
         find "$GOCACHE" -mindepth 2 -type f -mmin +90 -delete
