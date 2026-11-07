@@ -1702,6 +1702,38 @@ func (m baseMock) SetAILaneModel(lane string, modelKey string) ([]client.AILaneM
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListPersonalAIKeys() (*client.PersonalAIKeyListing, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AddPersonalAIKey(request client.AddPersonalAIKeyRequest) (*client.PersonalAIKey, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ReorderPersonalAIKeys(keyIDs []string) (*client.PersonalAIKeyList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RenamePersonalAIKey(keyID string, label string) (*client.PersonalAIKey, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeletePersonalAIKey(keyID string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) TestPersonalAIKey(keyID string) (*client.PersonalAIKeyTestResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetPersonalAIKeysPolicy() (*client.PersonalAIKeysPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetPersonalAIKeysPolicy(allowed bool) (*client.PersonalAIKeysPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListCharts(page, pageSize int, onlySubscribed bool) (*client.ListChartsResponse, error) {
 	return nil, errors.New("not implemented")
 }
