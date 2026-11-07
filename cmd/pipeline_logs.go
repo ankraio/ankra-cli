@@ -600,8 +600,13 @@ func (backoff *pipelineLogStreamBackoff) gaveUpReason(lastFailure string) string
 // connection refused or reset, a DNS answer missing - is the same transient
 // trouble that drops an open stream, and is often what the reconnect right
 // after a drop meets while a proxy restarts. Every other refusal (a 404 for
-// a step that is gone, a 403) is an answer, and retrying it changes nothing.
+// a step that is gone, a 403) is an answer, and retrying it changes nothing;
+// so is the client's own refusal to send a path the edge would rewrite,
+// which arrives in a *url.Error too.
 func pipelineLogStreamOpenRetryReason(streamError error) (string, bool) {
+	if isRefusedBeforeSending(streamError) {
+		return "", false
+	}
 	var unavailable *client.PipelineLogStreamUnavailableError
 	if errors.As(streamError, &unavailable) {
 		return unavailable.Detail, true

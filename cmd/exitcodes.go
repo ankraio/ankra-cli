@@ -14,7 +14,8 @@ import (
 // act on (re-run usage errors after fixing the invocation, treat not-found
 // as idempotent success, re-authenticate on auth failures, retry on wait
 // expiry, ask for a role on a permission refusal, hold a rollout a preflight
-// blocked) without parsing error text.
+// blocked) without parsing error text. 9 is not a failure: the work is
+// unfinished and is waiting on something other than this command.
 const (
 	exitOK          = 0
 	exitError       = 1 // API or runtime failure
@@ -25,6 +26,7 @@ const (
 	exitAuth        = 6 // missing, expired, or rejected credentials
 	exitForbidden   = 7 // authenticated but the role lacks the permission (RBAC)
 	exitBlocked     = 8 // a preflight found a block, so nothing was changed
+	exitWaiting     = 9 // nothing failed, but the work is not finished: it is waiting on a pause or a person's step
 )
 
 // codedError attaches an exit code to an error without changing its message.
@@ -35,6 +37,17 @@ type codedError struct {
 
 func (e *codedError) Error() string { return e.err.Error() }
 func (e *codedError) Unwrap() error { return e.err }
+
+// isRefusedBeforeSending reports whether the client refused to send a
+// request at all (client.UnsafeRequestPathError, which reaches a caller
+// inside the *url.Error http.Client wraps transport errors in). Nothing was
+// sent and the same arguments build the same path, so a retry loop must not
+// count it as a dropped connection: retried, it ends as a timeout or an
+// "interrupted" exit 1 instead of the usage error (exit 2) it is.
+func isRefusedBeforeSending(err error) bool {
+	var refusal *client.UnsafeRequestPathError
+	return errors.As(err, &refusal)
+}
 
 // withExitCode wraps err so Execute exits with code. A nil err stays nil, so
 // call sites can wrap unconditionally.
@@ -51,7 +64,9 @@ func withExitCode(code int, err error) error {
 var errCancelled = withExitCode(exitCancelled, errors.New("cancelled"))
 
 // exitCodeFor classifies an error returned by ExecuteC into an exit code.
-// Explicit withExitCode wrapping wins; otherwise auth (401), permission
+// A request the client refused to send (client.UnsafeRequestPathError) is a
+// usage error whatever wraps it; then explicit withExitCode wrapping wins;
+// otherwise auth (401), permission
 // (403) and not-found API responses map to their codes, and anything
 // unclassified is a generic failure. exitWaitTimeout is never inferred here — internal fixed request
 // deadlines also surface as context.DeadlineExceeded, so only call sites
@@ -59,6 +74,14 @@ var errCancelled = withExitCode(exitCancelled, errors.New("cancelled"))
 func exitCodeFor(err error) int {
 	if err == nil {
 		return exitOK
+	}
+	// A request the client refused to send because an argument made a path
+	// segment the platform's edge would rewrite ("..", ".", blank) is fixed
+	// by changing the invocation, and nothing was sent. That holds whatever
+	// code a caller wrapped the failure in, so it is matched first.
+	var unsafePath *client.UnsafeRequestPathError
+	if errors.As(err, &unsafePath) {
+		return exitUsage
 	}
 	var coded *codedError
 	if errors.As(err, &coded) {

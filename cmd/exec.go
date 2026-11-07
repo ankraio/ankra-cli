@@ -280,7 +280,7 @@ func isTransientWorkspaceError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) || isRefusedBeforeSending(err) {
 		return false
 	}
 	var workspaceError *client.WorkspaceAPIError
@@ -623,7 +623,8 @@ func (runner *execRunner) follow(ctx context.Context, runID string) execAttempt 
 			}
 			lastProblem = streamError.Error()
 			var workspaceError *client.WorkspaceAPIError
-			if errors.As(streamError, &workspaceError) && !workspaceError.IsRetryable() {
+			if isRefusedBeforeSending(streamError) ||
+				(errors.As(streamError, &workspaceError) && !workspaceError.IsRetryable()) {
 				// The stream itself was refused (the run or the workspace is
 				// gone): the run's state is the answer.
 				return runner.settle(ctx, runID, hasOutput, lastProblem)

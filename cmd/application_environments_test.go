@@ -110,15 +110,55 @@ func TestApplicationEnvironmentsSetSendsTheRuleForTheNamedEnvironment(t *testing
 	}
 }
 
-func TestApplicationEnvironmentsSetKeepsADisabledEnvironmentDisabled(t *testing.T) {
-	mockClient := &applicationEnvironmentsMock{getPayload: json.RawMessage(environmentsAutoDeployPayload)}
-	_, executeError := runApplicationCommand(t, mockClient,
-		"environments", "set", testApplicationID, "env-staging", "--branches", "release/*")
-	if executeError != nil {
-		t.Fatalf("environments set error = %v", executeError)
+func TestApplicationEnvironmentsSetRuleTurnsPushesOnLikeThePortal(t *testing.T) {
+	cases := map[string]struct {
+		arguments       []string
+		expectedEnabled bool
+		expectedRule    *[]string
+	}{
+		"rule":                   {[]string{"--branches", "release/*"}, true, &[]string{"release/*"}},
+		"rule with disable":      {[]string{"--branches", "release/*", "--disable"}, false, &[]string{"release/*"}},
+		"rule with enable=false": {[]string{"--branches", "release/*", "--enable=false"}, false, &[]string{"release/*"}},
+		"clear":                  {[]string{"--clear"}, false, &[]string{}},
 	}
-	if mockClient.updateRequest.Enabled {
-		t.Errorf("enabled = true, want the environment's current false")
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			mockClient := &applicationEnvironmentsMock{getPayload: json.RawMessage(environmentsAutoDeployPayload)}
+			arguments := append([]string{"environments", "set", testApplicationID, "env-staging"}, testCase.arguments...)
+			if _, executeError := runApplicationCommand(t, mockClient, arguments...); executeError != nil {
+				t.Fatalf("environments set error = %v", executeError)
+			}
+			request := mockClient.updateRequest
+			if request.Enabled != testCase.expectedEnabled {
+				t.Errorf("enabled = %v, want %v", request.Enabled, testCase.expectedEnabled)
+			}
+			if !reflect.DeepEqual(request.Branches, testCase.expectedRule) {
+				t.Errorf("branches = %v, want %v", request.Branches, testCase.expectedRule)
+			}
+		})
+	}
+}
+
+func TestApplicationEnvironmentsSetAcceptsFollowAndNoneAliases(t *testing.T) {
+	cases := map[string]struct {
+		arguments    []string
+		expectedRule *[]string
+	}{
+		"follow":          {[]string{"--follow", "develop,release/*"}, &[]string{"develop", "release/*"}},
+		"follow-branches": {[]string{"--follow-branches", "develop"}, &[]string{"develop"}},
+		"none":            {[]string{"--none"}, &[]string{}},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			mockClient := &applicationEnvironmentsMock{getPayload: json.RawMessage(environmentsAutoDeployPayload)}
+			arguments := append([]string{"environments", "set", testApplicationID, "development"}, testCase.arguments...)
+			if _, executeError := runApplicationCommand(t, mockClient, arguments...); executeError != nil {
+				t.Fatalf("environments set error = %v", executeError)
+			}
+			if !reflect.DeepEqual(mockClient.updateRequest.Branches, testCase.expectedRule) {
+				t.Errorf("branches = %v, want %v", mockClient.updateRequest.Branches, testCase.expectedRule)
+			}
+		})
 	}
 }
 
@@ -156,6 +196,7 @@ func TestApplicationEnvironmentsSetRejectsInvalidFlagsLocally(t *testing.T) {
 		"nothing to change":  {},
 		"branches and clear": {"--branches", "main", "--clear"},
 		"enable and disable": {"--enable", "--disable"},
+		"follow and none":    {"--follow", "main", "--none"},
 	}
 	for name, flags := range cases {
 		t.Run(name, func(t *testing.T) {

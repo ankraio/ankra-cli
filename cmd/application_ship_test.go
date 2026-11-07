@@ -308,6 +308,9 @@ func fastShipPolling(t *testing.T) {
 	previousPoll := shipPollInterval
 	previousMerge := shipMergePollInterval
 	previousBuild := buildPollInterval
+	previousSetupRunGrace := shipSetupRunAppearGrace
+	shipSetupRunAppearGrace = time.Millisecond
+	t.Cleanup(func() { shipSetupRunAppearGrace = previousSetupRunGrace })
 	shipPollInterval = time.Millisecond
 	shipMergePollInterval = time.Millisecond
 	buildPollInterval = time.Millisecond
