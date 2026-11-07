@@ -18,8 +18,8 @@ var scalewayCmd = &cobra.Command{
 	Long:  "Manage the lifecycle of Scaleway clusters.",
 }
 
-var scalewayStopCmd = &cobra.Command{
-	Use:   "stop <cluster_id|name>",
+var scalewayStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "stop [cluster_id|name]",
 	Short: "Stop a Scaleway cluster",
 	Long:  "Stop a Scaleway cluster by terminating its compute while preserving its configuration so it can be re-provisioned later.",
 	Args:  cobra.ExactArgs(1),
@@ -52,10 +52,10 @@ var scalewayStopCmd = &cobra.Command{
 		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
 		return nil
 	},
-}
+})
 
-var scalewayStartCmd = &cobra.Command{
-	Use:   "start <cluster_id|name>",
+var scalewayStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "start [cluster_id|name]",
 	Short: "Start a stopped Scaleway cluster",
 	Long:  "Re-provision a stopped Scaleway cluster. Use --scope control_plane to bring up only the control plane.",
 	Args:  cobra.ExactArgs(1),
@@ -86,7 +86,7 @@ var scalewayStartCmd = &cobra.Command{
 		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
 		return nil
 	},
-}
+})
 
 func init() {
 	scalewayStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
@@ -289,8 +289,8 @@ Takes the same flags as 'create'.`,
 	},
 }
 
-var scalewayDeprovisionCmd = &cobra.Command{
-	Use:   "deprovision <cluster_id|name>",
+var scalewayDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "deprovision [cluster_id|name]",
 	Short: "Deprovision a Scaleway cluster and release its cloud resources",
 	Long: `Permanently delete a Scaleway cluster and the provider resources Ankra
 created for it. Volumes and load balancers follow the cluster's
@@ -342,10 +342,10 @@ accept that: answer the prompt on a terminal, or pass
 		}
 		return nil
 	},
-}
+})
 
-var scalewayWorkersCmd = &cobra.Command{
-	Use:   "workers <cluster_id|name>",
+var scalewayWorkersCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
+	Use:   "workers [cluster_id|name]",
 	Short: "Get current worker count for a Scaleway cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -369,10 +369,10 @@ var scalewayWorkersCmd = &cobra.Command{
 		fmt.Printf("  Max: %d\n", result.Max)
 		return nil
 	},
-}
+})
 
-var scalewayK8sVersionCmd = &cobra.Command{
-	Use:   "k8s-version <cluster_id|name>",
+var scalewayK8sVersionCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
+	Use:   "k8s-version [cluster_id|name]",
 	Short: "Get current Kubernetes version for a Scaleway cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -399,7 +399,7 @@ var scalewayK8sVersionCmd = &cobra.Command{
 		fmt.Printf("  Distribution: %s\n", result.Distribution)
 		return nil
 	},
-}
+})
 
 var scalewayLocationsCmd = &cobra.Command{
 	Use:   "locations",

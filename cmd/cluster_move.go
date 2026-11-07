@@ -11,7 +11,7 @@ import (
 	"ankra/internal/client"
 )
 
-var clusterMoveCmd = &cobra.Command{
+var clusterMoveCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "move [cluster_name]",
 	Short: "Move a cluster to another organisation you administer",
 	Long: `Move a cluster into another existing organisation.
@@ -90,7 +90,7 @@ If no cluster name is provided, the currently selected cluster is moved.`,
 		printClusterMoveResult(cmd, result)
 		return nil
 	},
-}
+})
 
 func organisationDisplayName(organisation client.OrganisationSummary) string {
 	if organisation.Name != nil && *organisation.Name != "" {

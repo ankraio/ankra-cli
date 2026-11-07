@@ -142,8 +142,8 @@ func mergeSSHKeyCredentialIDs(listed []string, single string) []string {
 	return merged
 }
 
-var hetznerDeprovisionCmd = &cobra.Command{
-	Use:   "deprovision <cluster_id|name>",
+var hetznerDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "deprovision [cluster_id|name]",
 	Short: "Initiate deprovision of a Hetzner cluster",
 	Long: "Initiate asynchronous deprovision of a Hetzner cluster. The platform schedules teardown " +
 		"jobs that delete cloud resources (servers, networks, SSH keys). Cloud resources are not " +
@@ -193,10 +193,10 @@ var hetznerDeprovisionCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
-var hetznerWorkersCmd = &cobra.Command{
-	Use:   "workers <cluster_id|name>",
+var hetznerWorkersCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
+	Use:   "workers [cluster_id|name]",
 	Short: "Get current worker count for a Hetzner cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -221,10 +221,10 @@ var hetznerWorkersCmd = &cobra.Command{
 		fmt.Printf("  Max: %d\n", result.Max)
 		return nil
 	},
-}
+})
 
-var hetznerScaleCmd = &cobra.Command{
-	Use:   "scale <cluster_id|name> <worker_count>",
+var hetznerScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "scale [cluster_id|name] <worker_count>",
 	Short: "Scale workers for a Hetzner cluster",
 	Long:  "Scale the number of worker nodes up or down for a Hetzner cluster.",
 	Args:  cobra.ExactArgs(2),
@@ -260,10 +260,10 @@ var hetznerScaleCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
-var hetznerK8sVersionCmd = &cobra.Command{
-	Use:   "k8s-version <cluster_id|name>",
+var hetznerK8sVersionCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
+	Use:   "k8s-version [cluster_id|name]",
 	Short: "Get current Kubernetes version for a Hetzner cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -291,10 +291,10 @@ var hetznerK8sVersionCmd = &cobra.Command{
 		fmt.Printf("  Distribution: %s\n", result.Distribution)
 		return nil
 	},
-}
+})
 
-var hetznerStopCmd = &cobra.Command{
-	Use:   "stop <cluster_id|name>",
+var hetznerStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "stop [cluster_id|name]",
 	Short: "Stop a Hetzner cluster",
 	Long:  "Stop a Hetzner cluster's compute while keeping its configuration so it can be started again later.",
 	Args:  cobra.ExactArgs(1),
@@ -333,10 +333,10 @@ var hetznerStopCmd = &cobra.Command{
 		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
 		return nil
 	},
-}
+})
 
-var hetznerStartCmd = &cobra.Command{
-	Use:   "start <cluster_id|name>",
+var hetznerStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "start [cluster_id|name]",
 	Short: "Start a stopped Hetzner cluster",
 	Long:  "Start (re-provision) a stopped Hetzner cluster. Use --scope control_plane to bring up only the control plane.",
 	Args:  cobra.ExactArgs(1),
@@ -370,10 +370,10 @@ var hetznerStartCmd = &cobra.Command{
 		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
 		return nil
 	},
-}
+})
 
-var hetznerUpgradeCmd = &cobra.Command{
-	Use:        "upgrade <cluster_id|name> <target_version>",
+var hetznerUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:        "upgrade [cluster_id|name] <target_version>",
 	Short:      "Upgrade Kubernetes version for a Hetzner cluster",
 	Long:       "Upgrade the Kubernetes version on all nodes in a Hetzner cluster. This deprecated form always runs the safe non-forced rollout; use `ankra cluster upgrade` for --force (PodDisruptionBudget override) and operation progress tracking.",
 	Deprecated: "use `ankra cluster upgrade <cluster_id> <target_version>` instead; the cloud provider is detected automatically.",
@@ -406,7 +406,7 @@ var hetznerUpgradeCmd = &cobra.Command{
 		fmt.Printf("  Nodes affected:   %d\n", result.NodesAffected)
 		return nil
 	},
-}
+})
 
 var nodeGroupCmd = &cobra.Command{
 	Use:   "node-group",
@@ -414,7 +414,7 @@ var nodeGroupCmd = &cobra.Command{
 	Long:  "List, add, scale, upgrade, and delete node groups.",
 }
 
-var nodeGroupListCmd = &cobra.Command{
+var nodeGroupListCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
 	Use:   "list [cluster_id|name]",
 	Short: "List node groups",
 	Args:  nodeGroupListArgs,
@@ -443,10 +443,10 @@ var nodeGroupListCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
-var nodeGroupAddCmd = &cobra.Command{
-	Use:   "add <cluster_id|name>",
+var nodeGroupAddCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "add [cluster_id|name]",
 	Short: "Add a node group",
 	Args:  nodeGroupAddArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -491,10 +491,10 @@ var nodeGroupAddCmd = &cobra.Command{
 		printNodeGroupAdded(result, clusterID)
 		return nil
 	},
-}
+})
 
-var nodeGroupScaleCmd = &cobra.Command{
-	Use:   "scale <cluster_id|name> <group_name> <count>",
+var nodeGroupScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "scale [cluster_id|name] <group_name> <count>",
 	Short: "Scale a node group",
 	Args:  nodeGroupArgs(3, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -535,10 +535,10 @@ var nodeGroupScaleCmd = &cobra.Command{
 		printNodeGroupScaled(result, clusterID)
 		return nil
 	},
-}
+})
 
-var nodeGroupUpgradeCmd = &cobra.Command{
-	Use:   "upgrade <cluster_id|name> <group_name> <instance_type>",
+var nodeGroupUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "upgrade [cluster_id|name] <group_name> <instance_type>",
 	Short: "Upgrade instance type for a node group (cannot be reversed)",
 	Args:  nodeGroupArgs(3, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -576,10 +576,10 @@ var nodeGroupUpgradeCmd = &cobra.Command{
 		fmt.Printf("Node group '%s' instance type upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
 		return nil
 	},
-}
+})
 
-var nodeGroupDeleteCmd = &cobra.Command{
-	Use:   "delete <cluster_id|name> <group_name>",
+var nodeGroupDeleteCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "delete [cluster_id|name] <group_name>",
 	Short: "Delete a node group and all its nodes",
 	Args:  nodeGroupArgs(2, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -623,7 +623,7 @@ var nodeGroupDeleteCmd = &cobra.Command{
 		printNodeGroupDeleted(result, clusterID)
 		return nil
 	},
-}
+})
 
 var hetznerLocationsCmd = &cobra.Command{
 	Use:   "locations",

@@ -115,8 +115,8 @@ var upcloudCreateCmd = &cobra.Command{
 	},
 }
 
-var upcloudDeprovisionCmd = &cobra.Command{
-	Use:   "deprovision <cluster_id|name>",
+var upcloudDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "deprovision [cluster_id|name]",
 	Short: "Deprovision an UpCloud cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -166,10 +166,10 @@ var upcloudDeprovisionCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
-var upcloudStopCmd = &cobra.Command{
-	Use:   "stop <cluster_id|name>",
+var upcloudStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "stop [cluster_id|name]",
 	Short: "Stop an UpCloud cluster",
 	Long: "Stop an UpCloud cluster's compute while keeping its configuration so it can be started again later.\n\n" +
 		"--force also deletes the cluster's load balancers. The CSI storage volumes are kept, forced or not, and keep " +
@@ -204,10 +204,10 @@ var upcloudStopCmd = &cobra.Command{
 		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
 		return nil
 	},
-}
+})
 
-var upcloudStartCmd = &cobra.Command{
-	Use:   "start <cluster_id|name>",
+var upcloudStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "start [cluster_id|name]",
 	Short: "Start a stopped UpCloud cluster",
 	Long:  "Start (re-provision) a stopped UpCloud cluster. Use --scope control_plane to bring up only the control plane.",
 	Args:  cobra.ExactArgs(1),
@@ -235,10 +235,10 @@ var upcloudStartCmd = &cobra.Command{
 		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
 		return nil
 	},
-}
+})
 
-var upcloudWorkersCmd = &cobra.Command{
-	Use:   "workers <cluster_id|name>",
+var upcloudWorkersCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
+	Use:   "workers [cluster_id|name]",
 	Short: "Get current worker count for an UpCloud cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -263,10 +263,10 @@ var upcloudWorkersCmd = &cobra.Command{
 		fmt.Printf("  Max: %d\n", result.Max)
 		return nil
 	},
-}
+})
 
-var upcloudScaleCmd = &cobra.Command{
-	Use:   "scale <cluster_id|name> <worker_count>",
+var upcloudScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "scale [cluster_id|name] <worker_count>",
 	Short: "Scale workers for an UpCloud cluster",
 	Long:  "Scale the number of worker nodes up or down for an UpCloud cluster.",
 	Args:  cobra.ExactArgs(2),
@@ -302,10 +302,10 @@ var upcloudScaleCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
-var upcloudK8sVersionCmd = &cobra.Command{
-	Use:   "k8s-version <cluster_id|name>",
+var upcloudK8sVersionCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
+	Use:   "k8s-version [cluster_id|name]",
 	Short: "Get current Kubernetes version for an UpCloud cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -333,10 +333,10 @@ var upcloudK8sVersionCmd = &cobra.Command{
 		fmt.Printf("  Distribution: %s\n", result.Distribution)
 		return nil
 	},
-}
+})
 
-var upcloudUpgradeCmd = &cobra.Command{
-	Use:        "upgrade <cluster_id|name> <target_version>",
+var upcloudUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:        "upgrade [cluster_id|name] <target_version>",
 	Short:      "Upgrade Kubernetes version for an UpCloud cluster",
 	Long:       "Upgrade the Kubernetes version on all nodes in an UpCloud cluster. This deprecated form always runs the safe non-forced rollout; use `ankra cluster upgrade` for --force (PodDisruptionBudget override) and operation progress tracking.",
 	Deprecated: "use `ankra cluster upgrade <cluster_id> <target_version>` instead; the cloud provider is detected automatically.",
@@ -369,10 +369,10 @@ var upcloudUpgradeCmd = &cobra.Command{
 		fmt.Printf("  Nodes affected:   %d\n", result.NodesAffected)
 		return nil
 	},
-}
+})
 
-var upcloudZonesCmd = &cobra.Command{
-	Use:   "zones <cluster_id|name>",
+var upcloudZonesCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
+	Use:   "zones [cluster_id|name]",
 	Short: "Extend a multi-zone cluster's zone pool",
 	Long: `Extend the zone pool of an UpCloud cluster created with --network-mode wireguard_mesh
 (or with --zones). Pass the full desired pool, primary zone first: zones can only be
@@ -419,7 +419,7 @@ republishes with load balancers and volumes scoped to the primary zone.`,
 		fmt.Printf("Zone pool is now %s (added %s).\n", strings.Join(result.Zones, ", "), strings.Join(result.AddedZones, ", "))
 		return nil
 	},
-}
+})
 
 var upcloudNodeGroupCmd = &cobra.Command{
 	Use:   "node-group",
@@ -427,7 +427,7 @@ var upcloudNodeGroupCmd = &cobra.Command{
 	Long:  "List, add, scale, upgrade, and delete node groups.",
 }
 
-var upcloudNodeGroupListCmd = &cobra.Command{
+var upcloudNodeGroupListCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
 	Use:   "list [cluster_id|name]",
 	Short: "List node groups",
 	Args:  nodeGroupListArgs,
@@ -456,10 +456,10 @@ var upcloudNodeGroupListCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
-var upcloudNodeGroupAddCmd = &cobra.Command{
-	Use:   "add <cluster_id|name>",
+var upcloudNodeGroupAddCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "add [cluster_id|name]",
 	Short: "Add a node group",
 	Args:  nodeGroupAddArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -506,10 +506,10 @@ var upcloudNodeGroupAddCmd = &cobra.Command{
 		printNodeGroupAdded(result, clusterID)
 		return nil
 	},
-}
+})
 
-var upcloudNodeGroupScaleCmd = &cobra.Command{
-	Use:   "scale <cluster_id|name> <group_name> <count>",
+var upcloudNodeGroupScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "scale [cluster_id|name] <group_name> <count>",
 	Short: "Scale a node group",
 	Args:  nodeGroupArgs(3, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -550,10 +550,10 @@ var upcloudNodeGroupScaleCmd = &cobra.Command{
 		printNodeGroupScaled(result, clusterID)
 		return nil
 	},
-}
+})
 
-var upcloudNodeGroupUpgradeCmd = &cobra.Command{
-	Use:   "upgrade <cluster_id|name> <group_name> <plan>",
+var upcloudNodeGroupUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "upgrade [cluster_id|name] <group_name> <plan>",
 	Short: "Upgrade server plan for a node group",
 	Args:  nodeGroupArgs(3, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -591,10 +591,10 @@ var upcloudNodeGroupUpgradeCmd = &cobra.Command{
 		fmt.Printf("Node group '%s' plan upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
 		return nil
 	},
-}
+})
 
-var upcloudNodeGroupDeleteCmd = &cobra.Command{
-	Use:   "delete <cluster_id|name> <group_name>",
+var upcloudNodeGroupDeleteCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "delete [cluster_id|name] <group_name>",
 	Short: "Delete a node group and all its nodes",
 	Args:  nodeGroupArgs(2, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -638,7 +638,7 @@ var upcloudNodeGroupDeleteCmd = &cobra.Command{
 		printNodeGroupDeleted(result, clusterID)
 		return nil
 	},
-}
+})
 
 // upcloudDefaultNodeGroupPlan is the plan `cluster upcloud node-group add`
 // uses when --instance-type is not given. The node-group API has no default of

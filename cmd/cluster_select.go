@@ -246,7 +246,9 @@ func clearSelectedCluster() error {
 }
 
 func init() {
-	clusterCmd.PersistentFlags().String(activeClusterFlagName, "", "Target cluster name or ID for this command, overriding `ankra cluster select`")
+	// The backquoted word is the value name help prints after --cluster.
+	clusterCmd.PersistentFlags().String(activeClusterFlagName, "",
+		"Cluster (`name|id`) the command acts on, the same as its cluster argument where it takes one; overrides 'ankra cluster select'")
 	clusterCmd.AddCommand(clusterSelectCmd)
 	clusterCmd.AddCommand(clusterClearCmd)
 }

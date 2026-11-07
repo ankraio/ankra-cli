@@ -214,7 +214,7 @@ func resolveClusterInfoTarget(cmd *cobra.Command, args []string) (client.Cluster
 	return cluster, nil
 }
 
-var clusterReconcileCmd = &cobra.Command{
+var clusterReconcileCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
 	Use:   "reconcile [cluster_name]",
 	Short: "Trigger cluster reconciliation",
 	Long: `Trigger a reconciliation for a cluster to sync desired state with actual state.
@@ -256,7 +256,7 @@ If a cluster name is provided, reconciles that specific cluster.`,
 		}
 		return nil
 	},
-}
+})
 
 func resolveClusterFromArgs(cmd *cobra.Command, args []string) (string, string, error) {
 	if len(args) > 0 {
@@ -274,7 +274,7 @@ func resolveClusterFromArgs(cmd *cobra.Command, args []string) (string, string, 
 	return selected.ID, selected.Name, nil
 }
 
-var clusterProvisionCmd = &cobra.Command{
+var clusterProvisionCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
 	Use:   "provision [cluster_name]",
 	Short: "Provision a managed cluster (build its infrastructure and redeploy its stacks)",
 	Long: `Provision a managed cluster that is not running.
@@ -334,7 +334,7 @@ If no cluster name is provided, uses the currently selected cluster.`,
 				"verify in-place patches with 'ankra cluster addons list <addon>' once the cluster is online")
 		return nil
 	},
-}
+})
 
 // cloudClusterKind enumerates the cluster kinds that must be deprovisioned
 // through provider-specific endpoints. The backend's generic deprovision
@@ -409,7 +409,7 @@ func isCloudClusterKind(kind cloudClusterKind) bool {
 	return false
 }
 
-var clusterDeprovisionCmd = &cobra.Command{
+var clusterDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "deprovision [cluster_name]",
 	Short: "Deprovision a managed cluster (tear it down and release everything it runs on)",
 	Long: `Tear down a managed cluster: everything it runs on is released.
@@ -646,7 +646,7 @@ If no cluster name is provided, uses the currently selected cluster.`,
 		}
 		return nil
 	},
-}
+})
 
 func resolveClusterFromArgsWithKind(cmd *cobra.Command, args []string) (string, string, string, error) {
 	if len(args) > 0 {

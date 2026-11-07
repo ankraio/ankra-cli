@@ -78,8 +78,8 @@ var clusterPlaygroundPlansCmd = &cobra.Command{
 
 var clusterPlaygroundResizeSize string
 
-var clusterPlaygroundResizeCmd = &cobra.Command{
-	Use:   "resize <cluster_id|name>",
+var clusterPlaygroundResizeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "resize [cluster_id|name]",
 	Short: "Resize a paid playground to another size",
 	Long: "Change a paid playground to another paid size in place: only the namespace quota and " +
 		"the monthly price change (the month is billed pro-rata across the change), nothing you " +
@@ -108,7 +108,7 @@ var clusterPlaygroundResizeCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
 // currencySymbol renders the catalog's currency for terminal output.
 func currencySymbol(currency string) string {
@@ -124,8 +124,8 @@ func currencySymbol(currency string) string {
 	}
 }
 
-var clusterPlaygroundStatusCmd = &cobra.Command{
-	Use:   "status <cluster_id|name>",
+var clusterPlaygroundStatusCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
+	Use:   "status [cluster_id|name]",
 	Short: "Show the provisioning phase of a playground",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -166,10 +166,10 @@ var clusterPlaygroundStatusCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
-var clusterPlaygroundDestroyCmd = &cobra.Command{
-	Use:   "destroy <cluster_id|name>",
+var clusterPlaygroundDestroyCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "destroy [cluster_id|name]",
 	Short: "Destroy your organisation's playground",
 	Long: "Tear the organisation's playground down. Everything deployed in it, including its " +
 		"storage, is deleted and cannot be recovered, so the command asks first; pass --yes to " +
@@ -210,7 +210,7 @@ var clusterPlaygroundDestroyCmd = &cobra.Command{
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Phase:      %s\n", result.Phase)
 		return nil
 	},
-}
+})
 
 func init() {
 	clusterPlaygroundCreateCmd.Flags().StringVar(&clusterPlaygroundCreateSize, "size", "",

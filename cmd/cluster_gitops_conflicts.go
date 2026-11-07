@@ -63,7 +63,7 @@ conflict or for all of them, and the next sync applies it:
                   repository, over the change made there.`,
 }
 
-var clusterGitopsConflictsListCmd = &cobra.Command{
+var clusterGitopsConflictsListCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
 	Use:   "list [cluster_name]",
 	Short: "List the open GitOps merge conflicts of a cluster",
 	Long: `List the cluster's open GitOps merge conflicts: the resource key of each, how
@@ -80,7 +80,7 @@ selected cluster. -o json|yaml prints the platform's answer as it is.`,
 	RunE: func(command *cobra.Command, arguments []string) error {
 		return runClusterGitopsConflictsList(command, arguments)
 	},
-}
+})
 
 var clusterGitopsConflictsResolveCmd = &cobra.Command{
 	Use:   "resolve [resource_key]",
