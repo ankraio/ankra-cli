@@ -387,6 +387,7 @@ type APIClient interface {
 	GetApplicationContainerSecurity(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationCodeSecurity(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationSecurityVersions(requestContext context.Context, applicationID string, component string) (*client.ApplicationSecurityVersions, error)
+	GetApplicationBranchBuilds(requestContext context.Context, applicationID string) (*client.ApplicationBranchBuilds, error)
 	GetApplicationDemos(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	CheckApplicationDemoBuild(requestContext context.Context, applicationID string, branch string) (json.RawMessage, error)
 	DeployApplicationDemo(requestContext context.Context, applicationID string, demoRequest client.DeployApplicationDemoRequest) (json.RawMessage, error)
@@ -627,6 +628,7 @@ type APIClient interface {
 	GetControlPlaneHeal(ctx context.Context, clusterID string) (*client.ControlPlaneHeal, error)
 	SetControlPlaneHeal(ctx context.Context, clusterID string, enabled bool) (*client.ControlPlaneHeal, error)
 	GetStateSnapshotRetention(ctx context.Context, clusterID string) (*client.StateSnapshotRetention, error)
+	GetLatestStateSnapshot(kind, clusterID string) (*client.LatestStateSnapshotResponse, error)
 	SetStateSnapshotRetention(ctx context.Context, clusterID string, retentionDays int) (*client.StateSnapshotRetention, error)
 
 	GetOrganisationProvenancePolicy(ctx context.Context) (*client.OrganisationProvenancePolicy, error)
