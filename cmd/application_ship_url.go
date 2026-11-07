@@ -38,9 +38,8 @@ var (
 )
 
 // probeShipURL answers "" when the URL serves a response over verified HTTPS,
-// and otherwise what is still pending in the reader's terms. A 4xx counts as an
-// answer: the application is reached and decides for itself what its root does.
-// Redirects are not followed, because the first response already proves it.
+// and otherwise what is still pending in the reader's terms. Redirects are not
+// followed, because the first response already proves it.
 func probeShipURL(probeContext context.Context, url string) string {
 	httpClient := &http.Client{
 		Timeout: shipURLProbeTimeout,
@@ -57,8 +56,20 @@ func probeShipURL(probeContext context.Context, url string) string {
 		return shipURLPendingReason(responseError)
 	}
 	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode >= http.StatusInternalServerError {
-		return fmt.Sprintf("it answers HTTP %d", response.StatusCode)
+	return shipURLStatusPending(response.StatusCode)
+}
+
+// shipURLStatusPending answers "" for a status that shows the application
+// answered. A 5xx is not an answer, and neither is a 404: an ingress
+// controller answers 404 from its default backend for a host it does not route
+// yet, which is the false Live this check exists to catch. Any other 4xx means
+// the application is reached and decides for itself what its root does.
+func shipURLStatusPending(status int) string {
+	if status == http.StatusNotFound {
+		return "it answers HTTP 404, which the ingress also answers for a host it does not route yet"
+	}
+	if status >= http.StatusInternalServerError {
+		return fmt.Sprintf("it answers HTTP %d", status)
 	}
 	return ""
 }
@@ -66,6 +77,9 @@ func probeShipURL(probeContext context.Context, url string) string {
 // shipURLPendingReason names which stage of reaching the URL failed, since each
 // one sends the reader somewhere else.
 func shipURLPendingReason(requestError error) string {
+	if errors.Is(requestError, context.DeadlineExceeded) || errors.Is(requestError, context.Canceled) {
+		return "the wait ended before it answered"
+	}
 	var dnsError *net.DNSError
 	if errors.As(requestError, &dnsError) {
 		return "its hostname does not resolve yet"

@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -124,5 +125,28 @@ func TestWaitForShipURLStopsWhenTheContextExpires(t *testing.T) {
 	var progress bytes.Buffer
 	if reason := waitForShipURLToAnswer(context.Background(), &progress, "https://shop.acme.ankra.cc"); reason != "pending" {
 		t.Errorf("reason = %q", reason)
+	}
+}
+
+func TestShipURLStatusPendingTreatsA404AsNotYetRouted(t *testing.T) {
+	cases := map[int]bool{
+		http.StatusOK:                  false,
+		http.StatusUnauthorized:        false,
+		http.StatusForbidden:           false,
+		http.StatusNotFound:            true,
+		http.StatusBadGateway:          true,
+		http.StatusServiceUnavailable:  true,
+		http.StatusInternalServerError: true,
+	}
+	for status, isPending := range cases {
+		if reason := shipURLStatusPending(status); (reason != "") != isPending {
+			t.Errorf("status %d: reason = %q, want pending %v", status, reason, isPending)
+		}
+	}
+}
+
+func TestShipURLPendingReasonNamesAnEndedWait(t *testing.T) {
+	if reason := shipURLPendingReason(fmt.Errorf("get: %w", context.DeadlineExceeded)); !strings.Contains(reason, "wait ended") {
+		t.Errorf("an expired wait must not read as the URL not answering, got %q", reason)
 	}
 }
