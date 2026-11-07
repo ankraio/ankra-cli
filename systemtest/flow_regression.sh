@@ -229,8 +229,14 @@ setup_pull_request() {
   gh pr list -R "$FLOW_FIXTURE_REPOSITORY" --state open --json number,headRefName,headRefOid --jq '.[0] // empty'
 }
 
+# The helper reads GH_TOKEN when git asks, so the token is never in a URL, an error message or .git/config.
+# shellcheck disable=SC2016
+GIT_TOKEN_HELPER='!f() { echo username=x-access-token; echo "password=${GH_TOKEN}"; }; f'
+
 reset_fixture() {
-  git clone --quiet "https://x-access-token:${GH_TOKEN}@github.com/${FLOW_FIXTURE_REPOSITORY}.git" "$WORK_DIRECTORY/fixture" || return 1
+  git -c credential.helper= -c credential.helper="$GIT_TOKEN_HELPER" clone --quiet \
+    "https://github.com/${FLOW_FIXTURE_REPOSITORY}.git" "$WORK_DIRECTORY/fixture" || return 1
+  git -C "$WORK_DIRECTORY/fixture" config credential.helper "$GIT_TOKEN_HELPER" || return 1
   close_fixture_pull_requests
   git -C "$WORK_DIRECTORY/fixture" push --quiet --force origin origin/pristine:refs/heads/main || return 1
   git -C "$WORK_DIRECTORY/fixture" fetch --quiet origin main || return 1
@@ -291,6 +297,8 @@ main() {
   answer="$(ank alerts routes create --destination-id "$FLOW_ALERT_DESTINATION_ID" \
     --kinds pipeline_run_failed,image_gate_blocked --application "$APPLICATION" -o json)" || fail "could not create the alert route"
   ROUTE_ID="$(jq -r '.id // empty' <<<"${answer:-}")"
+  [ -n "$ROUTE_ID" ] || [ -z "${answer:-}" ] ||
+    fail "alert route: created but its id could not be read, so teardown cannot remove it: ${answer}"
 
   pull_request="$(wait_for 900 "the setup pull request" setup_pull_request)" || {
     fail "no setup pull request opened"
@@ -310,7 +318,14 @@ main() {
 
   answer="$(ank chat --mode agent -o json "The image gate blocked run $run of application $APPLICATION. Fix the finding on branch $head_ref, with the lockfile.")"
   action="$(jq -r '.pending_actions[0].action_id // empty' <<<"${answer:-}")"
-  [ -z "$action" ] || ank chat actions confirm "$action" >/dev/null || fail "could not confirm the fix"
+  [ -n "$action" ] || {
+    fail "the agent proposed no fix to confirm: ${answer:-no answer}"
+    return 1
+  }
+  ank chat actions confirm "$action" >/dev/null || {
+    fail "could not confirm the fix"
+    return 1
+  }
   changed="$(wait_for 1200 "the fix on $head_ref" fix_files "$head_ref")"
   if grep -qx package.json <<<"$changed" && grep -qx package-lock.json <<<"$changed"; then
     pass "fix landed with lockfile"

@@ -71,10 +71,14 @@ stages:
       set -eu
       # The image has git and curl. jq and gh are pinned here, on the workspace, because the root is read-only.
       mkdir -p /workspace/bin
+      # Each download is checked against the sha256 its release publishes before it runs with the org's secrets.
       curl -fsSL -o /workspace/bin/jq https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64
+      echo "5942c9b0934e510ee61eb3e30273f1b3fe2590df93933a93d7c58b81d19c8ff5  /workspace/bin/jq" | sha256sum -c -
       chmod +x /workspace/bin/jq
-      curl -fsSL https://github.com/cli/cli/releases/download/v2.62.0/gh_2.62.0_linux_amd64.tar.gz |
-        tar -xz -C /workspace/bin --strip-components=2 gh_2.62.0_linux_amd64/bin/gh
+      curl -fsSL -o /workspace/gh.tar.gz https://github.com/cli/cli/releases/download/v2.62.0/gh_2.62.0_linux_amd64.tar.gz
+      echo "41c8b0698ad3003cb5c44bde672a1ffd5f818595abd80162fbf8cc999418446a  /workspace/gh.tar.gz" | sha256sum -c -
+      tar -xzf /workspace/gh.tar.gz -C /workspace/bin --strip-components=2 gh_2.62.0_linux_amd64/bin/gh
+      rm /workspace/gh.tar.gz
       git clone --depth 1 https://github.com/ankraio/ankra-cli.git /workspace/ankra-cli
       cd /workspace/ankra-cli
       go build -o /workspace/bin/ankra .
