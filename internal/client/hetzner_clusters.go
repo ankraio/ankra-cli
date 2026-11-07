@@ -196,7 +196,7 @@ func (c *Client) CreateHetznerCluster(req CreateHetznerClusterRequest) (*CreateH
 }
 
 func (c *Client) DeprovisionHetznerCluster(clusterID string, options DeprovisionOptions) (*DeprovisionHetznerClusterResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s", c.BaseURL, clusterID) + options.query()
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s", c.BaseURL, url.PathEscape(clusterID)) + options.query()
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -233,7 +233,7 @@ func (c *Client) StartHetznerCluster(clusterID string, options StartClusterOptio
 }
 
 func (c *Client) GetHetznerWorkerCount(clusterID string) (*WorkerCountResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/worker-count", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/worker-count", c.BaseURL, url.PathEscape(clusterID))
 	var result WorkerCountResult
 	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
@@ -242,7 +242,7 @@ func (c *Client) GetHetznerWorkerCount(clusterID string) (*WorkerCountResult, er
 }
 
 func (c *Client) GetHetznerK8sVersion(clusterID string) (*K8sVersionInfo, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/k8s-version", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/k8s-version", c.BaseURL, url.PathEscape(clusterID))
 	var result K8sVersionInfo
 	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
@@ -251,12 +251,12 @@ func (c *Client) GetHetznerK8sVersion(clusterID string) (*K8sVersionInfo, error)
 }
 
 func (c *Client) UpgradeHetznerK8sVersion(clusterID, targetVersion string, force bool) (*UpgradeK8sVersionResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/upgrade-k8s-version", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/upgrade-k8s-version", c.BaseURL, url.PathEscape(clusterID))
 	return c.doUpgradeK8sVersion(url, targetVersion, force)
 }
 
 func (c *Client) ScaleHetznerWorkers(clusterID string, workerCount int, drainOptions DrainOptions) (*ScaleWorkersResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/scale-workers", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/scale-workers", c.BaseURL, url.PathEscape(clusterID))
 	return c.doScaleWorkers(url, workerCount, drainOptions)
 }
 
@@ -401,52 +401,70 @@ type NodeGroupAutoscalingRequest struct {
 	MaxCount int  `json:"max_count"`
 }
 
-// NodeGroupAutoscalingResult is the GET/PUT autoscaling response body.
+// NodeGroupAutoscalingResult is the GET/PUT autoscaling response body. The
+// members after MaxCount are the PUT's only: what the write does to the
+// group's node count. A max_count below the group's node count scales the
+// group down to it, a min_count above it scales the group up to it.
 type NodeGroupAutoscalingResult struct {
 	GroupName string `json:"group_name"`
 	Enabled   bool   `json:"enabled"`
 	MinCount  int    `json:"min_count"`
 	MaxCount  int    `json:"max_count"`
+	// NodeCount is the group's node count when the write was made.
+	NodeCount *int `json:"node_count,omitempty"`
+	// TargetCount is the node count the write moves the group to.
+	TargetCount *int `json:"target_count,omitempty"`
+	// OperationID is the operation applying the write; nil when none was
+	// created now.
+	OperationID *string `json:"operation_id,omitempty"`
+	// Message says in words what will happen to the group.
+	Message string `json:"message,omitempty"`
+}
+
+// ChangesNodeCount reports whether the write moves the group to another
+// node count.
+func (result NodeGroupAutoscalingResult) ChangesNodeCount() bool {
+	return result.NodeCount != nil && result.TargetCount != nil && *result.NodeCount != *result.TargetCount
 }
 
 func (c *Client) ListHetznerNodeGroups(clusterID string) (*NodeGroupListResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups", c.BaseURL, clusterID)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups", c.BaseURL, url.PathEscape(clusterID))
 	var result NodeGroupListResult
-	if err := c.getJSON(url, &result); err != nil {
+	if err := c.getJSON(endpoint, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
 func (c *Client) AddHetznerNodeGroup(ctx context.Context, clusterID string, req AddNodeGroupRequest, wait bool) (*AddNodeGroupResult, bool, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups", c.BaseURL, clusterID)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups", c.BaseURL, url.PathEscape(clusterID))
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doAddNodeGroup(ctx, url, payload, wait)
+	return c.doAddNodeGroup(ctx, endpoint, payload, wait)
 }
 
 func (c *Client) ScaleHetznerNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions DrainOptions, wait bool) (*ScaleNodeGroupResult, bool, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/scale", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/scale", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, err := json.Marshal(ScaleNodeGroupRequest{Count: count, ForceDrain: drainOptions.ForceDrain})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doScaleNodeGroup(ctx, url, payload, wait)
+	return c.doScaleNodeGroup(ctx, endpoint, payload, wait)
 }
 
 func (c *Client) UpdateHetznerNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions DrainOptions, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/instance-type", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/instance-type", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, err := json.Marshal(UpdateNodeGroupInstanceTypeRequest{InstanceType: instanceType, ForceDrain: drainOptions.ForceDrain})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doUpdateNodeGroup(ctx, url, payload, wait)
+	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
 }
 
 func (c *Client) UpdateHetznerNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/labels", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/labels", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, err := json.Marshal(UpdateLabelsRequest{Labels: labels})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
@@ -455,7 +473,7 @@ func (c *Client) UpdateHetznerNodeGroupLabels(ctx context.Context, clusterID, gr
 }
 
 func (c *Client) UpdateHetznerNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []NodeTaint, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/taints", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/taints", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, err := json.Marshal(UpdateTaintsRequest{Taints: taints})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
@@ -464,22 +482,22 @@ func (c *Client) UpdateHetznerNodeGroupTaints(ctx context.Context, clusterID, gr
 }
 
 func (c *Client) DeleteHetznerNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions DrainOptions, wait bool) (*DeleteNodeGroupResult, bool, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s", c.BaseURL, clusterID, groupName)
-	return c.doDeleteNodeGroup(ctx, url, drainOptions, wait)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
+	return c.doDeleteNodeGroup(ctx, endpoint, drainOptions, wait)
 }
 
 func (c *Client) GetHetznerNodeGroupAutoscaling(clusterID, groupName string) (*NodeGroupAutoscalingResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/autoscaling", c.BaseURL, clusterID, groupName)
-	return c.doGetNodeGroupAutoscaling(url)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/autoscaling", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
+	return c.doGetNodeGroupAutoscaling(endpoint)
 }
 
 func (c *Client) UpdateHetznerNodeGroupAutoscaling(ctx context.Context, clusterID, groupName string, req NodeGroupAutoscalingRequest, wait bool) (*NodeGroupAutoscalingResult, bool, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/autoscaling", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/hetzner/%s/node-groups/%s/autoscaling", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doUpdateNodeGroupAutoscaling(ctx, url, payload, wait)
+	return c.doUpdateNodeGroupAutoscaling(ctx, endpoint, payload, groupName, req, wait)
 }
 
 func (c *Client) doGetNodeGroupAutoscaling(url string) (*NodeGroupAutoscalingResult, error) {
@@ -490,14 +508,37 @@ func (c *Client) doGetNodeGroupAutoscaling(url string) (*NodeGroupAutoscalingRes
 	return &result, nil
 }
 
-func (c *Client) doUpdateNodeGroupAutoscaling(ctx context.Context, url string, payload []byte, wait bool) (*NodeGroupAutoscalingResult, bool, error) {
+// doUpdateNodeGroupAutoscaling answers the write's result, or, for a write
+// the platform accepted without waiting, nil and true - unless the accepted
+// answer already says what the write does (a platform that finished it
+// inside its verdict window), which is then answered with true and the
+// group name and bounds of the request that was accepted, so a structured
+// rendering of it never shows zero bounds.
+func (c *Client) doUpdateNodeGroupAutoscaling(ctx context.Context, url string, payload []byte, groupName string,
+	request NodeGroupAutoscalingRequest, wait bool) (*NodeGroupAutoscalingResult, bool, error) {
 	var result NodeGroupAutoscalingResult
-	submitted, err := c.doJSONWriteRequest(ctx, http.MethodPut, url, payload, wait, &result)
-	if err != nil {
-		return nil, false, err
+	accepted, writeError := c.doJSONWriteRequestAccepted(ctx, http.MethodPut, url, payload, wait, &result)
+	if writeError != nil {
+		return nil, false, writeError
 	}
-	if submitted {
-		return nil, true, nil
+	if accepted != nil {
+		if accepted.Message == "" && accepted.OperationID == "" {
+			return nil, true, nil
+		}
+		acceptedResult := &NodeGroupAutoscalingResult{
+			GroupName:   groupName,
+			Enabled:     request.Enabled,
+			MinCount:    request.MinCount,
+			MaxCount:    request.MaxCount,
+			NodeCount:   accepted.NodeCount,
+			TargetCount: accepted.TargetCount,
+			Message:     accepted.Message,
+		}
+		if accepted.OperationID != "" {
+			operationID := accepted.OperationID
+			acceptedResult.OperationID = &operationID
+		}
+		return acceptedResult, true, nil
 	}
 	return &result, false, nil
 }

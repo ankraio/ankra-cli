@@ -300,9 +300,10 @@ func TestResourcesGroupHint(t *testing.T) {
 		args     []string
 		wantHint bool
 	}{
-		{name: "non_core_kind_without_group", args: []string{"cluster", "get", "resources", "StorageClass"}, wantHint: true},
+		{name: "custom_kind_without_group", args: []string{"cluster", "get", "resources", "Certificate"}, wantHint: true},
 		{name: "core_kind_without_group", args: []string{"cluster", "get", "resources", "ConfigMap"}, wantHint: false},
-		{name: "non_core_kind_with_group", args: []string{"cluster", "get", "resources", "StorageClass", "--group", "storage.k8s.io"}, wantHint: false},
+		{name: "table_kind_without_group", args: []string{"cluster", "get", "resources", "StorageClass"}, wantHint: false},
+		{name: "custom_kind_with_group", args: []string{"cluster", "get", "resources", "Certificate", "--group", "cert-manager.io"}, wantHint: false},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

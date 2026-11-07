@@ -251,7 +251,7 @@ func (c *Client) ListStackProfiles(page, pageSize int, search string, category s
 }
 
 func (c *Client) ExportStackProfileIac(profileID string, version int) (*StackProfileIacExport, error) {
-	requestURL := fmt.Sprintf("%s/api/v1/org/stack-profiles/%s/versions/%d/iac-export", c.BaseURL, profileID, version)
+	requestURL := fmt.Sprintf("%s/api/v1/org/stack-profiles/%s/versions/%d/iac-export", c.BaseURL, neturl.PathEscape(profileID), version)
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, requestURL, nil)
 	if err != nil {
 		return nil, err

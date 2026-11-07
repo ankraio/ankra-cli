@@ -130,7 +130,7 @@ func (c *Client) UpdateMorpheusNodeGroupInstanceType(ctx context.Context, cluste
 }
 
 func (c *Client) UpdateMorpheusNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/morpheus/%s/node-groups/%s/labels", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/morpheus/%s/node-groups/%s/labels", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, err := json.Marshal(UpdateLabelsRequest{Labels: labels})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
@@ -139,7 +139,7 @@ func (c *Client) UpdateMorpheusNodeGroupLabels(ctx context.Context, clusterID, g
 }
 
 func (c *Client) UpdateMorpheusNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []NodeTaint, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/morpheus/%s/node-groups/%s/taints", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/morpheus/%s/node-groups/%s/taints", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, err := json.Marshal(UpdateTaintsRequest{Taints: taints})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)

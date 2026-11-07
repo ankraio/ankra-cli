@@ -277,7 +277,7 @@ func startChatTurn(conversationID string, clusterID *string, req client.ChatRequ
 // or the lane gone) answers the same way every time.
 func retryableTailError(err error) bool {
 	if errors.Is(err, client.ErrUnauthorized) || errors.Is(err, client.ErrChatSessionsUnavailable) ||
-		errors.Is(err, client.ErrClusterNotFound) {
+		errors.Is(err, client.ErrClusterNotFound) || isRefusedBeforeSending(err) {
 		return false
 	}
 	var unexpected *client.UnexpectedResponseError

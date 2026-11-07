@@ -207,7 +207,7 @@ func pipelineRunReadIsWorthRetrying(wait *pipelineRunWait, readError error) bool
 	if wait.parentContext.Err() != nil {
 		return false
 	}
-	if errors.Is(readError, client.ErrUnauthorized) {
+	if errors.Is(readError, client.ErrUnauthorized) || isRefusedBeforeSending(readError) {
 		return false
 	}
 	var permissionDenied *client.PermissionDeniedError
