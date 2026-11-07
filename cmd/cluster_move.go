@@ -34,9 +34,10 @@ and sandbox clusters, and when the destination already has a cluster with the
 same name.
 
 The destination is resolved among your organisations by id, slug or name.
-If no cluster name is provided, the currently selected cluster is moved.`,
+Name the cluster as the argument or with --cluster: a move never falls back
+to the cluster selected with 'ankra cluster select'.`,
 	Example: `  ankra cluster move edge-01 --organisation acme-prod
-  ankra cluster move --organisation 6f1c... --yes
+  ankra cluster move --cluster edge-01 --organisation 6f1c... --yes
   ankra cluster move edge-01 --organisation "Acme Prod" -o json`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

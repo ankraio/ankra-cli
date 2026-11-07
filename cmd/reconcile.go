@@ -441,7 +441,8 @@ To power a cluster off and back on while keeping its state, use its provider's
 stop and start commands (for example "ankra cluster hetzner stop" and
 "ankra cluster hetzner start") or "ankra cluster power-schedules" instead.
 
-If no cluster name is provided, uses the currently selected cluster.`,
+Name the cluster as the argument or with --cluster: deprovision never falls
+back to the cluster selected with 'ankra cluster select'.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		force, _ := cmd.Flags().GetBool("force")
