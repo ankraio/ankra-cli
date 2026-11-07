@@ -115,10 +115,15 @@ func TestShipSaysNothingWhenThePlatformNamesNoDefinitionToApprove(t *testing.T) 
 	}
 }
 
-func TestShipClauseNamesNothingWhenEveryOverridePathIsBlank(t *testing.T) {
+func TestShipNoteAndClauseAgreeWhenEveryOverridePathIsBlank(t *testing.T) {
 	detail := unapprovedRunDetail(shipPipelineRun("run", 1, "push"), "concluded", "failed")
 	detail.AuthorityOverrides = []client.PipelineAuthorityOverride{{Section: "resources", Path: "  "}}
-	if clause := shipPipelineAuthorityClause(detail); clause != "" {
-		t.Errorf("blank override paths got a clause: %q", clause)
+	clause := shipPipelineAuthorityClause(detail)
+	if !strings.Contains(clause, "ankra pipeline definitions approve def-current") || strings.Contains(clause, "()") {
+		t.Errorf("clause = %q, want the approve command and no empty parentheses", clause)
+	}
+	note := shipPipelineAuthorityNote(detail)
+	if !strings.Contains(note, "the sections it overrides") || !strings.Contains(note, "ankra pipeline definitions approve def-current") {
+		t.Errorf("note = %q, want it to name the command without inventing sections", note)
 	}
 }

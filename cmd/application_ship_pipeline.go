@@ -76,7 +76,9 @@ const shipPipelineStepKindPublish = "publish"
 // run, because no trigger the pipeline declares accepts the push - can never
 // publish, and re-running it plans from the same pipeline. Ship stops on it
 // with what the branch is missing (ankra-kdfou7): usually the setup pull
-// request that adds .ankra/pipeline.yaml, which is not merged yet.
+// request that adds .ankra/pipeline.yaml, which is not merged yet. That is an
+// expected state rather than a failure, so ship follows the pull request's own
+// run and stops with exit 9 or, when the gate blocks it, exit 8.
 //
 // Every poll re-reads the newest run for the commit rather than holding on to
 // one id, so a run that a later dispatch superseded is left for the one that
@@ -200,7 +202,7 @@ func waitForPipelineBuild(
 				}
 			} else if detail.Status == pipelineRunStatusConcluded &&
 				pipelineOptionalString(detail.Outcome) == pipelineOutcomeSkipped {
-				return "", shipPipelineRunNotRunError(waitContext, detail, application, trackedBranch)
+				return "", shipPipelineRunNotRunError(waitContext, progress, detail, application, trackedBranch)
 			} else if detail.Status == pipelineRunStatusConcluded &&
 				pipelineOptionalString(detail.Outcome) != pipelineOutcomeSuccess {
 				return "", fmt.Errorf("%w - see why with 'ankra application pipeline logs %s %s', "+
@@ -258,25 +260,29 @@ func shipPipelineAuthorityNote(detail *client.PipelineRunDetail) string {
 		return ""
 	}
 	taken := pipelineAuthorityOverridePaths(*detail)
-	if taken == "" {
-		taken = "none that this run reported"
+	sections := "the sections it overrides"
+	if taken != "" {
+		sections = "these sections as written: " + taken
 	}
 	return fmt.Sprintf("Pipeline run #%d runs without approved authority: no administrator has approved what its definition "+
-		"declares, so the run does not get these sections as written: %s. Publishing the image does not need this approval, "+
+		"declares, so the run does not get %s. Publishing the image does not need this approval, "+
 		"but a stage that needs one of them can fail. An organisation administrator can approve it for later runs: %s",
-		detail.RunNumber, taken, command)
+		detail.RunNumber, sections, command)
 }
 
 // shipPipelineAuthorityClause adds the approve step to a failed run's error.
 func shipPipelineAuthorityClause(detail *client.PipelineRunDetail) string {
 	command := shipPipelineApproveCommand(detail)
-	overridePaths := pipelineAuthorityOverridePaths(*detail)
-	if command == "" || overridePaths == "" {
+	if command == "" {
 		return ""
 	}
-	return fmt.Sprintf("; this run did not have approved authority (%s), so if a stage needed one of those sections, "+
+	overridden := ""
+	if overridePaths := pipelineAuthorityOverridePaths(*detail); overridePaths != "" {
+		overridden = " (" + overridePaths + ")"
+	}
+	return fmt.Sprintf("; this run did not have approved authority%s, so if a stage needed a section it overrides, "+
 		"an organisation administrator approves it with '%s' and the next run has it",
-		overridePaths, command)
+		overridden, command)
 }
 
 // shipPipelineRunNotRunError explains a run that concluded skipped: the
@@ -291,7 +297,7 @@ func shipPipelineAuthorityClause(detail *client.PipelineRunDetail) string {
 // branch's push is planned from a pipeline that does not build it. The
 // application is re-read so a pull request merged or closed during the wait
 // is described as it is now; a failed read keeps the state ship started with.
-func shipPipelineRunNotRunError(waitContext context.Context, detail *client.PipelineRunDetail,
+func shipPipelineRunNotRunError(waitContext context.Context, progress io.Writer, detail *client.PipelineRunDetail,
 	application shipApplicationView, trackedBranch string) error {
 	if payload, readError := apiClient.GetApplicationRaw(waitContext, application.ID); readError == nil {
 		var current shipApplicationView
@@ -299,16 +305,16 @@ func shipPipelineRunNotRunError(waitContext context.Context, detail *client.Pipe
 			application = current
 		}
 	}
+	pullRequestURL := ""
+	if application.PullRequestURL != nil {
+		pullRequestURL = strings.TrimSpace(*application.PullRequestURL)
+	}
 	reason := "the pipeline planned nothing for it"
 	if detail.ErrorMessage != nil && strings.TrimSpace(*detail.ErrorMessage) != "" {
 		reason = strings.TrimSuffix(strings.TrimSpace(*detail.ErrorMessage), ".")
 	}
 	notRun := fmt.Sprintf("pipeline run #%d of commit %s on branch %q was skipped without running anything (%s), "+
 		"so it will never publish an image", detail.RunNumber, shortShipSHA(detail.HeadSHA), trackedBranch, reason)
-	pullRequestURL := ""
-	if application.PullRequestURL != nil {
-		pullRequestURL = strings.TrimSpace(*application.PullRequestURL)
-	}
 	merged := application.PullRequestMergedAt != nil && *application.PullRequestMergedAt != ""
 	closed := application.PullRequestClosedAt != nil && *application.PullRequestClosedAt != ""
 	switch {
@@ -317,10 +323,7 @@ func shipPipelineRunNotRunError(waitContext context.Context, detail *client.Pipe
 			"without merging (%s) - reopen and merge it, then run ship again, or re-run ship with --ankra-build "+
 			"to build on Ankra's builders", notRun, trackedBranch, pullRequestURL)
 	case pullRequestURL != "" && !merged:
-		return fmt.Errorf("%s: the setup pull request that adds the pipeline (.ankra/pipeline.yaml) to %q is not "+
-			"merged yet (%s) - merge it, which pushes %q with the pipeline's push trigger in place, then run ship "+
-			"again, or re-run ship with --ankra-build to build on Ankra's builders now",
-			notRun, trackedBranch, pullRequestURL, trackedBranch)
+		return followSetupPullRequest(waitContext, progress, application, pullRequestURL, notRun)
 	}
 	return fmt.Errorf("%s: a push to %q is built only when the pipeline declares a push trigger for that branch "+
 		"(on: push: branches: [%s]) whose path filters match the change - check them with "+
