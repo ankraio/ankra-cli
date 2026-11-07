@@ -181,6 +181,9 @@ ankra cluster logs -l app=<name> -n prod --follow=false --tail 100
 ```bash
 ankra application auto-deploy get <application-id>
 ankra application auto-deploy set <application-id> --enabled        # or --enabled=false
+ankra application environments <application-id>                      # what each environment follows
+ankra application environments set <application-id> staging --follow develop
+ankra application environments set <application-id> staging --none  # back to the tracked branch
 ankra pipeline list --application <application-id>    # the Ankra Pipelines runs
 ankra pipeline get <run-id> --application <application-id>
 ankra pipeline run --application <application-id> --wait
@@ -195,8 +198,10 @@ read and steer the GitHub Actions workflow. Convert instead of tuning it:
 
 With auto-deploy on, a build Ankra observes on the tracked branch rolls itself out unattended to
 every environment that follows pushes. With it off, a push still builds and waits for an explicit
-`ankra application deploy`. `auto-deploy set` is application-wide; the per-environment switch is
-the portal's **Settings → Push to deploy → What follows pushes**. The golden path: development
+`ankra application deploy`. `auto-deploy set` is application-wide; each environment's branch rule
+and switch is `ankra application environments set` (the portal's **Settings → Deploys**): a rule
+(`--follow develop,release/*`) turns pushes on for that environment, `--disable` turns them off,
+`--none` returns it to the tracked branch. The golden path: development
 follows pushes, production does not, and a person promotes the tag development proved with
 `ankra application deploy <application-id> --cluster <prod> --set image_tag=sha-<7>` (`ankra-ship` §7).
 

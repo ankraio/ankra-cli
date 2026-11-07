@@ -38,41 +38,49 @@ type NodeDiagnoseResult struct {
 func (c *Client) DiagnoseClusterNode(ctx context.Context, provider, clusterID, nodeID string) (*NodeDiagnoseResult, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/%s/nodes/%s/diagnose",
 		c.BaseURL, neturl.PathEscape(provider), neturl.PathEscape(clusterID), neturl.PathEscape(nodeID))
+	var result NodeDiagnoseResult
+	if postError := c.postNodeFamilyRead(ctx, endpoint, "node diagnose failed", &result); postError != nil {
+		return nil, postError
+	}
+	return &result, nil
+}
+
+// postNodeFamilyRead POSTs to one of the platform's read-only node-family
+// routes (diagnose, console-log) and decodes the NodeRemediationResult into
+// target. The platform's own wording for a missing node (404) or a node or
+// provider the read cannot serve (409) is surfaced verbatim; failureLabel
+// names the read when there is none.
+func (c *Client) postNodeFamilyRead(ctx context.Context, endpoint string, failureLabel string, target any) error {
 	request, requestError := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(nil))
 	if requestError != nil {
-		return nil, fmt.Errorf("create request: %w", requestError)
+		return fmt.Errorf("create request: %w", requestError)
 	}
 	request.Header.Set("Authorization", "Bearer "+c.Token)
 
 	response, doError := c.httpClientForSlowWrite().Do(request)
 	if doError != nil {
-		return nil, fmt.Errorf("request failed: %w", doError)
+		return fmt.Errorf("request failed: %w", doError)
 	}
 	defer closeBody(response)
 
 	body, readError := io.ReadAll(io.LimitReader(response.Body, maxResponseBodySize))
 	if readError != nil {
-		return nil, fmt.Errorf("read response: %w", readError)
+		return fmt.Errorf("read response: %w", readError)
 	}
 	if response.StatusCode == http.StatusUnauthorized {
-		return nil, ErrUnauthorized
+		return ErrUnauthorized
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		if denied := PermissionDeniedFromResponse(response.StatusCode, body); denied != nil {
-			return nil, denied
+			return denied
 		}
-		// A missing node (404) and a provider without the SSH lane, or a node
-		// not in a diagnosable state (409), arrive with the platform's own
-		// wording in detail; surface it verbatim.
 		if detail := detailFromBody(body); detail != "" {
-			return nil, newUnexpectedResponseErrorWithMessage(response.StatusCode, detail)
+			return newUnexpectedResponseErrorWithMessage(response.StatusCode, detail)
 		}
-		return nil, newUnexpectedResponseError("node diagnose failed", response.StatusCode, redactedBodyForError(body, 500))
+		return newUnexpectedResponseError(failureLabel, response.StatusCode, redactedBodyForError(body, 500))
 	}
-
-	var result NodeDiagnoseResult
-	if unmarshalError := json.Unmarshal(body, &result); unmarshalError != nil {
-		return nil, fmt.Errorf("parse response: %w", unmarshalError)
+	if unmarshalError := json.Unmarshal(body, target); unmarshalError != nil {
+		return fmt.Errorf("parse response: %w", unmarshalError)
 	}
-	return &result, nil
+	return nil
 }

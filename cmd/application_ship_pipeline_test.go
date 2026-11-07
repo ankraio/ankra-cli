@@ -537,8 +537,7 @@ func TestApplicationShipExplainsARunSkippedBecauseTheSetupPullRequestIsOpen(t *t
 	for _, want := range []string{
 		"pipeline run #28 of commit 9f4a1c2",
 		"No trigger this pipeline declares matches this event",
-		"setup pull request",
-		"is not merged yet (https://github.com/acme/shop/pull/1)",
+		"waiting for the setup pull request: https://github.com/acme/shop/pull/1",
 		"--ankra-build",
 	} {
 		if !strings.Contains(message, want) {
@@ -553,6 +552,9 @@ func TestApplicationShipExplainsARunSkippedBecauseTheSetupPullRequestIsOpen(t *t
 	}
 	if len(mockClient.dispatches) != 0 {
 		t.Errorf("a refused run must not be answered with a dispatch: %+v", mockClient.dispatches)
+	}
+	if code := exitCodeFor(executeError); code != exitWaiting {
+		t.Errorf("exit code = %d, want %d: an open setup pull request is not a failure", code, exitWaiting)
 	}
 }
 
