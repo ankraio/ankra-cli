@@ -65,6 +65,7 @@ func TestShipAddressHostnameReadsTheHostOfAnyURL(t *testing.T) {
 		"https://shop.acme.ankra.cc":           "shop.acme.ankra.cc",
 		"http://shop.acme.ankra.cc:8443/store": "shop.acme.ankra.cc",
 		"shop.acme.ankra.cc":                   "shop.acme.ankra.cc",
+		"shop.acme.ankra.cc:8080":              "shop.acme.ankra.cc",
 	}
 	for address, expected := range cases {
 		if hostname := shipAddressHostname(address); hostname != expected {

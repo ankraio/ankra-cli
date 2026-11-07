@@ -44,14 +44,17 @@ func shipURLAddressFamilies(waitContext context.Context, address string) []strin
 	return shipAddressFamiliesOf(addresses)
 }
 
-// shipAddressHostname is the hostname of a URL, or the address itself when it
-// is already a bare hostname.
+// shipAddressHostname is the hostname of a URL or of a bare host:port, or the
+// address itself when it is already a bare hostname.
 func shipAddressHostname(address string) string {
 	parsed, parseError := url.Parse(address)
-	if parseError != nil || parsed.Hostname() == "" {
-		return address
+	if parseError == nil && parsed.Hostname() != "" {
+		return parsed.Hostname()
 	}
-	return parsed.Hostname()
+	if host, _, splitError := net.SplitHostPort(address); splitError == nil {
+		return host
+	}
+	return address
 }
 
 func shipAddressFamiliesOf(addresses []net.IPAddr) []string {
