@@ -547,6 +547,14 @@ type APIClient interface {
 	DiscoverEndpointModels(endpointID string) ([]string, error)
 	ListAILaneModels() ([]client.AILaneModel, error)
 	SetAILaneModel(lane string, modelKey string) ([]client.AILaneModel, error)
+	ListPersonalAIKeys() (*client.PersonalAIKeyListing, error)
+	AddPersonalAIKey(request client.AddPersonalAIKeyRequest) (*client.PersonalAIKey, error)
+	ReorderPersonalAIKeys(keyIDs []string) (*client.PersonalAIKeyList, error)
+	RenamePersonalAIKey(keyID string, label string) (*client.PersonalAIKey, error)
+	DeletePersonalAIKey(keyID string) error
+	TestPersonalAIKey(keyID string) (*client.PersonalAIKeyTestResult, error)
+	GetPersonalAIKeysPolicy() (*client.PersonalAIKeysPolicy, error)
+	SetPersonalAIKeysPolicy(allowed bool) (*client.PersonalAIKeysPolicy, error)
 	ListRelatedRepositories(ctx context.Context, installationID string) ([]client.RelatedRepository, error)
 	CreateRelatedRepository(ctx context.Context, installationID string, repoFullName string,
 		relatedRepoFullName string) (*client.RelatedRepository, error)
@@ -717,6 +725,8 @@ type APIClient interface {
 	GetOvhClusterNode(clusterID, nodeID string) (*client.NodeDetail, error)
 	RestartOvhClusterNode(clusterID, nodeID string) (*client.RestartNodeResult, error)
 	OvhNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error)
+	OvhNodeConsoleLog(ctx context.Context, clusterID, nodeID string) (*client.NodeConsoleLogResult, error)
+	GetNodeKubeletConfig(clusterID, nodeName string) (*client.NodeKubeletConfig, error)
 	UpdateOvhBastionInstanceType(ctx context.Context, clusterID, instanceType string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error)
 	UpdateOvhBastionAllowedIPs(ctx context.Context, clusterID string, allowedIPs []string) (*client.UpdateBastionAllowedIPsResult, error)
 	GetOvhBastionHealth(clusterID string) (*client.BastionHealthResult, error)

@@ -885,6 +885,7 @@ func printExecutionDetail(detail client.ExecutionDetail) {
 	fmt.Printf("  Name: %s\n", detail.Execution.DisplayName)
 	fmt.Printf("  Type: %s\n", detail.Execution.Type)
 	fmt.Printf("  Scope: %s\n", detail.Execution.Scope)
+	fmt.Printf("  Initiated By: %s\n", executionInitiator(detail.Execution))
 	fmt.Printf("  Status: %s\n", renderColouredStatus(detail.Execution.Status))
 	if attention := renderAttention(detail.Execution); attention != "" {
 		fmt.Printf("  Attention: %s\n", attention)
@@ -901,6 +902,21 @@ func printExecutionDetail(detail client.ExecutionDetail) {
 	)
 	fmt.Printf("  Created At: %s\n", formatOptionalTime(detail.Execution.CreatedAt))
 	fmt.Printf("  Updated At: %s\n", formatOptionalTime(detail.Execution.UpdatedAt))
+}
+
+// executionInitiator says who started an execution, as far as the platform
+// says: the name it gives for a member or one of the organisation's service
+// principals, otherwise the recorded user id (someone the platform does not
+// name to this organisation), otherwise that no user was recorded, which an
+// automated run, an older operation and an older platform all report.
+func executionInitiator(execution client.ExecutionSummary) string {
+	if execution.InitiatedBy != nil && *execution.InitiatedBy != "" {
+		return *execution.InitiatedBy
+	}
+	if execution.UserID != nil && *execution.UserID != "" {
+		return "user " + *execution.UserID
+	}
+	return "not recorded (an automated run or an older operation)"
 }
 
 func renderColouredStatus(status string) string {

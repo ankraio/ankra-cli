@@ -2,10 +2,38 @@
 
 ## Unreleased
 
+## v0.70.0 - 2026-11-07
+
+This release adds `ankra ai keys`: put your own Anthropic Console or OpenRouter API keys on
+your profile, and the chats and pull request reviews you start run on them, in the order you
+choose. The key is never a flag: `add` asks for it with the input hidden or reads it from a
+pipe, and a Claude subscription token is refused before anything is sent. Administrators can
+turn members' own keys off and on with `ankra ai keys policy`.
+
+### Added
+
+- **`ankra ai keys` runs the chats and pull request reviews you start on your own AI keys.** `add` puts an Anthropic Console key (`sk-ant-api...`) or an OpenRouter key (`sk-or-...`) on your profile, `list` shows your keys in the order they are tried with each one's status (active, out of credit and when it is tried again, or rejected) and whether your organisation uses them, and `test`, `rename`, `order` and `remove` work on one key named by its id or its label. `order` takes the keys you want first and keeps the rest after them, so `ankra ai keys order work` moves one key to the top. The key is never a flag, where it would land in your shell history and the process list: `add` asks for it with the input hidden, or reads it from a pipe with `--key-stdin`, and only the masked preview is ever printed. A Claude subscription token (`sk-ant-oat...`) or an Anthropic admin key is refused before anything is sent. `ankra ai keys policy` shows whether the organisation lets members use their own keys, and an administrator turns that off and on with `policy disable` and `policy allow`. Every command takes `-o json`, and `test` exits 1 when the key fails. The same keys are in the portal under Profile, Connected accounts, Your AI keys.
+
+## v0.69.0 - 2026-11-06
+
+This release adds three reads for working out why a node hung: `ankra cluster ovh nodes
+console-log` reads its serial console, `ankra cluster describe node <name> --kubelet-config`
+shows the kubelet's live configuration, and `ankra cluster operations list <id>` says who started
+an operation. `ankra cluster describe --managed-fields` shows who last wrote an object, and every
+`ankra cluster operations` command accepts a short execution id.
+
+Most scripts need no change: the new commands and fields only add to what was there, and
+`-o json` and `-o yaml` lose no key. Two things behave differently. A short execution id that used
+to answer 422 is now looked up. A command whose id or name would put a blank, `.` or `..` segment
+into a request now exits 2 before it sends anything, where it used to send the request.
+
 ### Added
 
 - **`ankra cluster describe --managed-fields` shows who last wrote an object.** It reads the object live and lists each field manager with its operation, subresource and time, which is how to see what resized a pod in place (subresource `resize`), scaled a workload or edited its spec. Kubernetes keeps one entry per manager and subresource, so this is the latest write of each, not a full history. When the cluster cannot answer live, the command says the field managers are unavailable rather than that there are none.
 - **Every `ankra cluster operations` command accepts a short execution id.** `steps`, `list <id>`, `retry`, `cancel` and `cancel-step` take the first 6 or more characters of an id, the way a report or a chat message abbreviates it, instead of answering 422. A short id is looked up among the most recent executions of the active cluster, or of the organisation when no cluster is selected. Two matches are refused and both are named.
+- **`ankra cluster ovh nodes console-log` reads a node's serial console.** It asks the OVH compute API for the newest lines the VM wrote to its console, so it answers for a node that hung, where SSH, the in-cluster agent and the node's own logs cannot: a kernel panic, a soft lockup or an out-of-memory kill is often the last thing written there. The log goes to stdout and the notes to stderr, so it pipes into `grep` or a file. The platform returns at most the newest 1000 lines and says when older output may exist; `--lines` keeps fewer. Values that look like secrets, such as a token a boot script printed, are replaced with `[REDACTED:...]` markers before the log is stored, and the command says how many. A read that finished but failed, for example because the instance is gone, exits 1 with the provider's reason. It needs a platform that serves the console read, and it is offered for OVH clusters only.
+- **`ankra cluster describe node <name> --kubelet-config` shows the kubelet's live configuration.** It adds the configuration the kubelet reports on `/configz`: the values in force once its flags and config file were merged, such as eviction thresholds, reserved resources, image garbage collection and max pods, which the Node object does not carry. A kubelet the platform cannot reach is reported as unreadable, with the reason, never as an empty configuration, and the rest of the describe output is printed as before. `-o json` and `-o yaml` carry it as `kubelet_config`, or `kubelet_config_error`.
+- **`ankra cluster operations list <id>` says who started an operation.** The detail view has an `Initiated By` line naming the member or service principal the platform recorded. When it recorded nobody, for an automated run or an operation older than the field, the line says so instead of being left out. `-o json` carries `user_id` and `initiated_by` on every execution that `operations list` and `operations steps` print. `-o yaml` names them `userid` and `initiatedby`, the way it already names the execution's other fields, such as `createdat`.
 
 ### Fixed
 
