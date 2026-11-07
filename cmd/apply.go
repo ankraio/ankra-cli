@@ -230,8 +230,7 @@ func reportApplyResult(cmd *cobra.Command, importResponse *client.ImportResponse
 		fmt.Println(flattenedCommand)
 	}
 
-	fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
-		strings.TrimRight(baseURL, "/"), importResponse.ClusterId)
+	fmt.Printf("\nView it in the UI:\n  %s\n", portalClusterURLByID(importResponse.ClusterId))
 	printValidationWarnings(cmd.ErrOrStderr(), importResponse.Warnings)
 	return nil
 }

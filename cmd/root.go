@@ -288,6 +288,11 @@ func persistentPreRunE(cmd *cobra.Command, _ []string) error {
 	// can be read as the commands it ran.
 	client.SetInvocationCommand(cmd.CommandPath())
 	client.SetInvocationOrganisationLevel(commandIsOrganisationLevel(cmd))
+	// A mistyped -o is refused before the command does anything, so a write
+	// never lands only to fail at rendering its answer.
+	if outputError := validateStructuredOutputFlag(cmd); outputError != nil {
+		return outputError
+	}
 	if !commandRequiresAuth(cmd) || commandDryRunSkipsAuth(cmd) {
 		return nil
 	}

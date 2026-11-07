@@ -87,12 +87,29 @@ func TestDeprovisionMorpheusCluster_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	})
-	result, deprovisionError := testClient.DeprovisionMorpheusCluster("morpheus-cluster-123")
+	result, deprovisionError := testClient.DeprovisionMorpheusCluster("morpheus-cluster-123", DeprovisionOptions{})
 	if deprovisionError != nil {
 		t.Fatalf("DeprovisionMorpheusCluster: %v", deprovisionError)
 	}
 	if !result.Success {
 		t.Error("Success = false, want true")
+	}
+}
+
+// The Morpheus deprovision used to send no options at all, so a --force the
+// platform honours never reached it (ankra-v3qdto.6).
+func TestDeprovisionMorpheusClusterSendsTheOptions(t *testing.T) {
+	var gotQuery string
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		jsonResponse(t, w, http.StatusOK, ProviderDeprovisionClusterResponse{Success: true, ClusterID: "c-1"})
+	})
+	if _, deprovisionError := testClient.DeprovisionMorpheusCluster("c-1",
+		DeprovisionOptions{Force: true, AcceptVolumeDataLoss: true}); deprovisionError != nil {
+		t.Fatalf("DeprovisionMorpheusCluster: %v", deprovisionError)
+	}
+	if gotQuery != "accept_volume_data_loss=true&force=true" {
+		t.Errorf("query = %q, want force and the volume consent", gotQuery)
 	}
 }
 

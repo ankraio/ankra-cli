@@ -116,6 +116,7 @@ func init() {
 	)
 
 	ankraCloudDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	ankraCloudDeprovisionCmd.Flags().Bool("force", false, deprovisionForceFlagUsage)
 	registerAcceptVolumeDataLossFlag(ankraCloudDeprovisionCmd)
 	ankraCloudCmd.AddCommand(
 		ankraCloudCreateCmd, ankraCloudPreflightCmd, ankraCloudDeprovisionCmd,
@@ -280,14 +281,21 @@ var ankraCloudCreateCmd = &cobra.Command{
 	Short: "Create a kubeadm or k3s cluster on Ankra Cloud servers",
 	Long: `Create an Ankra-managed kubeadm (default) or k3s cluster on Ankra Cloud
 servers. Ankra builds the private network (unless --private-network-id adopts
-one), a NAT router for the nodes' IPv4 egress, the per-server firewalls, a
-bastion with a public IPv4 address, and the control plane and worker servers.
-The kube-apiserver stays private and is reached through the bastion.
+one), the per-server firewalls, a bastion, and the control plane and worker
+servers. The kube-apiserver stays private and is reached through the bastion.
 
-That is the ipv4_nat network mode, the server default. A zone with no public
-IPv4 left takes --network-mode ipv6_only instead: no NAT router, the bastion
-is reached over IPv6 through the Cloud's port forward, and the nodes reach
-IPv4 through the zone's NAT64. The preflight names the mode a zone needs.
+The network mode is ipv6_only unless --network-mode says otherwise (the
+server default): no NAT router, the bastion holds only a public IPv6 address
+and is reached through the Cloud's port forward, and the nodes reach IPv4
+through the zone's NAT64. --network-mode ipv4_nat adds a NAT router for the
+nodes' IPv4 egress and gives the bastion a public IPv4 address; public IPv4
+is a paid add-on under a per-account quota. The preflight says whether a zone
+can serve the mode you chose.
+
+--credential-id may be left out where the platform provides a built-in Ankra
+Cloud credential, which it then uses; a platform without one refuses the
+create. Without --ssh-key-credential-id the cluster uses an SSH key Ankra
+generates for it; add your own later with 'ankra cluster ssh-keys set'.
 
 Servers are sized by plan: list them with 'ankra cluster ankracloud plans'.
 Each server's root disk is its plan's included disk unless a --*-disk-gib
@@ -326,8 +334,7 @@ Examples:
 
 		fmt.Printf("Ankra Cloud cluster '%s' created successfully!\n", result.Name)
 		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
-		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
-			strings.TrimRight(baseURL, "/"), result.ClusterID)
+		fmt.Printf("\nView it in the UI:\n  %s\n", portalClusterURLByID(result.ClusterID))
 		return nil
 	},
 }
@@ -403,8 +410,9 @@ pass --accept-volume-data-loss (--yes does not imply it).`,
 			skipConfirmation); confirmError != nil {
 			return confirmError
 		}
+		force, _ := cmd.Flags().GetBool("force")
 		result, deprovisionError := apiClient.DeprovisionAnkraCloudCluster(clusterID,
-			client.DeprovisionOptions{AcceptVolumeDataLoss: acceptsVolumeDataLoss})
+			client.DeprovisionOptions{Force: force, AcceptVolumeDataLoss: acceptsVolumeDataLoss})
 		if deprovisionError != nil {
 			return fmt.Errorf("deprovisioning Ankra Cloud cluster: %w", deprovisionError)
 		}
@@ -780,14 +788,14 @@ func registerAnkraCloudCreateFlags(commands ...*cobra.Command) {
 	for _, command := range commands {
 		command.Flags().String("name", "", "Cluster name (required)")
 		command.Flags().String("description", "", "Cluster description")
-		command.Flags().String("credential-id", "", "Ankra Cloud credential ID (required)")
+		command.Flags().String("credential-id", "", "Ankra Cloud credential ID (optional where the platform provides a built-in Ankra Cloud credential, which it then uses)")
 		command.Flags().String("runtime-credential-id", "", "Ankra Cloud credential for the in-cluster CCM/CSI (defaults to the provisioning credential)")
-		command.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (required)")
+		command.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (default: an SSH key Ankra generates for the cluster)")
 		command.Flags().String("zone", "", "Ankra Cloud zone (required; see 'ankracloud zones')")
 		command.Flags().String("template", "", "Server template (server default: debian-13; see 'ankracloud templates')")
 		command.Flags().String("private-network-id", "", "Adopt an existing private network instead of creating one")
 		command.Flags().String("network-ip-range", "", "RFC 1918 CIDR (/16 to /29) for the created private network (server default: a /24 derived from the cluster)")
-		command.Flags().String("network-mode", "", "Network mode: ipv4_nat (NAT router and a public-IPv4 bastion) or ipv6_only (for a zone without public IPv4: no router, bastion reached over IPv6 and the Cloud's port forward, IPv4 egress through NAT64). Server default: ipv4_nat")
+		command.Flags().String("network-mode", "", "Network mode: ipv6_only (the server default: no NAT router, the bastion reached over IPv6 and the Cloud's port forward, IPv4 egress through the zone's NAT64) or ipv4_nat (a NAT router and a bastion with a public IPv4 address; public IPv4 is a paid add-on)")
 		command.Flags().String("bastion-plan", "", "Bastion server plan (required)")
 		command.Flags().StringSlice("bastion-allowed-ips", nil, "CIDRs allowed to reach the bastion over SSH (default: anywhere)")
 		command.Flags().Int("control-plane-count", 0, "Control plane node count (server default: 1)")
@@ -815,7 +823,7 @@ func registerAnkraCloudCreateFlags(commands ...*cobra.Command) {
 		command.Flags().Bool("include-networking", true, "Provision the networking stack")
 		command.Flags().Bool("include-dns", true, "Provision the DNS zone")
 		registerGatewayAPIFlag(command)
-		for _, required := range []string{"name", "credential-id", "ssh-key-credential-id", "zone", "bastion-plan", "control-plane-plan"} {
+		for _, required := range []string{"name", "zone", "bastion-plan", "control-plane-plan"} {
 			_ = command.MarkFlagRequired(required)
 		}
 	}

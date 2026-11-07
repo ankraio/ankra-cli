@@ -107,6 +107,7 @@ func init() {
 	scalewayCmd.AddCommand(scalewayPreflightCmd)
 	scalewayCmd.AddCommand(scalewayDeprovisionCmd)
 	scalewayDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	scalewayDeprovisionCmd.Flags().Bool("force", false, deprovisionForceFlagUsage)
 	registerAcceptVolumeDataLossFlag(scalewayDeprovisionCmd)
 	scalewayCmd.AddCommand(scalewayStopCmd)
 	scalewayCmd.AddCommand(scalewayStartCmd)
@@ -123,7 +124,7 @@ func init() {
 // scalewayCreateRequestFromFlags builds the create body shared by `create` and
 // `preflight`. Flags left at their zero value are omitted so the server's
 // documented defaults apply (gateway type VPC-GW-S, bastion port 61000,
-// DEV1-M instance types, k3s, stacked etcd, retain).
+// DEV1-M instance types, kubeadm, stacked etcd, retain).
 func scalewayCreateRequestFromFlags(cmd *cobra.Command) (client.CreateScalewayClusterRequest, error) {
 	name, _ := cmd.Flags().GetString("name")
 	description, _ := cmd.Flags().GetString("description")
@@ -214,7 +215,7 @@ func scalewayCreateRequestFromFlags(cmd *cobra.Command) (client.CreateScalewayCl
 var scalewayCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new Scaleway Instances cluster",
-	Long: `Create an Ankra-managed K3s or kubeadm cluster on Scaleway Instances.
+	Long: `Create an Ankra-managed kubeadm (default) or k3s cluster on Scaleway Instances.
 
 Ankra owns the server graph, security group, Public Gateway v2, generated SSH
 key and (unless --private-network-id adopts an existing one) the Private
@@ -242,8 +243,7 @@ Examples:
 
 		fmt.Printf("Scaleway cluster '%s' created successfully!\n", result.Name)
 		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
-		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
-			strings.TrimRight(baseURL, "/"), result.ClusterID)
+		fmt.Printf("\nView it in the UI:\n  %s\n", portalClusterURLByID(result.ClusterID))
 		return nil
 	},
 }
@@ -322,8 +322,9 @@ accept that: answer the prompt on a terminal, or pass
 			scalewayDeprovisionYes); confirmError != nil {
 			return confirmError
 		}
+		force, _ := cmd.Flags().GetBool("force")
 		result, deprovisionError := apiClient.DeprovisionScalewayCluster(clusterID,
-			client.DeprovisionOptions{AcceptVolumeDataLoss: acceptsVolumeDataLoss})
+			client.DeprovisionOptions{Force: force, AcceptVolumeDataLoss: acceptsVolumeDataLoss})
 		if deprovisionError != nil {
 			return fmt.Errorf("deprovisioning Scaleway cluster: %w", deprovisionError)
 		}
@@ -565,7 +566,7 @@ func registerScalewayCreateFlags(commands ...*cobra.Command) {
 		command.Flags().String("control-plane-type", "", "Control plane commercial type (server default: DEV1-M)")
 		command.Flags().Int("worker-count", 0, "Default-pool worker count (server default: 1)")
 		command.Flags().String("worker-type", "", "Worker commercial type (server default: DEV1-M)")
-		command.Flags().String("distribution", "", "Kubernetes distribution: k3s or kubeadm (server default: k3s). kubeadm on Scaleway is Cilium-only")
+		command.Flags().String("distribution", "", "Kubernetes distribution: kubeadm or k3s (server default: kubeadm). kubeadm on Scaleway is Cilium-only")
 		command.Flags().String("kubernetes-version", "", "Pin a Kubernetes version (default: latest supported)")
 		command.Flags().String("etcd-topology", "", "etcd topology: stacked or external (server default: stacked)")
 		command.Flags().Int("etcd-node-count", 0, "External etcd node count, 3 or 5 (server default: 3)")

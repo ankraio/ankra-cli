@@ -388,6 +388,14 @@ var allCloudClusterKinds = []cloudClusterKind{
 	cloudClusterKindMorpheus,
 }
 
+// deprovisionForceFlagUsage is --force on the provider deprovision commands
+// that had none (Scaleway, Ankra Cloud): what the platform does with force on
+// every cloud kind, and what it leaves to the volume consent.
+const deprovisionForceFlagUsage = "Force teardown: skip the in-cluster agent's uninstall of the stack resources " +
+	"and tolerate infrastructure that can no longer be reached. It never decides the persistent volumes: a cluster " +
+	"whose retention_policy is retain keeps them, and a delete cluster's are deleted only with " +
+	"--accept-volume-data-loss or a yes at the prompt"
+
 // isCloudClusterKind reports whether deprovisioning this kind goes to the
 // provider endpoint, which deletes the cluster record along with its
 // resources. The generic imported lane keeps the record, so the two are not
@@ -455,19 +463,13 @@ If no cluster name is provided, uses the currently selected cluster.`,
 			return refusal
 		}
 
-		// The Hetzner, UpCloud, OVH, DigitalOcean, AWS and Proxmox
-		// deprovision endpoints honor force; the Morpheus lane and the
-		// generic imported deprovision drop it, so say so instead of
-		// implying a forced teardown that never happens.
-		if force {
-			switch cloudClusterKind(clusterKind) {
-			case cloudClusterKindHetzner, cloudClusterKindUpcloud,
-				cloudClusterKindOvh, cloudClusterKindDigitalocean, cloudClusterKindAws,
-				cloudClusterKindProxmox:
-			default:
-				_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
-					"warning: --force has no effect for this cluster type")
-			}
+		// Every cloud kind's deprovision endpoint honours force: it skips the
+		// in-cluster agent's uninstall and force-deletes every resource. Only
+		// the generic imported deprovision takes no force, so that is the one
+		// lane told the flag does nothing.
+		if force && !isCloudClusterKind(cloudClusterKind(clusterKind)) {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
+				"warning: --force has no effect on an imported cluster's deprovision")
 		}
 
 		// The persistent volumes go with the cluster only when the operator
@@ -611,7 +613,7 @@ If no cluster name is provided, uses the currently selected cluster.`,
 			}
 			return nil
 		case cloudClusterKindMorpheus:
-			result, deprovisionError := apiClient.DeprovisionMorpheusCluster(clusterID)
+			result, deprovisionError := apiClient.DeprovisionMorpheusCluster(clusterID, deprovisionOptions)
 			if deprovisionError != nil {
 				return fmt.Errorf("deprovisioning HPE Morpheus cluster: %w", deprovisionError)
 			}
@@ -745,7 +747,7 @@ func init() {
 	// so existing scripts don't break on an unknown flag; see DEPRECATIONS.md.
 	_ = clusterDeprovisionCmd.Flags().MarkDeprecated("auto-delete",
 		"the backend does not support it; deprovision never deletes the cluster record (use 'ankra delete cluster' afterwards)")
-	clusterDeprovisionCmd.Flags().Bool("force", false, "Force deprovision even if cluster is in an unexpected state; on UpCloud, Hetzner, OVH, DigitalOcean and AWS also deletes leftover load balancers (the persistent volumes are deleted forced or not, and only with --accept-volume-data-loss or a yes at the prompt); on Proxmox finishes the teardown when the host or jumphost is unreachable, leaving the VMs behind")
+	clusterDeprovisionCmd.Flags().Bool("force", false, "Force the teardown of a cloud cluster of any kind: skip the in-cluster agent's uninstall of the stack resources and tolerate infrastructure that can no longer be reached. On UpCloud, Hetzner, OVH, DigitalOcean and AWS it also deletes leftover load balancers; on Proxmox it finishes the teardown when the host or jumphost is unreachable, leaving the VMs behind. It never decides the persistent volumes: they are deleted only with --accept-volume-data-loss or a yes at the prompt, and a cluster whose retention_policy is retain keeps them. No effect on an imported cluster")
 	clusterDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt (not the persistent volume acknowledgement)")
 	registerAcceptVolumeDataLossFlag(clusterDeprovisionCmd)
 

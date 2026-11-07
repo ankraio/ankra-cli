@@ -52,9 +52,7 @@ var hetznerCreateCmd = &cobra.Command{
 		gitopsRepository, _ := cmd.Flags().GetString("gitops-repository")
 		gitopsBranch, _ := cmd.Flags().GetString("gitops-branch")
 
-		if sshKeyCredentialID != "" && len(sshKeyCredentialIDs) == 0 {
-			sshKeyCredentialIDs = []string{sshKeyCredentialID}
-		}
+		sshKeyCredentialIDs = mergeSSHKeyCredentialIDs(sshKeyCredentialIDs, sshKeyCredentialID)
 
 		req := client.CreateHetznerClusterRequest{
 			Name:                   name,
@@ -117,10 +115,31 @@ var hetznerCreateCmd = &cobra.Command{
 				_, _ = fmt.Fprintf(out, "  Server types: %s\n", summary)
 			}
 		}
-		_, _ = fmt.Fprintf(out, "\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
-			strings.TrimRight(baseURL, "/"), result.ClusterID)
+		_, _ = fmt.Fprintf(out, "\nView it in the UI:\n  %s\n", portalClusterURLByID(result.ClusterID))
 		return nil
 	},
+}
+
+// mergeSSHKeyCredentialIDs is the SSH keys a Hetzner create installs: every
+// id --ssh-key-credential-ids names and the one --ssh-key-credential-id
+// names, each once, in the order given. The single flag used to be dropped
+// whenever the list flag was also set, so a key the user asked for was
+// silently left off the servers.
+func mergeSSHKeyCredentialIDs(listed []string, single string) []string {
+	merged := make([]string, 0, len(listed)+1)
+	seen := make(map[string]bool, len(listed)+1)
+	for _, credentialID := range append(append([]string(nil), listed...), single) {
+		credentialID = strings.TrimSpace(credentialID)
+		if credentialID == "" || seen[credentialID] {
+			continue
+		}
+		seen[credentialID] = true
+		merged = append(merged, credentialID)
+	}
+	if len(merged) == 0 {
+		return nil
+	}
+	return merged
 }
 
 var hetznerDeprovisionCmd = &cobra.Command{
@@ -670,8 +689,8 @@ var hetznerServerTypesCmd = &cobra.Command{
 func init() {
 	hetznerCreateCmd.Flags().String("name", "", "Cluster name (required)")
 	hetznerCreateCmd.Flags().String("credential-id", "", "Hetzner API credential ID (required)")
-	hetznerCreateCmd.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (single key, use --ssh-key-credential-ids for multiple)")
-	hetznerCreateCmd.Flags().StringSlice("ssh-key-credential-ids", nil, "SSH key credential IDs (comma-separated or repeated)")
+	hetznerCreateCmd.Flags().String("ssh-key-credential-id", "", "SSH key credential ID; installed together with any --ssh-key-credential-ids")
+	hetznerCreateCmd.Flags().StringSlice("ssh-key-credential-ids", nil, "SSH key credential IDs (comma-separated or repeated); --ssh-key-credential-id adds one more")
 	hetznerCreateCmd.Flags().String("location", "", "Hetzner location (required)")
 	hetznerCreateCmd.Flags().String("network-ip-range", "10.0.0.0/16", "Network IP range")
 	hetznerCreateCmd.Flags().String("subnet-range", "10.0.1.0/24", "Subnet range")

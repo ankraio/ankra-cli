@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"ankra/internal/client"
@@ -34,6 +35,17 @@ type cloudDeprovisionDispatchMock struct {
 	calledProvider string
 	genericCalls   int
 	proxmoxForce   bool
+	// sentForce is the force each provider lane was called with.
+	sentForce map[string]bool
+}
+
+// record notes the provider lane a deprovision reached and the force it sent.
+func (m *cloudDeprovisionDispatchMock) record(provider string, options client.DeprovisionOptions) {
+	m.calledProvider = provider
+	if m.sentForce == nil {
+		m.sentForce = map[string]bool{}
+	}
+	m.sentForce[provider] = options.Force
 }
 
 func (m *cloudDeprovisionDispatchMock) GetCluster(name string) (client.ClusterListItem, error) {
@@ -56,44 +68,44 @@ func (m *cloudDeprovisionDispatchMock) DeprovisionCluster(_ context.Context, _ s
 	return &client.DeprovisionClusterResult{}, nil
 }
 
-func (m *cloudDeprovisionDispatchMock) DeprovisionHetznerCluster(clusterID string, _ client.DeprovisionOptions) (*client.DeprovisionHetznerClusterResponse, error) {
-	m.calledProvider = "hetzner"
+func (m *cloudDeprovisionDispatchMock) DeprovisionHetznerCluster(clusterID string, options client.DeprovisionOptions) (*client.DeprovisionHetznerClusterResponse, error) {
+	m.record("hetzner", options)
 	return &client.DeprovisionHetznerClusterResponse{Success: true, ClusterID: clusterID}, nil
 }
 
-func (m *cloudDeprovisionDispatchMock) DeprovisionOvhCluster(clusterID string, _ client.DeprovisionOptions) (*client.DeprovisionOvhClusterResponse, error) {
-	m.calledProvider = "ovh"
+func (m *cloudDeprovisionDispatchMock) DeprovisionOvhCluster(clusterID string, options client.DeprovisionOptions) (*client.DeprovisionOvhClusterResponse, error) {
+	m.record("ovh", options)
 	return &client.DeprovisionOvhClusterResponse{Success: true, ClusterID: clusterID}, nil
 }
 
-func (m *cloudDeprovisionDispatchMock) DeprovisionUpcloudCluster(clusterID string, _ client.DeprovisionOptions) (*client.DeprovisionUpcloudClusterResponse, error) {
-	m.calledProvider = "upcloud"
+func (m *cloudDeprovisionDispatchMock) DeprovisionUpcloudCluster(clusterID string, options client.DeprovisionOptions) (*client.DeprovisionUpcloudClusterResponse, error) {
+	m.record("upcloud", options)
 	return &client.DeprovisionUpcloudClusterResponse{Success: true, ClusterID: clusterID}, nil
 }
 
-func (m *cloudDeprovisionDispatchMock) DeprovisionDigitaloceanCluster(clusterID string, _ client.DeprovisionOptions) (*client.DeprovisionDigitaloceanClusterResponse, error) {
-	m.calledProvider = "digitalocean"
+func (m *cloudDeprovisionDispatchMock) DeprovisionDigitaloceanCluster(clusterID string, options client.DeprovisionOptions) (*client.DeprovisionDigitaloceanClusterResponse, error) {
+	m.record("digitalocean", options)
 	return &client.DeprovisionDigitaloceanClusterResponse{Success: true, ClusterID: clusterID}, nil
 }
 
-func (m *cloudDeprovisionDispatchMock) DeprovisionScalewayCluster(clusterID string, _ client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
-	m.calledProvider = "scaleway"
+func (m *cloudDeprovisionDispatchMock) DeprovisionScalewayCluster(clusterID string, options client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
+	m.record("scaleway", options)
 	return &client.ProviderDeprovisionClusterResponse{ClusterID: clusterID}, nil
 }
 
-func (m *cloudDeprovisionDispatchMock) DeprovisionAwsCluster(clusterID string, _ client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
-	m.calledProvider = "aws"
+func (m *cloudDeprovisionDispatchMock) DeprovisionAwsCluster(clusterID string, options client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
+	m.record("aws", options)
 	return &client.ProviderDeprovisionClusterResponse{ClusterID: clusterID}, nil
 }
 
 func (m *cloudDeprovisionDispatchMock) DeprovisionProxmoxCluster(clusterID string, options client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
-	m.calledProvider = "proxmox"
+	m.record("proxmox", options)
 	m.proxmoxForce = options.Force
 	return &client.ProviderDeprovisionClusterResponse{ClusterID: clusterID}, nil
 }
 
-func (m *cloudDeprovisionDispatchMock) DeprovisionMorpheusCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error) {
-	m.calledProvider = "morpheus"
+func (m *cloudDeprovisionDispatchMock) DeprovisionMorpheusCluster(clusterID string, options client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
+	m.record("morpheus", options)
 	return &client.ProviderDeprovisionClusterResponse{ClusterID: clusterID}, nil
 }
 
@@ -172,7 +184,34 @@ func TestProxmoxDeprovisionForwardsForce(t *testing.T) {
 	}
 }
 
-func (m *cloudDeprovisionDispatchMock) DeprovisionAnkraCloudCluster(clusterID string, _ client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
-	m.calledProvider = "ankracloud"
+func (m *cloudDeprovisionDispatchMock) DeprovisionAnkraCloudCluster(clusterID string, options client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
+	m.record("ankracloud", options)
 	return &client.ProviderDeprovisionClusterResponse{ClusterID: clusterID}, nil
+}
+
+// The platform honours force on every cloud kind's deprovision, but the
+// command warned "--force has no effect" on Scaleway, Ankra Cloud and
+// Morpheus while sending it to the first two anyway, and the Morpheus client
+// dropped it (ankra-v3qdto.6). Enumerated from allCloudClusterKinds, so a kind
+// added there is held to the same rule.
+func TestEveryCloudClusterKindSendsForceWithoutAWarning(t *testing.T) {
+	for _, cloudKind := range allCloudClusterKinds {
+		t.Run(string(cloudKind), func(subtest *testing.T) {
+			mock := &cloudDeprovisionDispatchMock{
+				cluster: client.ClusterListItem{ID: "c-1", Name: "demo", Kind: string(cloudKind)},
+			}
+			output, executeError := runConfirmCommand(subtest, mock, "",
+				[]*cobra.Command{clusterDeprovisionCmd},
+				"cluster", "deprovision", "demo", "--yes", "--force=true")
+			if executeError != nil {
+				subtest.Fatalf("deprovision failed: %v", executeError)
+			}
+			if !mock.sentForce[string(cloudKind)] {
+				subtest.Fatalf("--force did not reach the %s lane: sent %v", cloudKind, mock.sentForce)
+			}
+			if strings.Contains(output, "no effect") {
+				subtest.Fatalf("a %s deprovision honours --force, so it must not be called ineffective:\n%s", cloudKind, output)
+			}
+		})
+	}
 }

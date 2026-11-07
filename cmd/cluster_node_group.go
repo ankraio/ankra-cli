@@ -802,9 +802,13 @@ var clusterNodeGroupAutoscalingSetCmd = &cobra.Command{
 	Use:   "set <cluster_id|name> <group_name>",
 	Short: "Enable or disable autoscaling for a node group",
 	Long: `Enable autoscaling with --enabled --min <n> --max <n>, or disable it with
---enabled=false. min must be at least 1 (scale-to-zero is not supported);
-enabling requires the cluster's ankra-agent to be recent enough to serve
-the autoscaler, and installs the Cluster Autoscaler on first enable.`,
+--enabled=false. Only the bounds you pass are sent: a --min or --max left out
+takes the platform's default (min 1, max 100), and --enabled=false on its own
+disables without touching them. --min 0 (scale-to-zero) is accepted where the
+platform can size a node from the group's instance type and the cluster's
+ankra-agent serves the node template; the platform names what is missing
+otherwise. Enabling requires the cluster's ankra-agent to be recent enough to
+serve the autoscaler, and installs the Cluster Autoscaler on first enable.`,
 	Args: nodeGroupArgs(2, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
@@ -820,7 +824,10 @@ the autoscaler, and installs the Cluster Autoscaler on first enable.`,
 			return kindError
 		}
 
-		req := client.NodeGroupAutoscalingRequest{Enabled: enabled, MinCount: minCount, MaxCount: maxCount}
+		// Only the bounds the user set are sent; the rest take the platform's
+		// defaults, which the flag defaults mirror for display.
+		req := client.NodeGroupAutoscalingRequest{Enabled: enabled, MinCount: minCount, MaxCount: maxCount,
+			OmitMinCount: !cmd.Flags().Changed("min"), OmitMaxCount: !cmd.Flags().Changed("max")}
 
 		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
 		if err != nil {
@@ -1001,8 +1008,8 @@ func init() {
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("instance-type")
 
 	clusterNodeGroupAutoscalingSetCmd.Flags().Bool("enabled", true, "Enable (true) or disable (false) autoscaling")
-	clusterNodeGroupAutoscalingSetCmd.Flags().Int("min", 1, "Minimum node count while autoscaling (>= 1)")
-	clusterNodeGroupAutoscalingSetCmd.Flags().Int("max", 5, "Maximum node count while autoscaling")
+	clusterNodeGroupAutoscalingSetCmd.Flags().Int("min", 1, "Minimum node count while autoscaling (0 allows scale-to-zero); sent only when set, otherwise the platform default applies")
+	clusterNodeGroupAutoscalingSetCmd.Flags().Int("max", 100, "Maximum node count while autoscaling (at most 100); sent only when set, otherwise the platform default applies")
 
 	clusterNodeGroupLabelsCmd.Flags().String("labels", "", "Comma-separated key=value pairs to set on the group")
 	clusterNodeGroupLabelsCmd.Flags().Bool("clear", false, "Remove all labels from the node group")

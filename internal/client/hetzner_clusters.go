@@ -394,11 +394,36 @@ type DeleteNodeGroupResult struct {
 }
 
 // NodeGroupAutoscalingRequest is the PUT .../node-groups/{g}/autoscaling
-// body (Cluster Autoscaler min/max bounds; min_count >= 1 in v1).
+// body (Cluster Autoscaler min/max bounds). enabled is required; a bound the
+// body leaves out takes the platform's default (min_count 1, max_count 100),
+// so a plain {"enabled": false} disables without restating bounds. min_count
+// 0 (scale-to-zero) is accepted where the platform can size a node from the
+// group's instance type and the cluster's agent serves the node template.
+//
+// OmitMinCount/OmitMaxCount leave that bound out of the body. MinCount and
+// MaxCount keep the value the caller means either way (the platform default
+// for an omitted bound), so code that echoes the request still reads it.
 type NodeGroupAutoscalingRequest struct {
-	Enabled  bool `json:"enabled"`
-	MinCount int  `json:"min_count"`
-	MaxCount int  `json:"max_count"`
+	Enabled      bool `json:"enabled"`
+	MinCount     int  `json:"min_count"`
+	MaxCount     int  `json:"max_count"`
+	OmitMinCount bool `json:"-"`
+	OmitMaxCount bool `json:"-"`
+}
+
+// MarshalJSON writes enabled and only the bounds that are not omitted. The
+// command used to send its own flag defaults (min 1, max 5) for bounds the
+// user never set, so a plain enable capped the group at 5 nodes against the
+// platform's 100, and a disable overwrote the recorded bounds.
+func (request NodeGroupAutoscalingRequest) MarshalJSON() ([]byte, error) {
+	body := map[string]any{"enabled": request.Enabled}
+	if !request.OmitMinCount {
+		body["min_count"] = request.MinCount
+	}
+	if !request.OmitMaxCount {
+		body["max_count"] = request.MaxCount
+	}
+	return json.Marshal(body)
 }
 
 // NodeGroupAutoscalingResult is the GET/PUT autoscaling response body.

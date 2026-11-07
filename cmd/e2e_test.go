@@ -2088,6 +2088,10 @@ func (m baseMock) ScalewayNodeCloudInitLog(clusterID, nodeID string) (*client.No
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) UpdateScalewayBastionInstanceType(context.Context, string, string, bool) (*client.UpdateBastionInstanceTypeResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
 func (m baseMock) GetScalewayBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
 	return nil, errors.New("not implemented")
 }
@@ -3024,6 +3028,10 @@ func (m baseMock) AwsNodeCloudInitLog(clusterID, nodeID string) (*client.NodeClo
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) UpdateAwsBastionInstanceType(context.Context, string, string, bool) (*client.UpdateBastionInstanceTypeResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
 func (m baseMock) GetAwsBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
 	return nil, errors.New("not implemented")
 }
@@ -3180,6 +3188,10 @@ func (m baseMock) RestartProxmoxClusterNode(clusterID, nodeID string) (*client.R
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) UpdateProxmoxBastionInstanceType(context.Context, string, string, bool) (*client.UpdateBastionInstanceTypeResult, bool, error) {
+	return nil, false, errors.New("not implemented")
+}
+
 func (m baseMock) GetProxmoxBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
 	return nil, errors.New("not implemented")
 }
@@ -3244,7 +3256,7 @@ func (m baseMock) CreateMorpheusCluster(request client.CreateMorpheusClusterRequ
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) DeprovisionMorpheusCluster(clusterID string) (*client.ProviderDeprovisionClusterResponse, error) {
+func (m baseMock) DeprovisionMorpheusCluster(clusterID string, options client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -3318,6 +3330,10 @@ func (m baseMock) ListMorpheusClusterNodes(clusterID string) (*client.NodeListRe
 
 func (m baseMock) GetMorpheusClusterNode(clusterID, nodeID string) (*client.NodeDetail, error) {
 	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateMorpheusBastionInstanceType(context.Context, string, string, bool) (*client.UpdateBastionInstanceTypeResult, bool, error) {
+	return nil, false, errors.New("not implemented")
 }
 
 func (m baseMock) GetMorpheusBastionHealth(clusterID string) (*client.BastionHealthResult, error) {
