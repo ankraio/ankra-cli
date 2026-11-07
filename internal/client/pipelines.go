@@ -66,6 +66,15 @@ type PipelineSelector struct {
 	RepositoryID  string
 }
 
+// PipelineAuthorityOverride is one protected section a run did not take from
+// its definition: Path is where it sits in the definition, such as
+// "stages[build].resources", and Message the platform's sentence about it.
+type PipelineAuthorityOverride struct {
+	Section string `json:"section"`
+	Path    string `json:"path"`
+	Message string `json:"message"`
+}
+
 // ErrPipelineSelectorRequired refuses a call whose selector names neither a
 // repository nor an application.
 var ErrPipelineSelectorRequired = errors.New("a pipeline repository id or an application is required")
@@ -311,6 +320,9 @@ type PipelineRunDetail struct {
 	// nothing the approve route would accept, and absent from servers older
 	// than the field (ankra-erdtu). It is never AuthorityDefinitionID.
 	ApproveDefinitionID *string `json:"approve_definition_id"`
+	// AuthorityOverrides are the protected sections this run did not take from
+	// its definition, because no administrator approved them.
+	AuthorityOverrides []PipelineAuthorityOverride `json:"authority_overrides"`
 	// QueueReason and QueueReasonMessage say why a QUEUED run has not started
 	// (ankra-a0yh3): one of "planning", "waiting_on_concurrency_group",
 	// "waiting_on_run_cap", "waiting_on_step_cap", "waiting_on_ci_workers",
