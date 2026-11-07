@@ -636,3 +636,25 @@ func TestAIKeysPolicyRefusesAnUnknownSwitch(t *testing.T) {
 		t.Errorf("error = %v, set calls %v; want an unknown-command error and no change", executeError, mock.setAllowed)
 	}
 }
+
+// TestPersonalAIKeysPolicyNoteReportsAnUnsaidPolicyAsUnknown pins the note
+// under the keys listing: each of the three policies gets its own sentence, and
+// a listing that carried no policy says the answer is not known instead of
+// printing an empty value as if it were one.
+func TestPersonalAIKeysPolicyNoteReportsAnUnsaidPolicyAsUnknown(t *testing.T) {
+	cases := map[string]string{
+		client.PersonalAIKeysPolicyAllowed:    "runs the chats and pull request reviews you start on these keys",
+		client.PersonalAIKeysPolicyDisabled:   "turned members' own AI keys off",
+		client.PersonalAIKeysPolicySelfHosted: "runs AI on its own endpoint",
+		"":                                    "did not say whether this organisation uses your keys",
+	}
+	for policy, want := range cases {
+		note := personalAIKeysPolicyNote(policy)
+		if !strings.Contains(note, want) {
+			t.Errorf("policy %q: note %q does not contain %q", policy, note, want)
+		}
+		if strings.Contains(note, ": .") {
+			t.Errorf("policy %q: note %q prints an empty value", policy, note)
+		}
+	}
+}

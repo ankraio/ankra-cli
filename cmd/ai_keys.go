@@ -500,6 +500,13 @@ func readPersonalAIKey(cmd *cobra.Command) (string, error) {
 // readHiddenTerminalLine prints label to prompt and reads one line from the
 // terminal with echo off. An interrupt puts the terminal back the way it was
 // before giving up, so the shell is not left typing blind.
+//
+// A read on a terminal cannot be cancelled, so an interrupted call leaves its
+// reading goroutine blocked until the next line arrives or the process exits;
+// the result channel is buffered, so that goroutine then finishes without a
+// receiver. The CLI exits right after errCancelled, which is the only caller
+// this is written for: a long-lived process would need its own cancellable
+// reader instead.
 func readHiddenTerminalLine(descriptor int, prompt io.Writer, label string) (string, error) {
 	state, stateError := term.GetState(descriptor)
 	if stateError != nil {
@@ -732,9 +739,12 @@ func parsePersonalAIKeyTime(value *string) (time.Time, bool) {
 }
 
 // personalAIKeysPolicyNote says what the current organisation does with the
-// member's keys.
+// member's keys. An empty policy is a listing that did not say, which is
+// reported as not known rather than read as any of the three answers.
 func personalAIKeysPolicyNote(policy string) string {
 	switch policy {
+	case "":
+		return "Ankra did not say whether this organisation uses your keys; 'ankra ai keys policy' asks it directly."
 	case client.PersonalAIKeysPolicyAllowed:
 		return "Your organisation runs the chats and pull request reviews you start on these keys, trying them from the top."
 	case client.PersonalAIKeysPolicyDisabled:
