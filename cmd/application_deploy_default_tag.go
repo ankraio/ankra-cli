@@ -24,8 +24,9 @@ import (
 // before publishing leaves the record tagless while the registry still holds
 // every image published before it. The platform then refuses the deploy as
 // not ready although the portal's version picker, which lists the registry,
-// offers those images. The deploy command answers that refusal by choosing the
-// image itself, from the same registry listing, and deploying once more.
+// offers those images. The deploy command answers that refusal by deploying
+// the tracked branch's newest published build once more, or by naming the
+// newest image the registry holds.
 
 // imageTagInputName is the deploy input that selects the image to run.
 const imageTagInputName = "image_tag"
@@ -45,64 +46,75 @@ func isDeployTagNotRecorded(deployError error) bool {
 }
 
 // deployNewestPublishedImage deploys again with image_tag set to the newest
-// published image, saying on stderr which one and why. With no published
-// image to choose, or no registry listing to choose from, it answers the
-// original refusal unchanged.
+// published build of the application's tracked branch, and says on stderr
+// which one once the platform accepted it. An image of another branch is never
+// chosen on its own: the refusal then names the newest image the registry
+// holds, to pass with --set image_tag. With no registry listing to choose
+// from, it answers the original refusal unchanged.
 func deployNewestPublishedImage(command *cobra.Command, applicationID string,
 	deployRequest client.DeployApplicationRequest, refusal error) (json.RawMessage, error) {
-	choice, isFound, readError := newestPublishedImageTag(command.Context(), applicationID)
-	if readError != nil || !isFound {
+	choice, readError := newestPublishedImageTags(command.Context(), applicationID)
+	if readError != nil {
 		return nil, refusal
+	}
+	if choice.TrackedBranchTag == "" {
+		if choice.NewestRegistryTag == "" {
+			return nil, refusal
+		}
+		return nil, fmt.Errorf("%w\nThe newest image in the application's registry is %s, but it is not a build of the tracked branch "+
+			"Ankra can confirm; pass --set image_tag=%s to deploy it", refusal, choice.NewestRegistryTag, choice.NewestRegistryTag)
 	}
 	inputs := make(map[string]string, len(deployRequest.Inputs)+1)
 	for name, value := range deployRequest.Inputs {
 		inputs[name] = value
 	}
-	inputs[imageTagInputName] = choice.Tag
+	inputs[imageTagInputName] = choice.TrackedBranchTag
 	deployRequest.Inputs = inputs
+	payload, deployError := apiClient.DeployApplication(command.Context(), applicationID, deployRequest)
+	if deployError != nil {
+		return nil, deployError
+	}
 	_, _ = fmt.Fprintf(command.ErrOrStderr(),
-		"No image tag is recorded for this application's newest build; deploying %s, %s. "+
-			"Pass --set image_tag=<tag> to choose another.\n", choice.Tag, choice.Origin)
-	return apiClient.DeployApplication(command.Context(), applicationID, deployRequest)
+		"No image tag is recorded for this application's newest build; deployed %s, the newest published build of %s. "+
+			"Pass --set image_tag=<tag> to choose another.\n", choice.TrackedBranchTag, choice.TrackedBranch)
+	return payload, nil
 }
 
-// publishedImageTagChoice is the image a deploy without image_tag falls back
-// to, and the words that say where it came from.
+// publishedImageTagChoice is what a deploy without image_tag can fall back
+// to: the newest published build of the tracked branch, and the newest image
+// the registry holds for every component, either empty when there is none.
 type publishedImageTagChoice struct {
-	Tag    string
-	Origin string
+	TrackedBranch     string
+	TrackedBranchTag  string
+	NewestRegistryTag string
 }
 
-// newestPublishedImageTag picks the image a deploy without image_tag runs when
-// the platform has none recorded: the newest published build of the tracked
-// branch when the registry still holds it, otherwise the newest image the
-// registry holds for every component. found is false when the registry holds
-// no deployable image, or could not be listed.
-func newestPublishedImageTag(requestContext context.Context, applicationID string) (choice publishedImageTagChoice, found bool, readError error) {
+// newestPublishedImageTags reads the registry's deployable images and the
+// tracked branch's builds. A failed branch-builds read leaves TrackedBranchTag
+// empty; a failed registry read is an error, since nothing can be chosen.
+func newestPublishedImageTags(requestContext context.Context, applicationID string) (publishedImageTagChoice, error) {
 	versions, versionsError := apiClient.GetApplicationSecurityVersions(requestContext, applicationID, "")
 	if versionsError != nil {
-		return publishedImageTagChoice{}, false, versionsError
+		return publishedImageTagChoice{}, versionsError
 	}
 	deployable := deployableImageTags(versions)
 	if len(deployable) == 0 {
-		return publishedImageTagChoice{}, false, nil
+		return publishedImageTagChoice{}, nil
 	}
+	choice := publishedImageTagChoice{NewestRegistryTag: deployable[0]}
 	branchBuilds, branchBuildsError := apiClient.GetApplicationBranchBuilds(requestContext, applicationID)
-	if branchBuildsError == nil && branchBuilds.TrackedBranch != nil {
-		trackedBranch := *branchBuilds.TrackedBranch
-		for _, build := range branchBuilds.Builds {
-			if build.Branch == trackedBranch && slices.Contains(deployable, build.ImageTag) {
-				return publishedImageTagChoice{
-					Tag:    build.ImageTag,
-					Origin: "the newest published build of " + trackedBranch,
-				}, true, nil
-			}
+	if branchBuildsError != nil || branchBuilds.TrackedBranch == nil {
+		return choice, nil
+	}
+	trackedBranch := *branchBuilds.TrackedBranch
+	for _, build := range branchBuilds.Builds {
+		if build.Branch == trackedBranch && slices.Contains(deployable, build.ImageTag) {
+			choice.TrackedBranch = trackedBranch
+			choice.TrackedBranchTag = build.ImageTag
+			return choice, nil
 		}
 	}
-	return publishedImageTagChoice{
-		Tag:    deployable[0],
-		Origin: "the newest image published to the application's registry",
-	}, true, nil
+	return choice, nil
 }
 
 // artifactTagPattern matches the tags cosign-style signatures, attestations

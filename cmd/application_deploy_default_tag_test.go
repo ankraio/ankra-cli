@@ -17,6 +17,7 @@ const testTagNotRecordedRefusal = "Ankra has not recorded the tag of a published
 type deployDefaultTagMock struct {
 	baseMock
 	refuseFirstDeploy bool
+	refuseRetry       bool
 	deployRequests    []client.DeployApplicationRequest
 	versions          *client.ApplicationSecurityVersions
 	versionsError     error
@@ -28,6 +29,9 @@ func (mock *deployDefaultTagMock) DeployApplication(_ context.Context, _ string,
 	mock.deployRequests = append(mock.deployRequests, deployRequest)
 	if mock.refuseFirstDeploy && len(mock.deployRequests) == 1 {
 		return nil, client.NewUnexpectedResponseError(409, testTagNotRecordedRefusal)
+	}
+	if mock.refuseRetry {
+		return nil, client.NewUnexpectedResponseError(409, "the cluster is being upgraded")
 	}
 	return json.RawMessage(`{"status":"deploying"}`), nil
 }
@@ -74,12 +78,12 @@ func TestDeployWithoutRecordedTagDeploysTrackedBranchBuild(t *testing.T) {
 	if tag := mock.deployRequests[1].Inputs[imageTagInputName]; tag != "sha-60c938b" {
 		t.Errorf("retried image_tag = %q, want sha-60c938b", tag)
 	}
-	if !strings.Contains(output, "deploying sha-60c938b, the newest published build of main") {
+	if !strings.Contains(output, "deployed sha-60c938b, the newest published build of main") {
 		t.Errorf("output does not name the chosen image: %q", output)
 	}
 }
 
-func TestDeployWithoutRecordedTagFallsBackToNewestRegistryImage(t *testing.T) {
+func TestDeployWithoutRecordedTagNamesNewestRegistryImageWithoutDeployingIt(t *testing.T) {
 	mock := &deployDefaultTagMock{
 		refuseFirstDeploy: true,
 		versions: listedVersions(
@@ -88,13 +92,35 @@ func TestDeployWithoutRecordedTagFallsBackToNewestRegistryImage(t *testing.T) {
 		),
 		branchBuildsError: errors.New("not found"),
 	}
-	if _, executeError := runApplicationCommand(t, mock, "deploy", testApplicationID, "--cluster", testClusterID,
-		"--set", "replicas=2"); executeError != nil {
-		t.Fatalf("deploy error = %v", executeError)
+	_, executeError := runApplicationCommand(t, mock, "deploy", testApplicationID, "--cluster", testClusterID,
+		"--set", "replicas=2")
+	if executeError == nil || !strings.Contains(executeError.Error(), "--set image_tag=sha-932b4da") {
+		t.Fatalf("deploy error = %v, want the refusal naming sha-932b4da", executeError)
 	}
-	retried := mock.deployRequests[1].Inputs
-	if retried[imageTagInputName] != "sha-932b4da" || retried["replicas"] != "2" {
-		t.Errorf("retried inputs = %v, want image_tag sha-932b4da and replicas 2", retried)
+	if !strings.Contains(executeError.Error(), "has not recorded the tag") {
+		t.Errorf("deploy error = %v, want the platform's refusal kept", executeError)
+	}
+	if len(mock.deployRequests) != 1 {
+		t.Errorf("deploy calls = %d, want 1: an image of another branch is never deployed unasked", len(mock.deployRequests))
+	}
+}
+
+func TestDeployWithoutRecordedTagReportsAFailedRetry(t *testing.T) {
+	trackedBranch := "main"
+	mock := &deployDefaultTagMock{
+		refuseFirstDeploy: true,
+		refuseRetry:       true,
+		versions:          listedVersions(registryVersion("sha-60c938b", "2026-11-02T07:00:00Z")),
+		branchBuilds: &client.ApplicationBranchBuilds{TrackedBranch: &trackedBranch, Builds: []client.ApplicationBranchBuild{
+			{Branch: "main", ImageTag: "sha-60c938b"},
+		}},
+	}
+	output, executeError := runApplicationCommand(t, mock, "deploy", testApplicationID, "--cluster", testClusterID)
+	if executeError == nil {
+		t.Fatal("deploy succeeded although the retry was refused")
+	}
+	if strings.Contains(output, "deployed sha-60c938b") {
+		t.Errorf("output claims a deploy the platform refused: %q", output)
 	}
 }
 
