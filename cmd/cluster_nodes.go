@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -26,7 +27,16 @@ type clusterNodesOps struct {
 	// diagnose rides the same node SSH lane as cloudInitLog, so it is set
 	// for exactly the same providers.
 	diagnose func(ctx context.Context, clusterID, nodeID string) (*client.NodeDiagnoseResult, error)
+	// consoleLog reads the VM serial console from the provider's API rather
+	// than over SSH. It is set only for providers the platform implements it
+	// for (OVH), and its subcommand is registered only for them.
+	consoleLog func(ctx context.Context, clusterID, nodeID string) (*client.NodeConsoleLogResult, error)
 }
+
+// defaultNodeConsoleLogTimeout bounds the client's wait for a console-log
+// read. The platform waits up to a minute for the provider before handing
+// back the operation to poll, so the client budget sits past that.
+const defaultNodeConsoleLogTimeout = 2 * time.Minute
 
 // defaultNodeDiagnoseTimeout bounds the client's wait for a node diagnosis.
 // The platform waits up to two minutes for the job before handing back the
@@ -60,6 +70,7 @@ func ovhNodesOps() clusterNodesOps {
 		restart:      apiClient.RestartOvhClusterNode,
 		cloudInitLog: apiClient.OvhNodeCloudInitLog,
 		diagnose:     nodeDiagnoser("ovh"),
+		consoleLog:   apiClient.OvhNodeConsoleLog,
 	}
 }
 
@@ -246,6 +257,178 @@ func runNodesCloudInitLog(cmd *cobra.Command, opsFn func() clusterNodesOps, clus
 		fmt.Println(logTail)
 	}
 	return nil
+}
+
+// runNodesConsoleLog reads the node's serial console and prints it: the log
+// on stdout, the heading and the notes on what the answer leaves out on
+// stderr, so the log pipes cleanly into grep or a file. --lines tails what
+// the platform returned. A read that finished but failed exits non-zero after
+// its output, like diagnose.
+func runNodesConsoleLog(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID, nodeID string) error {
+	lines, linesFlagError := cmd.Flags().GetInt("lines")
+	if linesFlagError != nil {
+		return fmt.Errorf("reading --lines: %w", linesFlagError)
+	}
+	if lines < 0 {
+		return withExitCode(exitUsage, errors.New("--lines must be a positive number, or 0 for every line the platform returned"))
+	}
+	timeout, timeoutFlagError := cmd.Flags().GetDuration("timeout")
+	if timeoutFlagError != nil {
+		return fmt.Errorf("reading --timeout: %w", timeoutFlagError)
+	}
+	requestContext, cancelRequestContext := context.WithTimeout(context.Background(), timeout)
+	defer cancelRequestContext()
+
+	result, readError := opsFn().consoleLog(requestContext, clusterID, nodeID)
+	if readError != nil {
+		wrapped := fmt.Errorf("reading the node console log: %w", readError)
+		if errors.Is(readError, context.DeadlineExceeded) {
+			return withExitCode(exitWaitTimeout, wrapped)
+		}
+		return wrapped
+	}
+	tailConsoleLogReport(result, lines)
+
+	if handled, renderError := renderStructured(cmd, result); renderError != nil {
+		return renderError
+	} else if !handled {
+		printNodeConsoleLog(result)
+	}
+	return nodeConsoleLogFailure(result)
+}
+
+// tailConsoleLogReport keeps the newest lines of the report's console output
+// when --lines asks for fewer than the platform returned, and records that it
+// did (tailed_to_lines), so -o json|yaml carry the same answer the human
+// output shows and say it was shortened here.
+func tailConsoleLogReport(result *client.NodeConsoleLogResult, lines int) {
+	if lines == 0 || !result.Completed || result.Report == nil {
+		return
+	}
+	consoleOutput, isText := result.Report["console_output"].(string)
+	if !isText {
+		return
+	}
+	kept, isShortened := tailLines(consoleOutput, lines)
+	if !isShortened {
+		return
+	}
+	result.Report["console_output"] = kept
+	result.Report["console_output_bytes"] = len(kept)
+	result.Report["line_count"] = lines
+	result.Report["tailed_to_lines"] = lines
+}
+
+// tailLines keeps the last count lines of text, a final newline kept as it
+// was, and reports whether any line was dropped.
+func tailLines(text string, count int) (string, bool) {
+	trimmed := strings.TrimSuffix(text, "\n")
+	if count <= 0 || trimmed == "" {
+		return text, false
+	}
+	allLines := strings.Split(trimmed, "\n")
+	if len(allLines) <= count {
+		return text, false
+	}
+	kept := strings.Join(allLines[len(allLines)-count:], "\n")
+	if strings.HasSuffix(text, "\n") {
+		kept += "\n"
+	}
+	return kept, true
+}
+
+// printNodeConsoleLog renders a console-log read: the poll hint while it is
+// still running, otherwise the heading and notes on stderr and the console
+// text on stdout. A failed read prints nothing here; its error is the
+// command's.
+func printNodeConsoleLog(result *client.NodeConsoleLogResult) {
+	if !result.Completed {
+		verb := "dispatched"
+		if result.Attached {
+			verb = "attached to the read already in flight"
+		}
+		fmt.Fprintf(os.Stderr, "Console log read %s (operation %s, status %s); the provider read is still running.\n",
+			verb, result.OperationID, result.Status)
+		fmt.Fprintf(os.Stderr, "Re-run this command to attach to it, or track it with: ankra cluster operations list %s\n",
+			result.OperationID)
+		return
+	}
+	if nodeConsoleLogFailure(result) != nil {
+		return
+	}
+	node, _ := result.Report["node"].(map[string]interface{})
+	nodeName, _ := node["name"].(string)
+	instanceID, _ := node["ovh_instance_id"].(string)
+	region, _ := node["region"].(string)
+	lineCount := reportInt(result.Report, "line_count")
+	fmt.Fprintf(os.Stderr, "Console log of %s (instance %s, %s): the newest %d lines.\n",
+		firstNonEmptyString(nodeName, result.NodeID), instanceID, region, lineCount)
+	if limitReached, _ := result.Report["line_limit_reached"].(bool); limitReached {
+		fmt.Fprintf(os.Stderr, "  Older console output may exist: the platform returns at most the newest %d lines.\n",
+			reportInt(result.Report, "line_limit"))
+	}
+	if truncated, _ := result.Report["truncated"].(bool); truncated {
+		fmt.Fprintln(os.Stderr, "  The platform's 96 KiB cap dropped the oldest of the lines it read.")
+	}
+	if redacted := reportInt(result.Report, "redacted_values"); redacted > 0 {
+		fmt.Fprintf(os.Stderr, "  The platform replaced %d values that looked like secrets with [REDACTED:...] markers.\n", redacted)
+	}
+	if tailedTo := reportInt(result.Report, "tailed_to_lines"); tailedTo > 0 {
+		fmt.Fprintf(os.Stderr, "  Shortened here to the newest %d (--lines).\n", tailedTo)
+	}
+	consoleOutput, hasConsoleOutput := result.Report["console_output"].(string)
+	if !hasConsoleOutput {
+		fmt.Fprintln(os.Stderr, "  The platform's report carried no console output, so whether the console is empty is unknown.")
+		return
+	}
+	if consoleOutput == "" {
+		fmt.Fprintln(os.Stderr, "  The console holds no output.")
+		return
+	}
+	fmt.Print(consoleOutput)
+	if !strings.HasSuffix(consoleOutput, "\n") {
+		fmt.Println()
+	}
+}
+
+// nodeConsoleLogFailure is the error a console-log read that finished but did
+// not succeed exits with: the provider refused the credential, the instance
+// is gone, or its state has no console to read. A read still in flight is not
+// a failure.
+func nodeConsoleLogFailure(result *client.NodeConsoleLogResult) error {
+	if !result.Completed {
+		return nil
+	}
+	if result.ErrorExcerpt != "" {
+		return fmt.Errorf("the console log read failed (operation %s): %s", result.OperationID, result.ErrorExcerpt)
+	}
+	if result.Status != "success" {
+		return fmt.Errorf("the console log read ended %s without a report (operation %s)", result.Status, result.OperationID)
+	}
+	return nil
+}
+
+// reportInt reads a whole number out of a decoded JSON report, where numbers
+// arrive as float64 (or int, when the CLI set them itself).
+func reportInt(report map[string]interface{}, key string) int {
+	switch value := report[key].(type) {
+	case float64:
+		return int(value)
+	case int:
+		return value
+	default:
+		return 0
+	}
+}
+
+// firstNonEmptyString returns the first argument that is not empty.
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // runNodesDiagnose dispatches the read-only node diagnosis and blocks for its
@@ -437,8 +620,9 @@ func printEdges(title string, edges map[string][]string) {
 
 // newNodesCmd builds a provider's nodes group. supportsNodeSSH says the
 // platform reaches this provider's nodes over its bastion SSH lane, which
-// both cloud-init-log and diagnose ride.
-func newNodesCmd(opsFn func() clusterNodesOps, provider string, supportsRestart bool, supportsNodeSSH bool) *cobra.Command {
+// both cloud-init-log and diagnose ride. supportsConsoleLog says the platform
+// reads this provider's VM serial console from its API.
+func newNodesCmd(opsFn func() clusterNodesOps, provider string, supportsRestart bool, supportsNodeSSH bool, supportsConsoleLog bool) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "nodes",
 		Short: fmt.Sprintf("List and inspect %s cluster nodes", provider),
@@ -550,17 +734,49 @@ clusters.operate permission on the cluster.`,
 		registerStructuredOutputFlags(diagnoseCmd)
 		cmd.AddCommand(diagnoseCmd)
 	}
+
+	if supportsConsoleLog {
+		consoleLogCmd := &cobra.Command{
+			Use:   "console-log <cluster_id|name> <node_id>",
+			Short: "Read the newest lines of the node's VM serial console",
+			Long: `Read the newest lines of the node's serial console from the cloud
+provider's API, as a tracked read-only operation. It goes through neither the
+node over SSH nor the in-cluster agent, so it answers for a node that hung: a
+kernel soft lockup, hung-task warnings, an out-of-memory kill or a root
+filesystem gone read-only is often the last thing the console printed.
+Nothing on the node, the instance or the cluster's credentials changes.
+
+The platform returns at most the newest 1000 lines (96 KiB); --lines shows
+fewer. The log goes to stdout and the heading and notes to stderr, so the
+output pipes cleanly into grep or a file. Repeated calls attach to a read in
+flight or a recent one. Find node ids with 'nodes list'. Needs the
+clusters.operate permission on the cluster.`,
+			Args: cobra.ExactArgs(2),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				clusterID, resolveError := resolveClusterArg(args[0])
+				if resolveError != nil {
+					return resolveError
+				}
+				return runNodesConsoleLog(cmd, opsFn, clusterID, args[1])
+			},
+		}
+		consoleLogCmd.Flags().Int("lines", 0, "Show only the newest N lines (0 shows every line the platform returned)")
+		consoleLogCmd.Flags().Duration("timeout", defaultNodeConsoleLogTimeout,
+			"Maximum time to wait for the console read")
+		registerStructuredOutputFlags(consoleLogCmd)
+		cmd.AddCommand(consoleLogCmd)
+	}
 	return cmd
 }
 
 func init() {
-	hetznerCmd.AddCommand(newNodesCmd(hetznerNodesOps, "Hetzner", true, true))
-	ovhCmd.AddCommand(newNodesCmd(ovhNodesOps, "OVH", true, true))
-	upcloudCmd.AddCommand(newNodesCmd(upcloudNodesOps, "UpCloud", true, true))
-	digitaloceanCmd.AddCommand(newNodesCmd(digitaloceanNodesOps, "DigitalOcean", true, true))
-	scalewayCmd.AddCommand(newNodesCmd(scalewayNodesOps, "Scaleway", true, true))
-	awsCmd.AddCommand(newNodesCmd(awsNodesOps, "AWS", true, true))
-	ankraCloudCmd.AddCommand(newNodesCmd(ankraCloudNodesOps, "Ankra Cloud", true, true))
-	proxmoxCmd.AddCommand(newNodesCmd(proxmoxNodesOps, "Proxmox VE", true, false))
-	morpheusCmd.AddCommand(newNodesCmd(morpheusNodesOps, "HPE Morpheus", false, false))
+	hetznerCmd.AddCommand(newNodesCmd(hetznerNodesOps, "Hetzner", true, true, false))
+	ovhCmd.AddCommand(newNodesCmd(ovhNodesOps, "OVH", true, true, true))
+	upcloudCmd.AddCommand(newNodesCmd(upcloudNodesOps, "UpCloud", true, true, false))
+	digitaloceanCmd.AddCommand(newNodesCmd(digitaloceanNodesOps, "DigitalOcean", true, true, false))
+	scalewayCmd.AddCommand(newNodesCmd(scalewayNodesOps, "Scaleway", true, true, false))
+	awsCmd.AddCommand(newNodesCmd(awsNodesOps, "AWS", true, true, false))
+	ankraCloudCmd.AddCommand(newNodesCmd(ankraCloudNodesOps, "Ankra Cloud", true, true, false))
+	proxmoxCmd.AddCommand(newNodesCmd(proxmoxNodesOps, "Proxmox VE", true, false, false))
+	morpheusCmd.AddCommand(newNodesCmd(morpheusNodesOps, "HPE Morpheus", false, false, false))
 }

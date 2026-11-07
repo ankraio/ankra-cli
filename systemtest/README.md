@@ -421,3 +421,53 @@ Ankra-managed lane for ~15-25 minutes and keeps each lane's cluster up
 short-lived and the script always attempts to tear everything down on exit
 (graceful, then `--force` as a fallback so nothing leaks), but verify with
 `ankra cluster list` afterwards.
+
+# Flow regression
+
+`flow_regression.sh` drives the whole developer flow through the `ankra` CLI against a live platform: repository, setup
+pull request, gate, AI fix, merge, staging with Postgres and a public address, promotion, and an alert in Slack. Nothing
+else proved this flow, and the runs for the films found breakage at nearly every step.
+
+It is the **CLI lane** of the regression. The MCP and UI lanes are separate work, tracked on the same epic.
+
+## What it asserts
+
+| Assertion | How it reads it |
+|---|---|
+| Gate blocked | `ankra pipeline findings` on the setup pull request's run has a CRITICAL |
+| Fix landed with lockfile | GitHub's compare of the fix branch has both `package.json` and `package-lock.json` |
+| HTTPS on IPv4 and IPv6 | `curl -4` and `curl -6` on the address `ship` printed, at `/healthz` |
+| Data survives a restart | A row written over HTTP reads back after `kill 1` in every pod of the namespace |
+| Slack alert delivered | The channel's history, read with a bot token, mentions the application |
+| Nothing left behind | Clusters and applications with this run's suffix, and the alert route, are gone |
+
+## What it refuses
+
+- Production. `ANKRA_BASE_URL` is required with no default, and `platform.ankra.app` or `ankra.ai` exits 2 before any call.
+- A repository not named `*-fixture`, because every run force-pushes its `main` from its `pristine` branch.
+- Running without `FLOW_REGRESSION_CONFIRM=yes`, because it creates real clusters.
+
+`FLOW_PLAN_ONLY=1` checks the settings and stops.
+
+## Cleaning up
+
+A trap removes what the run created on every exit, including an abort: the alert route, the application, every cluster by
+id and by name, and the fixture's open pull requests. It then waits up to `FLOW_LEAK_WAIT_SECONDS` (30 minutes) for them to
+go. A leak fails the run even if every assertion passed, and a list that cannot be read counts as a leak.
+
+## What a person sets up
+
+The script needs all of these, and none exists yet:
+
+1. **A dedicated organisation** on a non-production platform, with an Ankra Cloud credential, an SSH key credential and the
+   GitHub App installed. A run cannot start from a brand new organisation, because installing the App and connecting Slack
+   are browser consents and the CLI has no organisation delete. So the run reuses one organisation and proves it left it clean.
+2. **A fixture repository** named `*-fixture`, with a `pristine` branch. It holds a Node app that serves `/healthz` and
+   `GET` and `POST /api/books` from Postgres, with a pinned dependency that has a CRITICAL advisory with a fixed version.
+   `ankra-demos/bookshelf` from the films is the model. Advisories get reassigned, so check the pin when the gate assertion
+   starts failing.
+3. **Slack**: the channel connected as a destination, and a bot token that can read it.
+4. **The pipeline**: `flow_regression.pipeline.yaml`, its secrets, an administrator's approval and a schedule row
+   (`ankra pipeline schedules create`). Point `FLOW_FAILURE_WEBHOOK_URL` at #infra-errors.
+
+Note that `platform.ankra.dev` scales down at night, so schedule it for the working day.

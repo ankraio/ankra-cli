@@ -10,6 +10,7 @@ package cmd
 import (
 	"context"
 	"net"
+	"net/url"
 	"time"
 )
 
@@ -27,17 +28,30 @@ var shipLookupAddresses = func(lookupContext context.Context, host string) ([]ne
 	return net.DefaultResolver.LookupIPAddr(lookupContext, host)
 }
 
-// shipURLAddressFamilies answers the families host resolves to, IPv4 first. A
-// lookup that fails answers none, which the caller words as "could not read",
-// never as a family being absent.
-func shipURLAddressFamilies(waitContext context.Context, host string) []string {
-	lookupContext, cancel := context.WithTimeout(waitContext, shipAddressLookupTimeout)
+// shipURLAddressFamilies answers the families the address's hostname resolves
+// to, IPv4 first. The address may be a full URL, with any scheme, port or
+// path, or a bare hostname. The lookup keeps the wait's values but not its
+// deadline, which may already have passed when the wait ended. A lookup that
+// fails answers none, which the caller words as "could not read", never as a
+// family being absent.
+func shipURLAddressFamilies(waitContext context.Context, address string) []string {
+	lookupContext, cancel := context.WithTimeout(context.WithoutCancel(waitContext), shipAddressLookupTimeout)
 	defer cancel()
-	addresses, lookupError := shipLookupAddresses(lookupContext, host)
+	addresses, lookupError := shipLookupAddresses(lookupContext, shipAddressHostname(address))
 	if lookupError != nil {
 		return []string{}
 	}
 	return shipAddressFamiliesOf(addresses)
+}
+
+// shipAddressHostname is the hostname of a URL, or the address itself when it
+// is already a bare hostname.
+func shipAddressHostname(address string) string {
+	parsed, parseError := url.Parse(address)
+	if parseError != nil || parsed.Hostname() == "" {
+		return address
+	}
+	return parsed.Hostname()
 }
 
 func shipAddressFamiliesOf(addresses []net.IPAddr) []string {

@@ -59,3 +59,16 @@ func TestShipURLAddressFamiliesReadsAFailedLookupAsUnknown(t *testing.T) {
 		t.Fatalf("a failed lookup must name no family, got %v", families)
 	}
 }
+
+func TestShipAddressHostnameReadsTheHostOfAnyURL(t *testing.T) {
+	cases := map[string]string{
+		"https://shop.acme.ankra.cc":           "shop.acme.ankra.cc",
+		"http://shop.acme.ankra.cc:8443/store": "shop.acme.ankra.cc",
+		"shop.acme.ankra.cc":                   "shop.acme.ankra.cc",
+	}
+	for address, expected := range cases {
+		if hostname := shipAddressHostname(address); hostname != expected {
+			t.Errorf("shipAddressHostname(%q) = %q, want %q", address, hostname, expected)
+		}
+	}
+}

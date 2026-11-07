@@ -46,6 +46,9 @@ Examples:
 		if len(args) == 1 {
 			return selectClusterByName(args[0])
 		}
+		if override := clusterFlagOverride(cmd); override != "" {
+			return selectClusterByName(override)
+		}
 		return selectClusterInteractive()
 	},
 }
