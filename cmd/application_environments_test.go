@@ -116,9 +116,10 @@ func TestApplicationEnvironmentsSetRuleTurnsPushesOnLikeThePortal(t *testing.T) 
 		expectedEnabled bool
 		expectedRule    *[]string
 	}{
-		"rule":              {[]string{"--branches", "release/*"}, true, &[]string{"release/*"}},
-		"rule with disable": {[]string{"--branches", "release/*", "--disable"}, false, &[]string{"release/*"}},
-		"clear":             {[]string{"--clear"}, false, &[]string{}},
+		"rule":                   {[]string{"--branches", "release/*"}, true, &[]string{"release/*"}},
+		"rule with disable":      {[]string{"--branches", "release/*", "--disable"}, false, &[]string{"release/*"}},
+		"rule with enable=false": {[]string{"--branches", "release/*", "--enable=false"}, false, &[]string{"release/*"}},
+		"clear":                  {[]string{"--clear"}, false, &[]string{}},
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {

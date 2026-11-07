@@ -115,6 +115,7 @@ does.
 			shouldClear, _ := flags.GetBool("clear")
 			shouldEnable, _ := flags.GetBool("enable")
 			shouldDisable, _ := flags.GetBool("disable")
+			shouldDisable = shouldDisable || (flags.Changed("enable") && !shouldEnable)
 			if hasBranches && shouldClear {
 				return withExitCode(exitUsage, errors.New("--branches and --clear cannot be combined"))
 			}
