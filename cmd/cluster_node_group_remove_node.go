@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -39,8 +40,8 @@ Before asking, the command looks the reference up and shows the node's
 name, server id and providerID, or says that it could not tell which node
 the reference names. When it found the node, it sends that node's server
 id, so the node removed is the node you approved; otherwise it sends the
-reference as typed, and the platform resolves it itself. With --yes
-nothing is looked up and the reference is sent as typed. A node that is
+reference as typed, and the platform resolves it itself. With --yes the
+node is not looked up and the reference is sent as typed. A node that is
 already cordoned is removed the same way, but a refused drain makes the
 node it keeps schedulable again: cordon it again if it must stay out of
 service.
@@ -61,23 +62,31 @@ platform could not start the operation with the request, for example
 because another node operation is still running or the cluster's agent is
 offline, and its reconcile drains and deletes the node later.
 
+A stopped cluster's nodes are not removed: the command refuses the removal
+before it looks the node up, asks or sends anything, as the platform
+refuses it, and exits 1. Start the cluster first.
+
 Every refusal of the platform's exits 1 with its reason. Among them: a
 node that is not a worker, a node of another group, a node already marked
 for deletion or whose server is stopping, the last node of its group,
-which is not removed on its own, a removal that would take an autoscaling
-group below its min count, a reference several nodes answer to (the
-reason lists each by its node id, which is the server id), and a change
-while an identical one is in progress. A reference the platform cannot
-resolve is refused the same way: a providerID it cannot see on the
-cluster's Kubernetes nodes, and on AWS a name that may be a Kubernetes
-node name it has not recorded yet. Name the node by its server name or its
-server id then; neither needs the Kubernetes nodes.
+which is not removed on its own (scale the node group to 0 or delete the
+node group instead), a removal that would take an autoscaling group below
+its min count, a reference several nodes answer to, even nodes already
+being removed (the reason lists each by its node id, which is the server
+id; the command's lookup lists them too and sends the reference as typed),
+and a change while an identical one is in progress. A reference the
+platform cannot resolve is refused the same way: a providerID it cannot
+see on the cluster's Kubernetes nodes, and on AWS a name that may be a
+Kubernetes node name it has not recorded yet. Name the node by its server
+name or its server id then; neither needs the Kubernetes nodes.
 
-A node the cluster does not have exits 3. A group or node that is blank,
-has spaces around it, or is '.' or '..' (also percent-encoded), a '/'
-outside a providerID, a providerID with no id or with a '.' or '..' step,
-and an -o other than json or yaml exit 2 before anything is looked up or
-sent, and a node or group the platform cannot read (its 422) exits 2 too.
+A reference that names no node of the cluster exits 3 (the platform says
+it is not found in the node group); a node of another group is a refusal
+and exits 1. A group or node that is blank, has spaces around it, or is
+'.' or '..' (also percent-encoded), a '/' outside a providerID, a
+providerID with no id or with a '.' or '..' step, and an -o other than
+json or yaml exit 2 before anything is looked up or sent, and a node or
+group the platform cannot read (its 422) exits 2 too.
 
 Examples:
   ankra cluster node-group remove-node <cluster_id> opensearch prod-opensearch-0
@@ -102,6 +111,9 @@ func runRemoveNodeGroupNode(cmd *cobra.Command, args []string) error {
 		return clusterError
 	}
 	kind := cluster.Kind
+	if cluster.State == clusterStateStopped {
+		return stoppedClusterRemovalRefusal(nodeReference, groupName)
+	}
 
 	// sent is the node the request names: the server id of the node the user
 	// approved when the lookup found it, so the platform removes that node and
@@ -114,7 +126,7 @@ func runRemoveNodeGroupNode(cmd *cobra.Command, args []string) error {
 		if drainOptions.ForceDrain {
 			consequence = "This deletes the node's server without honouring its PodDisruptionBudgets!"
 		}
-		target := resolveRemoveNodeTarget(kind, clusterID, nodeReference, cluster.State == clusterStateStopped)
+		target := resolveRemoveNodeTarget(kind, clusterID, nodeReference)
 		prompt := removeNodePrompt(target, nodeReference, groupName, clusterTarget(args[0], clusterID), consequence)
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), prompt, false); err != nil {
 			return err
@@ -198,13 +210,25 @@ func validateNodeReference(reference string) error {
 	return validatePathArgument("node", reference)
 }
 
+// stoppedClusterRemovalRefusal refuses a removal from a stopped cluster
+// before anything is read, asked or sent. The platform refuses every one,
+// whatever the reference names (cluster#5995): offline, its edit would drop
+// the worker's rows while a server some providers keep across a stop lived
+// on. The refusal is the platform's own sentence, in the shape and with the
+// exit code its 409 has here, so a script reads both alike.
+func stoppedClusterRemovalRefusal(reference, groupName string) error {
+	return withExitCode(exitError, fmt.Errorf("removing node from node group: Node '%s' cannot be removed from "+
+		"node group '%s' while the cluster is stopped: start the cluster first", reference, groupName))
+}
+
 // removeNodeGroupNodeError wraps a remove-node failure for the terminal. A
 // platform that predates the route answers the router's bare 404, which is
 // not "the node does not exist": it is said plainly and exits 1, rather than
 // the not-found code a script would read as the node being gone already. The
-// platform's own 404 for a node the cluster does not have carries its reason
-// and exits 3. Its 422 is a group or node it cannot read, an argument to
-// change, so it exits 2 like the CLI's own checks.
+// platform's own 404, for a reference no node of the cluster answers to,
+// carries its reason ("not found in node group") and exits 3. Its 422 is a
+// group or node it cannot read, an argument to change, so it exits 2 like
+// the CLI's own checks.
 func removeNodeGroupNodeError(wait bool, removeError error) error {
 	if isRouteAbsent(removeError) {
 		return withExitCode(exitError, errors.New(
@@ -483,13 +507,8 @@ func startKubernetesNodeRead(clusterID, name string) <-chan readAnswer[map[strin
 // reference says which Kubernetes read it needs: every node for a providerID
 // (the one reporting it is not known yet), the one node named like the
 // server for a name. A server id names its node only once the list is read.
-// A stopped cluster is not looked up: its node list and Kubernetes nodes do
-// not say what the platform will do with a removal there, so the platform
-// answers for it.
-func resolveRemoveNodeTarget(kind, clusterID, reference string, clusterStopped bool) removeNodeTarget {
-	if clusterStopped {
-		return removeNodeTarget{unresolved: "the cluster is stopped, so the CLI did not look the node up"}
-	}
+// It runs on a running cluster only: a stopped one is refused before it.
+func resolveRemoveNodeTarget(kind, clusterID, reference string) removeNodeTarget {
 	nodesOps := nodeGroupCallsFor(kind).nodes
 	if nodesOps == nil {
 		return removeNodeTarget{unresolved: "the CLI cannot list the nodes of a " + kind + " cluster"}
@@ -553,10 +572,13 @@ func resolveRemoveNodeTarget(kind, clusterID, reference string, clusterStopped b
 // matchRemoveNodeReference finds the node reference names the way the
 // platform does: a UUID that is a server's id names that server; any other
 // reference names the servers that answer to it (nodeAnswersTo). A reference
-// several nodes answer to names none of them, and so does a providerID
-// several Kubernetes nodes report, which the platform matches to none of
-// them either: a server the list leaves out may be behind the other node.
-// nodes is what the platform looks in (nodesTheRemovalCanName).
+// several nodes answer to names none of them, whatever their states, as on
+// the platform, which refuses it naming each by its node id: the CLI never
+// picks one, since the server id it would send is matched before any name.
+// So does a providerID several Kubernetes nodes report, which the platform
+// matches to none of them either: a server the list leaves out may be
+// behind the other node. nodes is what the platform looks in
+// (nodesTheRemovalCanName).
 func matchRemoveNodeReference(nodes []client.NodeSummary, kubernetes kubernetesNodeView,
 	reference string) removeNodeTarget {
 	if reporting := kubernetes.nodesReporting(reference); reporting > 1 {
@@ -568,8 +590,14 @@ func matchRemoveNodeReference(nodes []client.NodeSummary, kubernetes kubernetesN
 	case len(candidates) == 1:
 		return removeNodeTargetFor(candidates[0], kubernetes)
 	case len(candidates) > 1:
-		return removeNodeTarget{unresolved: fmt.Sprintf("%d nodes in the cluster's records answer to it",
-			len(candidates))}
+		serverIDs := make([]string, 0, len(candidates))
+		for _, candidate := range candidates {
+			serverIDs = append(serverIDs, candidate.ID)
+		}
+		sort.Strings(serverIDs)
+		return removeNodeTarget{unresolved: fmt.Sprintf("%d nodes in the cluster's records answer to it "+
+			"(server ids %s), so name the one to remove by its server id", len(candidates),
+			strings.Join(serverIDs, ", "))}
 	case !kubernetes.namedAfterServers:
 		return removeNodeTarget{unresolved: "no server in the cluster's records has that id or name, and " +
 			kubernetes.unread}
@@ -592,7 +620,9 @@ const (
 
 // nodesTheRemovalCanName is the rows of a running cluster's node list the
 // platform looks a reference up in: its servers (the list also has its
-// bastion and VMs), without the deleted and down ones.
+// bastion and VMs), without the deleted (deleted_at, rows the platform no
+// longer loads) and down ones. Rows being removed stay: the platform counts
+// them as answers to a name.
 func nodesTheRemovalCanName(nodes []client.NodeSummary, kind string) []client.NodeSummary {
 	serverKind := kind + "_server"
 	var named []client.NodeSummary
@@ -617,8 +647,7 @@ func parseServerID(reference string) (canonical string, isServerID bool) {
 }
 
 // nodesAnswering is the nodes reference names: the one whose server id it is,
-// when it is a UUID that is one; otherwise every node that answers to it,
-// less the ones stepping aside (nodesStaying).
+// when it is a UUID that is one; otherwise every node that answers to it.
 func nodesAnswering(nodes []client.NodeSummary, kubernetes kubernetesNodeView,
 	reference string) []*client.NodeSummary {
 	if serverID, isServerID := parseServerID(reference); isServerID {
@@ -634,25 +663,7 @@ func nodesAnswering(nodes []client.NodeSummary, kubernetes kubernetesNodeView,
 			candidates = append(candidates, &nodes[index])
 		}
 	}
-	return nodesStaying(candidates)
-}
-
-// nodesStaying drops, from several nodes a name answers to, the ones on their
-// way out, so a name reused by a replacement means the replacement: the
-// platform steps its delete_permanently rows aside. The node list does not
-// show that field; "stopping" is the state it marks a removed worker with.
-// When every candidate is on its way out, none steps aside.
-func nodesStaying(candidates []*client.NodeSummary) []*client.NodeSummary {
-	var staying []*client.NodeSummary
-	for _, node := range candidates {
-		if node.State != nodeStateStopping {
-			staying = append(staying, node)
-		}
-	}
-	if len(staying) == 0 {
-		return candidates
-	}
-	return staying
+	return candidates
 }
 
 // nodeAnswersTo reports whether reference is one of the names node answers

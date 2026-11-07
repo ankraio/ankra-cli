@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -50,6 +51,8 @@ type nodeGroupRemoveNodeMock struct {
 	listWaitsForKubernetes bool
 	kubernetesStarted      chan struct{}
 	kubernetesStartedOnce  sync.Once
+	// listReads counts the node list reads, which run in the background.
+	listReads atomic.Int32
 
 	kubernetesMutex    sync.Mutex
 	kubernetesRequests []client.GetResourcesRequest
@@ -72,6 +75,7 @@ func (m *nodeGroupRemoveNodeMock) ListAwsClusterNodes(string) (*client.NodeListR
 }
 
 func (m *nodeGroupRemoveNodeMock) listNodes() (*client.NodeListResult, error) {
+	m.listReads.Add(1)
 	if m.listNeverAnswers != nil {
 		<-m.listNeverAnswers
 		return nil, errors.New("the test ended")
@@ -533,13 +537,13 @@ func TestClusterNodeGroupRemoveNodeRefusalSaysThePlatformsReason(t *testing.T) {
 	// The platform's own sentences (cluster#5995).
 	for _, reason := range []string{
 		"Node 'depict-opensearch-0' is already marked for deletion from node group 'opensearch', so it cannot be removed again",
-		"Node 'depict-opensearch-0' is the last node of node group 'opensearch', so it cannot be removed on its own; " +
-			"delete the node group instead",
+		"Node 'depict-opensearch-0' is the last node of node group 'opensearch' and is not removed on its own; " +
+			"scale the node group to 0 or delete the node group",
 		"Node 'depict-opensearch-0' matches 2 nodes of this cluster: 'depict-opensearch-0' (node id " + removeNodeServerID +
 			"), 'depict-opensearch-0' (node id 0a9b8c7d-6e5f-4a3b-8c2d-1e0f9a8b7c6d); name the one to remove by its node id",
-		"Node 'hcloud://168428300' cannot be resolved while the cluster is stopped: a providerID is matched against " +
-			"the cluster's Kubernetes nodes, which the platform cannot see while it is stopped; name the node by its " +
-			"server name or its node id instead",
+		// A cluster stopped after the CLI read it as running.
+		"Node 'depict-opensearch-0' cannot be removed from node group 'opensearch' while the cluster is stopped: " +
+			"start the cluster first",
 	} {
 		mock := newRemoveNodeMock("hetzner")
 		mock.result = nil
@@ -582,11 +586,12 @@ func TestClusterNodeGroupRemoveNodePlatformValidationExitsUsage(t *testing.T) {
 	}
 }
 
-// A node the cluster does not have is the platform's 404, and exits 3.
+// A reference no node of the cluster answers to is the platform's 404, and
+// exits 3.
 func TestClusterNodeGroupRemoveNodeUnknownNodeExitsNotFound(t *testing.T) {
 	mock := newRemoveNodeMock("hetzner")
 	mock.result = nil
-	mock.err = &client.UnexpectedResponseError{StatusCode: http.StatusNotFound, Detail: "Node 'opensearch-9' not found in this cluster"}
+	mock.err = &client.UnexpectedResponseError{StatusCode: http.StatusNotFound, Detail: "Node 'opensearch-9' not found in node group 'opensearch'"}
 	_, _, err := runRemoveNode(t, mock, "", testClusterID, "opensearch", "opensearch-9", "--yes")
 	if err == nil || exitCodeFor(err) != exitNotFound {
 		t.Fatalf("expected exit %d for an unknown node, got %v (exit %d)", exitNotFound, err, exitCodeFor(err))
@@ -736,8 +741,9 @@ func TestClusterNodeGroupRemoveNodeFallsBackToTheNameOfAnIDShapedReference(t *te
 }
 
 // The lookup reads the rows the platform reads, so it neither calls a name
-// ambiguous that the platform resolves nor approves a node the platform does
-// not have.
+// ambiguous that the platform resolves, nor approves a node the platform does
+// not have, nor picks one of several nodes the platform finds a name
+// ambiguous between.
 func TestClusterNodeGroupRemoveNodeLooksWhereThePlatformLooks(t *testing.T) {
 	const otherServerID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
 	server := func(id, state string, deleted bool) client.NodeSummary {
@@ -765,10 +771,11 @@ func TestClusterNodeGroupRemoveNodeLooksWhereThePlatformLooks(t *testing.T) {
 			nodes:     []client.NodeSummary{server(otherServerID, "down", false)},
 			reference: otherServerID, wantSent: otherServerID, wantSaid: unresolved,
 		},
-		"a row being removed steps aside for its replacement": {
+		"a row being removed does not step aside for a live one": {
 			nodes:     []client.NodeSummary{server(otherServerID, "stopping", false), server(removeNodeServerID, "running", false)},
-			reference: "depict-opensearch-0", wantSent: removeNodeServerID,
-			wantSaid: "Server id:   " + removeNodeServerID,
+			reference: "depict-opensearch-0", wantSent: "depict-opensearch-0",
+			wantSaid: "2 nodes in the cluster's records answer to it (server ids " + otherServerID + ", " +
+				removeNodeServerID + "), so name the one to remove by its server id",
 		},
 		"a row being removed still answers when it is the only one": {
 			nodes:     []client.NodeSummary{server(otherServerID, "stopping", false)},
@@ -794,7 +801,7 @@ func TestClusterNodeGroupRemoveNodeLooksWhereThePlatformLooks(t *testing.T) {
 			wantSaid: "State:       stopping: the platform refuses a node whose server is stopping",
 		},
 		"a deleted row is no second answer to a name": {
-			nodes:     []client.NodeSummary{server(removeNodeServerID, "running", false), server(otherServerID, "down", true)},
+			nodes:     []client.NodeSummary{server(removeNodeServerID, "running", false), server(otherServerID, "running", true)},
 			reference: "depict-opensearch-0", wantSent: removeNodeServerID,
 			wantSaid: "Server id:   " + removeNodeServerID,
 		},
@@ -837,28 +844,30 @@ func TestClusterNodeGroupRemoveNodeDoesNotResolveASharedProviderID(t *testing.T)
 	}
 }
 
-// A stopped cluster's records do not say what the platform does with a
-// removal there, so the CLI reads nothing and claims nothing: the prompt says
-// it did not look, and the reference goes as typed.
-func TestClusterNodeGroupRemoveNodeDoesNotLookUpAStoppedCluster(t *testing.T) {
-	for _, reference := range []string{"depict-opensearch-0", removeNodeServerID, "hcloud://168428300"} {
+// The platform refuses every removal from a stopped cluster, so the CLI
+// refuses it first, whatever the reference and with --yes too: the
+// platform's sentence, exit 1 as its 409 has, and nothing read, asked or
+// sent.
+func TestClusterNodeGroupRemoveNodeRefusesAStoppedCluster(t *testing.T) {
+	for _, args := range [][]string{
+		{"depict-opensearch-0"}, {removeNodeServerID}, {"hcloud://168428300"}, {"depict-opensearch-0", "--yes"},
+	} {
 		mock := newRemoveNodeMock("hetzner")
 		mock.cluster.State = "stopped"
-		mock.listNeverAnswers = make(chan struct{})
-		t.Cleanup(func() { close(mock.listNeverAnswers) })
-		_, prompt, runError := runRemoveNode(t, mock, "y\n", testClusterID, "opensearch", reference)
-		if runError != nil {
-			t.Fatalf("%s: remove-node failed: %v", reference, runError)
+		_, stderr, err := runRemoveNode(t, mock, "y\n", append([]string{testClusterID, "opensearch"}, args...)...)
+		want := "removing node from node group: Node '" + args[0] + "' cannot be removed from node group " +
+			"'opensearch' while the cluster is stopped: start the cluster first"
+		if err == nil || err.Error() != want || exitCodeFor(err) != exitError {
+			t.Fatalf("%v: got %v (exit %d), want %q (exit %d)", args, err, exitCodeFor(err), want, exitError)
 		}
-		if !strings.Contains(prompt, "the cluster is stopped, so the CLI did not look the node up") ||
-			strings.Contains(prompt, "Server id:") {
-			t.Errorf("%s: the prompt must say the lookup was skipped and name no node:\n%s", reference, prompt)
+		if strings.Contains(stderr, "[y/N]") {
+			t.Errorf("%v: a stopped cluster's removal was asked about:\n%s", args, stderr)
 		}
-		if len(mock.kubernetesRequestsSent()) != 0 {
-			t.Errorf("%s: a stopped cluster's Kubernetes nodes were read", reference)
+		if mock.listReads.Load() != 0 || len(mock.kubernetesRequestsSent()) != 0 {
+			t.Errorf("%v: a stopped cluster's nodes were read", args)
 		}
-		if len(mock.calls) != 1 || mock.calls[0].node != reference {
-			t.Errorf("%s: calls = %+v, want the reference as typed", reference, mock.calls)
+		if len(mock.calls) != 0 {
+			t.Errorf("%v: calls = %+v, want nothing sent", args, mock.calls)
 		}
 	}
 }
