@@ -477,6 +477,8 @@ type APIClient interface {
 	CreateDNSCredential(name string, webhookProviderURL string) (*client.CreateDNSCredentialResponse, error)
 
 	ListAPITokens() ([]client.APIToken, error)
+	GetSlackInstallURL(requestContext context.Context) (*client.SlackInstallURL, error)
+	GetSlackStatus(requestContext context.Context) (*client.SlackStatus, error)
 	CreateAPIToken(request client.CreateAPITokenRequest) (*client.CreateAPITokenResponse, error)
 	RevokeAPIToken(tokenID string) (*client.RevokeAPITokenResponse, error)
 	DeleteAPIToken(tokenID string) (*client.DeleteAPITokenResponse, error)
