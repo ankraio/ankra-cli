@@ -34,6 +34,12 @@ type PlaygroundStatus struct {
 	StatusMessage *string                `json:"status_message"`
 	ExpiresAt     string                 `json:"expires_at"`
 	Plan          *PlaygroundOrderedPlan `json:"plan"`
+	// IsTrial reports an Ankra Cloud trial dev cluster, deleted at
+	// TrialExpiresAt unless a card is saved first.
+	IsTrial bool `json:"is_trial"`
+	// TrialExpiresAt is when the trial ends, null for anything that is not a
+	// live trial.
+	TrialExpiresAt *string `json:"trial_expires_at"`
 }
 
 // PlaygroundPlan is one orderable playground size with its price.
