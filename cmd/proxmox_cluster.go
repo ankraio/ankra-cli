@@ -182,7 +182,7 @@ var proxmoxStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, startError := apiClient.StartProxmoxCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd)})
+		result, startError := apiClient.StartProxmoxCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd), RestoreSnapshotID: restoreSnapshotIDFlag(cmd), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(cmd)})
 		if startError != nil {
 			return fmt.Errorf("starting cluster: %w", startError)
 		}
@@ -426,7 +426,7 @@ func init() {
 	_ = proxmoxCreateCmd.MarkFlagRequired("bridge")
 
 	proxmoxStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(proxmoxStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(proxmoxStartCmd)
 
 	proxmoxHostsCmd.Flags().String("credential-id", "", "Proxmox VE API credential ID (required)")
 	_ = proxmoxHostsCmd.MarkFlagRequired("credential-id")
