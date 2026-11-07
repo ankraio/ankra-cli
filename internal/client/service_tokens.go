@@ -9,7 +9,9 @@ package client
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
 )
 
 // ServiceToken is one row of the organisation's service-token listing. The
@@ -84,6 +86,30 @@ func (c *Client) CreateServiceToken(request CreateServiceTokenRequest) (*CreateS
 		return nil, serviceTokenError(err)
 	}
 	return &created, nil
+}
+
+// RevokeServiceToken stops one organisation service token at once. The
+// service account and its other tokens are untouched. An id that is not a
+// service token of the organisation (a personal token's included) answers
+// 404 "Service token not found", and a token already revoked 409.
+func (c *Client) RevokeServiceToken(tokenID string) (*RevokeAPITokenResponse, error) {
+	target := fmt.Sprintf("%s/api/v1/org/organisation/service-tokens/%s/revoke", c.BaseURL, url.PathEscape(tokenID))
+	if err := c.sendJSON(http.MethodPost, target, nil, nil); err != nil {
+		return nil, serviceTokenError(err)
+	}
+	return &RevokeAPITokenResponse{Success: true, Message: "Service token revoked"}, nil
+}
+
+// DeleteServiceToken removes a revoked organisation service token; one that
+// is still live answers 409 "Service token must be revoked before deletion".
+// Deleting an account's last token stands the account down: it loses its
+// role but stays a member of the organisation until it is removed.
+func (c *Client) DeleteServiceToken(tokenID string) (*DeleteAPITokenResponse, error) {
+	target := fmt.Sprintf("%s/api/v1/org/organisation/service-tokens/%s", c.BaseURL, url.PathEscape(tokenID))
+	if err := c.sendJSON(http.MethodDelete, target, nil, nil); err != nil {
+		return nil, serviceTokenError(err)
+	}
+	return &DeleteAPITokenResponse{Success: true, Message: "Service token deleted"}, nil
 }
 
 // serviceTokenError turns the service-token routes' plain-detail 403 ("You

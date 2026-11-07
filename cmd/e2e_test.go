@@ -1595,6 +1595,14 @@ func (m baseMock) RotateServiceToken(tokenID string, overlapHours *int) (*client
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) RevokeServiceToken(tokenID string) (*client.RevokeAPITokenResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteServiceToken(tokenID string) (*client.DeleteAPITokenResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListServiceTokens() ([]client.ServiceToken, error) {
 	return nil, errors.New("not implemented")
 }
