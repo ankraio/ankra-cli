@@ -16,7 +16,7 @@ const scalewayKind = "scaleway"
 // Omitted optional members take the server's default, so the zero value of an
 // omitempty field means "let the server decide" rather than "send zero":
 // gateway_type VPC-GW-S, bastion_port 61000, control_plane_type / worker_type /
-// etcd_type DEV1-M, distribution k3s, etcd_topology stacked, etcd_node_count 3,
+// etcd_type DEV1-M, distribution kubeadm, etcd_topology stacked, etcd_node_count 3,
 // gitops_branch master, retention_policy retain.
 //
 // Scaleway has no external_cloud_provider member: its networking rides the

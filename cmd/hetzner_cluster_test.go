@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -218,4 +219,33 @@ func (m *hetznerCreateServerTypesMock) CreateHetznerCluster(req client.CreateHet
 	m.gotRequest = req
 	return &client.CreateHetznerClusterResponse{ClusterID: "hz-cluster-123", Name: req.Name,
 		ServerTypes: &client.HetznerRoleServerTypes{Bastion: "cx23", ControlPlane: "cpx32", Worker: "cx23"}}, nil
+}
+
+// --ssh-key-credential-id was dropped whenever --ssh-key-credential-ids was
+// also given, so a key the user named never reached the servers
+// (ankra-v3qdto.6). Both flags now feed one de-duplicated list.
+func TestHetznerCreateMergesBothSSHKeyFlags(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{name: "single only", args: []string{"--ssh-key-credential-id", "ssh-1"}, want: []string{"ssh-1"}},
+		{name: "list only", args: []string{"--ssh-key-credential-ids", "ssh-2,ssh-3"}, want: []string{"ssh-2", "ssh-3"}},
+		{name: "both", args: []string{"--ssh-key-credential-ids", "ssh-2,ssh-3", "--ssh-key-credential-id", "ssh-1"}, want: []string{"ssh-2", "ssh-3", "ssh-1"}},
+		{name: "both overlapping", args: []string{"--ssh-key-credential-ids", "ssh-1,ssh-2", "--ssh-key-credential-id", "ssh-1"}, want: []string{"ssh-1", "ssh-2"}},
+		{name: "neither", want: nil},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			resetTreeFlags(t, hetznerCreateCmd)
+			mock := &hetznerCreateMock{}
+			arguments := append([]string{"cluster", "hetzner", "create", "--name", "keys", "--credential-id", "cred-1", "--location", "fsn1"}, testCase.args...)
+			if output, runError := runConfirmCommand(t, mock, "", []*cobra.Command{hetznerCreateCmd}, arguments...); runError != nil {
+				t.Fatalf("create: %v\n%s", runError, output)
+			}
+			if !slices.Equal(mock.gotRequest.SSHKeyCredentialIDs, testCase.want) {
+				t.Errorf("ssh_key_credential_ids = %q, want %q", mock.gotRequest.SSHKeyCredentialIDs, testCase.want)
+			}
+		})
+	}
 }

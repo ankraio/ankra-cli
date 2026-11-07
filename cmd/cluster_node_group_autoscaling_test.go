@@ -6,6 +6,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -109,6 +110,68 @@ func TestClusterNodeGroupAutoscalingRefusesUnsupportedKind(t *testing.T) {
 	_, commandError := executeCommand("cluster", "node-group", "autoscaling", "get", testClusterID, "default")
 	if commandError == nil || !strings.Contains(commandError.Error(), "does not support node groups") {
 		t.Fatalf("expected the unsupported-kind refusal, got %v", commandError)
+	}
+}
+
+// The command used to send its own flag defaults (min 1, max 5) for bounds
+// the user never set: a plain enable capped the group at 5 nodes against the
+// platform's default of 100, and --enabled=false overwrote the recorded
+// bounds with 1 and 5 (ankra-v3qdto.6). Only the flags the user set travel
+// now.
+func TestClusterNodeGroupAutoscalingSetSendsOnlyTheBoundsTheUserSet(t *testing.T) {
+	for _, testCase := range []struct {
+		name     string
+		args     []string
+		wantBody string
+	}{
+		{name: "plain enable", args: []string{"--enabled"}, wantBody: `{"enabled":true}`},
+		{name: "plain disable", args: []string{"--enabled=false"}, wantBody: `{"enabled":false}`},
+		{name: "max only", args: []string{"--enabled", "--max", "8"}, wantBody: `{"enabled":true,"max_count":8}`},
+		{name: "both bounds", args: []string{"--enabled", "--min", "2", "--max", "6"}, wantBody: `{"enabled":true,"max_count":6,"min_count":2}`},
+		{name: "scale to zero", args: []string{"--enabled", "--min", "0", "--max", "4"}, wantBody: `{"enabled":true,"max_count":4,"min_count":0}`},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd)
+			t.Cleanup(func() { resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd) })
+			writeSelectedClusterJSON(t)
+			mock := &autoscalingMock{clusterKind: "hetzner"}
+			setMockClient(t, mock)
+
+			captureStdout(t, func() {
+				arguments := append([]string{"cluster", "node-group", "autoscaling", "set", testClusterID, "default", "--wait"}, testCase.args...)
+				if _, runError := executeCommand(arguments...); runError != nil {
+					t.Fatalf("set: %v", runError)
+				}
+			})
+			if len(mock.setCalls) != 1 {
+				t.Fatalf("autoscaling update calls = %d, want 1", len(mock.setCalls))
+			}
+			body, marshalError := json.Marshal(mock.setCalls[0])
+			if marshalError != nil {
+				t.Fatalf("marshal: %v", marshalError)
+			}
+			if string(body) != testCase.wantBody {
+				t.Errorf("body = %s, want %s", body, testCase.wantBody)
+			}
+		})
+	}
+}
+
+// An omitted bound still carries the platform default in the request, so
+// code that echoes the request (the confirmation line) reads 1 and 100, not
+// 0.
+func TestClusterNodeGroupAutoscalingSetEchoesThePlatformDefaults(t *testing.T) {
+	resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd)
+	t.Cleanup(func() { resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd) })
+	writeSelectedClusterJSON(t)
+	mock := &autoscalingMock{clusterKind: "hetzner"}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "node-group", "autoscaling", "set", testClusterID, "default", "--enabled", "--wait")
+	})
+	if !strings.Contains(stdoutOutput, "autoscaling enabled (min 1, max 100)") {
+		t.Errorf("expected the platform defaults in the confirmation, got: %s", stdoutOutput)
 	}
 }
 

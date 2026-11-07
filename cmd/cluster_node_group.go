@@ -53,6 +53,52 @@ func nodeGroupArgs(count, groupIndex int) cobra.PositionalArgs {
 	})
 }
 
+// nodeGroupListArgs is the Args check of a node-group list: the cluster is
+// optional, so --cluster or the selected cluster can name it the way they do
+// for every other cluster-scoped read. Resolved by resolveOptionalClusterArg.
+var nodeGroupListArgs = cobra.MaximumNArgs(1)
+
+// resolveOptionalClusterArg resolves the cluster of a command whose
+// <cluster_id|name> argument may be left out: the argument when given, else
+// --cluster, else the cluster `ankra cluster select` saved. typed is what the
+// user named it by, for messages. node-group list used to demand the
+// argument and never read --cluster, so `node-group list --cluster <id>`
+// failed with "accepts 1 arg(s), received 0" and an argument beside a
+// different --cluster silently won (ankra-v3qdto.6). Both given and naming
+// different clusters is refused rather than one quietly ignored.
+func resolveOptionalClusterArg(cmd *cobra.Command, args []string) (typed, clusterID string, err error) {
+	override := clusterFlagOverride(cmd)
+	if len(args) > 0 {
+		// The same check and words as clusterPositionalArgs, which runs
+		// first in the binary, so the refusal never depends on which check
+		// met it. A name beside the same cluster's id is refused there too.
+		if override != "" && strings.TrimSpace(args[0]) != override {
+			return "", "", differentClustersError(cmd, override, args[0])
+		}
+		clusterID, err = resolveClusterArg(args[0])
+		if err != nil {
+			return "", "", err
+		}
+		return args[0], clusterID, nil
+	}
+	if override != "" {
+		clusterID, err = resolveClusterArg(override)
+		if err != nil {
+			return "", "", err
+		}
+		return override, clusterID, nil
+	}
+	selected, selectedError := loadSelectedCluster()
+	if selectedError != nil || strings.TrimSpace(selected.ID) == "" {
+		return "", "", withExitCode(exitUsage, errNoClusterSelected{})
+	}
+	typed = selected.Name
+	if typed == "" {
+		typed = selected.ID
+	}
+	return typed, selected.ID, nil
+}
+
 // nodeGroupAddArgs is the Args check of a node-group add: the cluster, and
 // the --name flag, which every later command puts in its request path, so a
 // group that could never be addressed there is not created. It runs where
@@ -340,15 +386,17 @@ HPE Morpheus) is detected automatically from the cluster.`,
 }
 
 var clusterNodeGroupListCmd = &cobra.Command{
-	Use:   "list <cluster_id|name>",
+	Use:   "list [cluster_id|name]",
 	Short: "List node groups",
-	Args:  cobra.ExactArgs(1),
+	Long: `List the node groups of a cloud cluster. The cluster is the argument, else
+--cluster, else the cluster selected with 'ankra cluster select'.`,
+	Args: nodeGroupListArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID, resolveError := resolveClusterArg(args[0])
+		typed, clusterID, resolveError := resolveOptionalClusterArg(cmd, args)
 		if resolveError != nil {
 			return resolveError
 		}
-		kind, kindError := resolveNodeGroupClusterKind(args[0], clusterID)
+		kind, kindError := resolveNodeGroupClusterKind(typed, clusterID)
 		if kindError != nil {
 			return kindError
 		}
@@ -559,7 +607,7 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' created with %d node(s).\n", result.GroupName, result.Count)
+		printNodeGroupAdded(result, clusterID)
 		return nil
 	},
 }
@@ -614,7 +662,7 @@ Examples:
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' scaled from %d to %d.\n", result.GroupName, result.PreviousCount, result.NewCount)
+		printNodeGroupScaled(result, clusterID)
 		return nil
 	},
 }
@@ -743,7 +791,7 @@ Examples:
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' deleted. %d node(s) removed.\n", result.GroupName, result.Deleted)
+		printNodeGroupDeleted(result, clusterID)
 		return nil
 	},
 }
@@ -802,9 +850,13 @@ var clusterNodeGroupAutoscalingSetCmd = &cobra.Command{
 	Use:   "set <cluster_id|name> <group_name>",
 	Short: "Enable or disable autoscaling for a node group",
 	Long: `Enable autoscaling with --enabled --min <n> --max <n>, or disable it with
---enabled=false. min must be at least 1 (scale-to-zero is not supported);
-enabling requires the cluster's ankra-agent to be recent enough to serve
-the autoscaler, and installs the Cluster Autoscaler on first enable.
+--enabled=false. Only the bounds you pass are sent: a --min or --max left out
+takes the platform's default (min 1, max 100), and --enabled=false needs
+neither. --min 0 (scale-to-zero) is accepted where the platform can size a
+node from the group's instance type and the cluster's ankra-agent serves the
+node template; the platform names what is missing otherwise. Enabling
+requires the cluster's ankra-agent to be recent enough to serve the
+autoscaler, and installs the Cluster Autoscaler on first enable.
 
 Enabling with bounds the group is outside moves it inside them: a --max
 below the group's node count scales it down to --max, removing the least
@@ -831,7 +883,10 @@ Examples:
 			return kindError
 		}
 
-		req := client.NodeGroupAutoscalingRequest{Enabled: enabled, MinCount: minCount, MaxCount: maxCount}
+		// Only the bounds the user set are sent; the rest take the platform's
+		// defaults, which the flag defaults mirror for display.
+		req := client.NodeGroupAutoscalingRequest{Enabled: enabled, MinCount: minCount, MaxCount: maxCount,
+			OmitMinCount: !cmd.Flags().Changed("min"), OmitMaxCount: !cmd.Flags().Changed("max")}
 
 		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
 		if err != nil {
@@ -1041,18 +1096,18 @@ func init() {
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("instance-type")
 
 	clusterNodeGroupAutoscalingSetCmd.Flags().Bool("enabled", true, "Enable (true) or disable (false) autoscaling")
-	clusterNodeGroupAutoscalingSetCmd.Flags().Int("min", 1, "Minimum node count while autoscaling (>= 1)")
-	clusterNodeGroupAutoscalingSetCmd.Flags().Int("max", 5, "Maximum node count while autoscaling")
+	clusterNodeGroupAutoscalingSetCmd.Flags().Int("min", 1, "Minimum node count while autoscaling (0 allows scale-to-zero); sent only when set, otherwise the platform default applies")
+	clusterNodeGroupAutoscalingSetCmd.Flags().Int("max", 100, "Maximum node count while autoscaling (at most 100); sent only when set, otherwise the platform default applies")
 
 	clusterNodeGroupLabelsCmd.Flags().String("labels", "", "Comma-separated key=value pairs to set on the group")
 	clusterNodeGroupLabelsCmd.Flags().Bool("clear", false, "Remove all labels from the node group")
 	clusterNodeGroupTaintsCmd.Flags().String("taints", "", "Comma-separated key=value:Effect taints to set on the group")
 	clusterNodeGroupTaintsCmd.Flags().Bool("clear", false, "Remove all taints from the node group")
 
-	registerAsyncWriteFlags(clusterNodeGroupAddCmd)
-	registerAsyncWriteFlags(clusterNodeGroupScaleCmd)
+	registerNodeGroupWriteFlags(clusterNodeGroupAddCmd)
+	registerNodeGroupWriteFlags(clusterNodeGroupScaleCmd)
 	registerAsyncWriteFlags(clusterNodeGroupUpgradeCmd)
-	registerAsyncWriteFlags(clusterNodeGroupDeleteCmd)
+	registerNodeGroupWriteFlags(clusterNodeGroupDeleteCmd)
 	registerAsyncWriteFlagsWithTimeout(clusterNodeGroupAutoscalingSetCmd, nodeGroupAutoscalingWaitTimeout)
 	registerAsyncWriteFlags(clusterNodeGroupLabelsCmd)
 	registerAsyncWriteFlags(clusterNodeGroupTaintsCmd)

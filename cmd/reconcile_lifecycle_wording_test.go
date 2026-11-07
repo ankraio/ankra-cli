@@ -16,7 +16,7 @@ import (
 // prompt three lines later warned that it deletes every cloud resource. The
 // backend lane it calls is the full teardown (delete_permanently on every
 // resource plus the cloud-termination DAG that uninstalls the stack), NOT the
-// power lane behind `ankra <provider> cluster stop`. A customer power-cycled a
+// power lane behind `ankra cluster <provider> stop`. A customer power-cycled a
 // GPU cluster through it believing it was a stop/start and lost the addon
 // values they had patched in place (ankra-54il0, ankra-dic4y). These tests pin
 // the corrected wording so the "stop"/"start" labels cannot come back.
@@ -46,7 +46,7 @@ func TestClusterDeprovisionHelpDoesNotClaimItIsAStop(t *testing.T) {
 			t.Errorf("deprovision help still contains %q; it is a teardown, not a power-off", banned)
 		}
 	}
-	for _, required := range []string{"teardown", "power-schedules", "cluster stop"} {
+	for _, required := range []string{"teardown", "power-schedules", "ankra cluster hetzner stop"} {
 		if !strings.Contains(help, required) {
 			t.Errorf("deprovision help should mention %q so operators can find the real power lane", required)
 		}

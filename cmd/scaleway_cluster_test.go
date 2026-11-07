@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"ankra/internal/client"
+
+	"github.com/spf13/cobra"
 )
 
 type scalewayLifecycleMock struct {
@@ -57,5 +59,36 @@ func TestScalewayStartCommandWithScope(t *testing.T) {
 	}
 	if !strings.Contains(output, "Scaleway cluster start initiated") {
 		t.Fatalf("unexpected output: %s", output)
+	}
+}
+
+type scalewayDeprovisionForceMock struct {
+	baseMock
+	force bool
+	calls int
+}
+
+func (m *scalewayDeprovisionForceMock) DeprovisionScalewayCluster(_ string, options client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
+	m.calls++
+	m.force = options.Force
+	return &client.ProviderDeprovisionClusterResponse{ClusterID: testClusterID}, nil
+}
+
+// The platform honours force on a Scaleway teardown, but this subcommand had
+// no --force to send it with (ankra-v3qdto.6).
+func TestScalewayDeprovisionSendsForce(t *testing.T) {
+	for _, forced := range []bool{true, false} {
+		mock := &scalewayDeprovisionForceMock{}
+		forceArgument := "--force=false"
+		if forced {
+			forceArgument = "--force=true"
+		}
+		if output, runError := runConfirmCommand(t, mock, "", []*cobra.Command{scalewayDeprovisionCmd},
+			"cluster", "scaleway", "deprovision", testClusterID, "--yes", forceArgument); runError != nil {
+			t.Fatalf("deprovision %s: %v\n%s", forceArgument, runError, output)
+		}
+		if mock.calls != 1 || mock.force != forced {
+			t.Fatalf("deprovision %s: calls %d, force %v", forceArgument, mock.calls, mock.force)
+		}
 	}
 }

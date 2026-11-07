@@ -631,3 +631,28 @@ func TestHetznerRoleServerTypesSummarySkipsEmptyRoles(t *testing.T) {
 		t.Errorf("Summary() = %q", summary)
 	}
 }
+
+// A bound the caller omits is left out of the body so the platform applies
+// its default (min 1, max 100); the zero value still sends both, as before.
+func TestNodeGroupAutoscalingRequestMarshalsOnlyTheBoundsKept(t *testing.T) {
+	for _, testCase := range []struct {
+		name    string
+		request NodeGroupAutoscalingRequest
+		want    string
+	}{
+		{name: "both bounds", request: NodeGroupAutoscalingRequest{Enabled: true, MinCount: 2, MaxCount: 6}, want: `{"enabled":true,"max_count":6,"min_count":2}`},
+		{name: "scale to zero", request: NodeGroupAutoscalingRequest{Enabled: true, MinCount: 0, MaxCount: 4}, want: `{"enabled":true,"max_count":4,"min_count":0}`},
+		{name: "min omitted", request: NodeGroupAutoscalingRequest{Enabled: true, MinCount: 1, MaxCount: 8, OmitMinCount: true}, want: `{"enabled":true,"max_count":8}`},
+		{name: "plain disable", request: NodeGroupAutoscalingRequest{MinCount: 1, MaxCount: 100, OmitMinCount: true, OmitMaxCount: true}, want: `{"enabled":false}`},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			body, marshalError := json.Marshal(testCase.request)
+			if marshalError != nil {
+				t.Fatalf("marshal: %v", marshalError)
+			}
+			if string(body) != testCase.want {
+				t.Errorf("body = %s, want %s", body, testCase.want)
+			}
+		})
+	}
+}

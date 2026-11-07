@@ -110,8 +110,7 @@ var upcloudCreateCmd = &cobra.Command{
 
 		fmt.Printf("UpCloud cluster '%s' created successfully!\n", result.Name)
 		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
-		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
-			strings.TrimRight(baseURL, "/"), result.ClusterID)
+		fmt.Printf("\nView it in the UI:\n  %s\n", portalClusterURLByID(result.ClusterID))
 		return nil
 	},
 }
@@ -429,11 +428,11 @@ var upcloudNodeGroupCmd = &cobra.Command{
 }
 
 var upcloudNodeGroupListCmd = &cobra.Command{
-	Use:   "list <cluster_id|name>",
+	Use:   "list [cluster_id|name]",
 	Short: "List node groups",
-	Args:  cobra.ExactArgs(1),
+	Args:  nodeGroupListArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID, resolveError := resolveClusterArg(args[0])
+		_, clusterID, resolveError := resolveOptionalClusterArg(cmd, args)
 		if resolveError != nil {
 			return resolveError
 		}
@@ -504,7 +503,7 @@ var upcloudNodeGroupAddCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' created with %d node(s).\n", result.GroupName, result.Count)
+		printNodeGroupAdded(result, clusterID)
 		return nil
 	},
 }
@@ -548,7 +547,7 @@ var upcloudNodeGroupScaleCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' scaled from %d to %d.\n", result.GroupName, result.PreviousCount, result.NewCount)
+		printNodeGroupScaled(result, clusterID)
 		return nil
 	},
 }
@@ -636,7 +635,7 @@ var upcloudNodeGroupDeleteCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' deleted. %d node(s) removed.\n", result.GroupName, result.Deleted)
+		printNodeGroupDeleted(result, clusterID)
 		return nil
 	},
 }
@@ -702,10 +701,10 @@ func init() {
 	upcloudNodeGroupAddCmd.Flags().String("instance-type", upcloudDefaultNodeGroupPlan, "Server plan for nodes")
 	upcloudNodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes (0-100)")
 	_ = upcloudNodeGroupAddCmd.MarkFlagRequired("name")
-	registerAsyncWriteFlags(upcloudNodeGroupAddCmd)
-	registerAsyncWriteFlags(upcloudNodeGroupScaleCmd)
+	registerNodeGroupWriteFlags(upcloudNodeGroupAddCmd)
+	registerNodeGroupWriteFlags(upcloudNodeGroupScaleCmd)
 	registerAsyncWriteFlags(upcloudNodeGroupUpgradeCmd)
-	registerAsyncWriteFlags(upcloudNodeGroupDeleteCmd)
+	registerNodeGroupWriteFlags(upcloudNodeGroupDeleteCmd)
 
 	registerStructuredOutputFlags(
 		upcloudCreateCmd,

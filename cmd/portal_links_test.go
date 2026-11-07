@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"net/url"
 	"strings"
 	"testing"
@@ -283,5 +284,57 @@ func TestClusterAddonsListYAMLCarriesPortalURL(t *testing.T) {
 	want := "portal_url: " + portalBaseURL() + portalTestClusterPrefix + "/add-ons/add-on/grafana?org=" + portalTestOrganisationID
 	if !strings.Contains(output, want) {
 		t.Errorf("expected %q in the YAML output, got:\n%s", want, output)
+	}
+}
+
+// createLinkMock is a Hetzner create whose request went to organisationID
+// (--org/ANKRA_ORG) and whose cluster record reports recordOrganisationID.
+type createLinkMock struct {
+	hetznerCreateMock
+	organisationID       string
+	recordOrganisationID string
+}
+
+func (m *createLinkMock) OrganisationOverride() string { return m.organisationID }
+
+func (m *createLinkMock) GetClusterByID(clusterID string) (client.ClusterListItem, error) {
+	if m.recordOrganisationID == "" {
+		return client.ClusterListItem{}, errors.New("not found")
+	}
+	return client.ClusterListItem{ID: clusterID, OrganisationID: m.recordOrganisationID}, nil
+}
+
+// The "View it in the UI" link a create prints was built by hand without
+// ?org=, so it opened "not found" for a member whose portal was on another
+// organisation (ankra-v3qdto.6). It names the organisation the request went
+// to, else the one the platform reports for the new cluster.
+func TestCreateLinkCarriesTheOrganisation(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		mock *createLinkMock
+		want string
+	}{
+		{name: "request organisation", mock: &createLinkMock{organisationID: portalTestOrganisationID},
+			want: "/organisation/clusters/cluster/imported/hz-cluster-123/overview?org=" + portalTestOrganisationID},
+		{name: "cluster record organisation", mock: &createLinkMock{recordOrganisationID: portalTestOrganisationID},
+			want: "/organisation/clusters/cluster/imported/hz-cluster-123/overview?org=" + portalTestOrganisationID},
+		{name: "organisation unknown", mock: &createLinkMock{},
+			want: "/organisation/clusters/cluster/imported/hz-cluster-123/overview\n"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			resetTreeFlags(t, hetznerCreateCmd)
+			var output string
+			var runError error
+			stdout := captureStdout(t, func() {
+				output, runError = runConfirmCommand(t, testCase.mock, "", []*cobra.Command{hetznerCreateCmd},
+					"cluster", "hetzner", "create", "--name", "linked", "--credential-id", "cred-1", "--location", "fsn1")
+			})
+			if runError != nil {
+				t.Fatalf("create: %v\n%s", runError, output)
+			}
+			if combined := output + stdout; !strings.Contains(combined, testCase.want) {
+				t.Errorf("create output lacks %q:\n%s", testCase.want, combined)
+			}
+		})
 	}
 }

@@ -110,8 +110,7 @@ var managedCreateCmd = &cobra.Command{
 
 		fmt.Printf("Managed %s cluster '%s' created successfully!\n", provider, result.Name)
 		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
-		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
-			strings.TrimRight(baseURL, "/"), result.ClusterID)
+		fmt.Printf("\nView it in the UI:\n  %s\n", portalClusterURLByID(result.ClusterID))
 		return nil
 	},
 }
@@ -603,8 +602,7 @@ var managedImportCmd = &cobra.Command{
 		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
 		fmt.Printf("  Provider cluster ID: %s\n", result.ProviderClusterID)
 		fmt.Printf("\nThe agent installs automatically; the cluster flips online once it connects.\n")
-		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
-			strings.TrimRight(baseURL, "/"), result.ClusterID)
+		fmt.Printf("\nView it in the UI:\n  %s\n", portalClusterURLByID(result.ClusterID))
 		return nil
 	},
 }
