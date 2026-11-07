@@ -368,3 +368,44 @@ func TestMCPTokenNameNamesTheClient(t *testing.T) {
 		t.Errorf("name = %q", name)
 	}
 }
+
+func TestMCPTokenRefusesAnExpiryItCannotRead(t *testing.T) {
+	stubMCPEnvironment(t, false)
+	if _, storeError := writeMCPStoredToken("codex", mcpStoredToken{Token: mcpTestToken, ExpiresAt: "next tuesday"}); storeError != nil {
+		t.Fatal(storeError)
+	}
+	output, executeError := executeCommand("mcp", "token", "--client", "codex")
+	if exitCodeFor(executeError) != exitAuth || !strings.Contains(executeError.Error(), "cannot be read") {
+		t.Errorf("unreadable expiry: exit %d (%v), want %d", exitCodeFor(executeError), executeError, exitAuth)
+	}
+	assertNoMCPSecret(t, "an unreadable expiry", output)
+}
+
+func TestRegisterMCPCursorLeavesANonObjectServersAlone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp.json")
+	original := `{"mcpServers": ["kept"]}`
+	if writeError := os.WriteFile(path, []byte(original), 0o600); writeError != nil {
+		t.Fatal(writeError)
+	}
+	if registerError := registerMCPCursor(path, "https://platform.test/api/v1/mcp"); registerError == nil {
+		t.Fatal("a non-object mcpServers must be refused")
+	}
+	if content, _ := os.ReadFile(path); string(content) != original {
+		t.Errorf("the config must be left alone:\n%s", content)
+	}
+}
+
+func TestRegisterMCPCodexReplacesAHeaderWithATrailingComment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	original := "[mcp_servers.ankra] # the platform\nurl = \"https://old\"\n"
+	if writeError := os.WriteFile(path, []byte(original), 0o600); writeError != nil {
+		t.Fatal(writeError)
+	}
+	if registerError := registerMCPCodex(path, "https://platform.test/api/v1/mcp"); registerError != nil {
+		t.Fatal(registerError)
+	}
+	content, _ := os.ReadFile(path)
+	if strings.Contains(string(content), "https://old") || strings.Count(string(content), "[mcp_servers.ankra]") != 1 {
+		t.Errorf("the commented section must be replaced, not duplicated:\n%s", content)
+	}
+}

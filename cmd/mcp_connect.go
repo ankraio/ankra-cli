@@ -394,7 +394,12 @@ func readMCPTokenForOutput(command *cobra.Command) (*mcpStoredToken, error) {
 	if readError != nil {
 		return nil, readError
 	}
-	if expiresAt, parseError := time.Parse(time.RFC3339, stored.ExpiresAt); parseError == nil && !time.Now().Before(expiresAt) {
+	expiresAt, parseError := time.Parse(time.RFC3339, stored.ExpiresAt)
+	if parseError != nil {
+		return nil, withExitCode(exitAuth, fmt.Errorf("the stored MCP token for %s has an expiry that cannot be read (%q): run 'ankra mcp connect --client %s' to renew it",
+			clientName, stored.ExpiresAt, clientName))
+	}
+	if !time.Now().Before(expiresAt) {
 		return nil, withExitCode(exitAuth, fmt.Errorf("the MCP token for %s expired on %s: run 'ankra mcp connect --client %s' to renew it",
 			clientName, stored.ExpiresAt, clientName))
 	}
@@ -463,9 +468,13 @@ func registerMCPCursor(path string, serverURL string) error {
 	case !errors.Is(readError, os.ErrNotExist):
 		return readError
 	}
-	servers, _ := document["mcpServers"].(map[string]any)
-	if servers == nil {
-		servers = map[string]any{}
+	servers := map[string]any{}
+	if existing, isPresent := document["mcpServers"]; isPresent && existing != nil {
+		existingServers, isObject := existing.(map[string]any)
+		if !isObject {
+			return fmt.Errorf("%s has an mcpServers that is not an object, so it was left alone", path)
+		}
+		servers = existingServers
 	}
 	servers[mcpServerName] = map[string]any{
 		"url":     serverURL,
@@ -504,7 +513,7 @@ func registerMCPCodex(path string, serverURL string) error {
 func replaceTOMLSection(document string, header string, section string) (string, bool) {
 	lines := strings.SplitAfter(document, "\n")
 	for start, line := range lines {
-		if strings.TrimSpace(line) != header {
+		if tomlHeaderOf(line) != header {
 			continue
 		}
 		end := start + 1
@@ -518,6 +527,19 @@ func replaceTOMLSection(document string, header string, section string) (string,
 		return strings.Join(lines[:start], "") + replacement + strings.Join(lines[end:], ""), true
 	}
 	return document, false
+}
+
+// tomlHeaderOf answers a line with any trailing comment removed, so a table
+// header followed by "# note" still reads as that header.
+func tomlHeaderOf(line string) string {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "[") {
+		return trimmed
+	}
+	if commentStart := strings.Index(trimmed, "#"); commentStart >= 0 {
+		trimmed = strings.TrimSpace(trimmed[:commentStart])
+	}
+	return trimmed
 }
 
 // writeMCPClientConfig replaces a client's config in one step, keeping its mode.
