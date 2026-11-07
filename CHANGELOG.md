@@ -6,6 +6,10 @@
 
 - **`ankra cluster node-group autoscaling set` moves a node group inside the bounds you set, instead of refusing.** A `--max` below the group's current node count used to fail with "scale the group down first"; it is now accepted and the platform scales the group down to `--max`, removing the least busy nodes first. Each node it removes is cordoned, waits up to 15 minutes for the pipeline steps running on it, and is then drained, one node at a time. A `--min` above the node count scales the group up to `--min`. The command says what will happen (for example "Node group 'ci-large' will scale down from 5 to 3 nodes as running pipeline steps finish") and names the operation doing it, and `--wait` now waits for that operation to finish and fails with its reason if it does not succeed. `--timeout` defaults to one hour for this command. Needs a platform that reports the new outcome; an older one answers as before.
 
+### Fixed
+
+- **`ankra application deploy` without `image_tag` deploys the newest published image when the platform has no build tag recorded.** A newer push whose pipeline run was superseded or failed before its publish step left the application's recorded build without a tag, and the deploy was refused with "Ankra has not recorded the tag of a published image" although the registry, and the portal's version picker, still held every image published before it. The command now answers that refusal by deploying the newest published build of the tracked branch and says on stderr which tag it deployed. It never deploys another branch's image on its own: when the tracked branch has no published build in the registry, the refusal names the newest image the registry holds, to pass with `--set image_tag`. `--set image_tag=<tag>` still picks one yourself, and a deploy with no published image is refused as before.
+
 ## v0.70.0 - 2026-11-07
 
 This release adds `ankra ai keys`: put your own Anthropic Console or OpenRouter API keys on
