@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## v0.71.0 - 2026-11-07
+
+This release adds `ankra application promote` and `ankra application previews`, `ankra mcp
+connect` (the guided MCP setup for Claude Code, Cursor and Codex) and `ankra slack connect`.
+Scripts should note three exit codes that change: `ankra chat` exits 9, a new code for work
+that is waiting and has not failed, when the agent pauses (it exited 0); `ankra application
+ship` exits 9 while a setup pull request is open; and `ankra cluster gateway-api enable` exits
+1 at a values hold instead of 0. `ankra secrets set`, `rotate` and `delete` no longer run out
+of time while you answer their prompt, and `ankra tokens revoke` and `delete` take `--service`.
+
 ### Added
 
 - **`ankra application promote` and `ankra application previews`.** `promote <app> --from staging --to production` moves the build one environment runs onto the next, without building again, after showing what would change. It exits 8 with the blockers when something stops it. `previews <app>` shows whether every pull request gets a preview, and `previews enable|disable|follow` sets the repository's rule without touching any other setting.
