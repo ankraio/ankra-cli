@@ -127,6 +127,11 @@ func TestClusterPositionalArgsKeepsTheValidatorsOwnError(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "first argument, not --cluster") {
 		t.Errorf("--cluster prod with only the count: got %v, want the right form named", err)
 	}
+
+	err = validate(command, []string{"prod"})
+	if err == nil || !strings.Contains(err.Error(), "accepts 2 arg(s)") || strings.Contains(err.Error(), "not --cluster") {
+		t.Errorf("--cluster prod agreeing with the positional but no count: got %v, want cobra's count error", err)
+	}
 }
 
 func TestClusterPositionalKindIgnoresOtherFirstArguments(t *testing.T) {

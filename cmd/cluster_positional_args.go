@@ -39,9 +39,10 @@ func clusterPositionalArgs(validate cobra.PositionalArgs, isRequired bool) cobra
 			validateError = validate(command, args)
 		}
 		isMissing := isRequired && len(args) == 0
+		isFlagAgreeing := flagValue != "" && len(args) > 0 && strings.TrimSpace(args[0]) == flagValue
 
 		switch {
-		case flagValue != "" && (isMissing || validateError != nil):
+		case flagValue != "" && !isFlagAgreeing && (isMissing || validateError != nil):
 			return withExitCode(exitUsage, fmt.Errorf(
 				"this command takes the cluster as its first argument, not --cluster; usage: %s", command.UseLine()))
 		case isMissing:
