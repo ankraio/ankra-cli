@@ -37,21 +37,24 @@ var (
 	shipURLProbe          = probeShipURL
 )
 
+// shipURLHTTPClient is shared by every probe so the attempts reuse one
+// transport and its connections. Redirects are not followed, because the first
+// response already proves the URL answers.
+var shipURLHTTPClient = &http.Client{
+	Timeout: shipURLProbeTimeout,
+	CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
+
 // probeShipURL answers "" when the URL serves a response over verified HTTPS,
-// and otherwise what is still pending in the reader's terms. Redirects are not
-// followed, because the first response already proves it.
+// and otherwise what is still pending in the reader's terms.
 func probeShipURL(probeContext context.Context, url string) string {
-	httpClient := &http.Client{
-		Timeout: shipURLProbeTimeout,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
 	request, requestError := http.NewRequestWithContext(probeContext, http.MethodGet, url, nil)
 	if requestError != nil {
 		return "the URL could not be requested: " + requestError.Error()
 	}
-	response, responseError := httpClient.Do(request)
+	response, responseError := shipURLHTTPClient.Do(request)
 	if responseError != nil {
 		return shipURLPendingReason(responseError)
 	}
