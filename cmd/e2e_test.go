@@ -1550,6 +1550,14 @@ func (m baseMock) GetApplicationSecurityVersions(context.Context, string, string
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetSlackInstallURL(context.Context) (*client.SlackInstallURL, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetSlackStatus(context.Context) (*client.SlackStatus, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateAPIToken(client.CreateAPITokenRequest) (*client.CreateAPITokenResponse, error) {
 	return nil, errors.New("not implemented")
 }
