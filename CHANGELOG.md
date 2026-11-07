@@ -15,6 +15,7 @@
 ### Fixed
 
 - **`ankra application deploy` without `image_tag` deploys the newest published image when the platform has no build tag recorded.** A newer push whose pipeline run was superseded or failed before its publish step left the application's recorded build without a tag, and the deploy was refused with "Ankra has not recorded the tag of a published image" although the registry, and the portal's version picker, still held every image published before it. The command now answers that refusal by deploying the newest published build of the tracked branch and says on stderr which tag it deployed. It never deploys another branch's image on its own: when the tracked branch has no published build in the registry, the refusal names the newest image the registry holds, to pass with `--set image_tag`. `--set image_tag=<tag>` still picks one yourself, and a deploy with no published image is refused as before.
+- **`Authority: unapproved` now says what it changes.** The line appeared on runs that published fine, with nothing saying what it gated. `ankra pipeline get` now lists the sections the run took from trusted authority, says an image build or publish does not depend on it, and its help explains the state. `ankra application ship` names the approve command the first time it follows such a run, and again if the run fails.
 
 ## v0.70.0 - 2026-11-07
 
