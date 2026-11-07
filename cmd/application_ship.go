@@ -59,7 +59,10 @@ type shipResult struct {
 	// still pending. URL is then left out: it holds only an address that answered.
 	PendingURL string `json:"pending_url,omitempty" yaml:"pending_url,omitempty"`
 	URLPending string `json:"url_pending,omitempty" yaml:"url_pending,omitempty"`
-	State      string `json:"state" yaml:"state"`
+	// AddressFamilies lists the families the URL's hostname resolves to right
+	// now ("ipv4", "ipv6"); empty when no record could be read.
+	AddressFamilies []string `json:"address_families,omitempty" yaml:"address_families,omitempty"`
+	State           string   `json:"state" yaml:"state"`
 	// SetupPullRequestRun and BlockingFindings describe a stop at the setup
 	// pull request: its run, and when the gate blocked it, the worst findings.
 	SetupPullRequestRun *shipSetupPullRequestRun `json:"setup_pull_request_run,omitempty" yaml:"setup_pull_request_run,omitempty"`
@@ -376,6 +379,11 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 		shipState = shipStateURLPending
 	}
 
+	addressFamilies := []string{}
+	if liveURL != "" {
+		addressFamilies = shipURLAddressFamilies(waitContext, liveURL)
+	}
+
 	result := shipResult{
 		ApplicationID:    application.ID,
 		ApplicationName:  application.Name,
@@ -393,6 +401,7 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 		URLProblem:       routeProblem,
 		PendingURL:       pendingURL,
 		URLPending:       urlPending,
+		AddressFamilies:  addressFamilies,
 		State:            shipState,
 	}
 	if rendered, renderError := renderStructured(command, result); rendered || renderError != nil {
@@ -417,6 +426,7 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 	}
 	if liveURL != "" {
 		_, _ = fmt.Fprintf(output, "Live: %s\n", liveURL)
+		_, _ = fmt.Fprintln(output, shipAddressFamiliesLine(addressFamilies))
 		return nil
 	}
 	if pendingURL != "" {
