@@ -67,7 +67,7 @@ If no cluster name is provided, the currently selected cluster is moved.`,
 		}
 		destinationLabel := organisationDisplayName(*destination)
 
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Move cluster %q to organisation %q? Access grants, kube tokens, notification routes "+
 				"and group memberships from the current organisation are detached. [y/N]: ", clusterName, destinationLabel),
 			yes); confirmError != nil {

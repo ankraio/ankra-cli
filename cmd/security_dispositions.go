@@ -562,7 +562,7 @@ Examples:
 		}
 		renderSecurityDispositionPreview(narration, blastRadius)
 		prompt := fmt.Sprintf("Record %s for %d occurrences? [y/N]: ", preview.Disposition, blastRadius.AffectedOccurrences)
-		if confirmError := confirmPrompt(cmd.InOrStdin(), narration, prompt, yes); confirmError != nil {
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), prompt, yes); confirmError != nil {
 			return confirmError
 		}
 		request := client.SecurityDispositionCreateRequest{
@@ -631,15 +631,10 @@ the security.manage permission; the write asks for confirmation unless
 		if request.Reason == nil && request.ExpiresAt == nil && request.ExpireWhenFixAvailable == nil {
 			return withExitCode(exitUsage, fmt.Errorf("nothing to change: pass --reason, --expires-at or --expire-when-fix-available"))
 		}
-		structured, err := structuredFormatFromFlags(cmd)
-		if err != nil {
-			return err
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
 		}
-		narration := cmd.OutOrStdout()
-		if structured != outputDefault {
-			narration = cmd.ErrOrStderr()
-		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), narration, fmt.Sprintf("Update disposition policy %s? [y/N]: ", policyID), yes); confirmError != nil {
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), fmt.Sprintf("Update disposition policy %s? [y/N]: ", policyID), yes); confirmError != nil {
 			return confirmError
 		}
 		policy, err := apiClient.UpdateSecurityDisposition(policyID, request)
@@ -668,15 +663,10 @@ Needs the security.manage permission; asks for confirmation unless --yes.`,
 		if strings.TrimSpace(reason) == "" {
 			return withExitCode(exitUsage, fmt.Errorf("--reason is required"))
 		}
-		structured, err := structuredFormatFromFlags(cmd)
-		if err != nil {
-			return err
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
 		}
-		narration := cmd.OutOrStdout()
-		if structured != outputDefault {
-			narration = cmd.ErrOrStderr()
-		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), narration, fmt.Sprintf("Revoke disposition policy %s? Its occurrences become actionable again. [y/N]: ", policyID), yes); confirmError != nil {
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), fmt.Sprintf("Revoke disposition policy %s? Its occurrences become actionable again. [y/N]: ", policyID), yes); confirmError != nil {
 			return confirmError
 		}
 		policy, err := apiClient.RevokeSecurityDisposition(policyID, client.SecurityDispositionRevokeRequest{Reason: strings.TrimSpace(reason)})

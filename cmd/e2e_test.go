@@ -2073,6 +2073,10 @@ func (m baseMock) DeleteHetznerNodeGroup(ctx context.Context, clusterID, groupNa
 	return nil, false, errors.New("not implemented")
 }
 
+func (m baseMock) RemoveNodeGroupNode(ctx context.Context, kind, clusterID, groupName, node string, drainOptions client.DrainOptions, wait bool) (*client.RemoveNodeGroupNodeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetHetznerControlPlane(clusterID string) (*client.ControlPlaneInfo, error) {
 	return nil, errors.New("not implemented")
 }

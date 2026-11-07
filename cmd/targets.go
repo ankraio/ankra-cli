@@ -27,7 +27,17 @@ const maximumJoinTokenLifetime = 24 * time.Hour
 
 // routeAbsentDetail is what the platform's router answers for a path it does
 // not serve, as opposed to a handler's own not-found sentence.
-const routeAbsentDetail = "Not Found"
+const routeAbsentDetail = client.RouterNotFoundDetail
+
+// isRouteAbsent reports whether apiError is a platform that does not serve
+// the route at all: a 404 carrying the router's routeAbsentDetail, or no
+// detail at all (anything in front of the API). A handler's own 404, which
+// names what it did not find, is not.
+func isRouteAbsent(apiError error) bool {
+	var unexpected *client.UnexpectedResponseError
+	return errors.As(apiError, &unexpected) && unexpected.StatusCode == http.StatusNotFound &&
+		(unexpected.Detail == "" || unexpected.Detail == routeAbsentDetail)
+}
 
 // environmentNotFoundDetail is the platform's 404 detail for an environment
 // filter that names no environment: it answers that rather than an empty
@@ -39,9 +49,7 @@ const environmentNotFoundDetail = "Environment not found"
 // bare 404; that is not "the target does not exist", so it is said plainly and
 // exits 1 rather than the not-found code a script would treat as idempotent.
 func deployLaneError(operation string, apiError error) error {
-	var unexpected *client.UnexpectedResponseError
-	if errors.As(apiError, &unexpected) && unexpected.StatusCode == http.StatusNotFound &&
-		(unexpected.Detail == "" || unexpected.Detail == routeAbsentDetail) {
+	if isRouteAbsent(apiError) {
 		return withExitCode(exitError, fmt.Errorf(
 			"%s: this Ankra platform does not serve host deploy targets yet (the route answered 404). "+
 				"Host deploy targets are rolling out; check the selected organisation with 'ankra org current' "+
