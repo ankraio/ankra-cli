@@ -547,6 +547,14 @@ type APIClient interface {
 	DiscoverEndpointModels(endpointID string) ([]string, error)
 	ListAILaneModels() ([]client.AILaneModel, error)
 	SetAILaneModel(lane string, modelKey string) ([]client.AILaneModel, error)
+	ListPersonalAIKeys() (*client.PersonalAIKeyListing, error)
+	AddPersonalAIKey(request client.AddPersonalAIKeyRequest) (*client.PersonalAIKey, error)
+	ReorderPersonalAIKeys(keyIDs []string) (*client.PersonalAIKeyList, error)
+	RenamePersonalAIKey(keyID string, label string) (*client.PersonalAIKey, error)
+	DeletePersonalAIKey(keyID string) error
+	TestPersonalAIKey(keyID string) (*client.PersonalAIKeyTestResult, error)
+	GetPersonalAIKeysPolicy() (*client.PersonalAIKeysPolicy, error)
+	SetPersonalAIKeysPolicy(allowed bool) (*client.PersonalAIKeysPolicy, error)
 	ListRelatedRepositories(ctx context.Context, installationID string) ([]client.RelatedRepository, error)
 	CreateRelatedRepository(ctx context.Context, installationID string, repoFullName string,
 		relatedRepoFullName string) (*client.RelatedRepository, error)
