@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -32,6 +33,10 @@ type chatOneShotResult struct {
 	ClusterID   *string `json:"cluster_id" yaml:"cluster_id"`
 	ClusterName string  `json:"cluster_name,omitempty" yaml:"cluster_name,omitempty"`
 	Answer      string  `json:"answer" yaml:"answer"`
+	// State is how the command left the conversation: "completed", "failed",
+	// "awaiting_user" (a confirmation or an answer is needed) or "waiting"
+	// (the agent paused and the platform resumes it by itself).
+	State string `json:"state" yaml:"state"`
 	// ToolCalls are the tools the model ran, in the order they started.
 	ToolCalls []chatToolCall `json:"tool_calls" yaml:"tool_calls"`
 	// PendingActions are writes the model proposed that have NOT run: each
@@ -99,14 +104,14 @@ func newChatPendingActions(proposals []*client.ChatActionProposal) []chatPending
 // runChatMessageStructured runs one question and prints its outcome as one
 // JSON or YAML document on stdout. Nothing else reaches stdout: notices (a
 // stale selection, stripped hidden runes, an error frame) go to stderr.
-func runChatMessageStructured(cmd *cobra.Command, scope chatScope, conversationID string, query string, interactionMode string) error {
+func runChatMessageStructured(cmd *cobra.Command, scope chatScope, conversationID string, query string, interactionMode string, waitTimeout time.Duration) error {
 	errOut := cmd.ErrOrStderr()
 	conversationID, startedConversation, query, err := prepareOneShot(conversationID, query, errOut)
 	if err != nil {
 		return err
 	}
 	req := client.ChatRequest{Query: query, InteractionMode: interactionMode}
-	events, session, scope, err := openChatTurn(scope, conversationID, req, interactionMode, errOut)
+	events, session, scope, err := openChatTurn(scope, conversationID, req, interactionMode, waitTimeout, errOut)
 	if err != nil {
 		// A billing pause is the one refusal a job needs to tell apart by
 		// code, and it arrives before any turn exists on the sessions lane:
@@ -152,6 +157,7 @@ func newChatOneShotResult(conversationID string, session *client.ChatSession, sc
 		Mode:           sessionModeForInteraction(interactionMode),
 		ClusterID:      scope.clusterID,
 		Answer:         outcome.response,
+		State:          outcome.state(),
 		ToolCalls:      outcome.toolCalls,
 		PendingActions: newChatPendingActions(outcome.proposals),
 		Error:          outcome.errorMessage,

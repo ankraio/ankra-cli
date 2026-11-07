@@ -66,6 +66,14 @@ type StartClusterOptions struct {
 	// RestoreState: nil restores the newest captured state snapshot when
 	// there is one, true requires one, false starts a fresh cluster.
 	RestoreState *bool
+	// RestoreSnapshotID names the state snapshot to restore, for a start the
+	// backend refuses to decide on its own (no capture after the last start,
+	// older ones waiting); "" leaves the choice to RestoreState.
+	RestoreSnapshotID string
+	// RestoreOverKeptEtcd, with RestoreSnapshotID, confirms that the etcd a
+	// stop kept is lost (the control-plane machines are gone), so the named
+	// snapshot may reset it.
+	RestoreOverKeptEtcd bool
 }
 
 func (options StopClusterOptions) query() string {
@@ -205,6 +213,15 @@ func (options StartClusterOptions) query() string {
 	if options.RestoreState != nil {
 		values.Set("restore_state", strconv.FormatBool(*options.RestoreState))
 	}
+	if options.RestoreSnapshotID != "" {
+		values.Set("restore_snapshot_id", options.RestoreSnapshotID)
+		if options.RestoreState == nil {
+			values.Set("restore_state", "true")
+		}
+	}
+	if options.RestoreOverKeptEtcd {
+		values.Set("restore_over_kept_etcd", "true")
+	}
 	if len(values) == 0 {
 		return ""
 	}
@@ -233,7 +250,7 @@ type ProviderDeprovisionClusterResponse struct {
 }
 
 func (c *Client) providerClusterURL(kind, clusterID, suffix string) string {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/%s", c.BaseURL, kind, url.PathEscape(clusterID))
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/%s", c.BaseURL, url.PathEscape(kind), url.PathEscape(clusterID))
 	if suffix != "" {
 		endpoint += "/" + suffix
 	}
@@ -241,7 +258,7 @@ func (c *Client) providerClusterURL(kind, clusterID, suffix string) string {
 }
 
 func (c *Client) createProviderCluster(kind string, request interface{}, result interface{}) error {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s", c.BaseURL, kind)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s", c.BaseURL, url.PathEscape(kind))
 	payload, marshalError := json.Marshal(request)
 	if marshalError != nil {
 		return fmt.Errorf("marshal request: %w", marshalError)
@@ -434,5 +451,5 @@ func (c *Client) updateProviderNodeGroupAutoscaling(ctx context.Context, kind, c
 		return nil, false, fmt.Errorf("marshal request: %w", marshalError)
 	}
 	endpoint := c.providerClusterURL(kind, clusterID, "node-groups") + "/" + url.PathEscape(groupName) + "/autoscaling"
-	return c.doUpdateNodeGroupAutoscaling(ctx, endpoint, payload, wait)
+	return c.doUpdateNodeGroupAutoscaling(ctx, endpoint, payload, groupName, request, wait)
 }

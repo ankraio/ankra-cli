@@ -185,6 +185,7 @@ type kindConfig struct {
 	kind          string
 	group         string
 	version       string
+	resource      string
 	clusterScoped bool
 	short         string
 	headers       table.Row
@@ -610,8 +611,9 @@ func announceDegradedBareObject(answer cachenotice.Answer) {
 
 func fetchAndRenderResources(clusterID, namespace, nameFilter, labelSelector, outputFormat string, cfg kindConfig, query resourceQuery) error {
 	reqItem := client.ResourceRequestItem{
-		Kind:    cfg.kind,
-		Version: cfg.version,
+		Kind:     cfg.kind,
+		Version:  cfg.version,
+		Resource: cfg.resource,
 	}
 	if len(query.fieldSelectors) > 0 {
 		reqItem.FieldSelectors = query.fieldSelectors
@@ -1122,17 +1124,47 @@ func genericResourcesEmptyHint(kind, apiGroup string) string {
 	return fmt.Sprintf("If %s lives outside the core API group, pass --group (e.g. --group storage.k8s.io for StorageClass, --group networking.k8s.io for NetworkPolicy).", kind)
 }
 
+// resolveGenericResourceKind places the kind `cluster get resources` was asked
+// for. A kind in the table describe and delete use gets its group, version and
+// plural from there, with an explicit --group or --api-version still winning.
+// Any other kind is sent as typed, since a custom resource's group is only
+// known to the caller.
+func resolveGenericResourceKind(rawKind, apiGroup, apiVersion string) k8sKind {
+	if _, isBuiltin := builtinK8sKinds[singularK8sKindKey(rawKind)]; isBuiltin {
+		if resolved, resolveError := resolveK8sKind(rawKind, apiGroup, apiVersion); resolveError == nil {
+			return resolved
+		}
+	}
+	if apiVersion == "" {
+		apiVersion = "v1"
+	}
+	return k8sKind{kind: rawKind, group: apiGroup, version: apiVersion}
+}
+
+// genericResourcesGroupError turns the apiserver's 404 for a kind the CLI could
+// not place into the usage error it is: with no group, the request went to an
+// API path that does not exist, which says nothing about the object.
+func genericResourcesGroupError(readError error, kind k8sKind, wasPlaced bool) error {
+	if wasPlaced || kind.group != "" || !strings.HasSuffix(readError.Error(), ": "+agentNotFoundText) {
+		return readError
+	}
+	return withExitCode(exitUsage, fmt.Errorf(
+		"%w; ankra does not know the API group of %s, so pass --group (and --api-version if it is not v1), e.g. --group cert-manager.io for Certificate",
+		readError, kind.kind))
+}
+
 var clusterGenericResourcesCmd = &cobra.Command{
 	Use:   "resources <kind>",
 	Short: "Get any Kubernetes resource by kind",
 	Long: `Fetch any Kubernetes resource type. Use for kinds not covered by dedicated commands.
 
-Kinds outside the core API group need --group (and sometimes --api-version).
+Built-in kinds resolve their own API group and version, the same as 'cluster describe'.
+A custom resource needs --group (and --api-version if it is not v1).
 
 Example:
-  ankra cluster resources PersistentVolumeClaim -n default
-  ankra cluster resources NetworkPolicy --group networking.k8s.io --all-namespaces
-  ankra cluster resources StorageClass --group storage.k8s.io`,
+  ankra cluster get resources PersistentVolumeClaim -n default
+  ankra cluster get resources RuntimeClass
+  ankra cluster get resources Certificate --group cert-manager.io --all-namespaces`,
 	Args:        cobra.ExactArgs(1),
 	Annotations: map[string]string{"group": "kubernetes"},
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -1157,13 +1189,18 @@ Example:
 			namespace = ""
 		}
 
+		resolved := resolveGenericResourceKind(kind, apiGroup, apiVersion)
+		_, isBuiltin := builtinK8sKinds[singularK8sKindKey(kind)]
+		isPlaced := isBuiltin || coreV1Kinds[strings.ToLower(kind)]
+
 		genericCfg := kindConfig{
-			commandName: kind,
-			kind:        kind,
-			group:       apiGroup,
-			version:     apiVersion,
-			emptyHint:   genericResourcesEmptyHint(kind, apiGroup),
-			headers:     table.Row{"Name", "Namespace", "Age"},
+			commandName:   resolved.kind,
+			kind:          resolved.kind,
+			group:         resolved.group,
+			version:       resolved.version,
+			resource:      resolved.resource,
+			clusterScoped: resolved.clusterScoped,
+			headers:       table.Row{"Name", "Namespace", "Age"},
 			formatRow: func(obj map[string]interface{}) table.Row {
 				return table.Row{
 					getNestedString(obj, "metadata", "name"),
@@ -1173,7 +1210,15 @@ Example:
 			},
 		}
 
-		return fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, genericCfg, resourceQuery{})
+		if !isBuiltin {
+			genericCfg.emptyHint = genericResourcesEmptyHint(kind, apiGroup)
+		}
+
+		fetchError := fetchAndRenderResources(cluster.ID, namespace, nameFilter, labelSelector, outputFormat, genericCfg, resourceQuery{})
+		if fetchError != nil {
+			return genericResourcesGroupError(fetchError, resolved, isPlaced)
+		}
+		return nil
 	},
 }
 
@@ -1211,8 +1256,8 @@ func init() {
 	clusterGenericResourcesCmd.Flags().String("name", "", "Filter by resource name")
 	clusterGenericResourcesCmd.Flags().StringP("selector", "l", "", "Label selector")
 	clusterGenericResourcesCmd.Flags().StringP("output", "o", "table", "Output format: table, json, yaml")
-	clusterGenericResourcesCmd.Flags().String("api-version", "v1", "API version (e.g. v1, v1beta1)")
-	clusterGenericResourcesCmd.Flags().String("group", "", "API group (e.g. apps, networking.k8s.io)")
+	clusterGenericResourcesCmd.Flags().String("api-version", "", "API version (e.g. v1, v1beta1); defaults to the kind's own, or v1 for a custom resource")
+	clusterGenericResourcesCmd.Flags().String("group", "", "API group (e.g. cert-manager.io); built-in kinds resolve their own")
 
 	clusterGetCmd.AddCommand(clusterPodsCmd)
 	clusterGetCmd.AddCommand(clusterGenericResourcesCmd)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 )
 
@@ -56,7 +57,7 @@ type UpgradeAgentResult struct {
 
 func (c *Client) GetClusterAgent(clusterID string) (*AgentInfo, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/agent",
-		c.BaseURL, clusterID)
+		c.BaseURL, url.PathEscape(clusterID))
 	var agent AgentInfo
 	if err := c.getJSON(url, &agent); err != nil {
 		return nil, fmt.Errorf("failed to get agent info: %w", err)
@@ -66,7 +67,7 @@ func (c *Client) GetClusterAgent(clusterID string) (*AgentInfo, error) {
 
 func (c *Client) GetAgentToken(clusterID string) (*AgentToken, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/cluster-agent/token",
-		c.BaseURL, clusterID)
+		c.BaseURL, url.PathEscape(clusterID))
 	var agentToken AgentToken
 	if err := c.getJSON(url, &agentToken); err != nil {
 		return nil, fmt.Errorf("failed to get agent token: %w", err)
@@ -77,7 +78,7 @@ func (c *Client) GetAgentToken(clusterID string) (*AgentToken, error) {
 
 func (c *Client) GenerateAgentToken(ctx context.Context, clusterID string) (*AgentToken, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/cluster-agent/token",
-		c.BaseURL, clusterID)
+		c.BaseURL, url.PathEscape(clusterID))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -120,7 +121,7 @@ type AgentSettingsResult struct {
 // empty, is recorded on the change's audit row beside who made it and the
 // value it replaced (ankra-8tbujq); an empty reason is not sent.
 func (c *Client) SetClusterAgentAutoUpgrade(ctx context.Context, clusterID string, enabled bool, reason string) (*AgentSettingsResult, error) {
-	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/agent/settings", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/agent/settings", c.BaseURL, url.PathEscape(clusterID))
 	payload := map[string]any{"disable_auto_upgrade": !enabled}
 	if reason != "" {
 		payload["reason"] = reason
@@ -176,7 +177,7 @@ func (e *AgentUpgradeRefusedError) IsDowngradeRefusal() bool {
 // {"version", "allow_downgrade"}.
 func (c *Client) UpgradeClusterAgent(ctx context.Context, clusterID string, upgradeRequest AgentUpgradeRequest) (*UpgradeAgentResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/agent/upgrade",
-		c.BaseURL, clusterID)
+		c.BaseURL, url.PathEscape(clusterID))
 	var requestBody io.Reader
 	if !upgradeRequest.IsPlain() {
 		payload := map[string]any{"allow_downgrade": upgradeRequest.AllowDowngrade}

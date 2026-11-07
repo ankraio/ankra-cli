@@ -215,7 +215,7 @@ var digitaloceanStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, err := apiClient.StartDigitaloceanCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd)})
+		result, err := apiClient.StartDigitaloceanCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd), RestoreSnapshotID: restoreSnapshotIDFlag(cmd), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(cmd)})
 		if err != nil {
 			return fmt.Errorf("starting cluster: %w", err)
 		}
@@ -405,7 +405,7 @@ var digitaloceanNodeGroupListCmd = &cobra.Command{
 var digitaloceanNodeGroupAddCmd = &cobra.Command{
 	Use:   "add <cluster_id|name>",
 	Short: "Add a node group",
-	Args:  cobra.ExactArgs(1),
+	Args:  nodeGroupAddArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -453,7 +453,7 @@ var digitaloceanNodeGroupAddCmd = &cobra.Command{
 var digitaloceanNodeGroupScaleCmd = &cobra.Command{
 	Use:   "scale <cluster_id|name> <group_name> <count>",
 	Short: "Scale a node group",
-	Args:  cobra.ExactArgs(3),
+	Args:  nodeGroupArgs(3, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -497,7 +497,7 @@ var digitaloceanNodeGroupScaleCmd = &cobra.Command{
 var digitaloceanNodeGroupUpgradeCmd = &cobra.Command{
 	Use:   "upgrade <cluster_id|name> <group_name> <size>",
 	Short: "Upgrade server size for a node group",
-	Args:  cobra.ExactArgs(3),
+	Args:  nodeGroupArgs(3, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -538,7 +538,7 @@ var digitaloceanNodeGroupUpgradeCmd = &cobra.Command{
 var digitaloceanNodeGroupDeleteCmd = &cobra.Command{
 	Use:   "delete <cluster_id|name> <group_name>",
 	Short: "Delete a node group and all its nodes",
-	Args:  cobra.ExactArgs(2),
+	Args:  nodeGroupArgs(2, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -678,7 +678,7 @@ func init() {
 	_ = digitaloceanCreateCmd.MarkFlagRequired("region")
 
 	digitaloceanStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(digitaloceanStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(digitaloceanStartCmd)
 
 	digitaloceanDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 	digitaloceanDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's load balancers, and tolerate unreachable infrastructure. The block storage volumes are deleted forced or not, and only with --accept-volume-data-loss or a yes at the prompt")

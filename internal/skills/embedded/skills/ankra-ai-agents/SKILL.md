@@ -1,6 +1,6 @@
 ---
 name: ankra-ai-agents
-description: Run and govern Ankra's AI agents - choosing the model provider and catalogue (Ankra, Anthropic, OpenRouter, or an OpenAI-compatible endpoint such as LiteLLM or vLLM), choosing the model per AI function (lanes), registering MCP tool servers and granting individual tools to organisation roles, the AI kill switch and pause, the auto-remediation policy, daily AI spend caps, the board identity, dispatching and supervising agent runs and their transcripts, working the AI board of tickets, and confirming or rejecting the writes an agent proposes. Use when the user mentions Ankra AI, AI agents, sub-agents, agent runs, MCP servers or tools, the AI board or tickets, the model catalogue, or configuring which model Ankra uses.
+description: Run and govern Ankra's AI agents - choosing the model provider and catalogue (Ankra, Anthropic, OpenRouter, or an OpenAI-compatible endpoint such as LiteLLM or vLLM), a member's own Anthropic or OpenRouter API keys for the chats and pull request reviews they start, choosing the model per AI function (lanes), registering MCP tool servers and granting individual tools to organisation roles, the AI kill switch and pause, the auto-remediation policy, daily AI spend caps, the board identity, dispatching and supervising agent runs and their transcripts, working the AI board of tickets, and confirming or rejecting the writes an agent proposes. Use when the user mentions Ankra AI, AI agents, sub-agents, agent runs, MCP servers or tools, the AI board or tickets, the model catalogue, personal AI keys, or configuring which model Ankra uses.
 ---
 
 # Ankra AI agents
@@ -84,6 +84,34 @@ In OpenAI-compatible mode, tool-using paths (the agentic assistant, AI insights,
 generation, deploy analysis) fall back to the Ankra platform provider; stack descriptions and
 summaries run natively against your endpoint. The **What runs where** matrix on the settings page
 is authoritative — check it before promising an air-gapped setup.
+
+### A member's own AI keys
+
+Separate from the organisation's provider: each member can put their own Anthropic Console
+(`sk-ant-api...`) or OpenRouter (`sk-or-...`) API keys on their profile, and the chats they send and
+the reviews of their GitHub pull requests run on those keys, in their order, billed to their own
+account. Background work, scheduled runs and alert analysis stay on the organisation's AI. A key only
+ever serves the member who added it, and no admin role is needed to add one.
+
+```bash
+ankra ai keys list                    # your keys, in the order tried, with status, and whether the org uses them
+ankra ai keys add --label work        # asks for the key with the input hidden
+pass show anthropic | ankra ai keys add --key-stdin   # or pipe it in; the key is never a flag
+ankra ai keys test work               # re-check with the provider; exits 1 when it fails
+ankra ai keys order work              # named keys first, the rest keep their order after them
+ankra ai keys rename work "Personal Max plan"
+ankra ai keys remove work             # asks first; --yes to skip
+ankra ai keys policy                  # does this organisation use members' keys?
+ankra ai keys policy disable          # admin: stop it (members keep their keys, shown as not in use)
+```
+
+`<key>` is the key's id or its label. Never put a key in a flag or a command line, and never echo it
+back: only the masked preview (`sk-ant-...1234`) is ever shown. A Claude subscription token
+(`sk-ant-oat...`) or an Anthropic admin key is refused before anything is sent; the member creates an
+API key in the Claude Console instead. Up to 10 keys per member; a second key of the same Anthropic
+account is refused (they share one balance). An out-of-credit key is tried again an hour later; a
+rejected key stays unused until `test` passes. Members can do the same in the portal: Profile,
+Connected accounts, Your AI keys.
 
 ## 2. Tools: MCP servers
 

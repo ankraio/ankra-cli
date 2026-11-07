@@ -331,7 +331,7 @@ var hetznerStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, startError := apiClient.StartHetznerCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd)})
+		result, startError := apiClient.StartHetznerCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd), RestoreSnapshotID: restoreSnapshotIDFlag(cmd), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(cmd)})
 		if startError != nil {
 			return fmt.Errorf("starting cluster: %w", startError)
 		}
@@ -429,7 +429,7 @@ var nodeGroupListCmd = &cobra.Command{
 var nodeGroupAddCmd = &cobra.Command{
 	Use:   "add <cluster_id|name>",
 	Short: "Add a node group",
-	Args:  cobra.ExactArgs(1),
+	Args:  nodeGroupAddArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -477,7 +477,7 @@ var nodeGroupAddCmd = &cobra.Command{
 var nodeGroupScaleCmd = &cobra.Command{
 	Use:   "scale <cluster_id|name> <group_name> <count>",
 	Short: "Scale a node group",
-	Args:  cobra.ExactArgs(3),
+	Args:  nodeGroupArgs(3, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -521,7 +521,7 @@ var nodeGroupScaleCmd = &cobra.Command{
 var nodeGroupUpgradeCmd = &cobra.Command{
 	Use:   "upgrade <cluster_id|name> <group_name> <instance_type>",
 	Short: "Upgrade instance type for a node group (cannot be reversed)",
-	Args:  cobra.ExactArgs(3),
+	Args:  nodeGroupArgs(3, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -562,7 +562,7 @@ var nodeGroupUpgradeCmd = &cobra.Command{
 var nodeGroupDeleteCmd = &cobra.Command{
 	Use:   "delete <cluster_id|name> <group_name>",
 	Short: "Delete a node group and all its nodes",
-	Args:  cobra.ExactArgs(2),
+	Args:  nodeGroupArgs(2, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -725,7 +725,7 @@ func init() {
 	registerAsyncWriteFlags(nodeGroupDeleteCmd)
 
 	hetznerStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(hetznerStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(hetznerStartCmd)
 	hetznerStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's load balancers. The cluster's CSI volumes are kept and keep billing while stopped: only a deprovision deletes them")
 	registerThreeStateFlag(hetznerStopCmd, "preserve-state", preserveStateFlagUsage)
 	hetznerStopCmd.Flags().String("mode", "", stopModeFlagUsage)

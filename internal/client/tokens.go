@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 type APIToken struct {
@@ -95,7 +96,7 @@ func (c *Client) CreateAPIToken(reqBody CreateAPITokenRequest) (*CreateAPITokenR
 }
 
 func (c *Client) RevokeAPIToken(tokenID string) (*RevokeAPITokenResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/org/account/tokens/%s/revoke", c.BaseURL, tokenID)
+	url := fmt.Sprintf("%s/api/v1/org/account/tokens/%s/revoke", c.BaseURL, url.PathEscape(tokenID))
 	req, err := http.NewRequest(http.MethodPost, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -121,7 +122,7 @@ func (c *Client) RevokeAPIToken(tokenID string) (*RevokeAPITokenResponse, error)
 }
 
 func (c *Client) DeleteAPIToken(tokenID string) (*DeleteAPITokenResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/org/account/tokens/%s", c.BaseURL, tokenID)
+	url := fmt.Sprintf("%s/api/v1/org/account/tokens/%s", c.BaseURL, url.PathEscape(tokenID))
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

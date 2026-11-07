@@ -235,7 +235,9 @@ func ensureSecureConfigFile(path string) error {
 	}
 }
 
-var loginHTTPClient = &http.Client{Timeout: 30 * time.Second}
+// loginHTTPClient talks to the API (the login flow, the GitHub OIDC
+// exchange), behind the client's path check.
+var loginHTTPClient = client.NewGuardedHTTPClient(30 * time.Second)
 
 func runLogin() error {
 	fmt.Println("Ankra CLI Login")

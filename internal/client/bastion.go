@@ -45,7 +45,7 @@ func (c *Client) UpdateDigitaloceanBastionInstanceType(ctx context.Context, clus
 // the resize in the background; with --wait it blocks for the resized
 // bastion/gateway node.
 func (c *Client) updateBastionInstanceType(ctx context.Context, provider, clusterID, instanceType string, wait bool) (*UpdateBastionInstanceTypeResult, bool, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/bastion/instance-type", c.BaseURL, provider, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/bastion/instance-type", c.BaseURL, neturl.PathEscape(provider), neturl.PathEscape(clusterID))
 	payload, marshalError := json.Marshal(UpdateInstanceTypeRequest{InstanceType: instanceType})
 	if marshalError != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", marshalError)
@@ -160,7 +160,7 @@ func (c *Client) DiagnoseMorpheusBastion(ctx context.Context, clusterID string) 
 // and that wording is the whole answer for the user.
 func (c *Client) getBastionHealth(provider, clusterID string) (*BastionHealthResult, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/%s/bastion/health",
-		c.BaseURL, provider, neturl.PathEscape(clusterID))
+		c.BaseURL, neturl.PathEscape(provider), neturl.PathEscape(clusterID))
 	var result BastionHealthResult
 	if requestError := c.sendJSON(http.MethodGet, endpoint, nil, &result); requestError != nil {
 		return nil, requestError
@@ -176,7 +176,7 @@ func (c *Client) getBastionHealth(provider, clusterID string) (*BastionHealthRes
 // rides httpClientForSlowWrite and is bounded by ctx instead.
 func (c *Client) diagnoseBastion(ctx context.Context, provider, clusterID string) (*BastionDiagnoseResult, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/%s/bastion/diagnose",
-		c.BaseURL, provider, neturl.PathEscape(clusterID))
+		c.BaseURL, neturl.PathEscape(provider), neturl.PathEscape(clusterID))
 	request, requestError := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(nil))
 	if requestError != nil {
 		return nil, fmt.Errorf("create request: %w", requestError)

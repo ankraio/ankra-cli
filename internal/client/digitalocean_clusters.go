@@ -108,7 +108,7 @@ func (c *Client) CreateDigitaloceanCluster(req CreateDigitaloceanClusterRequest)
 }
 
 func (c *Client) DeprovisionDigitaloceanCluster(clusterID string, options DeprovisionOptions) (*DeprovisionDigitaloceanClusterResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s", c.BaseURL, clusterID) + options.query()
+	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s", c.BaseURL, url.PathEscape(clusterID)) + options.query()
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -137,7 +137,7 @@ func (c *Client) DeprovisionDigitaloceanCluster(clusterID string, options Deprov
 }
 
 func (c *Client) GetDigitaloceanWorkerCount(clusterID string) (*WorkerCountResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/worker-count", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/worker-count", c.BaseURL, url.PathEscape(clusterID))
 	var result WorkerCountResult
 	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
@@ -146,7 +146,7 @@ func (c *Client) GetDigitaloceanWorkerCount(clusterID string) (*WorkerCountResul
 }
 
 func (c *Client) GetDigitaloceanK8sVersion(clusterID string) (*K8sVersionInfo, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/k8s-version", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/k8s-version", c.BaseURL, url.PathEscape(clusterID))
 	var result K8sVersionInfo
 	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
@@ -155,62 +155,62 @@ func (c *Client) GetDigitaloceanK8sVersion(clusterID string) (*K8sVersionInfo, e
 }
 
 func (c *Client) UpgradeDigitaloceanK8sVersion(clusterID, targetVersion string, force bool) (*UpgradeK8sVersionResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/upgrade-k8s-version", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/upgrade-k8s-version", c.BaseURL, url.PathEscape(clusterID))
 	return c.doUpgradeK8sVersion(url, targetVersion, force)
 }
 
 func (c *Client) ListDigitaloceanNodeGroups(clusterID string) (*NodeGroupListResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups", c.BaseURL, clusterID)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups", c.BaseURL, url.PathEscape(clusterID))
 	var result NodeGroupListResult
-	if err := c.getJSON(url, &result); err != nil {
+	if err := c.getJSON(endpoint, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
 func (c *Client) AddDigitaloceanNodeGroup(ctx context.Context, clusterID string, req AddNodeGroupRequest, wait bool) (*AddNodeGroupResult, bool, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups", c.BaseURL, clusterID)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups", c.BaseURL, url.PathEscape(clusterID))
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doAddNodeGroup(ctx, url, payload, wait)
+	return c.doAddNodeGroup(ctx, endpoint, payload, wait)
 }
 
 func (c *Client) ScaleDigitaloceanNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions DrainOptions, wait bool) (*ScaleNodeGroupResult, bool, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s/scale", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s/scale", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, err := json.Marshal(ScaleNodeGroupRequest{Count: count, ForceDrain: drainOptions.ForceDrain})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doScaleNodeGroup(ctx, url, payload, wait)
+	return c.doScaleNodeGroup(ctx, endpoint, payload, wait)
 }
 
 func (c *Client) GetDigitaloceanNodeGroupAutoscaling(clusterID, groupName string) (*NodeGroupAutoscalingResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s/autoscaling", c.BaseURL, clusterID, groupName)
-	return c.doGetNodeGroupAutoscaling(url)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s/autoscaling", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
+	return c.doGetNodeGroupAutoscaling(endpoint)
 }
 
 func (c *Client) UpdateDigitaloceanNodeGroupAutoscaling(ctx context.Context, clusterID, groupName string, req NodeGroupAutoscalingRequest, wait bool) (*NodeGroupAutoscalingResult, bool, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s/autoscaling", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s/autoscaling", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doUpdateNodeGroupAutoscaling(ctx, url, payload, wait)
+	return c.doUpdateNodeGroupAutoscaling(ctx, endpoint, payload, groupName, req, wait)
 }
 
 func (c *Client) UpdateDigitaloceanNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions DrainOptions, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s/instance-type", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s/instance-type", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, err := json.Marshal(UpdateNodeGroupInstanceTypeRequest{InstanceType: instanceType, ForceDrain: drainOptions.ForceDrain})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doUpdateNodeGroup(ctx, url, payload, wait)
+	return c.doUpdateNodeGroup(ctx, endpoint, payload, wait)
 }
 
 func (c *Client) UpdateDigitaloceanNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s/labels", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s/labels", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, err := json.Marshal(UpdateLabelsRequest{Labels: labels})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
@@ -219,7 +219,7 @@ func (c *Client) UpdateDigitaloceanNodeGroupLabels(ctx context.Context, clusterI
 }
 
 func (c *Client) UpdateDigitaloceanNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []NodeTaint, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s/taints", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s/taints", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, err := json.Marshal(UpdateTaintsRequest{Taints: taints})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
@@ -228,12 +228,12 @@ func (c *Client) UpdateDigitaloceanNodeGroupTaints(ctx context.Context, clusterI
 }
 
 func (c *Client) DeleteDigitaloceanNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions DrainOptions, wait bool) (*DeleteNodeGroupResult, bool, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s", c.BaseURL, clusterID, groupName)
-	return c.doDeleteNodeGroup(ctx, url, drainOptions, wait)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/node-groups/%s", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
+	return c.doDeleteNodeGroup(ctx, endpoint, drainOptions, wait)
 }
 
 func (c *Client) ScaleDigitaloceanWorkers(clusterID string, workerCount int, drainOptions DrainOptions) (*ScaleWorkersResult, error) {
-	scaleURL := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/scale-workers", c.BaseURL, clusterID)
+	scaleURL := fmt.Sprintf("%s/api/v1/clusters/digitalocean/%s/scale-workers", c.BaseURL, url.PathEscape(clusterID))
 	return c.doScaleWorkers(scaleURL, workerCount, drainOptions)
 }
 
