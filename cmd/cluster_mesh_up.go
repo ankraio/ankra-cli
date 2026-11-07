@@ -140,8 +140,8 @@ var (
 	clusterMeshUpInterval time.Duration
 )
 
-var clusterMeshUpCmd = &cobra.Command{
-	Use:   "up <mesh_name|mesh_id> <cluster_id|name> [cluster_id|name...]",
+var clusterMeshUpCmd = withClusterArgumentAt(1, clusterMustBeNamed, &cobra.Command{
+	Use:   "up <mesh_name|mesh_id> [cluster_id|name...]",
 	Short: "Prepare clusters and join them into one mesh, end to end",
 	Long: "Bring a set of clusters into one mesh from wherever they are: read their readiness, run make-ready on " +
 		"every cluster that only lacks its network identity or the overlay, join every cluster that is ready, and " +
@@ -230,7 +230,7 @@ var clusterMeshUpCmd = &cobra.Command{
 			time.Sleep(clusterMeshUpInterval)
 		}
 	},
-}
+})
 
 func printMeshUpPlan(cmd *cobra.Command, actions []meshUpAction) {
 	for _, action := range actions {

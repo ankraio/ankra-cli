@@ -9,7 +9,7 @@ import (
 	"ankra/internal/client"
 )
 
-var clusterDomainCmd = &cobra.Command{
+var clusterDomainCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
 	Use:   "domain [cluster]",
 	Short: "Show the cluster's generated public domain",
 	Long: `Show the cluster's generated public domain. The domain nests under the
@@ -152,7 +152,7 @@ for it keeps the same --txt-owner-id.`,
 		}
 		return nil
 	},
-}
+})
 
 // clusterDomainStateNone is the state the read surface reports for a cluster
 // that holds no DNS zone at all.

@@ -130,8 +130,8 @@ var proxmoxCreateCmd = &cobra.Command{
 	},
 }
 
-var proxmoxStopCmd = &cobra.Command{
-	Use:   "stop <cluster_id|name>",
+var proxmoxStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "stop [cluster_id|name]",
 	Short: "Stop a Proxmox VE cluster",
 	Long:  "Stop a Proxmox VE cluster's virtual machines while keeping its configuration so it can be started again later.",
 	Args:  cobra.ExactArgs(1),
@@ -164,10 +164,10 @@ var proxmoxStopCmd = &cobra.Command{
 		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
 		return nil
 	},
-}
+})
 
-var proxmoxStartCmd = &cobra.Command{
-	Use:   "start <cluster_id|name>",
+var proxmoxStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "start [cluster_id|name]",
 	Short: "Start a stopped Proxmox VE cluster",
 	Long:  "Start (re-provision) a stopped Proxmox VE cluster. Use --scope control_plane to bring up only the control plane.",
 	Args:  cobra.ExactArgs(1),
@@ -195,10 +195,10 @@ var proxmoxStartCmd = &cobra.Command{
 		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
 		return nil
 	},
-}
+})
 
-var proxmoxWorkersCmd = &cobra.Command{
-	Use:   "workers <cluster_id|name>",
+var proxmoxWorkersCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
+	Use:   "workers [cluster_id|name]",
 	Short: "Get current worker count for a Proxmox VE cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -223,10 +223,10 @@ var proxmoxWorkersCmd = &cobra.Command{
 		fmt.Printf("  Max: %d\n", result.Max)
 		return nil
 	},
-}
+})
 
-var proxmoxK8sVersionCmd = &cobra.Command{
-	Use:   "k8s-version <cluster_id|name>",
+var proxmoxK8sVersionCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
+	Use:   "k8s-version [cluster_id|name]",
 	Short: "Get current Kubernetes version for a Proxmox VE cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -254,7 +254,7 @@ var proxmoxK8sVersionCmd = &cobra.Command{
 		fmt.Printf("  Distribution: %s\n", result.Distribution)
 		return nil
 	},
-}
+})
 
 var proxmoxHostsCmd = &cobra.Command{
 	Use:   "hosts",

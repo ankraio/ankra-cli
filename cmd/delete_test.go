@@ -222,30 +222,46 @@ func (m *deprovisionGuardMock) DeprovisionHetznerCluster(clusterID string, optio
 	return &client.DeprovisionHetznerClusterResponse{}, nil
 }
 
-// TestDeprovisionTheSelectedClusterFailsClosedWhenItsKindCannotBeRead pins
-// the second half of ankra-kpq4ae: with no argument, a failed lookup of the
-// selected cluster used to return it with no kind, so a cloud cluster went
-// down the generic lane with its volume check and record warning skipped.
-func TestDeprovisionTheSelectedClusterFailsClosedWhenItsKindCannotBeRead(t *testing.T) {
+// TestDeprovisionFailsClosedWhenTheClusterKindCannotBeRead pins the second
+// half of ankra-kpq4ae: a cluster deprovision did not get as its argument
+// (the selected cluster then, --cluster now) came back with no kind when its
+// lookup failed, so a cloud cluster went down the generic lane with its
+// volume check and record warning skipped.
+func TestDeprovisionFailsClosedWhenTheClusterKindCannotBeRead(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		lookupError error
 		wantExit    int
 	}{
 		"a platform error":     {lookupError: client.NewUnexpectedResponseError(503, "unexpected status: 503 Service Unavailable"), wantExit: exitError},
 		"rejected credentials": {lookupError: client.ErrUnauthorized, wantExit: exitAuth},
-		"a stale selection": {
+		"a cluster that no longer exists": {
 			lookupError: fmt.Errorf("no cluster found for name %q: %w", "test-cluster", client.ErrClusterNotFound),
 			wantExit:    exitNotFound,
 		},
 	} {
 		mock := &deprovisionGuardMock{lookupError: testCase.lookupError}
-		_, runError := runDeprovisionOnSelection(t, mock)
+		_, runError := runDeprovisionWithoutArgument(t, mock, "--cluster", "test-cluster")
 		if mock.deprovisions != 0 {
-			t.Fatalf("%s: a deprovision was sent although the selected cluster's kind was never read", name)
+			t.Fatalf("%s: a deprovision was sent although the cluster's kind was never read", name)
 		}
 		if runError == nil || exitCodeFor(runError) != testCase.wantExit {
 			t.Fatalf("%s: want a refusal with exit %d, got %v (exit %d)", name, testCase.wantExit, runError, exitCodeFor(runError))
 		}
+	}
+}
+
+// With no cluster named, deprovision no longer tears down the cluster
+// `ankra cluster select` saved, a file every shell and agent session on the
+// machine shares (ankra-v3qdto.19): it is a usage error naming --cluster,
+// and nothing is sent.
+func TestDeprovisionRefusesTheSelectedCluster(t *testing.T) {
+	mock := &deprovisionGuardMock{cluster: client.ClusterListItem{ID: testClusterID, Name: "demo", Kind: "hetzner"}}
+	_, runError := runDeprovisionWithoutArgument(t, mock)
+	if mock.deprovisions != 0 {
+		t.Fatal("a deprovision was sent for the selected cluster")
+	}
+	if runError == nil || exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "--cluster") {
+		t.Fatalf("want a usage error (exit 2) naming --cluster, got %v (exit %d)", runError, exitCodeFor(runError))
 	}
 }
 
@@ -271,7 +287,9 @@ func TestDeprovisionRefusesAKindWithoutALaneHere(t *testing.T) {
 	}
 }
 
-func runDeprovisionOnSelection(t *testing.T, mock APIClient) (string, error) {
+// runDeprovisionWithoutArgument runs `ankra cluster deprovision --yes` with
+// a cluster selected, no cluster argument, and flags.
+func runDeprovisionWithoutArgument(t *testing.T, mock APIClient, flags ...string) (string, error) {
 	t.Helper()
 	setMockClient(t, mock)
 	writeSelectedClusterJSON(t)
@@ -279,7 +297,8 @@ func runDeprovisionOnSelection(t *testing.T, mock APIClient) (string, error) {
 	rootCmd.SetOut(out)
 	rootCmd.SetErr(out)
 	rootCmd.SetIn(strings.NewReader(""))
-	rootCmd.SetArgs([]string{"cluster", "deprovision", "--yes"})
+	resetTreeFlags(t, clusterDeprovisionCmd)
+	rootCmd.SetArgs(append([]string{"cluster", "deprovision", "--yes"}, flags...))
 	t.Cleanup(func() { resetTreeFlags(t, clusterDeprovisionCmd) })
 	runError := rootCmd.Execute()
 	return out.String(), runError

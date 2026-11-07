@@ -48,7 +48,7 @@ type clusterUpdateOutput struct {
 	Criticality *string `json:"criticality,omitempty"`
 }
 
-var clusterUpdateCmd = &cobra.Command{
+var clusterUpdateCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
 	Use:   "update [cluster]",
 	Short: "Change a cluster's environment and reporting level",
 	Long: `Set the environment of an existing cluster - production, staging, development,
@@ -82,7 +82,7 @@ updated.`,
   ankra cluster update 3d0e2935-963b-4c7b-a494-b7266776ec68 --environment production -o json`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runClusterUpdate,
-}
+})
 
 func runClusterUpdate(cmd *cobra.Command, args []string) error {
 	environmentFlag, _ := cmd.Flags().GetString("environment")

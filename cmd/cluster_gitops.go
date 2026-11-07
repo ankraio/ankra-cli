@@ -20,7 +20,7 @@ and deciding its preserved paths: files edited in Git that Ankra keeps instead
 of overwriting.`,
 }
 
-var clusterGitopsStatusCmd = &cobra.Command{
+var clusterGitopsStatusCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
 	Use:   "status [cluster_name]",
 	Short: "Show which GitOps repository a cluster syncs from",
 	Long: `Show the GitOps sync status of a cluster: the repository, branch, and
@@ -47,7 +47,7 @@ If no cluster name is provided, uses the currently selected cluster.`,
 		printClusterGitopsStatus(clusterName, status)
 		return nil
 	},
-}
+})
 
 // gitopsRepositoryLabel builds the provider-shaped owner/name label of the
 // repository: repo_owner/repo_name for GitHub, workspace/repo_slug for
