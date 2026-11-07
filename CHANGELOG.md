@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra application promote` and `ankra application previews`.** `promote <app> --from staging --to production` moves the build one environment runs onto the next, without building again, after showing what would change. It exits 8 with the blockers when something stops it. `previews <app>` shows whether every pull request gets a preview, and `previews enable|disable|follow` sets the repository's rule without touching any other setting.
+- **`ankra mcp connect --client <claude-code|cursor|codex>` is the guided MCP setup.** It creates a read-only token (`--write` adds the mutating tools) that expires in 90 days, stores it in a file only you can read, and registers the server with the client. The token is never printed and never written to the client's config: Claude Code fetches it through a headers helper, and Cursor and Codex read `ANKRA_MCP_TOKEN`, exported from `ankra mcp token`, which refuses a terminal. Running connect again renews it and revokes the old token. It also offers to install the skills (`--skills` to skip the question).
+
 ### Changed
 
 - **`ankra cluster node-group autoscaling set` moves a node group inside the bounds you set, instead of refusing.** A `--max` below the group's current node count used to fail with "scale the group down first"; it is now accepted and the platform scales the group down to `--max`, removing the least busy nodes first. Each node it removes is cordoned, waits up to 15 minutes for the pipeline steps running on it, and is then drained, one node at a time. A `--min` above the node count scales the group up to `--min`. The command says what will happen (for example "Node group 'ci-large' will scale down from 5 to 3 nodes as running pipeline steps finish") and names the operation doing it, and `--wait` now waits for that operation to finish and fails with its reason if it does not succeed. `--timeout` defaults to one hour for this command. Needs a platform that reports the new outcome; an older one answers as before.
@@ -11,6 +16,7 @@
 ### Fixed
 
 - **`ankra application deploy` without `image_tag` deploys the newest published image when the platform has no build tag recorded.** A newer push whose pipeline run was superseded or failed before its publish step left the application's recorded build without a tag, and the deploy was refused with "Ankra has not recorded the tag of a published image" although the registry, and the portal's version picker, still held every image published before it. The command now answers that refusal by deploying the newest published build of the tracked branch and says on stderr which tag it deployed. It never deploys another branch's image on its own: when the tracked branch has no published build in the registry, the refusal names the newest image the registry holds, to pass with `--set image_tag`. `--set image_tag=<tag>` still picks one yourself, and a deploy with no published image is refused as before.
+- **`Authority: unapproved` now says what it changes.** The line appeared on runs that published fine, with nothing saying what it gated. `ankra pipeline get` now lists the sections the run took from trusted authority, says an image build or publish does not depend on it, and its help explains the state. `ankra application ship` names the approve command the first time it follows such a run, and again if the run fails.
 
 ## v0.70.0 - 2026-11-07
 
