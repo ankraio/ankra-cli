@@ -270,12 +270,13 @@ func shipPipelineAuthorityNote(detail *client.PipelineRunDetail) string {
 // shipPipelineAuthorityClause adds the approve step to a failed run's error.
 func shipPipelineAuthorityClause(detail *client.PipelineRunDetail) string {
 	command := shipPipelineApproveCommand(detail)
-	if command == "" || len(detail.AuthorityOverrides) == 0 {
+	overridePaths := pipelineAuthorityOverridePaths(*detail)
+	if command == "" || overridePaths == "" {
 		return ""
 	}
 	return fmt.Sprintf("; this run did not have approved authority (%s), so if a stage needed one of those sections, "+
 		"an organisation administrator approves it with '%s' and the next run has it",
-		pipelineAuthorityOverridePaths(*detail), command)
+		overridePaths, command)
 }
 
 // shipPipelineRunNotRunError explains a run that concluded skipped: the

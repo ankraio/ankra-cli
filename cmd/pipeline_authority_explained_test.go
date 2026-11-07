@@ -114,3 +114,11 @@ func TestShipSaysNothingWhenThePlatformNamesNoDefinitionToApprove(t *testing.T) 
 		t.Errorf("a note with no command to run is not actionable: %q", note)
 	}
 }
+
+func TestShipClauseNamesNothingWhenEveryOverridePathIsBlank(t *testing.T) {
+	detail := unapprovedRunDetail(shipPipelineRun("run", 1, "push"), "concluded", "failed")
+	detail.AuthorityOverrides = []client.PipelineAuthorityOverride{{Section: "resources", Path: "  "}}
+	if clause := shipPipelineAuthorityClause(detail); clause != "" {
+		t.Errorf("blank override paths got a clause: %q", clause)
+	}
+}
