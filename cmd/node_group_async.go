@@ -32,13 +32,17 @@ func failedNodeGroupWriteCommand(clusterID string) string {
 // write: the hint also names where a late refusal is recorded.
 func newNodeGroupSubmittedResult(operationLabel, clusterID string) asyncSubmittedResult {
 	result := newAsyncSubmittedResult(operationLabel)
-	result.Hint += "; if the platform refuses it after accepting it, '" + failedNodeGroupWriteCommand(clusterID) +
+	result.Hint = "follow the nodes with '" + followNodeGroupWorkCommand(clusterID) + "'; re-running with --wait shows whether the platform recorded or refused the change, not when the nodes are ready; if the platform refuses it after accepting it, '" + failedNodeGroupWriteCommand(clusterID) +
 		"' shows the failed node_group_write operation with the provider's reason once it is decided; an empty listing right away does not mean the change was applied"
 	return result
 }
 
 func printNodeGroupWriteSubmitted(operationLabel, clusterID string) {
-	printAsyncWriteSubmitted(operationLabel)
+	fmt.Printf("%s submitted.\n", operationLabel)
+	fmt.Println("The platform records the change, then creates, removes or changes the nodes in the background.")
+	fmt.Println("Re-run the same command with --wait to see whether the platform recorded or refused the change; --wait does not wait for the nodes themselves.")
+	fmt.Println("Avoid submitting the same change again while it may still be running (duplicate node groups can double cost).")
+	fmt.Printf("Follow the nodes with:\n  %s\n", followNodeGroupWorkCommand(clusterID))
 	fmt.Printf("If the platform refuses it after accepting it (for example the provider has no stock of the requested server type), the refusal is recorded as a failed node_group_write operation with the provider's reason:\n  %s\n", failedNodeGroupWriteCommand(clusterID))
 	fmt.Println("The record appears once the refusal is decided, so an empty listing right away does not mean the change was applied.")
 }

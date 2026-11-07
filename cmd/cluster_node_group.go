@@ -53,6 +53,56 @@ func nodeGroupArgs(count, groupIndex int) cobra.PositionalArgs {
 	})
 }
 
+// nodeGroupListArgs is the Args check of a node-group list: the cluster is
+// optional, so --cluster or the selected cluster can name it the way they do
+// for every other cluster-scoped read. Resolved by resolveOptionalClusterArg.
+var nodeGroupListArgs = cobra.MaximumNArgs(1)
+
+// resolveOptionalClusterArg resolves the cluster of a command whose
+// <cluster_id|name> argument may be left out: the argument when given, else
+// --cluster, else the cluster `ankra cluster select` saved. typed is what the
+// user named it by, for messages. node-group list used to demand the
+// argument and never read --cluster, so `node-group list --cluster <id>`
+// failed with "accepts 1 arg(s), received 0" and an argument beside a
+// different --cluster silently won (ankra-v3qdto.6). Both given and naming
+// different clusters is refused rather than one quietly ignored.
+func resolveOptionalClusterArg(cmd *cobra.Command, args []string) (typed, clusterID string, err error) {
+	override := clusterFlagOverride(cmd)
+	if len(args) > 0 {
+		clusterID, err = resolveClusterArg(args[0])
+		if err != nil {
+			return "", "", err
+		}
+		if override != "" && override != args[0] {
+			overrideID, overrideError := resolveClusterArg(override)
+			if overrideError != nil {
+				return "", "", overrideError
+			}
+			if overrideID != clusterID {
+				return "", "", withExitCode(exitUsage, fmt.Errorf(
+					"the cluster is named twice, %q as the argument and %q with --cluster; pass one", args[0], override))
+			}
+		}
+		return args[0], clusterID, nil
+	}
+	if override != "" {
+		clusterID, err = resolveClusterArg(override)
+		if err != nil {
+			return "", "", err
+		}
+		return override, clusterID, nil
+	}
+	selected, selectedError := loadSelectedCluster()
+	if selectedError != nil || strings.TrimSpace(selected.ID) == "" {
+		return "", "", withExitCode(exitUsage, errNoClusterSelected{})
+	}
+	typed = selected.Name
+	if typed == "" {
+		typed = selected.ID
+	}
+	return typed, selected.ID, nil
+}
+
 // nodeGroupAddArgs is the Args check of a node-group add: the cluster, and
 // the --name flag, which every later command puts in its request path, so a
 // group that could never be addressed there is not created. It runs where
@@ -340,15 +390,17 @@ HPE Morpheus) is detected automatically from the cluster.`,
 }
 
 var clusterNodeGroupListCmd = &cobra.Command{
-	Use:   "list <cluster_id|name>",
+	Use:   "list [cluster_id|name]",
 	Short: "List node groups",
-	Args:  cobra.ExactArgs(1),
+	Long: `List the node groups of a cloud cluster. The cluster is the argument, else
+--cluster, else the cluster selected with 'ankra cluster select'.`,
+	Args: nodeGroupListArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID, resolveError := resolveClusterArg(args[0])
+		typed, clusterID, resolveError := resolveOptionalClusterArg(cmd, args)
 		if resolveError != nil {
 			return resolveError
 		}
-		kind, kindError := resolveNodeGroupClusterKind(args[0], clusterID)
+		kind, kindError := resolveNodeGroupClusterKind(typed, clusterID)
 		if kindError != nil {
 			return kindError
 		}
@@ -559,7 +611,7 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' created with %d node(s).\n", result.GroupName, result.Count)
+		printNodeGroupAdded(result, clusterID)
 		return nil
 	},
 }
@@ -614,7 +666,7 @@ Examples:
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' scaled from %d to %d.\n", result.GroupName, result.PreviousCount, result.NewCount)
+		printNodeGroupScaled(result, clusterID)
 		return nil
 	},
 }
@@ -743,7 +795,7 @@ Examples:
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' deleted. %d node(s) removed.\n", result.GroupName, result.Deleted)
+		printNodeGroupDeleted(result, clusterID)
 		return nil
 	},
 }
@@ -1016,10 +1068,10 @@ func init() {
 	clusterNodeGroupTaintsCmd.Flags().String("taints", "", "Comma-separated key=value:Effect taints to set on the group")
 	clusterNodeGroupTaintsCmd.Flags().Bool("clear", false, "Remove all taints from the node group")
 
-	registerAsyncWriteFlags(clusterNodeGroupAddCmd)
-	registerAsyncWriteFlags(clusterNodeGroupScaleCmd)
+	registerNodeGroupWriteFlags(clusterNodeGroupAddCmd)
+	registerNodeGroupWriteFlags(clusterNodeGroupScaleCmd)
 	registerAsyncWriteFlags(clusterNodeGroupUpgradeCmd)
-	registerAsyncWriteFlags(clusterNodeGroupDeleteCmd)
+	registerNodeGroupWriteFlags(clusterNodeGroupDeleteCmd)
 	registerAsyncWriteFlags(clusterNodeGroupAutoscalingSetCmd)
 	registerAsyncWriteFlags(clusterNodeGroupLabelsCmd)
 	registerAsyncWriteFlags(clusterNodeGroupTaintsCmd)

@@ -370,11 +370,11 @@ var digitaloceanNodeGroupCmd = &cobra.Command{
 }
 
 var digitaloceanNodeGroupListCmd = &cobra.Command{
-	Use:   "list <cluster_id|name>",
+	Use:   "list [cluster_id|name]",
 	Short: "List node groups",
-	Args:  cobra.ExactArgs(1),
+	Args:  nodeGroupListArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID, resolveError := resolveClusterArg(args[0])
+		_, clusterID, resolveError := resolveOptionalClusterArg(cmd, args)
 		if resolveError != nil {
 			return resolveError
 		}
@@ -443,7 +443,7 @@ var digitaloceanNodeGroupAddCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' created with %d node(s).\n", result.GroupName, result.Count)
+		printNodeGroupAdded(result, clusterID)
 		return nil
 	},
 }
@@ -487,7 +487,7 @@ var digitaloceanNodeGroupScaleCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' scaled from %d to %d.\n", result.GroupName, result.PreviousCount, result.NewCount)
+		printNodeGroupScaled(result, clusterID)
 		return nil
 	},
 }
@@ -575,7 +575,7 @@ var digitaloceanNodeGroupDeleteCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' deleted. %d node(s) removed.\n", result.GroupName, result.Deleted)
+		printNodeGroupDeleted(result, clusterID)
 		return nil
 	},
 }
@@ -690,10 +690,10 @@ func init() {
 	digitaloceanNodeGroupAddCmd.Flags().String("instance-type", "s-2vcpu-4gb", "Droplet size for nodes")
 	digitaloceanNodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes (0-100)")
 	_ = digitaloceanNodeGroupAddCmd.MarkFlagRequired("name")
-	registerAsyncWriteFlags(digitaloceanNodeGroupAddCmd)
-	registerAsyncWriteFlags(digitaloceanNodeGroupScaleCmd)
+	registerNodeGroupWriteFlags(digitaloceanNodeGroupAddCmd)
+	registerNodeGroupWriteFlags(digitaloceanNodeGroupScaleCmd)
 	registerAsyncWriteFlags(digitaloceanNodeGroupUpgradeCmd)
-	registerAsyncWriteFlags(digitaloceanNodeGroupDeleteCmd)
+	registerNodeGroupWriteFlags(digitaloceanNodeGroupDeleteCmd)
 
 	registerStructuredOutputFlags(
 		digitaloceanCreateCmd,

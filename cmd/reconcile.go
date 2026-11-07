@@ -290,8 +290,8 @@ resources from the cluster's stored stack definition. Verify anything you patche
 in place afterwards - see "ankra cluster addons list <addon>" and
 "ankra cluster manifests list".
 
-This is not a power-on. To resume a cluster you powered off, use the provider's
-start command (for example "ankra hetzner cluster start") or
+This is not a power-on. To resume a cluster you powered off, use its provider's
+start command (for example "ankra cluster hetzner start") or
 "ankra cluster power-schedules".
 
 If no cluster name is provided, uses the currently selected cluster.`,
@@ -437,9 +437,9 @@ This is a teardown, not a power-off:
     whose retention_policy is retain (aws, scaleway, ankracloud) keeps its volumes, which
     keep billing in your cloud account.
 
-To power a cluster off and back on while keeping its state, use the provider's
-stop/start commands (for example "ankra hetzner cluster stop" and
-"ankra hetzner cluster start") or "ankra cluster power-schedules" instead.
+To power a cluster off and back on while keeping its state, use its provider's
+stop and start commands (for example "ankra cluster hetzner stop" and
+"ankra cluster hetzner start") or "ankra cluster power-schedules" instead.
 
 If no cluster name is provided, uses the currently selected cluster.`,
 	Args: cobra.MaximumNArgs(1),

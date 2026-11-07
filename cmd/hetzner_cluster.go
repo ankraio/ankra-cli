@@ -415,11 +415,11 @@ var nodeGroupCmd = &cobra.Command{
 }
 
 var nodeGroupListCmd = &cobra.Command{
-	Use:   "list <cluster_id|name>",
+	Use:   "list [cluster_id|name]",
 	Short: "List node groups",
-	Args:  cobra.ExactArgs(1),
+	Args:  nodeGroupListArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID, resolveError := resolveClusterArg(args[0])
+		_, clusterID, resolveError := resolveOptionalClusterArg(cmd, args)
 		if resolveError != nil {
 			return resolveError
 		}
@@ -488,7 +488,7 @@ var nodeGroupAddCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' created with %d node(s).\n", result.GroupName, result.Count)
+		printNodeGroupAdded(result, clusterID)
 		return nil
 	},
 }
@@ -532,7 +532,7 @@ var nodeGroupScaleCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' scaled from %d to %d.\n", result.GroupName, result.PreviousCount, result.NewCount)
+		printNodeGroupScaled(result, clusterID)
 		return nil
 	},
 }
@@ -620,7 +620,7 @@ var nodeGroupDeleteCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' deleted. %d node(s) removed.\n", result.GroupName, result.Deleted)
+		printNodeGroupDeleted(result, clusterID)
 		return nil
 	},
 }
@@ -738,10 +738,10 @@ func init() {
 	nodeGroupAddCmd.Flags().Int("count", 1, "Number of nodes (0-100)")
 	_ = nodeGroupAddCmd.MarkFlagRequired("name")
 	_ = nodeGroupAddCmd.MarkFlagRequired("instance-type")
-	registerAsyncWriteFlags(nodeGroupAddCmd)
-	registerAsyncWriteFlags(nodeGroupScaleCmd)
+	registerNodeGroupWriteFlags(nodeGroupAddCmd)
+	registerNodeGroupWriteFlags(nodeGroupScaleCmd)
 	registerAsyncWriteFlags(nodeGroupUpgradeCmd)
-	registerAsyncWriteFlags(nodeGroupDeleteCmd)
+	registerNodeGroupWriteFlags(nodeGroupDeleteCmd)
 
 	hetznerStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
 	registerThreeStateFlag(hetznerStartCmd, "restore-state", restoreStateFlagUsage)
