@@ -510,7 +510,16 @@ executes under the default branch's, and the head's change is ignored and
 reported. null - the planner never resolved authority for this run: it is
 still queued, it concluded skipped because its trigger filter excluded every
 stage before planning, or it was planned before authority was recorded.
-null is "not recorded", never "no authority".`
+null is "not recorded", never "no authority".
+
+What 'unapproved' changes: the run takes the sections its definition declares
+beyond its trusted authority (secrets, credentials, permissions, services,
+network, runs_on, resources, timeout, cache, roles) from that trusted
+authority instead, and the Authority line lists them. A stage that needs one
+of them can fail, and Ankra will not merge the run's pull request when it is
+green (merge when green). It does not stop an application's image from being
+built and published: the registry login those steps use is the platform's
+own, not one the definition declares.`
 
 func newPipelineGetCommand() *cobra.Command {
 	getCommand := &cobra.Command{
@@ -1573,6 +1582,13 @@ func printPipelineRunAuthority(out io.Writer, detail client.PipelineRunDetail) {
 	if isApproved {
 		return
 	}
+	if paths := pipelineAuthorityOverridePaths(detail); paths != "" {
+		_, _ = fmt.Fprintf(out, "             taken from trusted authority instead of the definition: %s\n", paths)
+	}
+	if *detail.AuthorityState == pipelineAuthorityUnapproved {
+		_, _ = fmt.Fprintln(out, "             this does not stop an image build or publish, whose registry login is the platform's own; "+
+			"see 'ankra pipeline get --help'")
+	}
 	if detail.ApproveDefinitionID != nil && *detail.ApproveDefinitionID != "" {
 		_, _ = fmt.Fprintf(out, "             to approve the default branch's current definition for runs planned "+
 			"after it: ankra pipeline definitions approve %s\n", *detail.ApproveDefinitionID)
@@ -1580,6 +1596,21 @@ func printPipelineRunAuthority(out io.Writer, detail client.PipelineRunDetail) {
 	}
 	_, _ = fmt.Fprintln(out, "             no definition to approve was reported for this run: the default branch's "+
 		"current definition is already approved or cannot be approved, or the server predates reporting it")
+}
+
+// pipelineAuthorityUnapproved is the authority_state of a default-branch run
+// whose definition's protected sections no administrator has approved.
+const pipelineAuthorityUnapproved = "unapproved"
+
+// pipelineAuthorityOverridePaths lists the sections the run overrode.
+func pipelineAuthorityOverridePaths(detail client.PipelineRunDetail) string {
+	paths := make([]string, 0, len(detail.AuthorityOverrides))
+	for _, override := range detail.AuthorityOverrides {
+		if path := strings.TrimSpace(override.Path); path != "" {
+			paths = append(paths, path)
+		}
+	}
+	return strings.Join(paths, ", ")
 }
 
 // pipelineCancelLong is the help of `pipeline cancel`: what a cancel stops,

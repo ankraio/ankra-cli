@@ -54,6 +54,11 @@ type shipResult struct {
 	// URLProblem says why the published hostname does not route, when ship
 	// proved it does not (State "unroutable"): the URL is then left out.
 	URLProblem string `json:"url_problem,omitempty" yaml:"url_problem,omitempty"`
+	// PendingURL is the published address when it routes but did not answer
+	// inside ship's window (State "url_pending"), and URLPending says what was
+	// still pending. URL is then left out: it holds only an address that answered.
+	PendingURL string `json:"pending_url,omitempty" yaml:"pending_url,omitempty"`
+	URLPending string `json:"url_pending,omitempty" yaml:"url_pending,omitempty"`
 	// AddressFamilies lists the families the URL's hostname resolves to right
 	// now ("ipv4", "ipv6"); empty when no record could be read.
 	AddressFamilies []string `json:"address_families,omitempty" yaml:"address_families,omitempty"`
@@ -353,12 +358,25 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 			liveURL = ""
 		}
 	}
+	// A route that holds inside the cluster is still not an answer on the
+	// public address (ankra-oznf7k.26).
+	urlPending := ""
+	pendingURL := ""
+	if liveURL != "" {
+		urlPending = waitForShipURLToAnswer(waitContext, progress, liveURL)
+		if urlPending != "" {
+			pendingURL = liveURL
+			liveURL = ""
+		}
+	}
 	shipState := "healthy"
 	switch {
 	case parked:
 		shipState = "parked"
 	case routeProblem != "":
 		shipState = "unroutable"
+	case urlPending != "":
+		shipState = shipStateURLPending
 	}
 
 	addressFamilies := []string{}
@@ -381,6 +399,8 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 		InstallationID:   installationID,
 		URL:              liveURL,
 		URLProblem:       routeProblem,
+		PendingURL:       pendingURL,
+		URLPending:       urlPending,
 		AddressFamilies:  addressFamilies,
 		State:            shipState,
 	}
@@ -407,6 +427,12 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 	if liveURL != "" {
 		_, _ = fmt.Fprintf(output, "Live: %s\n", liveURL)
 		_, _ = fmt.Fprintln(output, shipAddressFamiliesLine(addressFamilies))
+		return nil
+	}
+	if pendingURL != "" {
+		_, _ = fmt.Fprintf(output,
+			"Deployed and healthy, not answering yet: %s - %s. Re-run 'ankra application ship' to check again.\n",
+			pendingURL, urlPending)
 		return nil
 	}
 	_, _ = fmt.Fprintf(output,

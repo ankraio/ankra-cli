@@ -43,6 +43,11 @@ type OrganisationPreviewSettings struct {
 	// above alone. Empty when previews have a certificate story.
 	PreviewTLSWarning string `json:"demo_preview_tls_warning" yaml:"demo_preview_tls_warning"`
 
+	// WorkspaceSandboxWarning is the backend's answer to a write that named a
+	// staging cluster with no sandbox runtime: Ankra AI cannot run code there on
+	// its own, and the command that changes that. Only a write can carry it.
+	WorkspaceSandboxWarning string `json:"workspace_sandbox_warning,omitempty" yaml:"workspace_sandbox_warning,omitempty"`
+
 	// PreviewDNSWarning is the backend's verdict on whether the preview
 	// hostnames resolve at all. It is a separate answer from the TLS one and
 	// the more fundamental of the two: nothing in the platform publishes DNS
@@ -69,6 +74,8 @@ type organisationPreviewSettingsBody struct {
 	DemoTLSSecretName    *string `json:"demo_tls_secret_name"`
 	DemoCertIssuerName   *string `json:"demo_cert_issuer_name"`
 	PreviewTLSWarning    *string `json:"demo_preview_tls_warning"`
+
+	WorkspaceSandboxWarning string `json:"workspace_sandbox_warning"`
 
 	StagingClusterID     *string        `json:"staging_cluster_id"`
 	StagingClusterName   *string        `json:"staging_cluster_name"`
@@ -140,6 +147,7 @@ func decodeOrganisationPreviewSettings(body []byte) (*OrganisationPreviewSetting
 	if decoded.DemoCertIssuerName != nil {
 		settings.DemoCertIssuerName = *decoded.DemoCertIssuerName
 	}
+	settings.WorkspaceSandboxWarning = decoded.WorkspaceSandboxWarning
 	if decoded.PreviewTLSWarning != nil {
 		settings.PreviewTLSWarning = *decoded.PreviewTLSWarning
 	}

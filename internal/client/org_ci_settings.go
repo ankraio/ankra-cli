@@ -27,6 +27,11 @@ import (
 // ClusterName alone is nil when the chosen cluster has since been deleted,
 // which is why the id is carried separately rather than dropped with it.
 type OrganisationCISettings struct {
+	// WorkspaceSandboxWarning is the backend's answer to a write that named a
+	// pipeline cluster with no sandbox runtime: Ankra AI cannot run code there on
+	// its own, and the command that changes that. Only a write can carry it.
+	WorkspaceSandboxWarning string `json:"workspace_sandbox_warning,omitempty" yaml:"workspace_sandbox_warning,omitempty"`
+
 	ClusterID            *string  `json:"ci_cluster_id" yaml:"ci_cluster_id"`
 	ClusterName          *string  `json:"ci_cluster_name" yaml:"ci_cluster_name"`
 	BuildFallback        string   `json:"ci_build_fallback" yaml:"ci_build_fallback"`
