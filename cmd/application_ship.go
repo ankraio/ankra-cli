@@ -54,7 +54,10 @@ type shipResult struct {
 	// URLProblem says why the published hostname does not route, when ship
 	// proved it does not (State "unroutable"): the URL is then left out.
 	URLProblem string `json:"url_problem,omitempty" yaml:"url_problem,omitempty"`
-	State      string `json:"state" yaml:"state"`
+	// AddressFamilies lists the families the URL's hostname resolves to right
+	// now ("ipv4", "ipv6"); empty when no record could be read.
+	AddressFamilies []string `json:"address_families,omitempty" yaml:"address_families,omitempty"`
+	State           string   `json:"state" yaml:"state"`
 	// SetupPullRequestRun and BlockingFindings describe a stop at the setup
 	// pull request: its run, and when the gate blocked it, the worst findings.
 	SetupPullRequestRun *shipSetupPullRequestRun `json:"setup_pull_request_run,omitempty" yaml:"setup_pull_request_run,omitempty"`
@@ -358,6 +361,11 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 		shipState = "unroutable"
 	}
 
+	addressFamilies := []string{}
+	if liveURL != "" {
+		addressFamilies = shipURLAddressFamilies(waitContext, liveURL)
+	}
+
 	result := shipResult{
 		ApplicationID:    application.ID,
 		ApplicationName:  application.Name,
@@ -373,6 +381,7 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 		InstallationID:   installationID,
 		URL:              liveURL,
 		URLProblem:       routeProblem,
+		AddressFamilies:  addressFamilies,
 		State:            shipState,
 	}
 	if rendered, renderError := renderStructured(command, result); rendered || renderError != nil {
@@ -397,6 +406,7 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 	}
 	if liveURL != "" {
 		_, _ = fmt.Fprintf(output, "Live: %s\n", liveURL)
+		_, _ = fmt.Fprintln(output, shipAddressFamiliesLine(addressFamilies))
 		return nil
 	}
 	_, _ = fmt.Fprintf(output,
