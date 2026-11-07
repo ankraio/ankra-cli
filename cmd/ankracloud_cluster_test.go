@@ -482,7 +482,7 @@ func TestAnkraCloudCommandsWrapAPIErrors(t *testing.T) {
 
 func TestAnkraCloudIsWiredIntoTheSharedProviderSwitches(t *testing.T) {
 	setMockClient(t, &ankraCloudClusterMock{})
-	if nodeGroupListForKind("ankracloud") == nil {
+	if nodeGroupCallsFor("ankracloud").list == nil {
 		t.Error("node groups do not dispatch ankracloud")
 	}
 	if sshKeysGetForKind("ankracloud") == nil {

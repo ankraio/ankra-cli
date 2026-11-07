@@ -300,7 +300,7 @@ func offerMCPSkills(command *cobra.Command, clientName string) error {
 			_, _ = fmt.Fprintf(out, "\nTo teach it how Ankra works: ankra skills install --client %s\n", clientName)
 			return nil
 		}
-		if confirmPrompt(command.InOrStdin(), out, "\nInstall the Ankra skills for it too? [y/N] ", false) != nil {
+		if confirmPrompt(command.InOrStdin(), command.ErrOrStderr(), "\nInstall the Ankra skills for it too? [y/N] ", false) != nil {
 			return nil
 		}
 	}

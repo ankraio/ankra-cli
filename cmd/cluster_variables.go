@@ -164,7 +164,7 @@ var clusterVariablesDeleteCmd = &cobra.Command{
 		defer cancel()
 
 		if err := confirmPrompt(
-			cmd.InOrStdin(), cmd.OutOrStdout(),
+			cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete cluster variable %q? [y/N]: ", name),
 			yes,
 		); err != nil {

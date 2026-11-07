@@ -274,7 +274,7 @@ var aiModelsDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		reference := args[0]
 		yes, _ := cmd.Flags().GetBool("yes")
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete model %q? [y/N]: ", reference), yes); err != nil {
 			return err
 		}
@@ -291,7 +291,7 @@ var aiModelsResetCmd = &cobra.Command{
 	Short: "Revert the catalog to the built-in defaults",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		yes, _ := cmd.Flags().GetBool("yes")
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			"Reset the model catalog to the built-in defaults? Custom models and edits are lost. [y/N]: ", yes); err != nil {
 			return err
 		}
@@ -425,7 +425,7 @@ var aiEndpointsDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		endpointID := args[0]
 		yes, _ := cmd.Flags().GetBool("yes")
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete endpoint %q and its catalog models? [y/N]: ", endpointID), yes); err != nil {
 			return err
 		}
@@ -490,7 +490,7 @@ var aiAnthropicDeleteCmd = &cobra.Command{
 	Short: "Remove the custom Anthropic API key",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		yes, _ := cmd.Flags().GetBool("yes")
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			"Remove the custom Anthropic API key? [y/N]: ", yes); err != nil {
 			return err
 		}
@@ -547,7 +547,7 @@ var aiOpenRouterRemoveCmd = &cobra.Command{
 active provider the organisation falls back to the Ankra-managed default.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		yes, _ := cmd.Flags().GetBool("yes")
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			"Remove the OpenRouter API key? [y/N]: ", yes); err != nil {
 			return err
 		}
@@ -673,7 +673,7 @@ var aiOpenAIDeleteCmd = &cobra.Command{
 	Short: "Remove the legacy OpenAI-compatible endpoint",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		yes, _ := cmd.Flags().GetBool("yes")
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			"Remove the legacy OpenAI-compatible endpoint? [y/N]: ", yes); err != nil {
 			return err
 		}

@@ -161,6 +161,7 @@ func TestForceDrainFlagIsOffByDefaultAndNamesPodDisruptionBudgets(t *testing.T) 
 		clusterNodeGroupScaleCmd,
 		clusterNodeGroupUpgradeCmd,
 		clusterNodeGroupDeleteCmd,
+		clusterNodeGroupRemoveNodeCmd,
 	} {
 		flag := command.Flags().Lookup(forceDrainFlag)
 		if flag == nil {

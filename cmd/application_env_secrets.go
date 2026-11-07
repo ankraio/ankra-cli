@@ -254,7 +254,7 @@ sealed into them until the next apply.`,
 			}
 			yes, _ := command.Flags().GetBool("yes")
 			if confirmError := confirmPrompt(
-				command.InOrStdin(), command.OutOrStdout(),
+				command.InOrStdin(), command.ErrOrStderr(),
 				fmt.Sprintf("Clear the stored value of %q on application %q? "+
 					"Ankra cannot show it to you again, so it cannot be recovered from here. [y/N]: ",
 					secretKey, applicationID),

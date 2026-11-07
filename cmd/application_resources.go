@@ -167,7 +167,7 @@ func newApplicationDeleteCommand() *cobra.Command {
 			}
 			yes, _ := command.Flags().GetBool("yes")
 			if confirmError := confirmPrompt(
-				command.InOrStdin(), command.OutOrStdout(),
+				command.InOrStdin(), command.ErrOrStderr(),
 				fmt.Sprintf("Delete application %q? This removes its platform record and cannot be undone! [y/N]: ", strings.TrimSpace(arguments[0])),
 				yes,
 			); confirmError != nil {
