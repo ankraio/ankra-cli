@@ -58,6 +58,7 @@ const (
 	promotionStateReady          = "ready"
 	promotionStateAlreadyCurrent = "already_current"
 	promotionStateBlocked        = "blocked"
+	promotionStatePromoted       = "promoted"
 )
 
 func newApplicationPromoteCommand() *cobra.Command {
@@ -182,6 +183,10 @@ func runApplicationPromote(command *cobra.Command, arguments []string) error {
 		_, _ = fmt.Fprintf(command.OutOrStdout(), "%s already runs %s.\n", target.Name, started.ImageTag)
 		return nil
 	}
+	if started.State != promotionStatePromoted {
+		return fmt.Errorf("the platform answered the promotion with state %q, not %q: check what %s runs before promoting again",
+			started.State, promotionStatePromoted, target.Name)
+	}
 	_, _ = fmt.Fprintf(command.OutOrStdout(), "Promoting %s to %s.", started.ImageTag, target.Name)
 	if started.OperationID != nil && *started.OperationID != "" {
 		_, _ = fmt.Fprintf(command.OutOrStdout(), " Follow it with 'ankra cluster operations steps %s'.", *started.OperationID)
@@ -200,7 +205,14 @@ func promotionPreviewBlock(preview promotionPreview) error {
 		for _, blocker := range preview.Blockers {
 			details = append(details, blocker.Detail)
 		}
-		return withExitCode(exitBlocked, fmt.Errorf("the promotion is blocked: %s", strings.Join(details, "; ")))
+		reason := strings.Join(details, "; ")
+		if strings.TrimSpace(reason) == "" {
+			reason = preview.ReadReason
+		}
+		if strings.TrimSpace(reason) == "" {
+			reason = "the platform named no blocker"
+		}
+		return withExitCode(exitBlocked, fmt.Errorf("the promotion is blocked: %s", reason))
 	}
 	reason := preview.ReadReason
 	if reason == "" {
@@ -245,10 +257,18 @@ func resolvePromotionEnvironment(environments []promotionEnvironment, reference 
 			return environment, nil
 		}
 	}
+	var byName []promotionEnvironment
 	for _, environment := range environments {
 		if strings.EqualFold(environment.Name, trimmed) {
-			return environment, nil
+			byName = append(byName, environment)
 		}
+	}
+	if len(byName) == 1 {
+		return byName[0], nil
+	}
+	if len(byName) > 1 {
+		return promotionEnvironment{}, withExitCode(exitUsage, fmt.Errorf(
+			"%d environments are named %q apart from case: name one by its id", len(byName), trimmed))
 	}
 	var byRole []promotionEnvironment
 	for _, environment := range environments {

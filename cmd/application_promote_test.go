@@ -100,6 +100,24 @@ func TestApplicationPromoteConfirmsThenCarriesTheFingerprint(t *testing.T) {
 	}
 }
 
+func TestApplicationPromoteRefusesAStartStateItDoesNotKnow(t *testing.T) {
+	for name, answer := range map[string]string{
+		"blocked": `{"state":"blocked","image_tag":"sha-abc1234"}`,
+		"empty":   `{"image_tag":"sha-abc1234"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			mock := &applicationPromoteMock{preview: readyPromotionPreview, startAnswer: answer}
+			output, executeError := runPromote(t, mock, "y\n", promoteArguments()...)
+			if executeError == nil {
+				t.Fatalf("promote must fail on an unknown start state, output: %s", output)
+			}
+			if strings.Contains(output, "Promoting sha-abc1234") {
+				t.Errorf("an unknown start state must not read as promoting: %s", output)
+			}
+		})
+	}
+}
+
 func TestApplicationPromoteDeclinedDeploysNothing(t *testing.T) {
 	mock := &applicationPromoteMock{preview: readyPromotionPreview}
 	_, executeError := runPromote(t, mock, "n\n", promoteArguments()...)
