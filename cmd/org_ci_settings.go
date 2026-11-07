@@ -501,6 +501,9 @@ func renderOrganisationCISettings(cmd *cobra.Command, settings *client.Organisat
 	}
 
 	renderPlatformBuildsNote(cmd, settings)
+	if settings.WorkspaceSandboxWarning != "" {
+		_, _ = fmt.Fprintf(out, "\n%s\n", settings.WorkspaceSandboxWarning)
+	}
 }
 
 // renderPlatformBuildsNote says what platform_builders cannot promise on its

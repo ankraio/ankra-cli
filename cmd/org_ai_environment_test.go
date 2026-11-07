@@ -8,6 +8,8 @@ import (
 
 	"ankra/internal/client"
 
+	"github.com/spf13/cobra"
+
 	"github.com/spf13/pflag"
 )
 
@@ -440,5 +442,21 @@ func TestRunOrgAIEnvironmentGet_ShowsTheWorkspaceSettings(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Errorf("get output missing %q:\n%s", want, output)
 		}
+	}
+}
+
+// A write that named a cluster with no sandbox says so and hands over the
+// command; a read carries no warning to print (ankra-oznf7k.2).
+func TestRenderPreviewSettingsPrintsTheSandboxWarning(t *testing.T) {
+	const warning = "This cluster offers no sandbox runtime. ankra cluster node-group add ci --name sandbox"
+	command := &cobra.Command{}
+	var output bytes.Buffer
+	command.SetOut(&output)
+	if renderError := renderOrganisationPreviewSettings(command,
+		&client.OrganisationPreviewSettings{WorkspaceSandboxWarning: warning}, outputDefault); renderError != nil {
+		t.Fatalf("render: %v", renderError)
+	}
+	if !strings.Contains(output.String(), warning) {
+		t.Fatalf("output %q does not carry the warning", output.String())
 	}
 }
