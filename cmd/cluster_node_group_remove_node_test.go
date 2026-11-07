@@ -317,10 +317,9 @@ func TestClusterNodeGroupRemoveNodeSendsTheNamedNodeToTheClustersKind(t *testing
 	}
 }
 
-// A removal the platform named no operation for has causes the CLI cannot
-// tell apart: a stopped cluster, or one of several reasons a running cluster
-// gets its operation from the reconcile instead. The message says what each
-// means, gives examples rather than a closed list, and asserts no one cause.
+// A removal the platform named no operation for gets its operation from the
+// reconcile, for one of several reasons the CLI cannot tell apart. The
+// message gives examples rather than a closed list, and asserts no one cause.
 func TestClusterNodeGroupRemoveNodeWithoutAnOperationNamesEveryCause(t *testing.T) {
 	mock := newRemoveNodeMock("hetzner")
 	mock.result.OperationID = nil
@@ -329,9 +328,7 @@ func TestClusterNodeGroupRemoveNodeWithoutAnOperationNamesEveryCause(t *testing.
 		t.Fatalf("remove-node failed: %v", runError)
 	}
 	for _, said := range []string{
-		"On a stopped cluster the node was dropped from the cluster's record now: nothing is drained, " +
-			"and it is not created again when the cluster starts",
-		"On a running cluster the platform could not start the operation with the request (for example, another " +
+		"No operation was started with the request: the platform could not start it then (for example, another " +
 			"node operation is still running or the cluster's agent is offline), and its reconcile drains and " +
 			"deletes this node later",
 		"ankra cluster operations list --cluster " + testClusterID,
@@ -340,8 +337,9 @@ func TestClusterNodeGroupRemoveNodeWithoutAnOperationNamesEveryCause(t *testing.
 			t.Errorf("output does not say %q:\n%s", said, stdout)
 		}
 	}
-	if strings.Contains(stdout, "--watch") {
-		t.Errorf("a removal without an operation must name no operation to follow:\n%s", stdout)
+	if strings.Contains(stdout, "--watch") || strings.Contains(stdout, "stopped") {
+		t.Errorf("a removal without an operation must name no operation to follow and promise nothing for a "+
+			"stopped cluster:\n%s", stdout)
 	}
 }
 
@@ -747,9 +745,8 @@ func TestClusterNodeGroupRemoveNodeLooksWhereThePlatformLooks(t *testing.T) {
 	}
 	unresolved := "The CLI could not tell which node that is"
 	cases := map[string]struct {
-		clusterState string
-		nodes        []client.NodeSummary
-		reference    string
+		nodes     []client.NodeSummary
+		reference string
 		// wantSent is what is sent; the prompt names that server, or says
 		// unresolved when wantSent is the reference as typed.
 		wantSent string
@@ -796,29 +793,15 @@ func TestClusterNodeGroupRemoveNodeLooksWhereThePlatformLooks(t *testing.T) {
 			reference: removeNodeServerID, wantSent: removeNodeServerID,
 			wantSaid: "State:       stopping: the platform refuses a node whose server is stopping",
 		},
-		"a stopped cluster's soft-deleted server is its node": {
-			clusterState: "stopped",
-			nodes:        []client.NodeSummary{server(removeNodeServerID, "down", true)},
-			reference:    "depict-opensearch-0", wantSent: removeNodeServerID,
-			wantSaid: "Server id:   " + removeNodeServerID,
-		},
-		"a stopped cluster's soft-deleted server answers to its id": {
-			clusterState: "stopped",
-			nodes:        []client.NodeSummary{server(removeNodeServerID, "down", true)},
-			reference:    removeNodeServerID, wantSent: removeNodeServerID,
-			wantSaid: "Server id:   " + removeNodeServerID,
-		},
-		"a server a stopped cluster kept is preferred to a deleted row": {
-			clusterState: "stopped",
-			nodes:        []client.NodeSummary{server(otherServerID, "down", true), server(removeNodeServerID, "stopped", false)},
-			reference:    "depict-opensearch-0", wantSent: removeNodeServerID,
+		"a deleted row is no second answer to a name": {
+			nodes:     []client.NodeSummary{server(removeNodeServerID, "running", false), server(otherServerID, "down", true)},
+			reference: "depict-opensearch-0", wantSent: removeNodeServerID,
 			wantSaid: "Server id:   " + removeNodeServerID,
 		},
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
 			mock := newRemoveNodeMock("hetzner")
-			mock.cluster.State = testCase.clusterState
 			mock.nodes = testCase.nodes
 			_, prompt, runError := runRemoveNode(t, mock, "y\n", testClusterID, "opensearch", testCase.reference)
 			if runError != nil {
@@ -851,6 +834,32 @@ func TestClusterNodeGroupRemoveNodeDoesNotResolveASharedProviderID(t *testing.T)
 	}
 	if len(mock.calls) != 1 || mock.calls[0].node != "hcloud://168428300" {
 		t.Errorf("calls = %+v, want the reference as typed", mock.calls)
+	}
+}
+
+// A stopped cluster's records do not say what the platform does with a
+// removal there, so the CLI reads nothing and claims nothing: the prompt says
+// it did not look, and the reference goes as typed.
+func TestClusterNodeGroupRemoveNodeDoesNotLookUpAStoppedCluster(t *testing.T) {
+	for _, reference := range []string{"depict-opensearch-0", removeNodeServerID, "hcloud://168428300"} {
+		mock := newRemoveNodeMock("hetzner")
+		mock.cluster.State = "stopped"
+		mock.listNeverAnswers = make(chan struct{})
+		t.Cleanup(func() { close(mock.listNeverAnswers) })
+		_, prompt, runError := runRemoveNode(t, mock, "y\n", testClusterID, "opensearch", reference)
+		if runError != nil {
+			t.Fatalf("%s: remove-node failed: %v", reference, runError)
+		}
+		if !strings.Contains(prompt, "the cluster is stopped, so the CLI did not look the node up") ||
+			strings.Contains(prompt, "Server id:") {
+			t.Errorf("%s: the prompt must say the lookup was skipped and name no node:\n%s", reference, prompt)
+		}
+		if len(mock.kubernetesRequestsSent()) != 0 {
+			t.Errorf("%s: a stopped cluster's Kubernetes nodes were read", reference)
+		}
+		if len(mock.calls) != 1 || mock.calls[0].node != reference {
+			t.Errorf("%s: calls = %+v, want the reference as typed", reference, mock.calls)
+		}
 	}
 }
 

@@ -16,10 +16,8 @@ import (
 // that answer names the worker, the counts and operation_id as well; when it
 // was still deciding, it names nothing, and NodeID is empty.
 //
-// OperationID is nil when the request created no operation. On a stopped
-// cluster the worker is dropped from the cluster's record at once and not
-// created again when it starts. On a running cluster the platform could not
-// start the operation with the request (another node operation is still
+// OperationID is nil when the request created no operation: the platform
+// could not start it with the request (another node operation is still
 // running, the cluster's agent is offline, and other reasons), and its
 // reconcile drains and deletes the worker later.
 type RemoveNodeGroupNodeResult struct {

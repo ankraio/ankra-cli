@@ -56,26 +56,22 @@ delete. When the drain is refused, the operation fails and names what
 refused it, the node is kept and made schedulable again, and the group's
 count goes back up.
 
-When the platform names no operation, the removal is still recorded. On a
-stopped cluster the node is dropped from the cluster's record now: nothing
-is drained, and it is not created again when the cluster starts. On a
-running cluster the platform could not start the operation with the
-request, for example because another node operation is still running or
-the cluster's agent is offline, and its reconcile drains and deletes the
-node later.
+When the platform names no operation, the removal is still recorded: the
+platform could not start the operation with the request, for example
+because another node operation is still running or the cluster's agent is
+offline, and its reconcile drains and deletes the node later.
 
 Every refusal of the platform's exits 1 with its reason. Among them: a
 node that is not a worker, a node of another group, a node already marked
-for deletion or whose server is stopping, the last node of its group (the
-group is deleted instead, with 'ankra cluster node-group delete'), a
-removal that would take an autoscaling group below its min count, a
-reference several nodes answer to (the reason lists each by its node id,
-which is the server id), and a change while an identical one is in
-progress. A reference the platform cannot resolve is refused the same way:
-a providerID while the cluster is stopped or while it cannot see that
-providerID on the cluster's Kubernetes nodes, and on AWS a name that may be
-a Kubernetes node name it has not recorded yet. Name the node by its server
-name or its server id then; neither needs the Kubernetes nodes.
+for deletion or whose server is stopping, the last node of its group,
+which is not removed on its own, a removal that would take an autoscaling
+group below its min count, a reference several nodes answer to (the
+reason lists each by its node id, which is the server id), and a change
+while an identical one is in progress. A reference the platform cannot
+resolve is refused the same way: a providerID it cannot see on the
+cluster's Kubernetes nodes, and on AWS a name that may be a Kubernetes
+node name it has not recorded yet. Name the node by its server name or its
+server id then; neither needs the Kubernetes nodes.
 
 A node the cluster does not have exits 3. A group or node that is blank,
 has spaces around it, or is '.' or '..' (also percent-encoded), a '/'
@@ -260,10 +256,8 @@ func newNodeRemovalSubmitted(clusterID string, result *client.RemoveNodeGroupNod
 			submitted.Hint += ". A refused drain fails it, names what refused it and keeps the node"
 		}
 	case decided:
-		submitted.Hint = "no operation was started with the request: on a stopped cluster the node was dropped from " +
-			"its record (nothing is drained, and it is not created again on start); on a running cluster the " +
-			"platform's reconcile drains and deletes the node later, and '" + clusterOperationsCommand(clusterID) +
-			"' lists the removal's operation once it starts"
+		submitted.Hint = "no operation was started with the request: the platform's reconcile drains and deletes the " +
+			"node later, and '" + clusterOperationsCommand(clusterID) + "' lists the removal's operation once it starts"
 	default:
 		submitted.Hint = "the platform was still checking the removal when it answered, so it has not named the " +
 			"node yet; '" + clusterOperationsCommand(clusterID) + "' lists the removal's operation once it starts, " +
@@ -300,12 +294,9 @@ func printNodeRemoval(out io.Writer, clusterID string, result *client.RemoveNode
 		result.NodeName, result.NodeID, result.GroupName, result.PreviousCount, result.NewCount)
 	operationID := removalOperationID(result)
 	if operationID == "" {
-		_, _ = fmt.Fprintln(out, "No operation was started with the request.")
-		_, _ = fmt.Fprintln(out, "  - On a stopped cluster the node was dropped from the cluster's record now: nothing is "+
-			"drained, and it is not created again when the cluster starts.")
-		_, _ = fmt.Fprintf(out, "  - On a running cluster the platform could not start the operation with the request (for "+
+		_, _ = fmt.Fprintf(out, "No operation was started with the request: the platform could not start it then (for "+
 			"example, another node operation is still running or the cluster's agent is offline), and its reconcile "+
-			"drains and deletes this node later. Find the removal's operation then with:\n      %s\n",
+			"drains and deletes this node later. Find the removal's operation then with:\n  %s\n",
 			clusterOperationsCommand(clusterID))
 		return
 	}
@@ -492,7 +483,13 @@ func startKubernetesNodeRead(clusterID, name string) <-chan readAnswer[map[strin
 // reference says which Kubernetes read it needs: every node for a providerID
 // (the one reporting it is not known yet), the one node named like the
 // server for a name. A server id names its node only once the list is read.
+// A stopped cluster is not looked up: its node list and Kubernetes nodes do
+// not say what the platform will do with a removal there, so the platform
+// answers for it.
 func resolveRemoveNodeTarget(kind, clusterID, reference string, clusterStopped bool) removeNodeTarget {
+	if clusterStopped {
+		return removeNodeTarget{unresolved: "the cluster is stopped, so the CLI did not look the node up"}
+	}
 	nodesOps := nodeGroupCallsFor(kind).nodes
 	if nodesOps == nil {
 		return removeNodeTarget{unresolved: "the CLI cannot list the nodes of a " + kind + " cluster"}
@@ -522,7 +519,7 @@ func resolveRemoveNodeTarget(kind, clusterID, reference string, clusterStopped b
 	case listed.value == nil:
 		return removeNodeTarget{unresolved: "the platform answered no node list"}
 	}
-	nodes := nodesTheRemovalCanName(listed.value.Nodes, kind, clusterStopped)
+	nodes := nodesTheRemovalCanName(listed.value.Nodes, kind)
 
 	if kubernetesRead == nil && namedAfterServers {
 		if candidates := nodesAnswering(nodes, kubernetesNodeView{}, reference); len(candidates) == 1 &&
@@ -593,19 +590,14 @@ const (
 	nodeStateStopping   = "stopping"
 )
 
-// nodesTheRemovalCanName is the rows of the cluster's node list the platform
-// looks a reference up in: its servers (the list also has its bastion and
-// VMs), without the deleted and down ones. A stopped cluster's servers are
-// such rows until it starts, and the platform restores them before it looks,
-// so on a stopped cluster none is left out. That also keeps a stopped
-// cluster's long-deleted rows, which the list does not tell apart: the
-// platform answers for those.
-func nodesTheRemovalCanName(nodes []client.NodeSummary, kind string, clusterStopped bool) []client.NodeSummary {
+// nodesTheRemovalCanName is the rows of a running cluster's node list the
+// platform looks a reference up in: its servers (the list also has its
+// bastion and VMs), without the deleted and down ones.
+func nodesTheRemovalCanName(nodes []client.NodeSummary, kind string) []client.NodeSummary {
 	serverKind := kind + "_server"
 	var named []client.NodeSummary
 	for _, node := range nodes {
-		gone := node.IsDeleted || node.State == nodeStateDown
-		if node.Kind == serverKind && (clusterStopped || !gone) {
+		if node.Kind == serverKind && !node.IsDeleted && node.State != nodeStateDown {
 			named = append(named, node)
 		}
 	}
@@ -648,13 +640,12 @@ func nodesAnswering(nodes []client.NodeSummary, kubernetes kubernetesNodeView,
 // nodesStaying drops, from several nodes a name answers to, the ones on their
 // way out, so a name reused by a replacement means the replacement: the
 // platform steps its delete_permanently rows aside. The node list does not
-// show that field; "stopping" is the state it marks a removed worker with,
-// and a deleted row is one only a stopped cluster keeps here. When every
-// candidate is on its way out, none steps aside.
+// show that field; "stopping" is the state it marks a removed worker with.
+// When every candidate is on its way out, none steps aside.
 func nodesStaying(candidates []*client.NodeSummary) []*client.NodeSummary {
 	var staying []*client.NodeSummary
 	for _, node := range candidates {
-		if node.State != nodeStateStopping && !node.IsDeleted {
+		if node.State != nodeStateStopping {
 			staying = append(staying, node)
 		}
 	}
