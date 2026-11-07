@@ -33,9 +33,13 @@ type FleetProviderCost struct {
 // are short. Note is the platform's own sentence; the CLI words the counts
 // itself. A platform that predates the field, or could not count every
 // cluster, sends none: a nil MonthHours is "not counted", never "whole".
+// HoursMeasured (cluster#5909) is the metered hours a metering pass
+// measured, HoursMetered without the estimated ones; nil from a platform
+// that predates it, which is not known, never "every hour was measured".
 type MonthHours struct {
 	HoursElapsed      int    `json:"hours_elapsed" yaml:"hours_elapsed"`
 	HoursMetered      int    `json:"hours_metered" yaml:"hours_metered"`
+	HoursMeasured     *int   `json:"hours_measured,omitempty" yaml:"hours_measured,omitempty"`
 	HoursEstimated    int    `json:"hours_estimated" yaml:"hours_estimated"`
 	IsShort           bool   `json:"is_short" yaml:"is_short"`
 	ClusterCount      int    `json:"cluster_count" yaml:"cluster_count"`
@@ -167,6 +171,14 @@ type CostReadiness struct {
 // unallocated) are HOURLY cents; the monthly, month-to-date and projected
 // totals are already monthly. MonthHours is the hours of the month the
 // month to date holds; nil when the platform did not count them.
+//
+// The *MonthlyCents fields are the same components over a month
+// (ankra-bn86k4.4.23), from the full-precision hourly figures: the six
+// compute, storage, network, control plane and infrastructure parts add up
+// to MonthlyCostEstimateCents, and a part under a cent an hour, which reads
+// 0 in the hourly fields, keeps its month. Idle and unallocated overlap the
+// others and are rounded on their own. Each is nil when the platform did not
+// send it (a platform before that change).
 type ClusterCostSummary struct {
 	Provider                 string      `json:"provider" yaml:"provider"`
 	Currency                 string      `json:"currency" yaml:"currency"`
@@ -194,6 +206,15 @@ type ClusterCostSummary struct {
 	UnpricedVolumeCount      int         `json:"unpriced_volume_count" yaml:"unpriced_volume_count"`
 	AppliedDiscountPct       float64     `json:"applied_discount_pct" yaml:"applied_discount_pct"`
 	MonthHours               *MonthHours `json:"month_hours,omitempty" yaml:"month_hours,omitempty"`
+
+	ComputeOnDemandMonthlyCents *int64 `json:"compute_on_demand_monthly_cents,omitempty" yaml:"compute_on_demand_monthly_cents,omitempty"`
+	ComputeSpotMonthlyCents     *int64 `json:"compute_spot_monthly_cents,omitempty" yaml:"compute_spot_monthly_cents,omitempty"`
+	StorageMonthlyCents         *int64 `json:"storage_monthly_cents,omitempty" yaml:"storage_monthly_cents,omitempty"`
+	NetworkMonthlyCents         *int64 `json:"network_monthly_cents,omitempty" yaml:"network_monthly_cents,omitempty"`
+	ControlPlaneMonthlyCents    *int64 `json:"control_plane_monthly_cents,omitempty" yaml:"control_plane_monthly_cents,omitempty"`
+	InfrastructureMonthlyCents  *int64 `json:"infrastructure_monthly_cents,omitempty" yaml:"infrastructure_monthly_cents,omitempty"`
+	IdleMonthlyCents            *int64 `json:"idle_monthly_cents,omitempty" yaml:"idle_monthly_cents,omitempty"`
+	UnallocatedMonthlyCents     *int64 `json:"unallocated_monthly_cents,omitempty" yaml:"unallocated_monthly_cents,omitempty"`
 }
 
 // CostTrendPoint is one day of the monthly estimate series.
@@ -229,7 +250,9 @@ type ClusterCost struct {
 
 // CostSettings is the organisation's pricing configuration: the display
 // currency (usd, eur or gbp), the effective discount in percent applied on
-// top of list prices, and whether a network egress estimate is included.
+// top of list prices, and IncludeNetworkEgressEstimate, which is stored, not
+// metered yet: no figure includes network egress today, whichever way it is
+// set (ankra-bn86k4.8.21).
 //
 // AnalysedClusterLimit is how many of the costliest priced clusters the
 // savings model analyses: the limit in effect (the organisation's own, or the
@@ -407,6 +430,12 @@ type CloudSavingsCluster struct {
 // CloudSavingsWaste summarises the open cloud-waste findings. Available is
 // false when the waste scan could not be read, which is not the same as no
 // waste.
+//
+// ScanIncomplete true means the last scan of at least one account bearing on
+// the read did not finish (cluster#6020), so FindingCount 0 is unknown, not
+// no waste, and a count above 0 may be missing findings; GET
+// /org/cloud-cost/waste says which scan failed. It is nil on a platform that
+// predates the field, which reads as it always did.
 type CloudSavingsWaste struct {
 	Available             bool    `json:"available" yaml:"available"`
 	HasData               bool    `json:"has_data" yaml:"has_data"`
@@ -414,6 +443,7 @@ type CloudSavingsWaste struct {
 	TotalMonthlyCostCents int64   `json:"total_monthly_cost_cents" yaml:"total_monthly_cost_cents"`
 	FindingCount          int     `json:"finding_count" yaml:"finding_count"`
 	UnpricedFindingCount  int     `json:"unpriced_finding_count" yaml:"unpriced_finding_count"`
+	ScanIncomplete        *bool   `json:"scan_incomplete,omitempty" yaml:"scan_incomplete,omitempty"`
 }
 
 // CloudSavingsThresholds echoes the model's constants, so a reading can be
@@ -548,6 +578,16 @@ type CloudLedgerVerificationDay struct {
 // not_applicable for every other lever). Platforms that predate it do not
 // send them, and they stay absent in structured output rather than reading
 // as an empty verification.
+//
+// ApprovalExpired says whether the approval a change that never started
+// stands on has lapsed (cluster#5779): true when it was approved longer ago
+// than approvals last (seven days), so it approves nothing any more and its
+// expectation is left out of RunningTotalCents; false when the approval
+// stands or the change is running or ran; null for a right-size rollback
+// approved that long ago, whose approval may still stand (a rollback
+// confirmed to undo its right-size keeps it), which only the decision itself
+// can tell, and which the total leaves out too. A platform that predates the
+// field sends nothing, which is not false: Present tells the two apart.
 type CloudLedgerRow struct {
 	DecisionID           string                        `json:"decision_id" yaml:"decision_id"`
 	ClusterID            *string                       `json:"cluster_id" yaml:"cluster_id"`
@@ -555,6 +595,7 @@ type CloudLedgerRow struct {
 	Lever                string                        `json:"lever" yaml:"lever"`
 	Summary              string                        `json:"summary" yaml:"summary"`
 	Status               string                        `json:"status" yaml:"status"`
+	ApprovalExpired      OptionalBool                  `json:"approval_expired,omitzero" yaml:"approval_expired,omitempty"`
 	ExpectedMonthlyCents *int64                        `json:"expected_monthly_cents" yaml:"expected_monthly_cents"`
 	BaselineMonthlyCents *int64                        `json:"baseline_monthly_cents" yaml:"baseline_monthly_cents"`
 	MeasuredMonthlyCents *int64                        `json:"measured_monthly_cents" yaml:"measured_monthly_cents"`
@@ -574,7 +615,8 @@ type CloudLedgerRow struct {
 // measured rows over the whole ledger (never an expectation);
 // MeasuredThisMonthCents is the same sum over the rows measured in Month
 // (the current UTC calendar month, YYYY-MM); RunningTotalCents sums the
-// expectations of the changes approved, running or still verifying. The
+// expectations of the changes approved, running or still verifying, leaving
+// out an approval that lapsed or may have (CloudLedgerRow.ApprovalExpired). The
 // totals and counts cover every row even when Truncated says the row list
 // stopped at the newest ones.
 type CloudLedger struct {

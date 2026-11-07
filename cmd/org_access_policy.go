@@ -50,6 +50,16 @@ Commands:
   proposals        list proposals
   proposal <id>    show one proposal and its apply link
 
+Every command names the organisation it read or proposed for (the
+Organisation line; organisation_id and organisation_name in -o json and
+-o yaml). They act on the selected organisation, or on the one --org or
+ANKRA_ORG names. When you check another organisation's policy, pass --org
+and confirm the name it prints before you report what you read: without
+it you read your own organisation's policy, which looks just as real. A
+proposal belongs to the organisation it was created in, so 'proposal <id>'
+answers not found (exit 3) from any other one, and the message names the
+organisation it searched.
+
 Reading requires managing kubectl access, the policy, or holding
 break-glass (kube_access.elevate).`,
 }
@@ -59,29 +69,36 @@ var orgAccessPolicyGetCmd = &cobra.Command{
 	Short: "Show the organisation's Kubernetes access policy",
 	Long: `Show the organisation's Kubernetes access policy.
 
-The first line says whether the organisation has set a policy at all
-(Configured: yes or no); with none, the platform defaults apply. -o json
-and -o yaml carry it as is_configured. When a proposed change is waiting
+The first line names the organisation that was read (organisation_id and
+organisation_name in -o json and -o yaml). The next says whether it has
+set a policy at all (Configured: yes or no); with none, the platform
+defaults apply. -o json and -o yaml carry that as is_configured. When a proposed change is waiting
 for an owner or admin, the last line names it and its apply link
 (pending_proposal in -o json and -o yaml).`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
 		defer cancel()
-		policy, err := apiClient.GetClusterAccessPolicy(ctx)
+		read, err := apiClient.GetClusterAccessPolicy(ctx)
 		if err != nil {
 			return fmt.Errorf("get the cluster access policy: %w", err)
 		}
+		policy := &read.Policy
 		pending, pendingError := pendingPolicyProposal(ctx)
 		if pendingError != nil {
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
 				"Warning: could not check for a pending proposal (%v); 'ankra org access-policy proposals' lists them.\n", pendingError)
 		}
-		view := clusterAccessPolicyView{ClusterAccessPolicy: *policy, PendingProposal: pending}
+		view := clusterAccessPolicyView{
+			ClusterAccessPolicyOrganisation: read.ClusterAccessPolicyOrganisation,
+			ClusterAccessPolicy:             *policy,
+			PendingProposal:                 pending,
+		}
 		if rendered, renderError := renderStructured(cmd, view); rendered || renderError != nil {
 			return renderError
 		}
 		out := cmd.OutOrStdout()
+		renderPolicyOrganisation(out, "Organisation:       ", read.ClusterAccessPolicyOrganisation)
 		renderClusterAccessPolicy(out, policy)
 		if pending != nil {
 			_, _ = fmt.Fprintf(out, "Pending proposal:   %s by %s, expires %s. Apply: %s\n",
@@ -91,11 +108,22 @@ for an owner or admin, the last line names it and its apply link
 	},
 }
 
-// clusterAccessPolicyView is what 'get' renders as -o json|yaml: the policy
-// as the API answers it, plus the pending proposal when there is one.
+// clusterAccessPolicyView is what 'get' renders as -o json|yaml: the
+// organisation that was read, the policy as the API answers it, and the
+// pending proposal when there is one.
 type clusterAccessPolicyView struct {
-	client.ClusterAccessPolicy `yaml:",inline"`
-	PendingProposal            *client.ClusterAccessPolicyProposal `json:"pending_proposal,omitempty" yaml:"pending_proposal,omitempty"`
+	client.ClusterAccessPolicyOrganisation `yaml:",inline"`
+	client.ClusterAccessPolicy             `yaml:",inline"`
+	PendingProposal                        *client.ClusterAccessPolicyProposal `json:"pending_proposal,omitempty" yaml:"pending_proposal,omitempty"`
+}
+
+// renderPolicyOrganisation prints the organisation a policy or proposal
+// response describes, under label. It prints nothing for a platform that
+// did not say: an empty line would read as "no organisation".
+func renderPolicyOrganisation(out io.Writer, label string, organisation client.ClusterAccessPolicyOrganisation) {
+	if described := organisation.Describe(); described != "" {
+		_, _ = fmt.Fprintf(out, "%s%s\n", label, described)
+	}
 }
 
 // pendingPolicyProposal returns the organisation's pending proposal, nil
@@ -437,6 +465,7 @@ func parsePolicyLifetime(value string) (int64, error) {
 // before and after with the changed rows marked, and the apply link.
 func renderPolicyProposal(out io.Writer, proposal *client.ClusterAccessPolicyProposal) {
 	_, _ = fmt.Fprintf(out, "Proposal:     %s\n", proposal.ID)
+	renderPolicyOrganisation(out, "Organisation: ", proposal.ClusterAccessPolicyOrganisation)
 	_, _ = fmt.Fprintf(out, "Status:       %s\n", describeProposalStatus(proposal.Status))
 	_, _ = fmt.Fprintf(out, "Proposed by:  %s\n", describeProposer(proposal.ProposedBy))
 	_, _ = fmt.Fprintf(out, "Reason:       %s\n", proposal.Reason)
@@ -567,6 +596,7 @@ expired or superseded show those alone.`,
 			return renderError
 		}
 		out := cmd.OutOrStdout()
+		renderPolicyOrganisation(out, "Organisation: ", list.ClusterAccessPolicyOrganisation)
 		if len(list.Proposals) == 0 {
 			if filter == "" {
 				_, _ = fmt.Fprintln(out, "No proposals.")

@@ -71,7 +71,7 @@ exits 3 saying so and everything else works as before.
 | Alerts and routing | `ankra alerts destinations\|routes\|ingest-credentials ...` | `ankra-alerts-webhooks` |
 | Metrics and logs | `ankra cluster metrics\|top\|logs\|events\|logs-ship` | `ankra-observability`, `ankra-troubleshooting` |
 | Debugging inside a cluster | `ankra cluster exec\|terminal\|debug ...` | `ankra-troubleshooting` |
-| AI provider, tools, runs, board, memories | `ankra ai ...`, `ankra org mcp-servers ...`, `ankra agents ...`, `ankra tickets ...`, `ankra chat` | `ankra-ai-agents` |
+| AI provider, your own AI keys, tools, runs, board, memories | `ankra ai ...`, `ankra ai keys ...`, `ankra org mcp-servers ...`, `ankra agents ...`, `ankra tickets ...`, `ankra chat` | `ankra-ai-agents` |
 | Tokens, roles, cluster access | `ankra tokens create\|list\|rotate\|revoke\|delete` (`--service` for service accounts, `--project` to pin one to a project), `ankra org members\|roles\|invite`, `ankra cluster access grant\|list\|revoke\|elevate`, `ankra org access-policy get`, `ankra org oidc-trust` | `ankra-security` |
 | Projects (scope beneath the organisation) | `ankra project list\|current\|switch\|create\|get\|rename\|delete\|members\|move`, global `--project`, `ankra cost ... --all-projects`, `ankra cost object project`, `ankra org usage --group-by project` | `ankra-security`, `ankra-platform-principles` |
 | Credentials | `ankra credentials ...` | `ankra-security` |
@@ -93,14 +93,17 @@ ankra cluster validate -f cluster.yaml      # server-side validation, changes no
 ankra cluster apply -f cluster.yaml --dry-run
 ankra cluster apply -f cluster.yaml
 ankra cluster draft -f cluster.yaml         # stage every stack as a reviewable draft instead
+ankra cluster draft -f cluster.yaml --replace --yes   # discard the stacks' existing drafts first
 ankra cluster reconcile                     # ask Ankra to re-converge
 ankra cluster clone existing.yaml new.yaml --stack monitoring
 ```
 
 `ankra cluster draft` is the safe default on an environment you are not ready to change: the local
-checks run first, then each stack is saved as a resource draft to review, edit and deploy from the
-stack builder. **`apply` replaces a stack's contents declaratively** - what is not in the file is
-removed from that stack.
+checks run first, then the stacks are saved as resource drafts to review, edit and deploy from the
+stack builder. The file lands whole or not at all, so a refusal leaves nothing staged and you can fix
+the file and run it again. A stack that already has a draft is refused; `--replace` discards that
+draft, including edits made to it, and needs `--yes` without a terminal. **`apply` replaces a stack's
+contents declaratively** - what is not in the file is removed from that stack.
 
 ## Reading a cluster
 

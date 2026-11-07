@@ -241,7 +241,7 @@ func newAccessGatewayGetCommand() *cobra.Command {
 			if rendered, renderError := renderStructured(command, policy); rendered || renderError != nil {
 				return renderError
 			}
-			if _, writeError := fmt.Fprintf(command.OutOrStdout(), "Mode: %s\nRoles: %s\n", policy.Mode, strings.Join(policy.Roles, ", ")); writeError != nil {
+			if _, writeError := fmt.Fprintf(command.OutOrStdout(), "Mode: %s\nRoles: %s\nProject: %s\n", policy.Mode, strings.Join(policy.Roles, ", "), policy.ProjectID); writeError != nil {
 				return writeError
 			}
 			if policy.InheritedFrom != "" {
@@ -266,9 +266,25 @@ func newAccessGatewaySetCommand() *cobra.Command {
 			if mode == "public" && len(roles) > 0 {
 				return withExitCode(exitUsage, fmt.Errorf("--role requires --mode organisation"))
 			}
+			var projectChange *string
+			if command.Flags().Changed("access-project") {
+				reference, _ := command.Flags().GetString("access-project")
+				if mode == "public" && reference != "" {
+					return withExitCode(exitUsage, fmt.Errorf("--access-project requires --mode organisation"))
+				}
+				projectID := ""
+				if reference != "" {
+					resolved, resolveError := resolveProjectReferenceToID(reference)
+					if resolveError != nil {
+						return resolveError
+					}
+					projectID = resolved
+				}
+				projectChange = &projectID
+			}
 			ctx, cancel := context.WithTimeout(command.Context(), 60*time.Second)
 			defer cancel()
-			policy, updateError := apiClient.UpdateCloudDNSAccess(ctx, args[0], client.CloudDNSAccessPolicy{Mode: mode, Roles: roles})
+			policy, updateError := apiClient.UpdateCloudDNSAccess(ctx, args[0], client.CloudDNSAccessPolicy{Mode: mode, Roles: roles, ProjectChange: projectChange})
 			if updateError != nil {
 				return fmt.Errorf("set Cloud DNS access policy: %w", updateError)
 			}
@@ -280,6 +296,7 @@ func newAccessGatewaySetCommand() *cobra.Command {
 		}}
 	command.Flags().String("mode", "", "Access mode: public or organisation")
 	command.Flags().StringSlice("role", nil, "Allowed organisation role; repeat to allow several (empty means all members)")
+	command.Flags().String("access-project", "", "Admit only the members who can reach this project (slug, name or id); an empty value removes the limit, and leaving this out keeps the current one")
 	_ = command.MarkFlagRequired("mode")
 	registerStructuredOutputFlags(command)
 	return command

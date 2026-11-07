@@ -1,6 +1,6 @@
 ---
 name: ankra-cloud-clusters
-description: Provision and operate clusters Ankra builds on cloud infrastructure - Hetzner, OVHcloud, UpCloud, DigitalOcean, Scaleway, AWS (self-managed EC2), Ankra Cloud servers, Proxmox VE and HPE Morpheus - laying out a hub-and-spoke estate (infrastructure cluster first, then production and development), choosing the region and the right instance family, picking kubeadm (the default) or k3s and the etcd topology, wiring the generated stack straight into a GitOps repository, taking the ingress/DNS/TLS batteries at create time, then scaling, node groups, availability zones, upgrades and teardown. Use when the user wants Ankra to build a cluster rather than import one, plans a multi-cluster platform, asks which server type or region to pick, or mentions Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, AWS EC2 (not EKS), Ankra Cloud, Proxmox or Morpheus clusters, or the playground.
+description: Provision and operate clusters Ankra builds on cloud infrastructure - Hetzner, OVHcloud, UpCloud, DigitalOcean, Scaleway, AWS (self-managed EC2), Ankra Cloud servers, Proxmox VE and HPE Morpheus - laying out a hub-and-spoke estate (infrastructure cluster first, then production and development), choosing the region and the right instance family, picking kubeadm (the default) or k3s and the etcd topology, wiring the generated stack straight into a GitOps repository, taking the ingress/DNS/TLS batteries (and the optional Gateway API) at create time, then scaling, node groups, availability zones, upgrades and teardown. Use when the user wants Ankra to build a cluster rather than import one, plans a multi-cluster platform, asks which server type or region to pick, or mentions Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, AWS EC2 (not EKS), Ankra Cloud, Proxmox or Morpheus clusters, or the playground.
 ---
 
 # Ankra cloud clusters
@@ -196,6 +196,40 @@ hosts on your own domains are ignored and their records stay yours to create —
 
 Pass `--include-dns=false` / `--include-networking=false` only when you are bringing your own
 ingress and DNS, and say so in the stack.
+
+**`--gateway-api`** (CLI v0.61.0+, API `gateway_api`) is off by default, unlike the batteries
+above. With it the networking stack's Traefik also serves the Kubernetes Gateway API, and Ingress
+keeps working (`traefik` stays the default IngressClass). It adds the `gateway-api-crds` addon
+(Gateway API v1.5.1 standard CRDs, kept when the addon is uninstalled), the GatewayClass
+`traefik`, and one shared Gateway `traefik-gateway` in namespace `traefik` with a single HTTP
+listener `web` that admits routes from every namespace. cert-manager and external-dns read
+Gateways and HTTPRoutes too, so an HTTPRoute host under the generated subdomain gets its record.
+The custom-zone external-dns reads only Ingress and Service, so HTTPRoute hosts on your own
+domains need a record you create. It needs the networking stack: without it the CLI exits 2 and
+the API answers 400. Choose it at create time, or turn it on later for a cluster that already
+exists (CLI v0.66.0+): `ankra cluster gateway-api status --cluster <c>` shows the platform's
+plan, and `ankra cluster gateway-api enable --cluster <c> --yes --wait` records the option,
+installs the CRDs (or uses the ones the cluster already has), then writes the Traefik and
+cert-manager values in one stack write. Values you wrote yourself are never changed: a key that
+says the opposite is reported as a conflict (exit 1), and nothing is written until you decide.
+There is no disable: to stop the shared Gateway, set `gateway.enabled: false` in Traefik's values.
+
+- Listener ports are Traefik entry-point container ports: `8000` (`web`, served on 80) and `8443`
+  (`websecure`, served on 443). An HTTPRoute on the shared Gateway uses `parentRefs` name
+  `traefik-gateway`, namespace `traefik`, `sectionName: web`.
+- **HTTPS: the team creates its own Gateway**; the shared one is HTTP only. Class `traefik`,
+  annotation `cert-manager.io/cluster-issuer: letsencrypt-prod`, a listener with `port: 8443`,
+  `protocol: HTTPS`, a `hostname` and `tls.certificateRefs` naming a Secret. cert-manager's
+  Gateway shim creates the Certificate into that Secret. The HTTPRoute sits in the Gateway's
+  namespace and names the listener with `sectionName`.
+- On an `ipv6_only` Ankra Cloud cluster, HTTPRoute hosts are proxied by default like Ingress hosts,
+  and the relay sends plain HTTP to port 80. A route attached only to an HTTPS listener gets none
+  of it: annotate it `external-dns.alpha.kubernetes.io/webhook-ankra-cloud-proxied: "false"`.
+- Read them with the singular kind:
+  `ankra cluster get resources gateway --group gateway.networking.k8s.io -n traefik` (and
+  `httproute`).
+
+Walkthrough with the YAML: https://docs.ankra.ai/guides/gateway-api
 
 ### Commit the generated stack to Git at create time
 

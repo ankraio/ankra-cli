@@ -331,9 +331,10 @@ func isDefinitiveRefusal(err error) bool {
 }
 
 // execCheckCachePath is the --check cache file for a repository under the
-// platform and organisation this invocation addresses. It is read before any
-// network call, so it keys on what was asked for (the base URL, the --org,
-// ANKRA_ORG and ANKRA_EXEC_ORG as given), not on what they resolve to.
+// platform, organisation and project this invocation addresses. It is read
+// before any network call, so it keys on what was asked for (the base URL, the
+// --org, ANKRA_ORG, ANKRA_EXEC_ORG, --project, ANKRA_PROJECT and the saved
+// project selection as given), not on what they resolve to.
 func execCheckCachePath(cmd *cobra.Command, remote repositoryRemote) string {
 	return execRepositoryCachePath(cmd, remote, "exec-check")
 }
@@ -353,7 +354,12 @@ func execRepositoryCachePath(cmd *cobra.Command, remote repositoryRemote, family
 		}
 	}
 	orgFlag, _ := flagValue(cmd.Root().PersistentFlags().Lookup("org"))
+	savedProjectID := ""
+	if selected, loadError := loadSelectedProject(); loadError == nil {
+		savedProjectID = strings.TrimSpace(selected.ProjectID)
+	}
 	key := strings.Join([]string{platform, orgFlag, os.Getenv(envAnkraOrg), os.Getenv("ANKRA_EXEC_ORG"),
+		projectOverrideValue(cmd), savedProjectID,
 		remote.Provider, strings.ToLower(remote.Owner), strings.ToLower(remote.Name)}, "\x00")
 	digest := sha1.Sum([]byte(key)) //nolint:gosec // see the import
 	return filepath.Join(cacheDirectory, "ankra", family, hex.EncodeToString(digest[:]))

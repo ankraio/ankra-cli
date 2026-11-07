@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"ankra/internal/client"
+	"ankra/internal/hiddenunicode"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
@@ -38,13 +39,15 @@ trend. The savings model reads the biggest priced clusters and proposes one
 lever per cluster (right-size idle capacity, reduce unallocated run rate, or
 an off-hours schedule for non-production) with the monthly saving each is
 worth. The ledger follows each approved cost change through to the saving
-measured seven days after it ran. Pricing settings (display currency,
-effective discount, network egress estimate) apply to every figure.
+measured seven days after it ran. The display currency and the effective
+discount apply to every figure. The network egress estimate setting is stored,
+not metered yet: no figure includes network egress today.
 
-The fleet reads (summary, savings, ledger, trend, events, reconcile, budgets)
-cover the project you act in (see 'ankra project current'); pass
---all-projects to read the whole organisation, or the global --project to
-read another project. Pass -o json (or yaml) for the full API document.`,
+The fleet reads (summary, savings, ledger, trend, events, reconcile, budgets,
+and the clusters 'autopilot get' lists) cover the project you act in (see
+'ankra project current'); pass --all-projects to read the whole
+organisation, or the global --project to read another project. Pass -o json
+(or yaml) for the full API document.`,
 }
 
 // costAllProjectsFlag widens a fleet cost read to the whole organisation.
@@ -149,7 +152,7 @@ Every figure is a list-price estimate in the organisation's display currency.`,
 		if rendered, err := renderStructured(cmd, savings); rendered || err != nil {
 			return err
 		}
-		renderCloudSavings(cmd.OutOrStdout(), savings)
+		renderCloudSavings(cmd.OutOrStdout(), savings, readCloudSavingsScanFailures(cmd.ErrOrStderr(), savings.Waste))
 		return nil
 	},
 }
@@ -205,6 +208,9 @@ var costSettingsSetCmd = &cobra.Command{
 	Long: `Change one or more pricing settings. Only the flags you pass change; the
 other settings keep their current values. The route is organisation-admin
 only and every fleet and cluster figure re-prices on the next read.
+
+--include-egress is stored, not metered yet: no figure includes network egress
+today, whichever way it is set.
 
 --analysed-cluster-limit sets how many of the costliest priced clusters the
 savings model analyses (1 to 50); --analysed-cluster-limit default returns it
@@ -398,7 +404,21 @@ func costMonthHours(hours *client.MonthHours) (line string, short bool) {
 	} else {
 		line = fmt.Sprintf("Month so far covers all %s %s.", costCount(hours.HoursElapsed), unit)
 	}
-	if estimated > 0 {
+	switch {
+	case estimated > 0 && hours.HoursMeasured != nil:
+		// How the covered hours divide once the platform counts the measured
+		// ones (cluster#5909, ankra-bn86k4.4.8.4.2).
+		measured := min(max(*hours.HoursMeasured, 0), metered)
+		estimatedWord := "hours"
+		if estimated == 1 {
+			estimatedWord = "hour"
+		}
+		line += fmt.Sprintf(" Of the covered hours, %s measured and %s estimated: no metering ran for the estimated %s, so the next reading was copied.",
+			costCountOf(measured, "was", "were"), costCount(estimated), estimatedWord)
+	case estimated > 0:
+		// A platform that predates hours_measured: the measured hours are
+		// unknown, so only the estimated ones are named, never "the rest
+		// were measured".
 		estimates := "are estimates"
 		if estimated == 1 {
 			estimates = "is an estimate"
@@ -812,26 +832,39 @@ func fleetCostCredentialLabel(credential client.FleetCredentialCost) string {
 
 // fleetCostScopeLine says which project the rollup covered, or "" for a
 // platform that reported no scope. A partial scope is said in words: every
-// figure above it is a floor.
+// figure above it is a floor. It is said even when the scope names no
+// project, because a cut-short rollup without it reads as the whole one.
 func fleetCostScopeLine(scope *client.FleetCostScope) string {
-	if scope == nil {
-		return ""
+	label := costScopeLabel(scope)
+	if label == "" {
+		if scope == nil || !scope.Partial {
+			return ""
+		}
+		return "Scope: partial, only the clusters you may read are counted, so every figure is a floor"
 	}
-	line := ""
-	switch {
-	case scope.AllProjects:
-		line = "Scope: every project of the organisation"
-	case scope.ProjectName != nil && *scope.ProjectName != "":
-		line = "Scope: project " + *scope.ProjectName
-	case scope.ProjectID != nil && *scope.ProjectID != "":
-		line = "Scope: project " + *scope.ProjectID
-	default:
-		return ""
-	}
+	line := "Scope: " + label
 	if scope.Partial {
 		line += " (partial: only the clusters you may read are counted, so every figure is a floor)"
 	}
 	return line
+}
+
+// costScopeLabel names what a cost read covered ("project payments", "every
+// project of the organisation"), or "" when the platform named nothing.
+func costScopeLabel(scope *client.FleetCostScope) string {
+	if scope == nil {
+		return ""
+	}
+	switch {
+	case scope.AllProjects:
+		return "every project of the organisation"
+	case scope.ProjectName != nil && *scope.ProjectName != "":
+		return "project " + *scope.ProjectName
+	case scope.ProjectID != nil && *scope.ProjectID != "":
+		return "project " + *scope.ProjectID
+	default:
+		return ""
+	}
 }
 
 // fleetCostProjectLabel names a by-project row; clusters outside any
@@ -876,6 +909,47 @@ func costReadinessExplanation(readiness *client.CostReadiness) string {
 	}
 }
 
+// costComponents is one cluster's run rate by component, per month, in cents.
+type costComponents struct {
+	computeOnDemand, computeSpot, storage, network, controlPlane, infrastructure, idle, unallocated int64
+}
+
+// costComponentMonths reads the platform's monthly components when it sends
+// all eight (ankra-bn86k4.4.23): they come from the full-precision hourly
+// figures, so a part under a cent an hour (a stopped cluster's volumes) keeps
+// its month, and the six parts add up to the monthly run rate. Otherwise every
+// component is its whole-cent hourly figure times 730, exactly as before. The
+// two are never mixed in one table.
+func costComponentMonths(summary *client.ClusterCostSummary) costComponents {
+	monthly := []*int64{
+		summary.ComputeOnDemandMonthlyCents, summary.ComputeSpotMonthlyCents, summary.StorageMonthlyCents,
+		summary.NetworkMonthlyCents, summary.ControlPlaneMonthlyCents, summary.InfrastructureMonthlyCents,
+		summary.IdleMonthlyCents, summary.UnallocatedMonthlyCents,
+	}
+	sent := true
+	for _, part := range monthly {
+		sent = sent && part != nil
+	}
+	if sent {
+		return costComponents{
+			computeOnDemand: *summary.ComputeOnDemandMonthlyCents, computeSpot: *summary.ComputeSpotMonthlyCents,
+			storage: *summary.StorageMonthlyCents, network: *summary.NetworkMonthlyCents,
+			controlPlane: *summary.ControlPlaneMonthlyCents, infrastructure: *summary.InfrastructureMonthlyCents,
+			idle: *summary.IdleMonthlyCents, unallocated: *summary.UnallocatedMonthlyCents,
+		}
+	}
+	return costComponents{
+		computeOnDemand: summary.ComputeOnDemandCents * costHoursPerMonth,
+		computeSpot:     summary.ComputeSpotCents * costHoursPerMonth,
+		storage:         summary.StorageCents * costHoursPerMonth,
+		network:         summary.NetworkCents * costHoursPerMonth,
+		controlPlane:    summary.ControlPlaneCents * costHoursPerMonth,
+		infrastructure:  summary.InfrastructureCents * costHoursPerMonth,
+		idle:            summary.IdleHourlyCents * costHoursPerMonth,
+		unallocated:     summary.UnallocatedHourlyCents * costHoursPerMonth,
+	}
+}
+
 func renderClusterCost(out io.Writer, clusterReference string, cost *client.ClusterCost) {
 	if !cost.HasData || cost.Summary == nil {
 		_, _ = fmt.Fprintf(out, "No cost estimate for %s: %s\n", clusterReference, costReadinessExplanation(cost.Readiness))
@@ -910,21 +984,19 @@ func renderClusterCost(out io.Writer, clusterReference string, cost *client.Clus
 	_, _ = fmt.Fprintln(out, "Run rate by component (per month):")
 	writer := newCostTable(out)
 	writer.AppendHeader(table.Row{"Component", "Per month"})
-	monthly := func(hourlyCents int64) string {
-		return formatCostCents(hourlyCents*costHoursPerMonth, currency)
+	parts := costComponentMonths(summary)
+	writer.AppendRow(table.Row{"Compute (on-demand)", formatCostCents(parts.computeOnDemand, currency)})
+	if parts.computeSpot > 0 {
+		writer.AppendRow(table.Row{"Compute (spot)", formatCostCents(parts.computeSpot, currency)})
 	}
-	writer.AppendRow(table.Row{"Compute (on-demand)", monthly(summary.ComputeOnDemandCents)})
-	if summary.ComputeSpotCents > 0 {
-		writer.AppendRow(table.Row{"Compute (spot)", monthly(summary.ComputeSpotCents)})
+	writer.AppendRow(table.Row{"Storage", formatCostCents(parts.storage, currency)})
+	writer.AppendRow(table.Row{"Network", formatCostCents(parts.network, currency)})
+	writer.AppendRow(table.Row{"Control plane", formatCostCents(parts.controlPlane, currency)})
+	if parts.infrastructure > 0 {
+		writer.AppendRow(table.Row{"Bastion & VMs", formatCostCents(parts.infrastructure, currency)})
 	}
-	writer.AppendRow(table.Row{"Storage", monthly(summary.StorageCents)})
-	writer.AppendRow(table.Row{"Network", monthly(summary.NetworkCents)})
-	writer.AppendRow(table.Row{"Control plane", monthly(summary.ControlPlaneCents)})
-	if summary.InfrastructureCents > 0 {
-		writer.AppendRow(table.Row{"Bastion & VMs", monthly(summary.InfrastructureCents)})
-	}
-	writer.AppendRow(table.Row{"of which idle", monthly(summary.IdleHourlyCents)})
-	writer.AppendRow(table.Row{"Unallocated", monthly(summary.UnallocatedHourlyCents)})
+	writer.AppendRow(table.Row{"of which idle", formatCostCents(parts.idle, currency)})
+	writer.AppendRow(table.Row{"Unallocated", formatCostCents(parts.unallocated, currency)})
 	writer.Render()
 
 	if len(cost.Namespaces) > 0 {
@@ -1025,13 +1097,52 @@ func renderCloudSavingsOffHoursHint(out io.Writer, recommendations []client.Clou
 	}
 }
 
-func renderCloudSavingsWaste(out io.Writer, waste client.CloudSavingsWaste, currency string) {
+// cloudSavingsScanFailures is what the waste listing said about the scans a
+// savings read's scan_incomplete stands for: the failed scans, or that they
+// could not be read.
+type cloudSavingsScanFailures struct {
+	failures []client.CloudWasteCredentialError
+	isUnread bool
+}
+
+// cloudSavingsScanIncomplete reports whether the platform said the last scan
+// of an account bearing on the read did not finish. A platform that predates
+// scan_incomplete never says so, and its waste line reads as it always did.
+func cloudSavingsScanIncomplete(waste client.CloudSavingsWaste) bool {
+	return waste.Available && waste.ScanIncomplete != nil && *waste.ScanIncomplete
+}
+
+// readCloudSavingsScanFailures reads which scans did not finish, only when
+// the savings read says one did: a complete scan, and a platform that
+// predates scan_incomplete, cost no extra request and get nil. A listing
+// that cannot be read does not fail the command, since the savings read
+// already said the scan is incomplete; the reason goes to stderr.
+func readCloudSavingsScanFailures(stderr io.Writer, waste client.CloudSavingsWaste) *cloudSavingsScanFailures {
+	if !cloudSavingsScanIncomplete(waste) {
+		return nil
+	}
+	failures, readError := apiClient.GetCloudWasteCredentialErrors()
+	if readError != nil {
+		_, _ = fmt.Fprintf(stderr, "Reading which waste scan did not finish failed: %v\n", readError)
+		return &cloudSavingsScanFailures{isUnread: true}
+	}
+	return &cloudSavingsScanFailures{failures: failures}
+}
+
+// renderCloudSavingsWaste is the waste line. When the platform says the last
+// scan did not finish, no findings is unknown rather than none and a count
+// may be short, so the line says that and the failed scans are named under
+// it. Otherwise the line is the one this command always printed.
+func renderCloudSavingsWaste(out io.Writer, waste client.CloudSavingsWaste, currency string, scan *cloudSavingsScanFailures) {
 	_, _ = fmt.Fprintln(out)
+	isIncomplete := cloudSavingsScanIncomplete(waste)
 	switch {
 	case !waste.Available:
 		_, _ = fmt.Fprintln(out, "Waste: the scan could not be read (this is not the same as no waste).")
-	case !waste.HasData:
+	case !waste.HasData && !isIncomplete:
 		_, _ = fmt.Fprintln(out, "Waste: no scan yet.")
+	case waste.FindingCount == 0 && isIncomplete:
+		_, _ = fmt.Fprintln(out, "Waste: none listed, but the last scan did not finish, so that is unknown, not no waste.")
 	case waste.FindingCount == 0:
 		_, _ = fmt.Fprintln(out, "Waste: no open findings.")
 	default:
@@ -1042,6 +1153,57 @@ func renderCloudSavingsWaste(out io.Writer, waste client.CloudSavingsWaste, curr
 		}
 		if waste.ScannedAt != nil && *waste.ScannedAt != "" {
 			line += " · scanned " + *waste.ScannedAt
+		}
+		_, _ = fmt.Fprintln(out, line)
+		if isIncomplete {
+			_, _ = fmt.Fprintln(out, "The last scan did not finish, so findings may be missing from that count.")
+		}
+	}
+	if isIncomplete {
+		renderCloudSavingsScanFailures(out, scan)
+	}
+}
+
+// renderCloudSavingsScanFailures names the scans that did not finish: a
+// credential by its name and provider with the provider's error, a scan no
+// credential of the organisation stands behind by its provider alone (not a
+// deleted credential: the platform does not say that), and the scans outside
+// the reader's projects as one line that names none, as the platform gives
+// them. Names and errors are the platform's and the provider's text, flattened
+// to one line. A listing that names no failed scan, as a platform that
+// predates credential_errors answers, or one read after a rescan finished, is
+// said in a line of its own: which scan did not finish is then unknown, and
+// the line under an incomplete scan never just ends.
+func renderCloudSavingsScanFailures(out io.Writer, scan *cloudSavingsScanFailures) {
+	if scan == nil {
+		return
+	}
+	if scan.isUnread {
+		_, _ = fmt.Fprintln(out, "  Which scan did not finish could not be read.")
+		return
+	}
+	if len(scan.failures) == 0 {
+		_, _ = fmt.Fprintln(out, "  Which scan did not finish is not listed by this platform.")
+		return
+	}
+	for _, failed := range scan.failures {
+		if failed.CredentialOutsideProjects {
+			_, _ = fmt.Fprintln(out, "  Did not finish: a scan by a credential outside your projects.")
+			continue
+		}
+		name, _ := hiddenunicode.Line(failed.CredentialName)
+		subject := "a credential Ankra has no name for"
+		switch {
+		case name != "" && failed.Provider != "":
+			subject = name + " (" + costProviderLabel(failed.Provider) + ")"
+		case name != "":
+			subject = name
+		case failed.Provider != "":
+			subject += " (" + costProviderLabel(failed.Provider) + ")"
+		}
+		line := "  Did not finish: " + subject
+		if reason, _ := hiddenunicode.Line(failed.Error); reason != "" {
+			line += ": " + reason
 		}
 		_, _ = fmt.Fprintln(out, line)
 	}
@@ -1081,7 +1243,9 @@ func savingsReportsConfidence(savings *client.CloudSavings) bool {
 	return false
 }
 
-func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
+// renderCloudSavings is the human savings read. scan is what the waste
+// listing said about an incomplete scan, nil when the read says none.
+func renderCloudSavings(out io.Writer, savings *client.CloudSavings, scan *cloudSavingsScanFailures) {
 	currency := savings.Currency
 	// A platform that reports confidence counts only measured and billed levers
 	// in the total and says what the estimates add apart from it (ankra-tp6xp);
@@ -1099,7 +1263,7 @@ func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
 		_, _ = fmt.Fprintln(out, "Estimates appear once a cluster on AWS, Google Cloud, Azure, Hetzner, OVHcloud, UpCloud or Scaleway has reported pricing in the last day; AWS, Google Cloud and Azure clusters need a connected cloud credential.")
 		renderCloudSavingsClusters(out, "Unpriced clusters (no cost snapshot yet):", savings.UnpricedClusters, true)
 		renderCloudSavingsClusters(out, cloudSavingsStaleHeading(savings.Thresholds), savings.StaleClusters, true)
-		renderCloudSavingsWaste(out, savings.Waste, currency)
+		renderCloudSavingsWaste(out, savings.Waste, currency, scan)
 		return
 	}
 	_, _ = fmt.Fprintf(out, "Cloud savings (%s): %s/mo across %s", strings.ToUpper(currency),
@@ -1177,7 +1341,7 @@ func renderCloudSavings(out io.Writer, savings *client.CloudSavings) {
 	renderCloudSavingsClusters(out, cloudSavingsStaleHeading(savings.Thresholds), savings.StaleClusters, true)
 	renderCloudSavingsClusters(out, "Unreadable clusters (breakdown could not be read on this pass):", savings.UnreadableClusters, false)
 	renderCloudSavingsClusters(out, "Offline clusters (agent not checked in; nothing is recommended for them until it is):", savings.OfflineClusters, false)
-	renderCloudSavingsWaste(out, savings.Waste, currency)
+	renderCloudSavingsWaste(out, savings.Waste, currency, scan)
 }
 
 func renderCostSettings(out io.Writer, settings *client.CostSettings) {
@@ -1187,7 +1351,9 @@ func renderCostSettings(out io.Writer, settings *client.CostSettings) {
 	}
 	_, _ = fmt.Fprintf(out, "Display currency: %s\n", strings.ToUpper(settings.Currency))
 	_, _ = fmt.Fprintf(out, "Effective discount: %g%%\n", settings.EffectiveDiscountPct)
-	_, _ = fmt.Fprintf(out, "Network egress estimate: %s\n", egress)
+	// Nothing meters network egress yet (ankra-bn86k4.8.21): the setting is
+	// stored and moves no figure, so the line says so whichever way it is set.
+	_, _ = fmt.Fprintf(out, "Network egress estimate: %s (stored, not metered yet: no figure includes network egress today)\n", egress)
 	if settings.AnalysedClusterLimit == nil {
 		_, _ = fmt.Fprintln(out, "Analysed-cluster limit: unknown (this platform does not report it)")
 	} else {
@@ -1229,7 +1395,7 @@ func cloudSavingsStaleHeading(thresholds client.CloudSavingsThresholds) string {
 func init() {
 	costSettingsSetCmd.Flags().String("currency", "", "Display currency: usd, eur or gbp")
 	costSettingsSetCmd.Flags().Float64("discount", 0, "Effective discount in percent (0-100), applied on top of list prices; 10 means 10%")
-	costSettingsSetCmd.Flags().Bool("include-egress", false, "Include an estimated network egress charge (pass --include-egress=false to drop it)")
+	costSettingsSetCmd.Flags().Bool("include-egress", false, "Whether figures should include a network egress estimate once egress is metered (stored, not metered yet: no figure includes it today; --include-egress=false clears it)")
 	costSettingsSetCmd.Flags().String("analysed-cluster-limit", "", "How many of the costliest priced clusters the savings model analyses (1-50), or default for the platform's 8")
 	costSummaryCmd.Flags().String("by", "", "Show only one breakdown: provider, credential or project (default: the full rollup)")
 	registerStructuredOutputFlags(costSummaryCmd, costSavingsCmd, costClusterCmd, costSettingsGetCmd, costSettingsSetCmd)

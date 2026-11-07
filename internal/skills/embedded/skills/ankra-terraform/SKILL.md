@@ -37,7 +37,7 @@ variable "ankra_project_id" {
 - **`token`** or `ANKRA_TOKEN`: an Ankra API token (`ankra tokens create`). Prefer the environment variable, or a `sensitive` variable fed from the secret store; never a literal in committed HCL. If no token reaches a resource, it fails with `Missing API token` and sends no request.
 - **`base_url`** or `ANKRA_BASE_URL`: defaults to `https://platform.ankra.app`.
 - **`organisation_id`** or `ANKRA_ORG` (the CLI's variable for `--org`): act in another organisation the token's user belongs to. An ID, not a slug. The provider ignores `ANKRA_ORGANISATION_ID`, which Ankra Pipelines sets in every step to the run's organisation.
-- **`project_id`** or `ANKRA_PROJECT_ID`: the project to act in. **Set it in any organisation that uses projects.** Without it the platform scopes every request to the project the token's user last picked in the portal, so the resources added in 0.3.0 refuse to run in an organisation with more than one project until it is set. An ID, not a slug.
+- **`project_id`** or `ANKRA_PROJECT_ID`: the project to act in. **Set it in any organisation that uses projects.** Without it a token acts in the organisation's default project, or the oldest project a project-only member reaches, never the project its user last picked in the portal. The resources added in 0.3.0 refuse to run in an organisation with more than one project until it is set. An ID, not a slug.
 - Terraform 1.0 or newer. `ankra_application_env_secret.value_wo` (write-only) needs Terraform 1.11.
 
 ## What exists (0.3.0)
@@ -162,6 +162,7 @@ resource "ankra_cluster" "prod" {
 
 ## Rules that hold across resources
 
+- **`ankra_registry_robot` reaches one project.** Changing `project` destroys and recreates it, with a new `secret`. A robot reaching several projects is made with the CLI, the API or the portal, not this resource.
 - **Secrets are write-only.** API tokens, keys, passwords and webhook URLs are `Sensitive`; the platform never returns them, so a secret changed outside Terraform is not detected. State still holds what the configuration set (prefer `value_wo` on `ankra_application_env_secret` with Terraform 1.11+). One-time values (`ankra_api_token.token`, `ankra_service_token.token`, `ankra_registry_robot` secret, a generated SSH private key, `ankra_host_join_token`) are captured once into state.
 - **A scope change is not a deletion.** When `organisation_id` or `project_id` changes, objects from the old scope are reported "not visible in the provider's current scope": they are neither recreated nor reported destroyed. Point the provider back, or `terraform state rm` to stop managing them.
 - **Settings resources** (`ankra_ci_settings`, `ankra_ai_environment`, `ankra_ai_spend_cap`, `ankra_cluster_agent_ci_settings`, `ankra_cost_settings`, `ankra_cost_autopilot`) write only the attributes the configuration sets and reset only those on destroy. Some refuse to create over settings already customised in the portal; import them instead.

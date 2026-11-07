@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -613,41 +614,89 @@ func TestValidateCluster(t *testing.T) {
 	})
 }
 
-func TestCreateStackDraft(t *testing.T) {
-	stack := Stack{Name: "web"}
+func TestCreateStackDrafts(t *testing.T) {
+	stacks := []Stack{{Name: "web"}, {Name: "db"}}
 
-	t.Run("created", func(t *testing.T) {
+	t.Run("posts the whole file once and reads one answer per stack", func(t *testing.T) {
+		requests := 0
+		var requestBody map[string]any
 		handler := func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodPost || r.URL.Path != "/api/v1/clusters/cluster-1/stacks/draft" {
-				w.WriteHeader(http.StatusNotFound)
+			requests++
+			if r.Method != http.MethodPost || r.URL.Path != "/api/v1/clusters/cluster-1/stacks/drafts" {
+				w.WriteHeader(http.StatusTeapot)
 				return
 			}
-			jsonResponse(t, w, http.StatusOK, map[string]any{"draft_id": "draft-123", "version": 1})
+			if decodeError := json.NewDecoder(r.Body).Decode(&requestBody); decodeError != nil {
+				t.Errorf("request body: %v", decodeError)
+			}
+			jsonResponse(t, w, http.StatusOK, map[string]any{"stacks": []map[string]any{
+				{"stack_name": "web", "draft_id": "draft-web", "version": 1, "no_change": false, "replaced_draft_id": "old-web"},
+				{"stack_name": "db", "draft_id": nil, "version": nil, "no_change": true, "replaced_draft_id": nil},
+			}})
 		}
-		got, err := newTestClient(t, handler).CreateStackDraft(context.Background(), "cluster-1", stack)
+		got, err := newTestClient(t, handler).CreateStackDrafts(context.Background(), "cluster-1", stacks, true)
 		if err != nil {
-			t.Fatalf("CreateStackDraft() unexpected error: %v", err)
+			t.Fatalf("CreateStackDrafts() unexpected error: %v", err)
 		}
-		if got.DraftID != "draft-123" || got.NoChange || len(got.Errors) != 0 {
-			t.Errorf("CreateStackDraft() = %+v", got)
+		if requests != 1 {
+			t.Errorf("requests = %d, want one for the whole file", requests)
+		}
+		if requestBody["replace"] != true {
+			t.Errorf("replace = %v, want true", requestBody["replace"])
+		}
+		sentStacks, _ := requestBody["spec"].(map[string]any)["stacks"].([]any)
+		if len(sentStacks) != 2 {
+			t.Fatalf("spec.stacks = %v, want both stacks", requestBody["spec"])
+		}
+		want := []StagedStackDraft{
+			{StackName: "web", DraftID: "draft-web", ReplacedDraftID: "old-web"},
+			{StackName: "db", NoChange: true},
+		}
+		if !reflect.DeepEqual(got.Stacks, want) || len(got.Errors) != 0 {
+			t.Errorf("CreateStackDrafts() = %+v, want %+v", got, want)
 		}
 	})
 
-	t.Run("no changes maps to NoChange", func(t *testing.T) {
+	t.Run("an explicit replace of false is sent", func(t *testing.T) {
+		var requestBody map[string]any
+		handler := func(w http.ResponseWriter, r *http.Request) {
+			if decodeError := json.NewDecoder(r.Body).Decode(&requestBody); decodeError != nil {
+				t.Errorf("request body: %v", decodeError)
+			}
+			jsonResponse(t, w, http.StatusOK, map[string]any{"stacks": []map[string]any{
+				{"stack_name": "web", "draft_id": "draft-web"},
+				{"stack_name": "db", "draft_id": "draft-db"},
+			}})
+		}
+		if _, err := newTestClient(t, handler).CreateStackDrafts(context.Background(), "cluster-1", stacks, false); err != nil {
+			t.Fatalf("CreateStackDrafts() unexpected error: %v", err)
+		}
+		if requestBody["replace"] != false {
+			t.Errorf("replace = %v, want false", requestBody["replace"])
+		}
+	})
+
+	// This route says "no change" per stack on a 200, so a 404 can only mean that
+	// nothing was staged. It used to be read as "no change", which reported a success.
+	t.Run("a 404 is a failure with its status, never no change", func(t *testing.T) {
 		handler := func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte(`{"detail":"no changes"}`))
+			_, _ = w.Write([]byte(`{"detail":"Not Found"}`))
 		}
-		got, err := newTestClient(t, handler).CreateStackDraft(context.Background(), "cluster-1", stack)
-		if err != nil {
-			t.Fatalf("CreateStackDraft() unexpected error: %v", err)
+		got, err := newTestClient(t, handler).CreateStackDrafts(context.Background(), "cluster-1", stacks, false)
+		if err == nil {
+			t.Fatalf("CreateStackDrafts() = %+v, want an error", got)
 		}
-		if !got.NoChange || got.DraftID != "" {
-			t.Errorf("CreateStackDraft() = %+v, want NoChange", got)
+		var unexpected *UnexpectedResponseError
+		if !errors.As(err, &unexpected) || unexpected.StatusCode != http.StatusNotFound {
+			t.Errorf("CreateStackDrafts() error = %#v, want an UnexpectedResponseError with status 404", err)
+		}
+		if !strings.Contains(err.Error(), "nothing was staged") {
+			t.Errorf("CreateStackDrafts() error = %q, want it to say nothing was staged", err)
 		}
 	})
 
-	t.Run("validation errors surfaced", func(t *testing.T) {
+	t.Run("validation errors are returned as the refusal of the file", func(t *testing.T) {
 		handler := func(w http.ResponseWriter, r *http.Request) {
 			jsonResponse(t, w, http.StatusUnprocessableEntity, map[string]any{
 				"detail": []map[string]any{
@@ -655,12 +704,51 @@ func TestCreateStackDraft(t *testing.T) {
 				},
 			})
 		}
-		got, err := newTestClient(t, handler).CreateStackDraft(context.Background(), "cluster-1", stack)
+		got, err := newTestClient(t, handler).CreateStackDrafts(context.Background(), "cluster-1", stacks, false)
 		if err != nil {
-			t.Fatalf("CreateStackDraft() unexpected error: %v", err)
+			t.Fatalf("CreateStackDrafts() unexpected error: %v", err)
 		}
-		if len(got.Errors) != 1 || got.Errors[0].Name != "grafana" {
-			t.Errorf("CreateStackDraft() errors = %+v", got.Errors)
+		if len(got.Errors) != 1 || got.Errors[0].Name != "grafana" || len(got.Stacks) != 0 {
+			t.Errorf("CreateStackDrafts() = %+v", got)
+		}
+	})
+
+	t.Run("a conflict is a refusal of the file and names no stack it did not name", func(t *testing.T) {
+		handler := func(w http.ResponseWriter, r *http.Request) {
+			jsonResponse(t, w, http.StatusConflict, map[string]any{"detail": "This stack is managed by a service."})
+		}
+		got, err := newTestClient(t, handler).CreateStackDrafts(context.Background(), "cluster-1", stacks, true)
+		if err != nil {
+			t.Fatalf("CreateStackDrafts() unexpected error: %v", err)
+		}
+		want := []ImportResponseResourceError{{Errors: []ImportResponseErrorItem{{Message: "This stack is managed by a service."}}}}
+		if !reflect.DeepEqual(got.Errors, want) {
+			t.Errorf("CreateStackDrafts() errors = %+v, want %+v", got.Errors, want)
+		}
+	})
+
+	t.Run("an answer that leaves a stack out is an error", func(t *testing.T) {
+		handler := func(w http.ResponseWriter, r *http.Request) {
+			jsonResponse(t, w, http.StatusOK, map[string]any{"stacks": []map[string]any{
+				{"stack_name": "web", "draft_id": "draft-web"},
+			}})
+		}
+		got, err := newTestClient(t, handler).CreateStackDrafts(context.Background(), "cluster-1", stacks, false)
+		if err == nil {
+			t.Fatalf("CreateStackDrafts() = %+v, want an error for a short answer", got)
+		}
+	})
+
+	t.Run("a stack with neither a draft nor no change is an error", func(t *testing.T) {
+		handler := func(w http.ResponseWriter, r *http.Request) {
+			jsonResponse(t, w, http.StatusOK, map[string]any{"stacks": []map[string]any{
+				{"stack_name": "web", "draft_id": "draft-web"},
+				{"stack_name": "db", "draft_id": nil, "no_change": false},
+			}})
+		}
+		got, err := newTestClient(t, handler).CreateStackDrafts(context.Background(), "cluster-1", stacks, false)
+		if err == nil {
+			t.Fatalf("CreateStackDrafts() = %+v, want an error", got)
 		}
 	})
 
@@ -669,8 +757,8 @@ func TestCreateStackDraft(t *testing.T) {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte("boom"))
 		}
-		if _, err := newTestClient(t, handler).CreateStackDraft(context.Background(), "cluster-1", stack); err == nil {
-			t.Error("CreateStackDraft() expected error, got nil")
+		if _, err := newTestClient(t, handler).CreateStackDrafts(context.Background(), "cluster-1", stacks, false); err == nil {
+			t.Error("CreateStackDrafts() expected error, got nil")
 		}
 	})
 }

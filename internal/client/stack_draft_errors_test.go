@@ -15,7 +15,7 @@ func draftErrorTestStack() Stack {
 	}
 }
 
-func TestCreateStackDraftDecodesEveryRefusalShape(t *testing.T) {
+func TestCreateStackDraftsDecodesEveryRefusalShape(t *testing.T) {
 	testCases := []struct {
 		name       string
 		statusCode int
@@ -95,22 +95,6 @@ func TestCreateStackDraftDecodesEveryRefusalShape(t *testing.T) {
 				{Kind: "manifest", Name: "namespace", Errors: []ImportResponseErrorItem{{Key: "parents", Message: "unknown parent"}}},
 			},
 		},
-		{
-			name:       "200 with embedded resource errors",
-			statusCode: http.StatusOK,
-			body:       `{"draft_id":"","errors":[{"name":"grafana","kind":"addon","errors":[{"key":"registry_url","message":"required"}]}]}`,
-			want: []ImportResponseResourceError{
-				{Kind: "addon", Name: "grafana", Errors: []ImportResponseErrorItem{{Key: "registry_url", Message: "required"}}},
-			},
-		},
-		{
-			name:       "200 with embedded FastAPI-style errors",
-			statusCode: http.StatusOK,
-			body:       `{"errors":[{"loc":["spec","stacks",0,"addons",0,"chart_version"],"msg":"Field required"}]}`,
-			want: []ImportResponseResourceError{
-				{Kind: "addon", Name: "prometheus", Errors: []ImportResponseErrorItem{{Key: "chart_version", Message: "Field required"}}},
-			},
-		},
 	}
 
 	for _, testCase := range testCases {
@@ -120,41 +104,82 @@ func TestCreateStackDraftDecodesEveryRefusalShape(t *testing.T) {
 				writer.WriteHeader(testCase.statusCode)
 				_, _ = writer.Write([]byte(testCase.body))
 			}
-			result, draftError := newTestClient(t, handler).CreateStackDraft(context.Background(), "cluster-1", draftErrorTestStack())
+			result, draftError := newTestClient(t, handler).CreateStackDrafts(context.Background(), "cluster-1", []Stack{draftErrorTestStack()}, false)
 			if draftError != nil {
-				t.Fatalf("CreateStackDraft() unexpected error: %v", draftError)
+				t.Fatalf("CreateStackDrafts() unexpected error: %v", draftError)
 			}
 			if !reflect.DeepEqual(result.Errors, testCase.want) {
-				t.Errorf("CreateStackDraft() errors =\n  %+v\nwant\n  %+v", result.Errors, testCase.want)
+				t.Errorf("CreateStackDrafts() errors =\n  %+v\nwant\n  %+v", result.Errors, testCase.want)
 			}
 		})
 	}
 }
 
-func TestCreateStackDraftSuccessIgnoresEmptyErrorsAndDetail(t *testing.T) {
-	testCases := map[string]string{
-		"empty errors list":               `{"draft_id":"draft-1","errors":[]}`,
-		"null errors":                     `{"draft_id":"draft-1","errors":null}`,
-		"informational detail on success": `{"draft_id":"draft-1","detail":"saved"}`,
+// In a file of several stacks the index in loc says which stack a problem is in, and
+// a refusal that names nothing stays unnamed: picking a stack would be a guess.
+func TestStackDraftRefusalsOfALargerFileNameOnlyTheStackTheyPointAt(t *testing.T) {
+	stacks := []Stack{
+		{Name: "monitoring", Addons: []Addon{{Name: "prometheus"}}},
+		{Name: "apps", Addons: []Addon{{Name: "web"}}, Manifests: []Manifest{{Name: "namespace"}}},
 	}
-	for name, body := range testCases {
-		t.Run(name, func(t *testing.T) {
-			handler := func(writer http.ResponseWriter, _ *http.Request) {
-				writer.WriteHeader(http.StatusOK)
-				_, _ = writer.Write([]byte(body))
-			}
-			result, draftError := newTestClient(t, handler).CreateStackDraft(context.Background(), "cluster-1", draftErrorTestStack())
-			if draftError != nil {
-				t.Fatalf("CreateStackDraft() unexpected error: %v", draftError)
-			}
-			if result.DraftID != "draft-1" || len(result.Errors) != 0 {
-				t.Errorf("CreateStackDraft() = %+v, want draft-1 with no errors", result)
+	testCases := []struct {
+		name string
+		body string
+		want []ImportResponseResourceError
+	}{
+		{
+			name: "an addon index resolves in the stack the location names",
+			body: `{"detail":[{"loc":["body","spec","stacks",1,"addons",0,"chart_version"],"msg":"Field required","type":"missing"}]}`,
+			want: []ImportResponseResourceError{
+				{Kind: "addon", Name: "web", Errors: []ImportResponseErrorItem{{Key: "chart_version", Message: "Field required"}}},
+			},
+		},
+		{
+			name: "a manifest index resolves in the stack the location names",
+			body: `{"detail":[{"loc":["body","spec","stacks",1,"manifests",0,"manifest_base64"],"msg":"Invalid base64","type":"value_error"}]}`,
+			want: []ImportResponseResourceError{
+				{Kind: "manifest", Name: "namespace", Errors: []ImportResponseErrorItem{{Key: "manifest_base64", Message: "Invalid base64"}}},
+			},
+		},
+		{
+			name: "the stack itself",
+			body: `{"detail":[{"loc":["body","spec","stacks",1,"name"],"msg":"Too short","type":"string_too_short"}]}`,
+			want: []ImportResponseResourceError{
+				{Kind: "stack", Name: "apps", Errors: []ImportResponseErrorItem{{Key: "name", Message: "Too short"}}},
+			},
+		},
+		{
+			name: "an index past the file names no stack",
+			body: `{"detail":[{"loc":["body","spec","stacks",9,"name"],"msg":"Too short","type":"string_too_short"}]}`,
+			want: []ImportResponseResourceError{
+				{Errors: []ImportResponseErrorItem{{Key: "name", Message: "Too short"}}},
+			},
+		},
+		{
+			name: "a plain refusal names no stack",
+			body: `{"detail":"The cluster is being deleted."}`,
+			want: []ImportResponseResourceError{
+				{Errors: []ImportResponseErrorItem{{Message: "The cluster is being deleted."}}},
+			},
+		},
+		{
+			name: "a resource error with no name names no stack",
+			body: `{"detail":[{"errors":[{"key":"name","message":"required"}]}]}`,
+			want: []ImportResponseResourceError{
+				{Errors: []ImportResponseErrorItem{{Key: "name", Message: "required"}}},
+			},
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := stackDraftErrorsFromBody([]byte(testCase.body), stacks); !reflect.DeepEqual(got, testCase.want) {
+				t.Errorf("stackDraftErrorsFromBody() =\n  %+v\nwant\n  %+v", got, testCase.want)
 			}
 		})
 	}
 }
 
-func TestCreateStackDraftUnreadable422KeepsTheBody(t *testing.T) {
+func TestCreateStackDraftsUnreadable422KeepsTheBody(t *testing.T) {
 	testCases := map[string]string{
 		"not JSON":     `upstream exploded`,
 		"empty detail": `{"detail":[]}`,
@@ -166,8 +191,8 @@ func TestCreateStackDraftUnreadable422KeepsTheBody(t *testing.T) {
 				writer.WriteHeader(http.StatusUnprocessableEntity)
 				_, _ = writer.Write([]byte(body))
 			}
-			if _, draftError := newTestClient(t, handler).CreateStackDraft(context.Background(), "cluster-1", draftErrorTestStack()); draftError == nil {
-				t.Error("CreateStackDraft() expected an error for an unreadable 422")
+			if _, draftError := newTestClient(t, handler).CreateStackDrafts(context.Background(), "cluster-1", []Stack{draftErrorTestStack()}, false); draftError == nil {
+				t.Error("CreateStackDrafts() expected an error for an unreadable 422")
 			}
 		})
 	}
@@ -202,7 +227,7 @@ func TestResourceErrorFromLocationFallbacks(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			got := resourceErrorFromLocation(testCase.location, testCase.message, stack)
+			got := resourceErrorFromLocation(testCase.location, testCase.message, []Stack{stack})
 			if !reflect.DeepEqual(got, testCase.want) {
 				t.Errorf("resourceErrorFromLocation() = %+v, want %+v", got, testCase.want)
 			}
@@ -211,13 +236,11 @@ func TestResourceErrorFromLocationFallbacks(t *testing.T) {
 }
 
 func TestStackDraftErrorsFromBodyIgnoresNonJSON(t *testing.T) {
-	if got := stackDraftErrorsFromBody([]byte("not json"), draftErrorTestStack()); got != nil {
+	stacks := []Stack{draftErrorTestStack()}
+	if got := stackDraftErrorsFromBody([]byte("not json"), stacks); got != nil {
 		t.Errorf("stackDraftErrorsFromBody() = %+v, want nil", got)
 	}
-	if got := stackDraftEmbeddedErrors([]byte("not json"), draftErrorTestStack()); got != nil {
-		t.Errorf("stackDraftEmbeddedErrors() = %+v, want nil", got)
-	}
-	if got := stackDraftErrorsFromBody([]byte(`{"detail":42}`), draftErrorTestStack()); len(got) != 0 {
+	if got := stackDraftErrorsFromBody([]byte(`{"detail":42}`), stacks); len(got) != 0 {
 		t.Errorf("stackDraftErrorsFromBody() = %+v, want none", got)
 	}
 }

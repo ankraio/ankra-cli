@@ -63,6 +63,13 @@ line with the hours it covers so far; it is never the latest figure compared
 with whole days. Each day short of metered hours prints on its own line with
 the hours it is missing and its floor ("at least").
 
+An hour no metering pass ran for is filled in by a later pass at its own
+rate: it is in the figure, so it counts as metered, but it was estimated, not
+measured. A day with such hours says how its hours divide ("22 measured, 2
+estimated"); behind several clusters each count is one cluster's worst, so it
+is said per cluster. A platform that does not report the split says nothing
+about it, which is not "all measured".
+
 Pass -o json (or yaml) for the projection exactly as the platform serves it.`
 
 var costObjectCmd = &cobra.Command{
@@ -440,12 +447,45 @@ func costObjectDayCoverage(day client.ObjectCostDay) string {
 	coverage := "hours metered not reported"
 	if day.HoursMetered != nil {
 		coverage = fmt.Sprintf("%d of 24 h", *day.HoursMetered)
+		if split := costObjectDaySplit(day); split != "" {
+			coverage += ": " + split
+		}
 	}
 	if day.Cents != nil && day.ClustersMetered < day.ClustersTotal {
 		coverage += fmt.Sprintf(", %d of %d clusters", day.ClustersMetered, day.ClustersTotal)
 	}
 	return coverage
 }
+
+// costObjectDaySplit is how a day's metered hours divide when a later
+// metering pass filled some in (cluster#5909, ankra-bn86k4.4.8.4.2): "22
+// measured, 2 estimated". An estimated hour is in the figure but no metering
+// pass measured it, so it is never called measured. Behind several clusters
+// each count is one cluster's worst (the fewest measured, the most
+// estimated), so they are said per cluster as bounds and never added up.
+// Empty when no hour was estimated, and when the platform did not say (an
+// older build, a row written before the split): an absent count is unknown,
+// never "all measured".
+func costObjectDaySplit(day client.ObjectCostDay) string {
+	if day.HoursEstimated == nil || *day.HoursEstimated <= 0 {
+		return ""
+	}
+	estimated := *day.HoursEstimated
+	if day.ClustersMetered > 1 {
+		if day.HoursMeasured == nil {
+			return fmt.Sprintf("at most %d estimated per cluster", estimated)
+		}
+		return fmt.Sprintf("per cluster at least %d measured, at most %d estimated", *day.HoursMeasured, estimated)
+	}
+	if day.HoursMeasured == nil {
+		return fmt.Sprintf("%d estimated", estimated)
+	}
+	return fmt.Sprintf("%d measured, %d estimated", *day.HoursMeasured, estimated)
+}
+
+// costObjectEstimatedNote says once what an estimated hour is, under a trend
+// that named one.
+const costObjectEstimatedNote = "  An estimated hour had no metering pass of its own: a later pass filled it in, so it is in the figure but was not measured."
 
 // renderObjectCostTrend draws the object's daily spend over the 30 days with
 // the marks and the scaling of ankra cost namespaces: one mark per day,
@@ -464,11 +504,15 @@ func renderObjectCostTrend(out io.Writer, days []client.ObjectCostDay, currency 
 	isShort := make([]bool, len(days))
 	metered, floors := 0, 0
 	var peak, latest, current *client.ObjectCostDay
-	var shortDays []*client.ObjectCostDay
+	var shortDays, estimatedDays []*client.ObjectCostDay
+	anyEstimated := false
 	for index := range days {
 		day := &days[index]
 		if day.Cents != nil {
 			metered++
+			if costObjectDaySplit(*day) != "" {
+				anyEstimated = true
+			}
 		}
 		if costObjectDayIsMetering(*day, today) {
 			isMetering[index] = true
@@ -488,6 +532,11 @@ func renderObjectCostTrend(out io.Writer, days []client.ObjectCostDay, currency 
 			isShort[index] = true
 			shortDays = append(shortDays, day)
 			continue
+		}
+		// A whole day with hours a later pass filled in keeps its height and
+		// is named with how its hours divide (ankra-bn86k4.4.8.4.2).
+		if costObjectDaySplit(*day) != "" {
+			estimatedDays = append(estimatedDays, day)
 		}
 		values[index] = day.Cents
 		if peak == nil || *day.Cents > *peak.Cents {
@@ -541,14 +590,24 @@ func renderObjectCostTrend(out io.Writer, days []client.ObjectCostDay, currency 
 			_, _ = fmt.Fprintf(out, "  Today so far (%s, %s): nothing metered yet, unknown, not zero.\n",
 				current.Date, costObjectDayCoverage(*current))
 		} else if current.Incomplete.IsTrue() {
-			_, _ = fmt.Fprintf(out, "  Today so far (%s, %s): at least %s, an earlier hour of today was not metered, and it is still metering, so not comparable to a whole day.\n",
-				current.Date, costObjectDayCoverage(*current), formatCostCents(*current.Cents, currency))
+			// The platform's own count of today's missing hours when it says
+			// them (cluster#5909).
+			notMetered := "an earlier hour of today was not metered"
+			if current.HoursMissing != nil && *current.HoursMissing > 0 {
+				notMetered = costCountOf(*current.HoursMissing, "earlier hour of today was", "earlier hours of today were") + " not metered"
+			}
+			_, _ = fmt.Fprintf(out, "  Today so far (%s, %s): at least %s, %s, and it is still metering, so not comparable to a whole day.\n",
+				current.Date, costObjectDayCoverage(*current), formatCostCents(*current.Cents, currency), notMetered)
 		} else {
 			_, _ = fmt.Fprintf(out, "  Today so far (%s, %s): %s, still metering, so not comparable to a whole day.\n",
 				current.Date, costObjectDayCoverage(*current), formatCostCents(*current.Cents, currency))
 		}
 	}
 	renderObjectCostShortDays(out, shortDays, currency)
+	renderObjectCostEstimatedDays(out, estimatedDays)
+	if anyEstimated {
+		_, _ = fmt.Fprintln(out, costObjectEstimatedNote)
+	}
 	switch {
 	case floors == 1:
 		_, _ = fmt.Fprintln(out, "  1 day metered only some of the clusters behind it, so that day is a floor.")
@@ -573,15 +632,50 @@ func renderObjectCostShortDays(out io.Writer, days []*client.ObjectCostDay, curr
 			}
 			return
 		}
-		missing := "metered hours"
-		if day.HoursMetered != nil && *day.HoursMetered < 24 {
-			hours := 24 - *day.HoursMetered
+		// The platform's hours_missing says it (cluster#5909); behind several
+		// clusters 24 minus the hours metered would be wrong, so that is
+		// worked out only from a platform that predates the field.
+		missing, hours := "metered hours", 0
+		switch {
+		case day.HoursMissing != nil:
+			hours = *day.HoursMissing
+		case day.HoursMetered != nil && *day.HoursMetered < 24:
+			hours = 24 - *day.HoursMetered
+		}
+		if hours > 0 {
 			missing = fmt.Sprintf("%d metered hour", hours)
 			if hours != 1 {
 				missing += "s"
 			}
 		}
-		_, _ = fmt.Fprintf(out, "  %s is missing %s, so it is at least %s.\n", day.Date, missing, formatCostCents(*day.Cents, currency))
+		line := fmt.Sprintf("  %s is missing %s, so it is at least %s.", day.Date, missing, formatCostCents(*day.Cents, currency))
+		if split := costObjectDaySplit(*day); split != "" {
+			line += " Its metered hours: " + split + "."
+		}
+		_, _ = fmt.Fprintln(out, line)
+	}
+}
+
+// renderObjectCostEstimatedDays names each whole day with hours a later
+// metering pass filled in, with how its hours divide: "2026-10-25 was
+// metered 24 of 24 h: 22 measured, 2 estimated." Past
+// costObjectFloorDaysListed days the rest are counted.
+func renderObjectCostEstimatedDays(out io.Writer, days []*client.ObjectCostDay) {
+	for index, day := range days {
+		if index == costObjectFloorDaysListed {
+			rest := len(days) - costObjectFloorDaysListed
+			if rest == 1 {
+				_, _ = fmt.Fprintln(out, "  1 more day includes estimated hours.")
+			} else {
+				_, _ = fmt.Fprintf(out, "  %d more days include estimated hours.\n", rest)
+			}
+			return
+		}
+		if day.HoursMetered == nil {
+			_, _ = fmt.Fprintf(out, "  %s includes estimated hours: %s.\n", day.Date, costObjectDaySplit(*day))
+			continue
+		}
+		_, _ = fmt.Fprintf(out, "  %s was metered %d of 24 h: %s.\n", day.Date, *day.HoursMetered, costObjectDaySplit(*day))
 	}
 }
 

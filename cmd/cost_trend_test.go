@@ -384,6 +384,109 @@ func TestCostEventsNamesAMeteringGapInPlainWords(t *testing.T) {
 	}
 }
 
+// TestCostEventsNamesAContradictedStartOrStop pins delta_status
+// contradicted (ankra-bn86k4.8.16): a start alone in a window whose run rate
+// fell, or a stop alone in one whose run rate rose, did not make that move.
+// Its row reads unknown and says which way the run rate went; the window's
+// move is never printed as the event's own.
+func TestCostEventsNamesAContradictedStartOrStop(t *testing.T) {
+	start := client.CostEvent{At: "2026-09-21T07:10:00Z", Day: "2026-09-21", Kind: "power_manual",
+		ClusterID: trendString("66666666-6666-4666-8666-666666666666"), ClusterName: trendString("staging-eu"),
+		Subject: "Start", WindowDeltaMonthlyCents: trendCents(-30_000), DeltaStatus: "contradicted",
+		Note: "The run rate fell between the priced hours around this start, and a start cannot lower it: something else moved it, so what the start moved is not known."}
+	stop := client.CostEvent{At: "2026-09-20T19:00:00Z", Day: "2026-09-20", Kind: "power_schedule",
+		ClusterID: trendString("77777777-7777-4777-8777-777777777777"), ClusterName: trendString("batch-eu"),
+		Subject: "Scheduled stop", WindowDeltaMonthlyCents: trendCents(20_000), DeltaStatus: "contradicted"}
+	bare := client.CostEvent{Kind: "power_manual", Subject: "Start", DeltaStatus: "contradicted"}
+
+	for event, want := range map[*client.CostEvent]string{
+		&start: "unknown (went the other way: -$300.00)",
+		&stop:  "unknown (went the other way: +$200.00)",
+		&bare:  "unknown (went the other way)",
+	} {
+		if got := costEventMove(*event, "usd"); got != want {
+			t.Fatalf("%s %s move = %q, want %q", event.Kind, event.Subject, got, want)
+		}
+	}
+
+	events := &client.CostEvents{Currency: "usd", GeneratedAt: "2026-09-24T06:00:00Z", Days: 30,
+		Events:  []client.CostEvent{start, stop},
+		Sources: []client.CostEventSource{{Kind: "power_manual", Available: true}, {Kind: "power_schedule", Available: true}}}
+	output, executeError := runCostTrendCommand(t, &costTrendMock{events: events}, "cost", "events")
+	if executeError != nil {
+		t.Fatalf("cost events failed: %v", executeError)
+	}
+	for _, expected := range []string{"unknown (went the", "other way: -$300.00)", "other way: +$200.00)",
+		"↳ The run rate fell between the priced hours around this start"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output lacks %q:\n%s", expected, output)
+		}
+	}
+	if strings.Contains(output, "(contradicted)") || strings.Contains(output, "-$300.00 (") {
+		t.Fatalf("a contradicted move must not read as the event's own:\n%s", output)
+	}
+	for _, line := range strings.Split(strings.TrimRight(output, "\n"), "\n") {
+		if width := text.StringWidthWithoutEscSequences(line); strings.HasPrefix(line, "│") && width > 100 {
+			t.Fatalf("table line is %d columns wide, over 100: %q\n%s", width, line, output)
+		}
+	}
+}
+
+// TestCostEventsNamesANodeCountEventAgainstItsCount pins the two statuses a
+// node-count change alone in a window that moved against its count carries
+// (cluster ankra-bn86k4.8.27, ankra-bn86k4.8.31): contradicted when its nodes
+// were only added across a falling run rate, and node_types_unknown when the
+// platform did not record every node's type for both hours. Neither row
+// prints the window's move as the nodes' own, and neither falls to the
+// generic "(node types unknown)" qualifier of a status this CLI predates.
+func TestCostEventsNamesANodeCountEventAgainstItsCount(t *testing.T) {
+	added := client.CostEvent{At: "2026-11-03T10:00:00Z", Day: "2026-11-03", Kind: "node_count",
+		ClusterID: trendString("88888888-8888-4888-8888-888888888888"), ClusterName: trendString("ci-sto1"),
+		Subject: "Nodes 3 → 4", WindowDeltaMonthlyCents: trendCents(-2_608), DeltaStatus: "contradicted",
+		Note: "The run rate fell between the priced hours around this node-count rise, and nodes were only added (no node type's count fell, nor the spot or the on-demand count): added nodes cannot lower it, so something else moved it and what the nodes moved is not known."}
+	untyped := client.CostEvent{At: "2026-11-02T08:00:00Z", Day: "2026-11-02", Kind: "node_count",
+		ClusterID: trendString("99999999-9999-4999-8999-999999999999"), ClusterName: trendString("infrastructure"),
+		Subject: "Nodes 5 → 4", WindowDeltaMonthlyCents: trendCents(11_088), DeltaStatus: "node_types_unknown",
+		Note: "The run rate rose between the priced hours around this node-count fall. Removed nodes raise it only by leaving nodes of another type or a different spot and on-demand mix in their place, and the platform does not have every node's type, spot or on-demand count for both hours, so whether the nodes or something else moved it is not known."}
+	bareUntyped := client.CostEvent{Kind: "node_count", Subject: "Nodes 2 → 3", DeltaStatus: "node_types_unknown"}
+
+	for event, want := range map[*client.CostEvent]string{
+		&added:       "unknown (went the other way: -$26.08)",
+		&untyped:     "unknown (node types not recorded; went the other way: +$110.88)",
+		&bareUntyped: "unknown (node types not recorded)",
+	} {
+		if got := costEventMove(*event, "usd"); got != want {
+			t.Fatalf("%s %s move = %q, want %q", event.DeltaStatus, event.Subject, got, want)
+		}
+	}
+
+	events := &client.CostEvents{Currency: "usd", GeneratedAt: "2026-11-04T06:00:00Z", Days: 30,
+		Events:  []client.CostEvent{added, untyped},
+		Sources: []client.CostEventSource{{Kind: "node_count", Available: true}}}
+	output, executeError := runCostTrendCommand(t, &costTrendMock{events: events}, "cost", "events")
+	if executeError != nil {
+		t.Fatalf("cost events failed: %v", executeError)
+	}
+	// The Move column wraps at costEventsMoveWidthMax, so the untyped row reads
+	// "unknown (node types" / "not recorded; went" / "the other way:" /
+	// "+$110.88)" and the added row "unknown (went the" / "other way: -$26.08)".
+	for _, expected := range []string{"unknown (node types", "not recorded; went", "+$110.88)",
+		"other way: -$26.08)", "↳ The run rate rose between the priced hours around this"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output lacks %q:\n%s", expected, output)
+		}
+	}
+	if strings.Contains(output, "(node types unknown)") || strings.Contains(output, "+$110.88 (") ||
+		strings.Contains(output, "(contradicted)") {
+		t.Fatalf("a node-count move against its count must not read as the nodes' own:\n%s", output)
+	}
+	for _, line := range strings.Split(strings.TrimRight(output, "\n"), "\n") {
+		if width := text.StringWidthWithoutEscSequences(line); strings.HasPrefix(line, "│") && width > 100 {
+			t.Fatalf("table line is %d columns wide, over 100: %q\n%s", width, line, output)
+		}
+	}
+}
+
 func TestCostEventsSaysWhenTruncatedAndWhenEmpty(t *testing.T) {
 	truncated := costEventsFixture()
 	truncated.Truncated = true

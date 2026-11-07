@@ -81,8 +81,17 @@ cluster's run rate changed between the priced hour before it and the first
 priced hour at least 30 minutes after it. When the event was alone in that
 window the move is its own. When several events share the window (a release
 and the scale-up it caused) the move is theirs together and each row says
-"shared" rather than claim a split. With no priced hour on one side the move
-is unknown, never zero. A coverage event's move is coverage, not spend; a
+"shared" rather than claim a split. A start alone in a window whose run rate
+fell, or a stop alone in one whose run rate rose, did not make that move:
+something else did, so its own move is unknown and the row says which way
+the run rate went. The same holds for a node-count change whose nodes were
+only added across a falling run rate, or only removed across a rising one.
+When nodes of one type replaced another's, the move can go either way and
+is the nodes' own; the note names what changed. When the platform did not
+record every node's type, spot or on-demand count for both hours, a
+node-count change against its count reads "unknown (node types not
+recorded)" with the way the run rate went. With no priced hour on one side
+the move is unknown, never zero. A coverage event's move is coverage, not spend; a
 resolved finding's is its own monthly cost. The platform's note on an event
 sits under its row.
 
@@ -384,6 +393,28 @@ func costEventMove(event client.CostEvent, currency string) string {
 			return signed(event.WindowDeltaMonthlyCents) + " (shared)"
 		}
 		return "unknown (shared)"
+	case "contradicted":
+		// A start alone in a window whose run rate fell, or a stop alone in
+		// one whose run rate rose (ankra-bn86k4.8.16), or a node-count change
+		// whose nodes were only added across a falling run rate or only
+		// removed across a rising one (ankra-bn86k4.8.27): something else
+		// moved it, so the event's own move is unknown. The window's move is
+		// shown as which way the run rate went, never as the event's.
+		if event.WindowDeltaMonthlyCents != nil {
+			return "unknown (went the other way: " + signed(event.WindowDeltaMonthlyCents) + ")"
+		}
+		return "unknown (went the other way)"
+	case "node_types_unknown":
+		// A node-count change alone in a window that moved against its count,
+		// on a cluster whose node types were not recorded for both hours
+		// (ankra-bn86k4.8.27): nodes of another type, or another spot and
+		// on-demand mix, may or may not have moved it, so the event's own move
+		// is unknown. The window's move says which way the run rate went and
+		// is never printed as the event's (ankra-bn86k4.8.31).
+		if event.WindowDeltaMonthlyCents != nil {
+			return "unknown (node types not recorded; went the other way: " + signed(event.WindowDeltaMonthlyCents) + ")"
+		}
+		return "unknown (node types not recorded)"
 	case "no_snapshots":
 		return "unknown"
 	case "metering_gap":

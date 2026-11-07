@@ -169,7 +169,7 @@ func runSecurityFindingWithOccurrences(cmd *cobra.Command, findingID string) err
 	}
 	options := client.SecurityOccurrencesOptions{FindingID: findingID, Status: status, Page: page, PageSize: pageSize}
 	if strings.TrimSpace(clusterFlag) != "" {
-		clusterID, err := resolveClusterID(clusterFlag)
+		clusterID, err := resolveSecurityClusterID(cmd, clusterFlag)
 		if err != nil {
 			return err
 		}
@@ -708,6 +708,7 @@ func registerSecurityFindingsFilterFlags(cmd *cobra.Command, defaultSort string,
 
 func init() {
 	securityCmd.AddCommand(securityWorkloadsCmd, securityDispositionsCmd)
+	registerSecurityProjectScopeFlag(securityWorkloadsCmd, securityDispositionsCmd)
 	securityDispositionsCmd.AddCommand(securityDispositionsPreviewCmd, securityDispositionsCreateCmd,
 		securityDispositionsUpdateCmd, securityDispositionsRevokeCmd)
 

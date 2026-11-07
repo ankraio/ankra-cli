@@ -36,6 +36,17 @@ type codedError struct {
 func (e *codedError) Error() string { return e.err.Error() }
 func (e *codedError) Unwrap() error { return e.err }
 
+// isRefusedBeforeSending reports whether the client refused to send a
+// request at all (client.UnsafeRequestPathError, which reaches a caller
+// inside the *url.Error http.Client wraps transport errors in). Nothing was
+// sent and the same arguments build the same path, so a retry loop must not
+// count it as a dropped connection: retried, it ends as a timeout or an
+// "interrupted" exit 1 instead of the usage error (exit 2) it is.
+func isRefusedBeforeSending(err error) bool {
+	var refusal *client.UnsafeRequestPathError
+	return errors.As(err, &refusal)
+}
+
 // withExitCode wraps err so Execute exits with code. A nil err stays nil, so
 // call sites can wrap unconditionally.
 func withExitCode(code int, err error) error {
@@ -51,7 +62,9 @@ func withExitCode(code int, err error) error {
 var errCancelled = withExitCode(exitCancelled, errors.New("cancelled"))
 
 // exitCodeFor classifies an error returned by ExecuteC into an exit code.
-// Explicit withExitCode wrapping wins; otherwise auth (401), permission
+// A request the client refused to send (client.UnsafeRequestPathError) is a
+// usage error whatever wraps it; then explicit withExitCode wrapping wins;
+// otherwise auth (401), permission
 // (403) and not-found API responses map to their codes, and anything
 // unclassified is a generic failure. exitWaitTimeout is never inferred here — internal fixed request
 // deadlines also surface as context.DeadlineExceeded, so only call sites
@@ -59,6 +72,14 @@ var errCancelled = withExitCode(exitCancelled, errors.New("cancelled"))
 func exitCodeFor(err error) int {
 	if err == nil {
 		return exitOK
+	}
+	// A request the client refused to send because an argument made a path
+	// segment the platform's edge would rewrite ("..", ".", blank) is fixed
+	// by changing the invocation, and nothing was sent. That holds whatever
+	// code a caller wrapped the failure in, so it is matched first.
+	var unsafePath *client.UnsafeRequestPathError
+	if errors.As(err, &unsafePath) {
+		return exitUsage
 	}
 	var coded *codedError
 	if errors.As(err, &coded) {

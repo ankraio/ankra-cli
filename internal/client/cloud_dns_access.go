@@ -27,7 +27,10 @@ type CloudDNSAccessPolicy struct {
 	Mode           string   `json:"mode"`
 	Roles          []string `json:"roles"`
 	OrganisationID string   `json:"organisation_id,omitempty"`
+	ProjectID      string   `json:"project_id,omitempty"`
 	InheritedFrom  string   `json:"inherited_from,omitempty"`
+	// ProjectChange, on an update, sets ProjectID: nil keeps the zone's current project, empty clears it.
+	ProjectChange *string `json:"-"`
 }
 
 type cloudDNSAccessEnvelope struct {
@@ -120,9 +123,10 @@ func (c *Client) GetCloudDNSAccess(ctx context.Context, zoneID string) (*CloudDN
 func (c *Client) UpdateCloudDNSAccess(ctx context.Context, zoneID string, policy CloudDNSAccessPolicy) (*CloudDNSAccessPolicy, error) {
 	path := c.BaseURL + cloudDNSZonesPath + "/" + url.PathEscape(zoneID) + "/access"
 	payload, encodeError := json.Marshal(struct {
-		Mode  string   `json:"mode"`
-		Roles []string `json:"roles"`
-	}{Mode: policy.Mode, Roles: append([]string{}, policy.Roles...)})
+		Mode      string   `json:"mode"`
+		Roles     []string `json:"roles"`
+		ProjectID *string  `json:"project_id,omitempty"`
+	}{Mode: policy.Mode, Roles: append([]string{}, policy.Roles...), ProjectID: policy.ProjectChange})
 	if encodeError != nil {
 		return nil, fmt.Errorf("encode Cloud DNS access policy: %w", encodeError)
 	}

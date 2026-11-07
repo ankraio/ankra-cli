@@ -141,3 +141,43 @@ func TestGetAndListClusterAccessPolicyProposals(t *testing.T) {
 		t.Fatalf("requests:\n%s", strings.Join(seen, "\n"))
 	}
 }
+
+// TestClusterAccessPolicyProposalResponsesNameTheOrganisation pins
+// ankra-gsjnfb.5: a proposal and a listing carry the organisation, and a
+// 404 that names the organisation searched says so, keeping its status so
+// the command still exits not-found.
+func TestClusterAccessPolicyProposalResponsesNameTheOrganisation(t *testing.T) {
+	organisation := `"organisation_id":"2f853b14-78b0-471a-937c-1ee13a08ddff","organisation_name":"Depict"`
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v1/org/cluster-access-policy/proposals/p-1":
+			_, _ = writer.Write([]byte(strings.TrimSuffix(proposalBody, "}") + "," + organisation + "}"))
+		case "/api/v1/org/cluster-access-policy/proposals":
+			_, _ = writer.Write([]byte(`{"proposals":[],"is_capped":false,` + organisation + `}`))
+		default:
+			writer.WriteHeader(http.StatusNotFound)
+			_, _ = writer.Write([]byte(`{"detail":"Cluster access policy proposal not found","organisation_id":"5ff27bbd-0000-4000-8000-000000000001","organisation_name":"Ankra"}`))
+		}
+	}))
+	defer server.Close()
+	apiClient := &Client{BaseURL: server.URL, Token: "t", HTTP: server.Client()}
+
+	proposal, err := apiClient.GetClusterAccessPolicyProposal(context.Background(), "p-1")
+	if err != nil || proposal.Describe() != "Depict (2f853b14-78b0-471a-937c-1ee13a08ddff)" {
+		t.Fatalf("get = %+v, %v", proposal, err)
+	}
+	list, err := apiClient.ListClusterAccessPolicyProposals(context.Background(), "")
+	if err != nil || list.Describe() != "Depict (2f853b14-78b0-471a-937c-1ee13a08ddff)" || len(list.Proposals) != 0 {
+		t.Fatalf("list = %+v, %v", list, err)
+	}
+	_, err = apiClient.GetClusterAccessPolicyProposal(context.Background(), "a7aad9f0")
+	var unexpected *UnexpectedResponseError
+	if !errors.As(err, &unexpected) || unexpected.StatusCode != http.StatusNotFound ||
+		unexpected.Detail != "Cluster access policy proposal not found" {
+		t.Fatalf("a proposal 404 must keep its status and detail, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "not found in organisation Ankra (5ff27bbd-0000-4000-8000-000000000001)") ||
+		!strings.Contains(err.Error(), "--org") {
+		t.Fatalf("a proposal 404 must name the organisation searched and point at --org, got %q", err.Error())
+	}
+}

@@ -128,6 +128,9 @@ func renderNamespaceCostHistory(out io.Writer, clusterReference string, history 
 	default:
 		_, _ = fmt.Fprintf(out, "All %d %ss were metered.\n", len(history.Buckets), unit)
 	}
+	if line := costNamespacesEstimated(history.Buckets, unit); line != "" {
+		_, _ = fmt.Fprintln(out, line)
+	}
 	if len(history.Namespaces) == 0 {
 		_, _ = fmt.Fprintln(out, "No namespace was allocated any cost in the metered hours.")
 		return
@@ -177,6 +180,31 @@ func renderNamespaceCostHistory(out io.Writer, clusterReference string, history 
 		_, _ = fmt.Fprintf(out, "\nThe trend is drawn for at most %d buckets; -o json has all %d.\n",
 			costNamespacesTrendMaxBuckets, len(history.Buckets))
 	}
+}
+
+// costNamespacesEstimated names the buckets with hours a later metering pass
+// filled in (cluster#5909, ankra-bn86k4.4.8.4.2): their allocation is in the
+// figures as an estimate, never a measurement. "2 days include estimated
+// hours (5 in all): ..." by the day, "3 hours were estimated: ..." by the
+// hour. Empty when none was, or the platform did not say (an older build,
+// whose buckets carry no count): never "every hour was measured".
+func costNamespacesEstimated(buckets []client.NamespaceCostBucket, unit string) string {
+	withEstimates, estimated := 0, 0
+	for _, bucket := range buckets {
+		if bucket.EstimatedHours != nil && *bucket.EstimatedHours > 0 {
+			withEstimates++
+			estimated += *bucket.EstimatedHours
+		}
+	}
+	if estimated == 0 {
+		return ""
+	}
+	const why = "no metering pass ran for them, so a later pass filled them in and their allocation is an estimate, not a measurement."
+	if unit == "hour" {
+		return costCountOf(estimated, "hour was", "hours were") + " estimated: " + why
+	}
+	return fmt.Sprintf("%s estimated hours (%d in all): %s",
+		costCountOf(withEstimates, "day includes", "days include"), estimated, why)
 }
 
 // costNamespacesLatest is the current bucket's value, or unknown when the
