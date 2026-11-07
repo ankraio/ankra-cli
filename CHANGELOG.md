@@ -5,6 +5,7 @@
 ### Added
 
 - **`ankra application promote` and `ankra application previews`.** `promote <app> --from staging --to production` moves the build one environment runs onto the next, without building again, after showing what would change. It exits 8 with the blockers when something stops it. `previews <app>` shows whether every pull request gets a preview, and `previews enable|disable|follow` sets the repository's rule without touching any other setting.
+- **`ankra mcp connect --client <claude-code|cursor|codex>` is the guided MCP setup.** It creates a read-only token (`--write` adds the mutating tools) that expires in 90 days, stores it in a file only you can read, and registers the server with the client. The token is never printed and never written to the client's config: Claude Code fetches it through a headers helper, and Cursor and Codex read `ANKRA_MCP_TOKEN`, exported from `ankra mcp token`, which refuses a terminal. Running connect again renews it and revokes the old token. It also offers to install the skills (`--skills` to skip the question).
 
 ### Changed
 
