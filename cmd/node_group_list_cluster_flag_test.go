@@ -135,8 +135,8 @@ func TestNodeGroupListRefusesAmbiguousOrMissingCluster(t *testing.T) {
 		t.Run(testCase.name+" both", func(t *testing.T) {
 			mock, runError := runNodeGroupList(t, testCase.command, true,
 				append(append([]string{}, testCase.path...), testClusterID, "--cluster", otherClusterID)...)
-			if exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "named twice") {
-				t.Fatalf("error = %v, want the named-twice usage error", runError)
+			if exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "name different clusters") {
+				t.Fatalf("error = %v, want the different-clusters usage error", runError)
 			}
 			if len(mock.listed) != 0 {
 				t.Fatalf("listed %v, want nothing", mock.listed)
@@ -146,6 +146,38 @@ func TestNodeGroupListRefusesAmbiguousOrMissingCluster(t *testing.T) {
 			mock, runError := runNodeGroupList(t, testCase.command, false, testCase.path...)
 			if exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "--cluster") {
 				t.Fatalf("error = %v, want the no-cluster usage error naming --cluster", runError)
+			}
+			if len(mock.listed) != 0 {
+				t.Fatalf("listed %v, want nothing", mock.listed)
+			}
+		})
+	}
+}
+
+// The binary wraps every leading-cluster command in clusterPositionalArgs
+// (Execute), which executeCommand does not. Under that wrapper the five lists
+// stay optional-cluster commands: --cluster alone reaches the resolver, and a
+// different --cluster is refused with the same words the resolver uses.
+func TestNodeGroupListUnderTheClusterPositionalWrapper(t *testing.T) {
+	withWrappedClusterPositionals(t)
+	for _, testCase := range nodeGroupListCommands {
+		t.Run(testCase.name, func(t *testing.T) {
+			if kind := clusterPositionalKind(testCase.command); kind != "[" {
+				t.Fatalf("Use %q: cluster positional kind %q, want an optional one", testCase.command.Use, kind)
+			}
+			mock, runError := runNodeGroupList(t, testCase.command, true,
+				append(append([]string{}, testCase.path...), "--cluster", otherClusterID)...)
+			if runError != nil {
+				t.Fatalf("list --cluster: %v", runError)
+			}
+			if len(mock.listed) != 1 || mock.listed[0] != otherClusterID {
+				t.Fatalf("listed %v, want the --cluster cluster %s", mock.listed, otherClusterID)
+			}
+
+			mock, runError = runNodeGroupList(t, testCase.command, true,
+				append(append([]string{}, testCase.path...), testClusterID, "--cluster", otherClusterID)...)
+			if exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "name different clusters") {
+				t.Fatalf("error = %v, want the different-clusters usage error", runError)
 			}
 			if len(mock.listed) != 0 {
 				t.Fatalf("listed %v, want nothing", mock.listed)

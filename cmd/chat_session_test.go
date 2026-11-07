@@ -126,6 +126,8 @@ func resetChatFlags(t *testing.T) {
 		for _, name := range []string{"conversation", "mode", "cluster", "output"} {
 			_ = chatCmd.Flags().Set(name, "")
 		}
+		_ = chatCmd.Flags().Set("wait", "false")
+		_ = chatCmd.Flags().Set("wait-timeout", chatDefaultWaitTimeout.String())
 	})
 }
 

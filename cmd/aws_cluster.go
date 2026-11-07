@@ -81,7 +81,7 @@ var awsStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, startError := apiClient.StartAwsCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command)})
+		result, startError := apiClient.StartAwsCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command), RestoreSnapshotID: restoreSnapshotIDFlag(command), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(command)})
 		if startError != nil {
 			return fmt.Errorf("starting AWS cluster: %w", startError)
 		}
@@ -102,7 +102,7 @@ var awsStartCmd = &cobra.Command{
 
 func init() {
 	awsStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(awsStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(awsStartCmd)
 	// The shared flag, so a mistyped -o is refused before the start or stop
 	// is sent rather than after it.
 	registerStructuredOutputFlags(awsStartCmd, awsStopCmd)

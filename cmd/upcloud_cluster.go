@@ -221,7 +221,7 @@ var upcloudStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, err := apiClient.StartUpcloudCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd)})
+		result, err := apiClient.StartUpcloudCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd), RestoreSnapshotID: restoreSnapshotIDFlag(cmd), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(cmd)})
 		if err != nil {
 			return fmt.Errorf("starting cluster: %w", err)
 		}
@@ -683,7 +683,7 @@ func init() {
 	_ = upcloudCreateCmd.MarkFlagRequired("zone")
 
 	upcloudStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(upcloudStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(upcloudStartCmd)
 
 	upcloudDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 	upcloudDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's load balancers, and tolerate unreachable infrastructure. The CSI storage volumes are deleted forced or not, and only with --accept-volume-data-loss or a yes at the prompt")

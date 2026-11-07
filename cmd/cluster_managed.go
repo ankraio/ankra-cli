@@ -136,6 +136,7 @@ var managedDeleteCmd = &cobra.Command{
 		force, _ := cmd.Flags().GetBool("force")
 		yes, _ := cmd.Flags().GetBool("yes")
 
+		warnDeprovisionOrganisationRoles(cmd, clusterID, clusterTarget(args[0], clusterID))
 		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
 			fmt.Sprintf("Delete managed %s cluster %s? This destroys all cloud resources! [y/N]: ", provider, clusterTarget(args[0], clusterID)),
 			yes); err != nil {
