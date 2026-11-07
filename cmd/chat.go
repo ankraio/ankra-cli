@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"ankra/internal/client"
 	"ankra/internal/hiddenunicode"
@@ -78,7 +79,15 @@ nothing on stdout and exits with that error's code. The one exception is
 AI paused by the organisation's billing standing: that refusal prints the
 document with "error_code" BILLING_RESTRICTED and the platform's sentence in
 "detail", whether it came before the turn or on it, so a job can tell it
-from a failed answer. Interactive mode has no structured output.`,
+from a failed answer. Interactive mode has no structured output.
+
+A one-shot question can end before the conversation does, because the agent
+paused on a condition and the platform resumes it by itself. That is not a
+finished answer: the command exits 9, and the document's "state" reads
+"waiting". Pass --wait to follow the conversation through its pauses instead;
+it exits 5 if a pause outlasts --wait-timeout, with the conversation still
+running. "state" is otherwise "completed", "failed", or "awaiting_user" for a
+turn that needs a confirmation or an answer, which exits 0.`,
 	Example: `  # Ask once, scoped to a cluster
   ankra chat --cluster prod "why is the payments pod restarting?"
 
@@ -86,7 +95,10 @@ from a failed answer. Interactive mode has no structured output.`,
   ankra chat --cluster prod --mode ask -o json "summarise failing pods" | jq -r .answer
 
   # Continue the conversation a previous answer named
-  ankra chat --conversation <id> "and the one before that?"`,
+  ankra chat --conversation <id> "and the one before that?"
+
+  # Follow the agent through a pause, up to 30 minutes
+  ankra chat --wait --wait-timeout 30m "upgrade the addon and check it came up"`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterName, _ := cmd.Flags().GetString("cluster")
@@ -102,6 +114,17 @@ from a failed answer. Interactive mode has no structured output.`,
 		}
 		if format != outputDefault && len(args) == 0 {
 			return withExitCode(exitUsage, errors.New("-o/--output needs a one-shot question: ankra chat -o json \"<question>\""))
+		}
+		isWaiting, _ := cmd.Flags().GetBool("wait")
+		waitTimeout, _ := cmd.Flags().GetDuration("wait-timeout")
+		if isWaiting && len(args) == 0 {
+			return withExitCode(exitUsage, errors.New("--wait needs a one-shot question: ankra chat --wait \"<question>\""))
+		}
+		if isWaiting && waitTimeout <= 0 {
+			return withExitCode(exitUsage, errors.New("--wait-timeout must be positive"))
+		}
+		if !isWaiting {
+			waitTimeout = 0
 		}
 		if conversationID != "" {
 			if err := validateConversationID(conversationID); err != nil {
@@ -127,9 +150,9 @@ from a failed answer. Interactive mode has no structured output.`,
 
 		if len(args) > 0 {
 			if format != outputDefault {
-				return runChatMessageStructured(cmd, scope, conversationID, args[0], interactionMode)
+				return runChatMessageStructured(cmd, scope, conversationID, args[0], interactionMode, waitTimeout)
 			}
-			return runChatMessage(scope, conversationID, args[0], interactionMode)
+			return runChatMessage(scope, conversationID, args[0], interactionMode, waitTimeout)
 		}
 		return runInteractiveChat(cmd.InOrStdin(), scope, conversationID, interactionMode)
 	},
@@ -164,12 +187,12 @@ func staleSelectionNotice(scope chatScope) string {
 // deprecated per-cluster stream answers a bare 404, so both shapes count.
 // The session is nil when the turn runs on the deprecated stream.
 func openChatTurn(scope chatScope, conversationID string, req client.ChatRequest,
-	interactionMode string, errOut io.Writer) (<-chan client.ChatStreamEvent, *client.ChatSession, chatScope, error) {
-	events, session, err := startChatTurn(conversationID, scope.clusterID, req, interactionMode)
+	interactionMode string, waitTimeout time.Duration, errOut io.Writer) (<-chan client.ChatStreamEvent, *client.ChatSession, chatScope, error) {
+	events, session, err := startChatTurn(conversationID, scope.clusterID, req, interactionMode, waitTimeout)
 	if err != nil && scope.fromSelection && isNotFoundResponse(err) {
 		_, _ = fmt.Fprintln(errOut, staleSelectionNotice(scope))
 		scope = chatScope{}
-		events, session, err = startChatTurn(conversationID, nil, req, interactionMode)
+		events, session, err = startChatTurn(conversationID, nil, req, interactionMode, waitTimeout)
 	}
 	return events, session, scope, err
 }
@@ -195,13 +218,13 @@ func prepareOneShot(conversationID, query string, errOut io.Writer) (string, boo
 	return conversationID, startedConversation, query, nil
 }
 
-func runChatMessage(scope chatScope, conversationID string, query string, interactionMode string) error {
+func runChatMessage(scope chatScope, conversationID string, query string, interactionMode string, waitTimeout time.Duration) error {
 	conversationID, startedConversation, query, err := prepareOneShot(conversationID, query, os.Stderr)
 	if err != nil {
 		return err
 	}
 	req := client.ChatRequest{Query: query, InteractionMode: interactionMode}
-	events, session, _, err := openChatTurn(scope, conversationID, req, interactionMode, os.Stderr)
+	events, session, _, err := openChatTurn(scope, conversationID, req, interactionMode, waitTimeout, os.Stderr)
 	if err != nil {
 		return fmt.Errorf("chat: %w", err)
 	}
@@ -311,7 +334,7 @@ func runInteractiveChat(stdin io.Reader, scope chatScope, conversationID string,
 			InteractionMode:     interactionMode,
 		}
 
-		events, session, nextScope, err := openChatTurn(scope, conversationID, req, interactionMode, os.Stderr)
+		events, session, nextScope, err := openChatTurn(scope, conversationID, req, interactionMode, 0, os.Stderr)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			printBillingRestrictedHint(os.Stdout, err)
@@ -569,6 +592,8 @@ func init() {
 	chatCmd.Flags().String("cluster", "", "Cluster name for context")
 	chatCmd.Flags().String("mode", "", "Safety mode: 'ask' (read-only + safe creations) or 'agent' (can act). Defaults to the server default.")
 	chatCmd.Flags().String("conversation", "", "Continue an existing conversation (id from 'ankra chat history' or a previous answer)")
+	chatCmd.Flags().Bool("wait", false, "With a one-shot question, follow the conversation through the agent's pauses instead of exiting 9 at the first one")
+	chatCmd.Flags().Duration("wait-timeout", chatDefaultWaitTimeout, "How long --wait follows a paused conversation before exiting 5")
 
 	chatHistoryCmd.Flags().String("cluster", "", "Filter by cluster")
 	chatHistoryCmd.Flags().Int("limit", 20, "Maximum number of conversations to show")
