@@ -507,13 +507,13 @@ func TestAnkraCloudIsWiredIntoTheSharedProviderSwitches(t *testing.T) {
 // --sandbox-nodes puts a labelled group beside the workers, never instead of
 // them (ankra-oznf7k.2).
 func TestApplyAnkraCloudSandboxNodes(t *testing.T) {
-	newCommand := func(arguments map[string]string) *cobra.Command {
+	newCommand := func(test testing.TB, arguments map[string]string) *cobra.Command {
 		command := &cobra.Command{}
 		command.Flags().Int("sandbox-nodes", 0, "")
 		command.Flags().String("sandbox-node-plan", "", "")
 		for name, value := range arguments {
 			if setError := command.Flags().Set(name, value); setError != nil {
-				t.Fatalf("setting %s: %v", name, setError)
+				test.Fatalf("setting %s: %v", name, setError)
 			}
 		}
 		return command
@@ -522,7 +522,7 @@ func TestApplyAnkraCloudSandboxNodes(t *testing.T) {
 	zero := 0
 
 	request := client.CreateAnkraCloudClusterRequest{WorkerPlan: "cx4", WorkerCount: &two}
-	if applyError := applyAnkraCloudSandboxNodes(newCommand(map[string]string{"sandbox-nodes": "1"}), &request); applyError != nil {
+	if applyError := applyAnkraCloudSandboxNodes(newCommand(t, map[string]string{"sandbox-nodes": "1"}), &request); applyError != nil {
 		t.Fatalf("unexpected error: %v", applyError)
 	}
 	if len(request.NodeGroups) != 2 || request.WorkerCount != nil || request.WorkerPlan != "" {
@@ -538,7 +538,7 @@ func TestApplyAnkraCloudSandboxNodes(t *testing.T) {
 	}
 
 	namedPlan := client.CreateAnkraCloudClusterRequest{WorkerPlan: "cx4"}
-	if applyError := applyAnkraCloudSandboxNodes(newCommand(map[string]string{"sandbox-nodes": "1", "sandbox-node-plan": "cx8"}), &namedPlan); applyError != nil {
+	if applyError := applyAnkraCloudSandboxNodes(newCommand(t, map[string]string{"sandbox-nodes": "1", "sandbox-node-plan": "cx8"}), &namedPlan); applyError != nil {
 		t.Fatalf("unexpected error: %v", applyError)
 	}
 	if namedPlan.NodeGroups[0].Count != ankraCloudDefaultWorkers || namedPlan.NodeGroups[1].InstanceType != "cx8" {
@@ -546,7 +546,7 @@ func TestApplyAnkraCloudSandboxNodes(t *testing.T) {
 	}
 
 	untouched := client.CreateAnkraCloudClusterRequest{WorkerPlan: "cx4", WorkerCount: &two}
-	if applyError := applyAnkraCloudSandboxNodes(newCommand(nil), &untouched); applyError != nil || untouched.NodeGroups != nil ||
+	if applyError := applyAnkraCloudSandboxNodes(newCommand(t, nil), &untouched); applyError != nil || untouched.NodeGroups != nil ||
 		untouched.WorkerPlan != "cx4" {
 		t.Fatalf("no sandbox asked for must leave the request alone: %+v, %v", untouched, applyError)
 	}
@@ -561,9 +561,11 @@ func TestApplyAnkraCloudSandboxNodes(t *testing.T) {
 		"no worker plan": {map[string]string{"sandbox-nodes": "1"}, client.CreateAnkraCloudClusterRequest{}, "--worker-plan"},
 		"a plan alone":   {map[string]string{"sandbox-node-plan": "cx8"}, client.CreateAnkraCloudClusterRequest{}, "needs --sandbox-nodes"},
 		"a negative":     {map[string]string{"sandbox-nodes": "-1"}, client.CreateAnkraCloudClusterRequest{}, "negative"},
+		"on k3s": {map[string]string{"sandbox-nodes": "1"},
+			client.CreateAnkraCloudClusterRequest{WorkerPlan: "cx4", Distribution: client.AnkraCloudDistributionK3s}, "kubeadm"},
 	} {
 		t.Run(name, func(subtest *testing.T) {
-			applyError := applyAnkraCloudSandboxNodes(newCommand(testCase.arguments), &testCase.request)
+			applyError := applyAnkraCloudSandboxNodes(newCommand(subtest, testCase.arguments), &testCase.request)
 			if applyError == nil || !strings.Contains(applyError.Error(), testCase.want) {
 				subtest.Fatalf("error = %v, want it to say %q", applyError, testCase.want)
 			}

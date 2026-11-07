@@ -803,6 +803,9 @@ func applyAnkraCloudSandboxNodes(cmd *cobra.Command, request *client.CreateAnkra
 		}
 		return nil
 	}
+	if request.Distribution == client.AnkraCloudDistributionK3s {
+		return withExitCode(exitUsage, errors.New("--sandbox-nodes needs --distribution kubeadm: the gVisor sandbox runtime is set up on kubeadm clusters only"))
+	}
 	workerCount := ankraCloudDefaultWorkers
 	if request.WorkerCount != nil {
 		workerCount = *request.WorkerCount
