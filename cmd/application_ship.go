@@ -308,7 +308,7 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 			ClusterID:        cluster.ID,
 			ClusterName:      cluster.Name,
 		}); renderError != nil {
-			return renderError
+			return fmt.Errorf("%w (printing the result failed: %v)", buildError, renderError)
 		}
 		return buildError
 	}

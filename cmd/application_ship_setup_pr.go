@@ -34,6 +34,10 @@ const (
 // run's findings (cluster enginekit/pipelinespec.KindGate).
 const shipPipelineStepKindGate = "gate"
 
+// shipPipelineCancelReasonPullRequestClosed is the cancel reason of a run whose
+// pull request merged or closed while it ran.
+const shipPipelineCancelReasonPullRequestClosed = "pull_request_closed"
+
 // shipBlockingFindingLimit bounds how many findings a blocked stop names.
 const shipBlockingFindingLimit = 5
 
@@ -193,12 +197,25 @@ func setupPullRequestRunStop(waitContext context.Context, applicationID string, 
 	if reported.Outcome == pipelineOutcomeSuccess {
 		return waiting(reported, fmt.Sprintf("Its run #%d passed, so it is ready to merge", detail.RunNumber))
 	}
+	if pipelineOptionalString(detail.CancelReason) == shipPipelineCancelReasonPullRequestClosed {
+		return withExitCode(exitWaiting, &shipSetupPullRequestStop{
+			message: fmt.Sprintf("the setup pull request was merged or closed while ship waited, so its run #%d was cancelled: %s. "+
+				"If it was merged, run ship again to follow the branch's own run", detail.RunNumber, pullRequestURL),
+			state:          shipStateWaitingForSetupPullRequest,
+			pullRequestURL: pullRequestURL,
+			run:            reported,
+		})
+	}
 	if shipPipelineGateFailed(detail) {
-		findings := readShipBlockingFindings(waitContext, applicationID, detail.ID)
+		findings, isRead := readShipBlockingFindings(waitContext, applicationID, detail.ID)
+		findingsClause := describeShipBlockingFindings(findings)
+		if !isRead {
+			findingsClause = " (its findings could not be read)"
+		}
 		return withExitCode(exitBlocked, &shipSetupPullRequestStop{
 			message: fmt.Sprintf("the setup pull request's run #%d was blocked by the gate%s - fix it on the pull request's branch "+
 				"(%s), or read every finding with 'ankra application pipeline findings %s %s'",
-				detail.RunNumber, describeShipBlockingFindings(findings), pullRequestURL, applicationID, detail.ID),
+				detail.RunNumber, findingsClause, pullRequestURL, applicationID, detail.ID),
 			state:            shipStateSetupPullRequestBlocked,
 			pullRequestURL:   pullRequestURL,
 			run:              reported,
@@ -241,12 +258,13 @@ func shipPipelineGateFailed(detail *client.PipelineRunDetail) bool {
 	return false
 }
 
-// readShipBlockingFindings reads the run's most severe findings. A failed read
-// answers none: the stop still says the gate blocked and where to read them.
-func readShipBlockingFindings(waitContext context.Context, applicationID string, runID string) []shipBlockingFinding {
+// readShipBlockingFindings reads the run's most severe findings, and whether
+// they could be read at all: a failed read answers none and false, so the stop
+// says the findings are unknown rather than absent.
+func readShipBlockingFindings(waitContext context.Context, applicationID string, runID string) ([]shipBlockingFinding, bool) {
 	list, listError := apiClient.ListPipelineFindings(waitContext, client.PipelineSelector{ApplicationID: applicationID}, runID)
 	if listError != nil || list == nil {
-		return nil
+		return nil, false
 	}
 	severityRank := map[string]int{client.PipelineFindingSeverityCritical: 0, client.PipelineFindingSeverityHigh: 1,
 		client.PipelineFindingSeverityMedium: 2, client.PipelineFindingSeverityLow: 3}
@@ -285,7 +303,7 @@ func readShipBlockingFindings(waitContext context.Context, applicationID string,
 			Title:          finding.Title,
 		})
 	}
-	return findings
+	return findings, true
 }
 
 // describeShipBlockingFindings renders the findings as the clause of a stop.

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -12,11 +13,12 @@ import (
 // shipSetupMock adds the pull request's run and its findings to the journey.
 type shipSetupMock struct {
 	*shipPipelineMock
-	findings *client.PipelineFindingList
+	findings      *client.PipelineFindingList
+	findingsError error
 }
 
 func (mock *shipSetupMock) ListPipelineFindings(context.Context, client.PipelineSelector, string) (*client.PipelineFindingList, error) {
-	return mock.findings, nil
+	return mock.findings, mock.findingsError
 }
 
 const shipTestSetupPullRequestNumber int64 = 1
@@ -145,5 +147,38 @@ func TestShipSetupPullRequestNumberReadsOnlyAGitHubPullRequest(t *testing.T) {
 		if got != want || isGitHub != (want != 0) {
 			t.Errorf("%q: got %d, %v, want %d", pullRequestURL, got, isGitHub, want)
 		}
+	}
+}
+
+func TestShipWaitsWhenTheSetupPullRequestMergesDuringTheWait(t *testing.T) {
+	mock := newShipSetupMock(t, func(run client.PipelineRun) *client.PipelineRunDetail {
+		detail := shipRunDetail(run, "concluded", "cancelled")
+		reason := shipPipelineCancelReasonPullRequestClosed
+		detail.CancelReason = &reason
+		return detail
+	})
+	stdout, _, executeError := runApplicationShipCommand(t, mock, "--cluster", "production", "-o", "json")
+	if code := exitCodeFor(executeError); code != exitWaiting {
+		t.Fatalf("exit code = %d (%v), want %d: a merged pull request is not a failed run", code, executeError, exitWaiting)
+	}
+	if !strings.Contains(executeError.Error(), "merged or closed while ship waited") {
+		t.Errorf("the stop must say the pull request closed: %v", executeError)
+	}
+	if !strings.Contains(stdout, shipStateWaitingForSetupPullRequest) {
+		t.Errorf("document must carry the waiting state: %s", stdout)
+	}
+}
+
+func TestShipSaysTheFindingsAreUnknownWhenTheirReadFails(t *testing.T) {
+	mock := newShipSetupMock(t, func(run client.PipelineRun) *client.PipelineRunDetail {
+		return shipRunDetail(run, "concluded", "failure", gateStep(1, "failure"))
+	})
+	mock.findingsError = errors.New("unexpected status 503")
+	_, _, executeError := runApplicationShipCommand(t, mock, "--cluster", "production")
+	if code := exitCodeFor(executeError); code != exitBlocked {
+		t.Fatalf("exit code = %d (%v), want %d", code, executeError, exitBlocked)
+	}
+	if !strings.Contains(executeError.Error(), "its findings could not be read") {
+		t.Errorf("a failed findings read must not read as no findings: %v", executeError)
 	}
 }
