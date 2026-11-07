@@ -42,6 +42,9 @@ var invocation = struct {
 	sync.RWMutex
 	version string
 	command string
+	// organisationLevel marks a command that answers for the organisation by
+	// design, so it never warns that a selected project was not applied.
+	organisationLevel bool
 }{version: "dev"}
 
 // SetVersion records the CLI version the User-Agent names.
@@ -65,6 +68,21 @@ func SetInvocationCommand(commandPath string) {
 	invocation.Lock()
 	defer invocation.Unlock()
 	invocation.command = strings.Join(fields, " ")
+}
+
+// SetInvocationOrganisationLevel records that this invocation's command belongs
+// to the organisation by design, and so never warns that a selected project was
+// not applied.
+func SetInvocationOrganisationLevel(isOrganisationLevel bool) {
+	invocation.Lock()
+	defer invocation.Unlock()
+	invocation.organisationLevel = isOrganisationLevel
+}
+
+func invocationIsOrganisationLevel() bool {
+	invocation.RLock()
+	defer invocation.RUnlock()
+	return invocation.organisationLevel
 }
 
 func invocationState() (string, string) {
@@ -244,18 +262,37 @@ func agentSessionDigest(sessionID string) string {
 	return hex.EncodeToString(digest[:])[:32]
 }
 
-// isAPIRequest reports whether a request goes to the client's own API host,
-// the only host the attribution headers are for. A transport without a
-// readable base URL attributes nothing.
-func (t *scopeOverrideTransport) isAPIRequest(requestURL *url.URL) bool {
+// requestDestination is where a request goes, relative to the client's API
+// host.
+type requestDestination int
+
+const (
+	// destinationUnknown: the transport has no readable base URL, so it
+	// cannot tell. Attribution is for the API only and is left off; the
+	// path check is applied, so it fails closed.
+	destinationUnknown requestDestination = iota
+	// destinationAPI: the client's own API host, the only host the
+	// attribution headers are for and the one whose edge rewrites paths.
+	destinationAPI
+	// destinationOtherHost: somewhere else, such as a presigned storage URL.
+	destinationOtherHost
+)
+
+// destination says where a request goes, comparing host and port with the
+// base URL's. It parses the base URL once, so RoundTrip calls it once per
+// request and reuses the answer.
+func (t *scopeOverrideTransport) destination(requestURL *url.URL) requestDestination {
 	if t.baseURL == nil || requestURL == nil {
-		return false
+		return destinationUnknown
 	}
 	apiURL, parseError := url.Parse(*t.baseURL)
 	if parseError != nil || apiURL.Host == "" {
-		return false
+		return destinationUnknown
 	}
-	return hostAndPort(apiURL) == hostAndPort(requestURL)
+	if hostAndPort(apiURL) == hostAndPort(requestURL) {
+		return destinationAPI
+	}
+	return destinationOtherHost
 }
 
 // hostAndPort is a URL's lower-cased host with its port, the scheme's

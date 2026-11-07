@@ -36,14 +36,18 @@ type Client struct {
 	orgOverride string
 
 	// projectOverride, when non-empty, is sent as the projectOverrideHeader
-	// on every request so commands act in a project other than the member's
-	// current one.
+	// on every request so commands act in a project other than the one the
+	// platform resolves for the token: its pin, else the default project.
 	projectOverride string
 
 	// costProjectScope, when non-empty, is sent as ?project_id= on the fleet
 	// cost reads that take it (summary, savings, ledger, trend, events,
 	// reconciliation, budgets): a project id, or CostProjectScopeAll.
 	costProjectScope string
+
+	// securityProjectScope, when non-empty, is sent as ?project_id= on the
+	// Security Center reads that take it (securityScopedURL).
+	securityProjectScope string
 
 	// slowWriteTimeout bounds the writes that do their whole job on the
 	// request path (see slow_write.go). They drop the response-header
@@ -56,6 +60,11 @@ type Client struct {
 	// transport the client builds shares it, so the slow-write lane cannot
 	// warn a second time.
 	tokenExpiryWarning *tokenExpiryWarning
+
+	// projectScopeWarning warns, once per invocation, when a read says it did
+	// not apply the selected project. Shared across transports like the expiry
+	// warning.
+	projectScopeWarning *projectScopeWarning
 }
 
 // defaultSlowWriteTimeout is the overall bound for a long synchronous
@@ -68,7 +77,9 @@ const defaultSlowWriteTimeout = 5 * time.Minute
 // headers, and the client attribution headers (attribution.go), on every
 // request routed through the client, so no individual call site needs to be
 // aware of either. Every transport that talks to the Ankra API is one of
-// these.
+// these, which makes it the one place a request to the API passes through
+// before it is sent: it refuses a path the platform's edge would rewrite to
+// another route (request_path_guard.go) before anything else happens.
 type scopeOverrideTransport struct {
 	base      http.RoundTripper
 	orgID     *string
@@ -80,9 +91,20 @@ type scopeOverrideTransport struct {
 	// lookupEnvironment reads the environment the agent is detected from;
 	// nil is os.Getenv.
 	lookupEnvironment func(string) string
+	// projectScopeWarning hears the response to every request sent with a
+	// project override.
+	projectScopeWarning *projectScopeWarning
 }
 
 func (t *scopeOverrideTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	destination := t.destination(req.URL)
+	// Checked outside the retry loop, so a refused request is never retried,
+	// and for every request except one positively bound for another host.
+	if destination != destinationOtherHost {
+		if refusal := refuseUnsafeRequestPath(req); refusal != nil {
+			return nil, refusal
+		}
+	}
 	organisationID := ""
 	if t.orgID != nil {
 		organisationID = *t.orgID
@@ -92,7 +114,7 @@ func (t *scopeOverrideTransport) RoundTrip(req *http.Request) (*http.Response, e
 		projectID = *t.projectID
 	}
 	clone := req.Clone(req.Context())
-	if t.isAPIRequest(clone.URL) {
+	if destination == destinationAPI {
 		applyClientAttribution(clone.Header, t.environment())
 	}
 	if organisationID != "" {
@@ -101,17 +123,22 @@ func (t *scopeOverrideTransport) RoundTrip(req *http.Request) (*http.Response, e
 	if projectID != "" {
 		clone.Header.Set(projectOverrideHeader, projectID)
 	}
-	return t.base.RoundTrip(clone)
+	response, requestError := t.base.RoundTrip(clone)
+	if requestError == nil && destination == destinationAPI {
+		t.projectScopeWarning.observe(clone, response, projectID)
+	}
+	return response, requestError
 }
 
 // New constructs a Client with the supplied token and a base URL that is
 // expected to already be validated and normalized via NormalizeBaseURL.
 func New(token, baseURL string) *Client {
 	c := &Client{
-		Token:              token,
-		BaseURL:            baseURL,
-		slowWriteTimeout:   defaultSlowWriteTimeout,
-		tokenExpiryWarning: newTokenExpiryWarning(),
+		Token:               token,
+		BaseURL:             baseURL,
+		slowWriteTimeout:    defaultSlowWriteTimeout,
+		tokenExpiryWarning:  newTokenExpiryWarning(),
+		projectScopeWarning: newProjectScopeWarning(),
 	}
 	sharedBase := &http.Transport{
 		ResponseHeaderTimeout: 30 * time.Second,
@@ -124,9 +151,10 @@ func New(token, baseURL string) *Client {
 			base:    &retryTransport{base: sharedBase},
 			warning: c.tokenExpiryWarning,
 		},
-		orgID:     &c.orgOverride,
-		projectID: &c.projectOverride,
-		baseURL:   &c.BaseURL,
+		orgID:               &c.orgOverride,
+		projectID:           &c.projectOverride,
+		baseURL:             &c.BaseURL,
+		projectScopeWarning: c.projectScopeWarning,
 	}
 	c.HTTP = &http.Client{
 		Timeout:   5 * time.Minute,
@@ -170,14 +198,34 @@ func (c *Client) SetCostProjectScope(scope string) {
 // costScopedURL appends the cost project scope to a fleet cost read's URL,
 // after any query the path already carries.
 func (c *Client) costScopedURL(target string) string {
-	if c.costProjectScope == "" {
+	return withProjectScope(target, c.costProjectScope)
+}
+
+// withProjectScope appends ?project_id=scope to a URL; an empty scope leaves it
+// as it came.
+func withProjectScope(target string, scope string) string {
+	if scope == "" {
 		return target
 	}
 	separator := "?"
 	if strings.Contains(target, "?") {
 		separator = "&"
 	}
-	return target + separator + "project_id=" + url.QueryEscape(c.costProjectScope)
+	return target + separator + "project_id=" + url.QueryEscape(scope)
+}
+
+// SetSecurityProjectScope sets the ?project_id= the Security Center reads send,
+// under the fleet cost reads' rules: CostProjectScopeAll for the whole
+// organisation, or an empty string to leave the read in the caller's current
+// project. The organisation's compliance documents and every write send none.
+func (c *Client) SetSecurityProjectScope(scope string) {
+	c.securityProjectScope = scope
+}
+
+// securityScopedURL appends the security project scope to a Security Center
+// read's URL, after any query the path already carries.
+func (c *Client) securityScopedURL(target string) string {
+	return withProjectScope(target, c.securityProjectScope)
 }
 
 // httpClientForSlowWrite returns a client for synchronous writes that can
@@ -192,10 +240,11 @@ func (c *Client) httpClientForSlowWrite() *http.Client {
 		ResponseHeaderTimeout: 0,
 	}
 	slowWriteTransport := &scopeOverrideTransport{
-		base:      &tokenExpiryTransport{base: slowWriteBase, warning: c.tokenExpiryWarning},
-		orgID:     &c.orgOverride,
-		projectID: &c.projectOverride,
-		baseURL:   &c.BaseURL,
+		base:                &tokenExpiryTransport{base: slowWriteBase, warning: c.tokenExpiryWarning},
+		orgID:               &c.orgOverride,
+		projectID:           &c.projectOverride,
+		baseURL:             &c.BaseURL,
+		projectScopeWarning: c.projectScopeWarning,
 	}
 	timeout := c.slowWriteTimeout
 	if timeout <= 0 {

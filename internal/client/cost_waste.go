@@ -50,6 +50,41 @@ func (c *Client) GetCloudWaste() (*CloudWaste, error) {
 	return &result, nil
 }
 
+// CloudWasteCredentialError is one failed waste scan as GET
+// /org/cloud-cost/waste lists it (openapi CloudWasteCredentialError).
+// CredentialName is empty when no credential of the organisation stands
+// behind the scan, which is not a credential that was deleted. For a reader
+// limited to some projects, CredentialOutsideProjects marks the one entry
+// standing for every failed scan outside those projects: it names no
+// provider, no credential and no time, and Error is the platform's fixed
+// sentence.
+type CloudWasteCredentialError struct {
+	Provider                  string  `json:"provider" yaml:"provider"`
+	CredentialName            string  `json:"credential_name" yaml:"credential_name"`
+	Error                     string  `json:"error" yaml:"error"`
+	ScannedAt                 *string `json:"scanned_at" yaml:"scanned_at"`
+	CredentialOutsideProjects bool    `json:"credential_outside_projects" yaml:"credential_outside_projects"`
+}
+
+// GetCloudWasteCredentialErrors reads the failed waste scans GET
+// /org/cloud-cost/waste lists, in the cost project scope the savings read
+// uses, so the scans it names are the ones the savings read's
+// scan_incomplete was told about. An empty list is a listing that named no
+// failed scan; a platform that predates credential_errors answers one too.
+// GET /api/v1/org/cloud-cost/waste
+func (c *Client) GetCloudWasteCredentialErrors() ([]CloudWasteCredentialError, error) {
+	var result struct {
+		CredentialErrors []CloudWasteCredentialError `json:"credential_errors"`
+	}
+	if err := c.sendJSON(http.MethodGet, c.costScopedURL(c.BaseURL+"/api/v1/org/cloud-cost/waste"), nil, &result); err != nil {
+		return nil, err
+	}
+	if result.CredentialErrors == nil {
+		return []CloudWasteCredentialError{}, nil
+	}
+	return result.CredentialErrors, nil
+}
+
 // WasteKindConsent is the consent a waste cleanup's run sends when the
 // platform names one for the kind of the finding it cleans up.
 type WasteKindConsent struct {

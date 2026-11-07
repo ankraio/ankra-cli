@@ -216,7 +216,7 @@ func TestApplicationEnvironmentsSetSurfacesTheInvalidPatternSentence(t *testing.
 func TestApplicationDeployMapsEnvironmentAndFollowBranches(t *testing.T) {
 	mockClient := &applicationResourceMock{payload: json.RawMessage(`{"status":"queued"}`)}
 	_, executeError := runApplicationCommand(t, mockClient,
-		"deploy", testApplicationID, "--cluster", "cluster-1",
+		"deploy", testApplicationID, "--cluster", testClusterID,
 		"--environment", "production", "--follow-branches", "main,release/*")
 	if executeError != nil {
 		t.Fatalf("deploy error = %v", executeError)

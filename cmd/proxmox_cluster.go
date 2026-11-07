@@ -64,6 +64,10 @@ var proxmoxCreateCmd = &cobra.Command{
 		networkMode, _ := cmd.Flags().GetString("network-mode")
 		sitePublicIP, _ := cmd.Flags().GetString("site-public-ip")
 		includeNetworking, _ := cmd.Flags().GetBool("include-networking")
+		gatewayAPI, gatewayAPIError := resolveGatewayAPI(cmd, includeNetworking)
+		if gatewayAPIError != nil {
+			return gatewayAPIError
+		}
 		includeDNS, _ := cmd.Flags().GetBool("include-dns")
 		if validationError := validateProxmoxOverlayFlags(networkMode, sitePublicIP); validationError != nil {
 			return validationError
@@ -91,6 +95,7 @@ var proxmoxCreateCmd = &cobra.Command{
 			NetworkMode:              networkMode,
 			SitePublicIP:             sitePublicIP,
 			IncludeNetworking:        includeNetworking,
+			GatewayAPI:               gatewayAPI,
 			IncludeDNS:               includeDNS,
 		}
 		if description != "" {
@@ -411,6 +416,7 @@ func init() {
 	proxmoxCreateCmd.Flags().String("site-public-ip", "", "Public address other sites dial this cluster's bastion on for the overlay (required with --network-mode wireguard_mesh); the site forwards the overlay UDP port range from it to the bastion")
 	proxmoxCreateCmd.Flags().Bool("include-networking", true, "Install Traefik + cert-manager as Ankra-managed stacks for ingress (exposed via the built-in k3s service load balancer; default on)")
 	registerIncludeDNSFlag(proxmoxCreateCmd)
+	registerGatewayAPIFlag(proxmoxCreateCmd)
 	registerClusterClassificationFlags(proxmoxCreateCmd)
 
 	_ = proxmoxCreateCmd.MarkFlagRequired("name")

@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -336,5 +337,140 @@ func TestSecurityAdvisoryStructuredOutputIsTheApiDocument(t *testing.T) {
 	}
 	if decoded["cve_id"] != "CVE-2023-4911" || decoded["status"] != "fetched" {
 		t.Fatalf("structured output must be the API document, got %v", decoded)
+	}
+}
+
+type securityScopeMock struct {
+	securityMock
+	scopes       []string
+	clusterLists []client.SecurityClustersOptions
+	listedPlain  bool
+	clusterPages map[int]*client.SecurityClusterList
+}
+
+func (m *securityScopeMock) SetSecurityProjectScope(scope string) { m.scopes = append(m.scopes, scope) }
+
+func (m *securityScopeMock) ListSecurityClusters(options client.SecurityClustersOptions) (*client.SecurityClusterList, error) {
+	m.clusterLists = append(m.clusterLists, options)
+	if m.clusterPages != nil {
+		return m.clusterPages[options.Page], nil
+	}
+	return m.clusters, nil
+}
+
+func (m *securityScopeMock) ListClusters(int, int) (*client.ClusterListResponse, error) {
+	m.listedPlain = true
+	return &client.ClusterListResponse{}, nil
+}
+
+func TestSecurityFindingsAllProjectsSetsTheScopeBeforeTheRead(t *testing.T) {
+	t.Run("with the flag", func(t *testing.T) {
+		mock := &securityScopeMock{securityMock: securityMock{findings: &client.SecurityFindingList{}}}
+		if _, executeError := runSecurityCommand(t, mock, "security", "findings", "--all-projects", "-o", "json"); executeError != nil {
+			t.Fatalf("security findings --all-projects: %v", executeError)
+		}
+		if len(mock.scopes) != 1 || mock.scopes[0] != client.CostProjectScopeAll {
+			t.Fatalf("--all-projects sets the scope to all once, got %q", mock.scopes)
+		}
+	})
+	t.Run("without the flag", func(t *testing.T) {
+		mock := &securityScopeMock{securityMock: securityMock{findings: &client.SecurityFindingList{}}}
+		if _, executeError := runSecurityCommand(t, mock, "security", "findings", "-o", "json"); executeError != nil {
+			t.Fatal(executeError)
+		}
+		if len(mock.scopes) != 1 || mock.scopes[0] != "" {
+			t.Fatalf("without --all-projects the read stays in the current project, got %q", mock.scopes)
+		}
+	})
+}
+
+func TestSecurityAllProjectsResolvesAClusterNameAcrossProjects(t *testing.T) {
+	const foreignClusterID = "6f1c1f0e-0000-4000-8000-000000000002"
+	mock := &securityScopeMock{securityMock: securityMock{
+		findings: &client.SecurityFindingList{},
+		clusters: &client.SecurityClusterList{Result: []client.SecurityClusterPosture{
+			{ClusterID: "6f1c1f0e-0000-4000-8000-000000000003", ClusterName: "edge-canary"},
+			{ClusterID: foreignClusterID, ClusterName: "edge"},
+		}},
+	}}
+	if _, executeError := runSecurityCommand(t, mock, "security", "findings", "--all-projects", "--cluster", "edge", "-o", "json"); executeError != nil {
+		t.Fatalf("security findings --all-projects --cluster: %v", executeError)
+	}
+	if mock.listedPlain {
+		t.Fatal("the project's cluster list cannot name a cluster of another project")
+	}
+	if mock.findingsOptions == nil || mock.findingsOptions.ClusterID != foreignClusterID {
+		t.Fatalf("findings options = %+v, want cluster %s", mock.findingsOptions, foreignClusterID)
+	}
+}
+
+func TestSecurityAllProjectsClusterNameThatMatchesNothingIsNotFound(t *testing.T) {
+	mock := &securityScopeMock{securityMock: securityMock{clusters: &client.SecurityClusterList{}}}
+	_, executeError := runSecurityCommand(t, mock, "security", "overview", "--all-projects", "--cluster", "nowhere", "-o", "json")
+	if executeError == nil || exitCodeFor(executeError) != exitNotFound {
+		t.Fatalf("error = %v, want not found", executeError)
+	}
+}
+
+func securityClusterPage(totalPages int, clusters ...client.SecurityClusterPosture) *client.SecurityClusterList {
+	list := &client.SecurityClusterList{Result: clusters}
+	list.Pagination.TotalPages = totalPages
+	return list
+}
+
+// A case variant on the first page must not win over the exact name on a later one.
+func TestSecurityAllProjectsClusterNameReadsEveryPage(t *testing.T) {
+	const exactID = "11111111-1111-4111-8111-111111111111"
+	mock := &securityScopeMock{securityMock: securityMock{}, clusterPages: map[int]*client.SecurityClusterList{
+		1: securityClusterPage(2, client.SecurityClusterPosture{ClusterID: "22222222-2222-4222-8222-222222222222", ClusterName: "EDGE"}),
+		2: securityClusterPage(2, client.SecurityClusterPosture{ClusterID: exactID, ClusterName: "edge"}),
+	}}
+	cmd := &cobra.Command{}
+	cmd.Flags().Bool(securityAllProjectsFlag, true, "")
+	setMockClient(t, mock)
+	resolved, resolveError := resolveSecurityClusterID(cmd, "edge")
+	if resolveError != nil || resolved != exactID {
+		t.Fatalf("resolved = %q, %v; want %s", resolved, resolveError, exactID)
+	}
+}
+
+// Two projects may each hold a cluster of the same name: picking one would answer
+// with the wrong cluster's posture.
+func TestSecurityAllProjectsSameClusterNameInTwoProjectsIsAmbiguous(t *testing.T) {
+	mock := &securityScopeMock{securityMock: securityMock{}, clusterPages: map[int]*client.SecurityClusterList{
+		1: securityClusterPage(1,
+			client.SecurityClusterPosture{ClusterID: "11111111-1111-4111-8111-111111111111", ClusterName: "edge"},
+			client.SecurityClusterPosture{ClusterID: "22222222-2222-4222-8222-222222222222", ClusterName: "edge"}),
+	}}
+	cmd := &cobra.Command{}
+	cmd.Flags().Bool(securityAllProjectsFlag, true, "")
+	setMockClient(t, mock)
+	if _, resolveError := resolveSecurityClusterID(cmd, "edge"); resolveError == nil || exitCodeFor(resolveError) != exitUsage {
+		t.Fatalf("error = %v, want an ambiguity refusal", resolveError)
+	}
+}
+
+func TestSecurityOrganisationDocumentsDoNotTakeAllProjects(t *testing.T) {
+	for _, command := range []*cobra.Command{securityComplianceCmd, securityComplianceFrameworksCmd, securityComplianceFrameworkReportCmd,
+		securityComplianceExportCmd, securityHistoryCmd, securityReportScheduleCmd, securityDispositionsCreateCmd, securityPolicyModeCmd} {
+		if command.Flags().Lookup(securityAllProjectsFlag) != nil {
+			t.Errorf("%s takes --all-projects, but its route takes no project scope", command.CommandPath())
+		}
+	}
+}
+
+func TestSecurityAllProjectsRefusalSaysWhyAndKeepsTheExitCode(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.Flags().Bool(securityAllProjectsFlag, true, "")
+	refusal := securityScopeRefusal(cmd, withExitCode(exitForbidden, errors.New("unexpected status: 403 Forbidden")))
+	if exitCodeFor(refusal) != exitForbidden || !strings.Contains(refusal.Error(), "--all-projects was refused") {
+		t.Fatalf("refusal = %v (exit %d)", refusal, exitCodeFor(refusal))
+	}
+	other := errors.New("reading security overview: boom")
+	if securityScopeRefusal(cmd, other) != other {
+		t.Fatal("only a 403 is a refusal of the flag")
+	}
+	if securityScopeRefusal(cmd, nil) != nil {
+		t.Fatal("a read that succeeded has nothing to say")
 	}
 }

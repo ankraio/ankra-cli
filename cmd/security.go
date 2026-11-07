@@ -27,6 +27,13 @@ default - CISA listing first, then EPSS, then severity - so the top of the
 list is what is actually being exploited, not what merely has the highest
 CVSS score.
 
+The reads cover the project you act in (see 'ankra project current'). Pass
+--all-projects to read the whole organisation, or the global --project to read
+another project. A pinned token or a member limited to projects cannot read past
+their project, and --all-projects is refused for them. The compliance frameworks,
+report and export are the organisation's whatever the project, so they do not
+take the flag, and neither do 'history' and 'report-schedule'.
+
 Pass -o json (or yaml) for the full API document.`,
 }
 
@@ -39,7 +46,7 @@ var securityOverviewCmd = &cobra.Command{
 		addonSlug, _ := cmd.Flags().GetString("addon")
 		options := client.SecurityOverviewOptions{AddonSlug: addonSlug}
 		if clusterFlag != "" {
-			clusterID, err := resolveClusterID(clusterFlag)
+			clusterID, err := resolveSecurityClusterID(cmd, clusterFlag)
 			if err != nil {
 				return err
 			}
@@ -208,7 +215,7 @@ func securityFindingsOptionsFromFlags(cmd *cobra.Command) (client.SecurityFindin
 		options.KnownExploited = &listed
 	}
 	if clusterFlag != "" {
-		clusterID, err := resolveClusterID(clusterFlag)
+		clusterID, err := resolveSecurityClusterID(cmd, clusterFlag)
 		if err != nil {
 			return options, err
 		}
@@ -759,6 +766,7 @@ func advisorySourceText(fetchedAt *string, url string) string {
 func init() {
 	rootCmd.AddCommand(securityCmd)
 	securityCmd.AddCommand(securityOverviewCmd, securityFindingsCmd, securityFindingCmd, securityAdvisoryCmd, securityClustersCmd)
+	registerSecurityProjectScopeFlag(securityOverviewCmd, securityFindingsCmd, securityFindingCmd, securityAdvisoryCmd, securityClustersCmd)
 
 	securityOverviewCmd.Flags().String("cluster", "", "Scope the overview to one cluster (name or id)")
 	securityOverviewCmd.Flags().String("addon", "", "Scope the overview to one add-on (slug)")

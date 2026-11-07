@@ -47,6 +47,8 @@ func (m baseMock) ProjectOverride() string { return "" }
 
 func (m baseMock) SetCostProjectScope(string) {}
 
+func (m baseMock) SetSecurityProjectScope(string) {}
+
 func (m baseMock) ListProjects() ([]client.ProjectSummary, error) {
 	return nil, errors.New("not implemented")
 }
@@ -119,6 +121,14 @@ func (m baseMock) ResolveAllClusterGitopsConflicts(context.Context, string, stri
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListClusterGitopsPreservedPaths(context.Context, string) (*client.GitopsPreservedPathList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ResolveClusterGitopsPreservedPath(context.Context, string, client.GitopsPreservedPathDecision) (*client.GitopsPreservedPathResolution, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) DeleteCluster(ctx context.Context, name string) error {
 	return errors.New("not implemented")
 }
@@ -161,7 +171,7 @@ func (m baseMock) ValidateCluster(ctx context.Context, spec client.CreateResourc
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) CreateStackDraft(ctx context.Context, clusterID string, stack client.Stack) (*client.StackDraftResult, error) {
+func (m baseMock) CreateStackDrafts(ctx context.Context, clusterID string, stacks []client.Stack, replace bool) (*client.StackDraftsResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -185,7 +195,7 @@ func (m baseMock) ElevateClusterAccess(ctx context.Context, clusterID string, re
 	return nil, errors.New("not implemented")
 }
 
-func (m baseMock) GetClusterAccessPolicy(ctx context.Context) (*client.ClusterAccessPolicy, error) {
+func (m baseMock) GetClusterAccessPolicy(ctx context.Context) (*client.ClusterAccessPolicyRead, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1256,6 +1266,10 @@ func (m baseMock) RenameStack(ctx context.Context, clusterID, stackName, newName
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) RedeployStack(ctx context.Context, clusterID, stackName string, force bool) (*client.RedeployStackResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetStackHistory(clusterID, stackName string) (*client.GetStackHistoryResponse, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1692,6 +1706,38 @@ func (m baseMock) SetAILaneModel(lane string, modelKey string) ([]client.AILaneM
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListPersonalAIKeys() (*client.PersonalAIKeyListing, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AddPersonalAIKey(request client.AddPersonalAIKeyRequest) (*client.PersonalAIKey, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ReorderPersonalAIKeys(keyIDs []string) (*client.PersonalAIKeyList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RenamePersonalAIKey(keyID string, label string) (*client.PersonalAIKey, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeletePersonalAIKey(keyID string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) TestPersonalAIKey(keyID string) (*client.PersonalAIKeyTestResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetPersonalAIKeysPolicy() (*client.PersonalAIKeysPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetPersonalAIKeysPolicy(allowed bool) (*client.PersonalAIKeysPolicy, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListCharts(page, pageSize int, onlySubscribed bool) (*client.ListChartsResponse, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1858,6 +1904,14 @@ func (m baseMock) SetClusterHostedLogShipping(context.Context, string, bool) (*c
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetClusterGatewayAPI(context.Context, string, string) (*client.GatewayAPIStatus, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) EnableClusterGatewayAPI(context.Context, string, string) (*client.GatewayAPIEnableResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetControlPlaneHeal(context.Context, string) (*client.ControlPlaneHeal, error) {
 	return nil, errors.New("not implemented")
 }
@@ -2015,6 +2069,14 @@ func (m baseMock) DiagnoseClusterNode(ctx context.Context, provider, clusterID, 
 }
 
 func (m baseMock) OvhNodeCloudInitLog(clusterID, nodeID string) (*client.NodeCloudInitLogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) OvhNodeConsoleLog(ctx context.Context, clusterID, nodeID string) (*client.NodeConsoleLogResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetNodeKubeletConfig(clusterID, nodeName string) (*client.NodeKubeletConfig, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -5194,6 +5256,10 @@ func (m baseMock) RotateRegistryRobotSecret(requestContext context.Context, robo
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) UpdateRegistryRobotProjects(requestContext context.Context, robotName string, updateRequest client.UpdateRegistryRobotProjectsRequest) (*client.RegistryRobotProjectsUpdated, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) DeleteRegistryRobot(requestContext context.Context, robotName string) error {
 	return errors.New("not implemented")
 }
@@ -5280,6 +5346,50 @@ func (m baseMock) TransitionTicket(ticketID string, status string, note string) 
 }
 
 func (m baseMock) DecideTicket(ticketID string, decision client.TicketDecision) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListTicketProjectChannels() (*client.TicketProjectChannelsList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetTicketProjectChannels(string, client.SetTicketProjectChannelsRequest) (*client.SetTicketProjectChannelsResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RemoveTicketProjectChannels(string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) ListTicketLinks(ticketID string) (*client.TicketLinkList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AddTicketLink(ticketID string, link client.TicketLinkRequest) (*client.TicketLink, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RemoveTicketLink(holderTicketID string, linkID string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) NestTicket(ticketID string, request client.TicketNestRequest) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DetachTicket(ticketID string, reason string) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CloseTicket(ticketID string, request client.TicketCloseRequest) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateTicket(request client.TicketCreateRequest) (*client.Ticket, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateSubTicket(parentTicketID string, request client.TicketCreateRequest) (*client.Ticket, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -5392,6 +5502,10 @@ func (m baseMock) GetCloudLedger() (*client.CloudLedger, error) {
 }
 
 func (m baseMock) GetCloudWaste() (*client.CloudWaste, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetCloudWasteCredentialErrors() ([]client.CloudWasteCredentialError, error) {
 	return nil, errors.New("not implemented")
 }
 

@@ -49,11 +49,13 @@ const (
 // another cluster is the clone lane.
 const RestoreModeInPlace = "in_place"
 
-// BackupStackInstalling and BackupStackReady are the two states the data
-// plane that takes the captures can be in on a protected stack's cluster.
+// The states the data plane that takes the captures can be in on a protected
+// stack's cluster. Blocked is an install that keeps failing, with the reason in
+// the response's warnings: nothing is on its way until someone acts on it.
 const (
 	BackupStackInstalling = "installing"
 	BackupStackReady      = "ready"
+	BackupStackBlocked    = "blocked"
 )
 
 // RestorePointNotCarried is one thing a restore point does not contain, why,

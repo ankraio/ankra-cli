@@ -64,7 +64,7 @@ func TestDeployWithoutRecordedTagDeploysTrackedBranchBuild(t *testing.T) {
 			{Branch: "main", ImageTag: "sha-60c938b"},
 		}},
 	}
-	output, executeError := runApplicationCommand(t, mock, "deploy", testApplicationID, "--cluster", "c1")
+	output, executeError := runApplicationCommand(t, mock, "deploy", testApplicationID, "--cluster", testClusterID)
 	if executeError != nil {
 		t.Fatalf("deploy error = %v", executeError)
 	}
@@ -88,7 +88,7 @@ func TestDeployWithoutRecordedTagFallsBackToNewestRegistryImage(t *testing.T) {
 		),
 		branchBuildsError: errors.New("not found"),
 	}
-	if _, executeError := runApplicationCommand(t, mock, "deploy", testApplicationID, "--cluster", "c1",
+	if _, executeError := runApplicationCommand(t, mock, "deploy", testApplicationID, "--cluster", testClusterID,
 		"--set", "replicas=2"); executeError != nil {
 		t.Fatalf("deploy error = %v", executeError)
 	}
@@ -100,7 +100,7 @@ func TestDeployWithoutRecordedTagFallsBackToNewestRegistryImage(t *testing.T) {
 
 func TestDeployWithoutPublishedImageKeepsRefusal(t *testing.T) {
 	mock := &deployDefaultTagMock{refuseFirstDeploy: true, versions: listedVersions()}
-	_, executeError := runApplicationCommand(t, mock, "deploy", testApplicationID, "--cluster", "c1")
+	_, executeError := runApplicationCommand(t, mock, "deploy", testApplicationID, "--cluster", testClusterID)
 	if executeError == nil || !strings.Contains(executeError.Error(), "has not recorded the tag") {
 		t.Fatalf("deploy error = %v, want the platform's refusal", executeError)
 	}
@@ -111,7 +111,7 @@ func TestDeployWithoutPublishedImageKeepsRefusal(t *testing.T) {
 
 func TestDeployWithPinnedTagIsNotRetried(t *testing.T) {
 	mock := &deployDefaultTagMock{refuseFirstDeploy: true, versions: listedVersions(registryVersion("sha-1", "2026-11-02T07:00:00Z"))}
-	_, executeError := runApplicationCommand(t, mock, "deploy", testApplicationID, "--cluster", "c1",
+	_, executeError := runApplicationCommand(t, mock, "deploy", testApplicationID, "--cluster", testClusterID,
 		"--set", "image_tag=sha-2")
 	if executeError == nil {
 		t.Fatal("deploy with a pinned tag succeeded after a refusal; want the refusal")

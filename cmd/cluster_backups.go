@@ -183,6 +183,9 @@ func printClusterBackups(out io.Writer, clusterName string, page *client.Cluster
 	}
 	_, _ = fmt.Fprintln(out, ".")
 	_, _ = fmt.Fprintf(out, "Backup components: %s\n", describeBackupStackState(page.BackupStackState))
+	if page.BackupStackIssue != "" {
+		_, _ = fmt.Fprintf(out, "Why: %s\n", page.BackupStackIssue)
+	}
 
 	// VaultsKnown false is an unread listing, not an organisation with no
 	// vaults - so the setup nudge is withheld rather than printed on a blip.

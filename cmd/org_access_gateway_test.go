@@ -57,6 +57,39 @@ func TestAccessGatewaySetValidatesAndSendsPolicy(t *testing.T) {
 	}
 }
 
+func TestAccessGatewaySetProjectLimit(t *testing.T) {
+	previous := apiClient
+	defer func() { apiClient = previous }()
+	const project = "1ed7f4df-23b0-4571-ad50-89b968748bc4"
+
+	run := func(arguments ...string) (*cloudAccessPolicyMock, error) {
+		mock := &cloudAccessPolicyMock{}
+		apiClient = mock
+		command := newAccessGatewaySetCommand()
+		command.SetArgs(append([]string{"zone-1"}, arguments...))
+		command.SetOut(&bytes.Buffer{})
+		command.SetErr(&bytes.Buffer{})
+		return mock, command.Execute()
+	}
+
+	mock, runError := run("--mode", "organisation", "--access-project", project)
+	if runError != nil || mock.policy.ProjectChange == nil || *mock.policy.ProjectChange != project {
+		t.Fatalf("a project was not sent: %+v %v", mock.policy, runError)
+	}
+	mock, runError = run("--mode", "organisation")
+	if runError != nil || mock.policy.ProjectChange != nil {
+		t.Fatalf("leaving the flag out must keep the current limit: %+v %v", mock.policy, runError)
+	}
+	mock, runError = run("--mode", "organisation", "--access-project", "")
+	if runError != nil || mock.policy.ProjectChange == nil || *mock.policy.ProjectChange != "" {
+		t.Fatalf("an empty value must clear the limit: %+v %v", mock.policy, runError)
+	}
+	mock, runError = run("--mode", "public", "--access-project", project)
+	if runError == nil || mock.zoneID != "" {
+		t.Fatal("a public zone with a project was sent")
+	}
+}
+
 type accessGatewayMock struct {
 	baseMock
 	relaySecretMissing bool

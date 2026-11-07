@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -55,7 +56,127 @@ cluster mutations for confirmation.
   ankra skills install --client copilot --dir .
   ankra skills install --client claude-app
   ankra skills install --with-hooks
-  ankra skills install ankra-cli ankra-gitops`,
+  ankra skills install ankra-cli ankra-gitops
+
+Run 'ankra skills' on its own for where the skills stand on this machine.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		return writeSkillsOverview(os.Stdout)
+	},
+}
+
+// writeSkillsOverview is what bare 'ankra skills' prints: how many skills
+// this binary carries, which assistants here have them, and the commands to
+// go further. Only installed or detected assistants are listed; the full
+// registry is 'ankra skills clients'.
+func writeSkillsOverview(writer io.Writer) error {
+	style := newSkillsStyle(writer)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("could not determine home directory: %w", err)
+	}
+	bundled, err := bundledAnkraSkillNames()
+	if err != nil {
+		return err
+	}
+	detected := make(map[string]bool)
+	for _, client := range skills.DetectClients(home, skills.ScopePersonal) {
+		detected[client.ID] = true
+	}
+
+	_, _ = fmt.Fprintf(writer, "%s  %s\n\n", style.bold("Ankra Agent Skills"),
+		style.dim(fmt.Sprintf("%s bundled with ankra %s", pluralize(len(bundled), "skill", "skills"), version)))
+
+	rows := make([][]skillsTableCell, 0)
+	needsInstall := false
+	for _, client := range skills.Clients() {
+		unreadable := func(reason error) {
+			rows = append(rows, []skillsTableCell{
+				paintedCell(client.DisplayName, style.bold),
+				paintedCell("? unreadable", style.yellow),
+				plainCell(reason.Error()),
+			})
+			needsInstall = true
+		}
+		if client.Layout(skills.ScopePersonal).Skills == "" {
+			continue
+		}
+		target, targetError := skills.ResolveTarget(client, skills.ScopePersonal, home)
+		if targetError != nil {
+			unreadable(targetError)
+			continue
+		}
+		installedCount, countError := countBundledSkillsIn(target, bundled)
+		carries, carriesError := false, countError
+		if countError == nil {
+			carries, carriesError = targetCarriesAnkraInstall(target)
+		}
+		if carriesError != nil {
+			unreadable(carriesError)
+			continue
+		}
+		if !carries {
+			installedCount = 0
+		}
+		if installedCount == 0 && !detected[client.ID] {
+			continue
+		}
+		var status skillsTableCell
+		switch {
+		case len(bundled) > 0 && installedCount >= len(bundled):
+			text := fmt.Sprintf("● %d/%d", installedCount, len(bundled))
+			status = paintedCell(text, style.green)
+		case installedCount > 0:
+			text := fmt.Sprintf("◐ %d/%d", installedCount, len(bundled))
+			status = paintedCell(text, style.yellow)
+			needsInstall = true
+		default:
+			status = paintedCell("○ not installed", style.dim)
+			needsInstall = true
+		}
+		rows = append(rows, []skillsTableCell{
+			paintedCell(client.DisplayName, style.bold),
+			status,
+			paintedCell(skills.DisplayPath(target.SkillsDirectory), style.dim),
+		})
+	}
+	if len(rows) == 0 {
+		_, _ = fmt.Fprintf(writer, "  %s\n", style.yellow("No supported assistant detected on this machine."))
+		needsInstall = true
+	} else {
+		style.writeSkillsTable(writer, []string{"ASSISTANT", "SKILLS", "LOCATION"}, rows)
+	}
+
+	_, _ = fmt.Fprintln(writer)
+	commands := [][2]string{
+		{"ankra skills install", "install or refresh in the assistants above"},
+		{"ankra skills list", "browse what each skill covers"},
+		{"ankra skills clients", "every supported assistant and where it installs"},
+		{"ankra skills uninstall", "remove the skills, rule, workflows and hook"},
+	}
+	if !needsInstall {
+		commands[0] = [2]string{"ankra skills install --force", "refresh to the skills in this release"}
+	}
+	for _, command := range commands {
+		_, _ = fmt.Fprintf(writer, "  %s  %s\n", style.cyan(padRight(command[0], 28)), style.dim(command[1]))
+	}
+	return nil
+}
+
+// countBundledSkillsIn counts the skills this binary carries that are present
+// in a target, as directories or, for packaged clients, as .zip bundles.
+func countBundledSkillsIn(target skills.Target, bundled map[string]bool) (int, error) {
+	names, err := skills.InstalledNames(target)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, name := range names {
+		if bundled[name] {
+			count++
+		}
+	}
+	return count, nil
 }
 
 type skillListEntry struct {
@@ -96,7 +217,7 @@ selects; pass --dir <DIR> to see the repository-scoped locations instead.`,
 			if targetError != nil {
 				continue
 			}
-			installed, installedError := skillsDirectoryHasAnkraSkills(target)
+			installed, installedError := targetCarriesAnkraInstall(target)
 			if installedError != nil {
 				return fmt.Errorf("read the %s skills directory: %w", client.DisplayName, installedError)
 			}
@@ -113,18 +234,7 @@ selects; pass --dir <DIR> to see the repository-scoped locations instead.`,
 		if rendered, renderError := renderStructured(cmd, entries); rendered || renderError != nil {
 			return renderError
 		}
-		for _, entry := range entries {
-			marker := ""
-			switch {
-			case entry.Installed:
-				marker = " [installed]"
-			case entry.Detected:
-				marker = " [detected]"
-			}
-			fmt.Printf("%s%s\n  %s — %s, installs to %s\n",
-				entry.ID, marker, entry.DisplayName, entry.Delivery, entry.Directory)
-		}
-		fmt.Printf("\nInstall with: ankra skills install --client <id> (or --client all).\n")
+		writeClientsTable(os.Stdout, entries)
 		return nil
 	},
 }
@@ -157,14 +267,8 @@ var skillsListCmd = &cobra.Command{
 		if rendered, err := renderStructured(cmd, entries); rendered || err != nil {
 			return err
 		}
-		for _, entry := range entries {
-			marker := ""
-			if entry.Installed {
-				marker = " [installed]"
-			}
-			fmt.Printf("%s%s\n  %s\n", entry.Name, marker, entry.Description)
-		}
-		fmt.Printf("\n%d skills available. Install with: ankra skills install\n", len(entries))
+		isLong, _ := cmd.Flags().GetBool("long")
+		writeSkillsList(os.Stdout, entries, isLong)
 		return nil
 	},
 }
@@ -203,6 +307,9 @@ mutations and asks for confirmation.`,
 		if err != nil {
 			return err
 		}
+		if refusal := refusePersonalInstallUnderSudo(targets, os.Geteuid(), os.Getenv("SUDO_USER")); refusal != nil {
+			return refusal
+		}
 		options := skillsInstallOptions{}
 		options.force, _ = cmd.Flags().GetBool("force")
 		noRules, _ := cmd.Flags().GetBool("no-rules")
@@ -216,15 +323,21 @@ mutations and asks for confirmation.`,
 		// report every skill as "already present, use --force", which is both
 		// noise and wrong advice.
 		writtenDirectories := make(map[string]string)
+		var failures []error
 		for index, target := range targets {
 			if index > 0 {
 				fmt.Println()
 			}
-			if err := installForTarget(fsys, target, args, options, writtenDirectories); err != nil {
-				return err
+			if installError := installForTarget(fsys, target, args, options, writtenDirectories); installError != nil {
+				failures = append(failures, explainInstallFailure(target, installError))
 			}
 		}
-		fmt.Printf("\nRestart your assistant to load the skills. Ask it to \"use ankra-platform-principles\" to check.\n")
+		if len(failures) > 0 {
+			return errors.Join(failures...)
+		}
+		style := newSkillsStyle(os.Stdout)
+		fmt.Printf("\n%s Ankra skills ready in %s.\n", style.green("✓"), pluralize(len(targets), "assistant", "assistants"))
+		style.hint(os.Stdout, "  Restart your assistant, then ask it to \"use ankra-platform-principles\" to check.")
 		return nil
 	},
 }
@@ -310,28 +423,64 @@ type skillsInstallOptions struct {
 	skills.InstallOptions
 }
 
+// refusePersonalInstallUnderSudo stops a personal install run through sudo.
+// It would leave root-owned skills in the person's home directory, and their
+// own later installs and `ankra upgrade` refreshes could then not replace them.
+func refusePersonalInstallUnderSudo(targets []skills.Target, effectiveUserID int, sudoUser string) error {
+	if effectiveUserID != 0 || sudoUser == "" || sudoUser == "root" {
+		return nil
+	}
+	for _, target := range targets {
+		if target.Scope == skills.ScopePersonal {
+			return withExitCode(exitUsage, fmt.Errorf(
+				"not installing skills under sudo: they would be owned by root and block later installs for %s. Run it as yourself: ankra skills install --force",
+				sudoUser))
+		}
+	}
+	return nil
+}
+
+// explainInstallFailure names the client that failed and, when the cause is
+// file permissions, gives the command that repairs them. Retrying the same
+// install cannot succeed until that has been run.
+func explainInstallFailure(target skills.Target, installError error) error {
+	if !errors.Is(installError, fs.ErrPermission) {
+		return fmt.Errorf("%s: %w", target.Client.DisplayName, installError)
+	}
+	repairPath := target.SkillsDirectory
+	var pathError *fs.PathError
+	if errors.As(installError, &pathError) && !strings.HasPrefix(pathError.Path, target.SkillsDirectory+string(os.PathSeparator)) {
+		repairPath = pathError.Path
+	}
+	return fmt.Errorf("%s: %w\nAn earlier run under sudo can leave these files owned by root. Repair them, then run the install again without sudo:\n  sudo chown -R \"$(id -un)\" %q",
+		target.Client.DisplayName, installError, repairPath)
+}
+
 // installForTarget installs the selected skills and the client's supporting
 // artefacts (rule, skill index, workflow commands, guard hook) for one
 // target, reporting each step.
 func installForTarget(fsys fs.FS, target skills.Target, names []string, options skillsInstallOptions, writtenDirectories map[string]string) error {
-	fmt.Printf("%s (%s) → %s\n", target.Client.DisplayName, target.Scope, skills.DisplayPath(target.SkillsDirectory))
+	output := os.Stdout
+	style := newSkillsStyle(output)
+	style.heading(output, target.Client.DisplayName, target.Scope, skills.DisplayPath(target.SkillsDirectory))
 
 	if err := os.MkdirAll(target.SkillsDirectory, 0o755); err != nil {
 		return fmt.Errorf("could not create %s: %w", target.SkillsDirectory, err)
 	}
 
 	if owner, shared := writtenDirectories[target.SkillsDirectory]; shared {
-		fmt.Printf("  skills    already written here for %s\n", owner)
+		style.step(output, skillsStepDone, "skills", "already written here for "+owner)
 	} else {
 		installed, skipped, err := installSkillPayload(fsys, target, names, options.force)
 		if err != nil {
 			return err
 		}
-		for _, name := range installed {
-			fmt.Printf("  skill     %s\n", name)
+		if len(installed) > 0 {
+			style.step(output, skillsStepDone, "skills", describeSkillNames(installed, names, "installed"))
 		}
 		if len(skipped) > 0 {
-			fmt.Printf("  skipped   %s (already present; use --force to overwrite)\n", strings.Join(skipped, ", "))
+			style.step(output, skillsStepSkipped, "skipped",
+				describeSkillNames(skipped, names, "already present")+style.dim(" (use --force to overwrite)"))
 		}
 		writtenDirectories[target.SkillsDirectory] = target.Client.DisplayName
 	}
@@ -342,7 +491,7 @@ func installForTarget(fsys fs.FS, target skills.Target, names []string, options 
 			return fmt.Errorf("could not install the agent rule for %s: %w", target.Client.DisplayName, ruleError)
 		}
 		if rulePath != "" {
-			fmt.Printf("  rule      %s\n", skills.DisplayPath(rulePath))
+			style.step(output, skillsStepDone, "rule", skills.DisplayPath(rulePath))
 		}
 	}
 
@@ -352,19 +501,21 @@ func installForTarget(fsys fs.FS, target skills.Target, names []string, options 
 			return fmt.Errorf("could not install the workflow commands for %s: %w", target.Client.DisplayName, workflowError)
 		}
 		if len(written) > 0 {
-			fmt.Printf("  workflows %d in %s\n", len(written), skills.DisplayPath(target.CommandsDirectory))
+			style.step(output, skillsStepDone, "workflows",
+				fmt.Sprintf("%s in %s", pluralize(len(written), "command", "commands"), skills.DisplayPath(target.CommandsDirectory)))
 		}
 	}
 
 	if options.Hooks {
 		if !target.SupportsHooks() {
-			fmt.Printf("  hook      not supported by %s; skipped\n", target.Client.DisplayName)
+			style.step(output, skillsStepSkipped, "hook", "not supported by "+target.Client.DisplayName+"; skipped")
 		} else {
 			hookPath, hookError := installAgentHook(target)
 			if hookError != nil {
 				return fmt.Errorf("could not install the agent hook for %s: %w", target.Client.DisplayName, hookError)
 			}
-			fmt.Printf("  hook      %s (kubectl/helm cluster mutations ask for confirmation)\n", skills.DisplayPath(hookPath))
+			style.step(output, skillsStepDone, "hook",
+				skills.DisplayPath(hookPath)+style.dim(" (kubectl/helm cluster mutations ask for confirmation)"))
 		}
 	}
 
@@ -374,15 +525,26 @@ func installForTarget(fsys fs.FS, target skills.Target, names []string, options 
 	// will do instead and carry on.
 	if target.Scope == skills.ScopePersonal {
 		if recordError := skills.RecordInstallOptions(target.Root, target.Client.ID, options.InstallOptions); recordError != nil {
-			fmt.Printf("  warning   could not record the install options (%v); `ankra upgrade` will refresh %s with the defaults\n",
-				recordError, target.Client.DisplayName)
+			style.step(output, skillsStepWarning, "warning",
+				fmt.Sprintf("could not record the install options (%v); `ankra upgrade` will refresh %s with the defaults",
+					recordError, target.Client.DisplayName))
 		}
 	}
 
 	if target.Client.Note != "" {
-		fmt.Printf("  note      %s\n", target.Client.Note)
+		style.step(output, skillsStepNote, "note", target.Client.Note)
 	}
 	return nil
+}
+
+// describeSkillNames says which skills a step touched: the names themselves
+// when the user picked them, a count when the step covered the whole bundle,
+// since twenty-odd names on one line help nobody.
+func describeSkillNames(touched, requested []string, verb string) string {
+	if len(requested) > 0 {
+		return strings.Join(touched, ", ") + " " + verb
+	}
+	return fmt.Sprintf("%d %s", len(touched), verb)
 }
 
 // installSkillPayload copies the skills into the target, as directories for
@@ -398,7 +560,9 @@ func installSkillPayload(fsys fs.FS, target skills.Target, names []string, force
 // uninstallForTarget removes the named skills from one target and, on a full
 // uninstall, the rule, workflow commands and hook install wrote for it.
 func uninstallForTarget(target skills.Target, names []string, full bool) error {
-	fmt.Printf("%s (%s) → %s\n", target.Client.DisplayName, target.Scope, skills.DisplayPath(target.SkillsDirectory))
+	output := os.Stdout
+	style := newSkillsStyle(output)
+	style.heading(output, target.Client.DisplayName, target.Scope, skills.DisplayPath(target.SkillsDirectory))
 
 	for _, name := range names {
 		if err := validateSkillName(target.SkillsDirectory, name); err != nil {
@@ -424,7 +588,11 @@ func uninstallForTarget(target skills.Target, names []string, full bool) error {
 			removed++
 		}
 	}
-	fmt.Printf("  removed   %d skill(s)\n", removed)
+	if removed > 0 {
+		style.step(output, skillsStepDone, "skills", fmt.Sprintf("%d removed", removed))
+	} else {
+		style.step(output, skillsStepSkipped, "skills", "none installed here")
+	}
 
 	if !full {
 		return nil
@@ -434,21 +602,22 @@ func uninstallForTarget(target skills.Target, names []string, full bool) error {
 		return fmt.Errorf("could not remove the agent rule: %w", err)
 	}
 	if found {
-		fmt.Printf("  rule      removed %s\n", skills.DisplayPath(rulePath))
+		style.step(output, skillsStepDone, "rule", "removed from "+skills.DisplayPath(rulePath))
 	}
 	workflowCount, err := skills.RemoveWorkflows(target)
 	if err != nil {
 		return fmt.Errorf("could not remove the workflow commands: %w", err)
 	}
 	if workflowCount > 0 {
-		fmt.Printf("  workflows removed %d from %s\n", workflowCount, skills.DisplayPath(target.CommandsDirectory))
+		style.step(output, skillsStepDone, "workflows",
+			fmt.Sprintf("%s removed from %s", pluralize(workflowCount, "command", "commands"), skills.DisplayPath(target.CommandsDirectory)))
 	}
 	hookPath, found, err := removeAgentHook(target)
 	if err != nil {
 		return fmt.Errorf("could not remove the agent hook: %w", err)
 	}
 	if found {
-		fmt.Printf("  hook      removed from %s\n", skills.DisplayPath(hookPath))
+		style.step(output, skillsStepDone, "hook", "removed from "+skills.DisplayPath(hookPath))
 	}
 	// Only a full uninstall forgets the recorded options: removing named
 	// skills leaves the install (rule block, workflows, hook) in place, and
@@ -835,6 +1004,7 @@ func init() {
 	for _, command := range []*cobra.Command{skillsListCmd, skillsInstallCmd, skillsUninstallCmd} {
 		command.Flags().String("source", "", "read skills from a local directory instead of the embedded copy")
 	}
+	skillsListCmd.Flags().BoolP("long", "l", false, "show each skill's full description instead of a one-line summary")
 	skillsInstallCmd.Flags().Bool("force", false, "overwrite existing skills without prompting")
 	skillsInstallCmd.Flags().Bool("no-rules", false, "skip the always-applied agent rule and skill index")
 	skillsInstallCmd.Flags().Bool("no-workflows", false, "skip the Ankra workflow commands")

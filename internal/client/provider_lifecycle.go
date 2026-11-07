@@ -233,7 +233,7 @@ type ProviderDeprovisionClusterResponse struct {
 }
 
 func (c *Client) providerClusterURL(kind, clusterID, suffix string) string {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/%s", c.BaseURL, kind, url.PathEscape(clusterID))
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/%s", c.BaseURL, url.PathEscape(kind), url.PathEscape(clusterID))
 	if suffix != "" {
 		endpoint += "/" + suffix
 	}
@@ -241,7 +241,7 @@ func (c *Client) providerClusterURL(kind, clusterID, suffix string) string {
 }
 
 func (c *Client) createProviderCluster(kind string, request interface{}, result interface{}) error {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s", c.BaseURL, kind)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s", c.BaseURL, url.PathEscape(kind))
 	payload, marshalError := json.Marshal(request)
 	if marshalError != nil {
 		return fmt.Errorf("marshal request: %w", marshalError)

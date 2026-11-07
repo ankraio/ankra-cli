@@ -177,6 +177,12 @@ func scalewayCreateRequestFromFlags(cmd *cobra.Command) (client.CreateScalewayCl
 		includeNetworking, _ := cmd.Flags().GetBool("include-networking")
 		request.IncludeNetworking = &includeNetworking
 	}
+	installsNetworking, _ := cmd.Flags().GetBool("include-networking")
+	gatewayAPI, gatewayAPIError := resolveGatewayAPI(cmd, installsNetworking)
+	if gatewayAPIError != nil {
+		return client.CreateScalewayClusterRequest{}, gatewayAPIError
+	}
+	request.GatewayAPI = gatewayAPI
 	if cmd.Flags().Changed("include-dns") {
 		includeDNS, _ := cmd.Flags().GetBool("include-dns")
 		request.IncludeDNS = &includeDNS
@@ -568,6 +574,7 @@ func registerScalewayCreateFlags(commands ...*cobra.Command) {
 		command.Flags().String("retention-policy", "", "Teardown policy for volumes and load balancers: retain or delete (server default: retain)")
 		command.Flags().Bool("include-networking", true, "Provision the networking stack")
 		command.Flags().Bool("include-dns", true, "Provision the DNS zone")
+		registerGatewayAPIFlag(command)
 		_ = command.MarkFlagRequired("name")
 		_ = command.MarkFlagRequired("credential-id")
 		_ = command.MarkFlagRequired("ssh-key-credential-id")

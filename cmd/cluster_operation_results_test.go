@@ -58,13 +58,13 @@ func TestOperationsSteps_ResultsFlagFetchesAndMergesStepResults(t *testing.T) {
 	mock := &stepsResultsMock{}
 	var runError error
 	output := captureStdout(t, func() {
-		_, runError = runWithInput(t, mock, "", "cluster", "operations", "steps", "exec-1", "--results", "-o", "json")
+		_, runError = runWithInput(t, mock, "", "cluster", "operations", "steps", "aaaaaaaa-1111-4222-8333-444444444444", "--results", "-o", "json")
 	})
 	if runError != nil {
 		t.Fatalf("execute failed: %v", runError)
 	}
-	if mock.resultCalls != 1 || mock.gotExecutionID != "exec-1" {
-		t.Fatalf("expected one result fetch for exec-1, got calls=%d id=%q", mock.resultCalls, mock.gotExecutionID)
+	if mock.resultCalls != 1 || mock.gotExecutionID != "aaaaaaaa-1111-4222-8333-444444444444" {
+		t.Fatalf("expected one result fetch for aaaaaaaa-1111-4222-8333-444444444444, got calls=%d id=%q", mock.resultCalls, mock.gotExecutionID)
 	}
 	var decoded struct {
 		Steps       []map[string]any `json:"steps"`
@@ -96,7 +96,7 @@ func TestOperationsSteps_WithoutResultsFlagSkipsResultFetch(t *testing.T) {
 	mock := &stepsResultsMock{}
 	var runError error
 	output := captureStdout(t, func() {
-		_, runError = runWithInput(t, mock, "", "cluster", "operations", "steps", "exec-1", "-o", "json")
+		_, runError = runWithInput(t, mock, "", "cluster", "operations", "steps", "aaaaaaaa-1111-4222-8333-444444444444", "-o", "json")
 	})
 	if runError != nil {
 		t.Fatalf("execute failed: %v", runError)
@@ -116,7 +116,7 @@ func TestOperationsSteps_ResultsFetchFailureIsAnError(t *testing.T) {
 	mock := &stepsResultsMock{resultError: errors.New("boom")}
 	var runError error
 	captureStdout(t, func() {
-		_, runError = runWithInput(t, mock, "", "cluster", "operations", "steps", "exec-1", "--results")
+		_, runError = runWithInput(t, mock, "", "cluster", "operations", "steps", "aaaaaaaa-1111-4222-8333-444444444444", "--results")
 	})
 	if runError == nil || !strings.Contains(runError.Error(), "fetching execution results") {
 		t.Fatalf("expected the result fetch failure to surface, got %v", runError)

@@ -52,6 +52,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -149,9 +150,38 @@ var pipelineStepStartPollInterval = 5 * time.Second
 var pipelineStepStartWaitBound = 30 * time.Minute
 
 // pipelineLogStreamReconnectDelay is how long `logs --follow` waits before
-// reconnecting after the relay's own error frame or a stream fault, so a
-// transient disconnect does not spin the CLI in a tight retry loop.
-const pipelineLogStreamReconnectDelay = 2 * time.Second
+// its first reconnect after a dropped stream, so a transient disconnect does
+// not spin the CLI in a tight retry loop. Each further connection in a row
+// that fails without making progress doubles the wait, up to
+// pipelineLogStreamReconnectMaxDelay. It is a var only so the tests can
+// shorten it; nothing else writes it.
+var pipelineLogStreamReconnectDelay = 2 * time.Second
+
+// pipelineLogStreamReconnectMaxDelay caps that doubling, so a long outage is
+// retried every thirty seconds rather than at ever wider gaps. It is a var
+// only so the tests can shorten it; nothing else writes it.
+var pipelineLogStreamReconnectMaxDelay = 30 * time.Second
+
+// pipelineLogStreamReconnectBound is how many connections in a row may fail
+// without making progress before `logs --follow` gives up. A follow that
+// reconnected forever to a relay that never answers would hang a CI job
+// with nothing to say for itself, so the tenth such failure in a row (about
+// three minutes of waiting, at the delays above) ends the command with exit 1
+// and the same incomplete-output diagnostic a dropped stream gives without
+// --follow. Progress - an output line, or a connection that stayed up for
+// pipelineLogStreamHealthyConnection - starts the count again. It is a var
+// only so the tests can shorten it; nothing else writes it.
+var pipelineLogStreamReconnectBound = 10
+
+// pipelineLogStreamHealthyConnection is how long a connection has to stay up
+// to count as progress even when it carried no output line. A step can be
+// quiet for many minutes - a long compile, a test suite that prints only at
+// the end - and a transport that cuts every connection after a while is still
+// delivering everything the step prints, whereas a path that is really broken
+// fails in moments. Counting each of those cuts toward the bound would give
+// up on a healthy step. It is a var only so the tests can shorten it; nothing
+// else writes it.
+var pipelineLogStreamHealthyConnection = 30 * time.Second
 
 // pipelineArtifactPageSize is the page findPipelineStepLogArtifact asks for:
 // the route's own ceiling (enginekit/pipelineartifacts.MaxListLimit), so the
@@ -215,18 +245,27 @@ func newPipelineLogsCommand() *cobra.Command {
 A step that has already concluded prints its complete log in one shot -
 --follow does nothing extra for it, since there is nothing left to produce.
 Its archived log is read when the run has one; archiving needs a ready backup
-vault, and when there is none the command replays the step's output from the
-platform's retained log stream instead and stops when that runs out. A log
-still being archived - asked for the moment its step ended - is waited for,
-for up to a minute, before the command falls back to that replay; it exits 5
-only when neither copy can be read.
+vault, and when there is none, or archiving the log failed, the command
+replays the step's output from the platform's retained log stream instead and
+stops when that runs out. A log still being archived - asked for the moment
+its step ended - is waited for, for up to a minute, before the command falls
+back to that replay; it exits 5 only when neither copy can be read. A replay
+the stream breaks off part way exits 1, since its output is incomplete.
 
 A step that is still running is followed over the live log stream: without
 --follow, the command tails the step until it concludes and then stops; with
---follow it keeps reconnecting through a dropped stream instead of giving up.
-A live connection starts from the moment it connects unless you pass
---replay, which asks the platform for the output the step already produced
-first.
+--follow it keeps reconnecting through a dropped stream instead of giving up,
+resuming after the last line it printed and waiting longer after each failed
+connection. A live connection starts from the moment it connects unless you
+pass --replay, which asks the platform for the output the step already
+produced first.
+
+A dropped stream never exits 0 with part of the output missing. One that
+drops while the step is still running exits 1 without --follow, and with
+--follow after 10 connections in a row fail, both saying the output is
+incomplete and how to reopen it. One that drops as the step concludes is
+finished from the platform's retained log stream, after the last line
+printed, so no section is lost.
 
 A step that has not started yet has no log stream. With --follow the command
 waits for it - saying what it is blocked on - and attaches as soon as the
@@ -334,6 +373,19 @@ func runPipelineLogs(command *cobra.Command, selector client.PipelineSelector, r
 // the attempt stops running: the relay never ends a live connection itself
 // when its step concludes, and a tail that waited for that end held the
 // command open indefinitely.
+//
+// The same fact is what makes a connection that ends under the tail an
+// interruption, whether it ends on a fault (an HTTP/2 stream reset, a proxy
+// dropping the connection) or cleanly (the relay returns without an error
+// frame when its JetStream fetch fails, sserelay's relayOneBatch). Either
+// way the step's output past the last printed line was not delivered, and
+// what happens next depends on where the step is. A step that concluded in
+// the meantime has its remainder replayed from the retained stream, after
+// the last sequence printed. A step still running is incomplete output:
+// without --follow that exits 1 and says how to reopen it, where it used to
+// print "Log stream ended." and exit 0, so a script collecting the log could
+// not tell a broken stream from a finished one. With --follow it reconnects,
+// on pipelineLogStreamBackoff's bounded backoff.
 func runPipelineLogsFromLiveStream(command *cobra.Command, selector client.PipelineSelector, runID string,
 	step client.PipelineStep, follow bool) (client.PipelineStep, bool, error) {
 	// Only an explicit --replay reaches the wire: the flag's own default is
@@ -349,29 +401,41 @@ func runPipelineLogsFromLiveStream(command *cobra.Command, selector client.Pipel
 
 	progress := command.ErrOrStderr()
 	var lastSeq int64
+	backoff := pipelineLogStreamBackoff{}
 	for {
 		streamOptions.FromSequence = lastSeq
 		streamContext, cancelStream := context.WithCancel(command.Context())
+		connectedAt := time.Now()
 		events, streamError := apiClient.StreamPipelineStepLogs(streamContext, selector, runID, step.ID,
 			streamOptions)
 		if streamError != nil {
 			cancelStream()
-			var unavailable *client.PipelineLogStreamUnavailableError
-			if errors.As(streamError, &unavailable) && follow {
-				// A 503 that carries no Retry-After, or a zero one, must not
-				// turn --follow into a tight reconnect loop against the relay.
-				retryAfter := time.Duration(unavailable.RetryAfterSeconds) * time.Second
-				if retryAfter < pipelineLogStreamReconnectDelay {
-					retryAfter = pipelineLogStreamReconnectDelay
-				}
-				_, _ = fmt.Fprintf(progress, "Log stream unavailable (%s); retrying in %ds.\n",
-					unavailable.Detail, int(retryAfter.Seconds()))
-				if sleepError := sleepInterrupted(command.Context(), retryAfter); sleepError != nil {
-					return client.PipelineStep{}, false, sleepError
-				}
-				continue
+			if contextError := command.Context().Err(); contextError != nil {
+				return client.PipelineStep{}, false, contextError
 			}
 			if follow {
+				if retryReason, isRetryable := pipelineLogStreamOpenRetryReason(streamError); isRetryable {
+					delay, canRetry := backoff.fail()
+					if !canRetry {
+						return client.PipelineStep{}, false, pipelineLogStreamIncompleteError(selector, runID, step,
+							backoff.gaveUpReason(retryReason))
+					}
+					// A 503 that carries no Retry-After, or a zero one, must
+					// not turn --follow into a tight reconnect loop against
+					// the relay; one that asks for longer than the backoff
+					// is honoured.
+					var unavailable *client.PipelineLogStreamUnavailableError
+					if errors.As(streamError, &unavailable) {
+						if retryAfter := time.Duration(unavailable.RetryAfterSeconds) * time.Second; retryAfter > delay {
+							delay = retryAfter
+						}
+					}
+					_, _ = fmt.Fprintf(progress, "Log stream unavailable (%s); retrying in %s.\n", retryReason, delay)
+					if sleepError := sleepInterrupted(command.Context(), delay); sleepError != nil {
+						return client.PipelineStep{}, false, sleepError
+					}
+					continue
+				}
 				if superseding, wasSuperseded := pipelineStepSupersedingAttempt(command, selector,
 					runID, step); wasSuperseded {
 					return superseding, true, nil
@@ -380,14 +444,36 @@ func runPipelineLogsFromLiveStream(command *cobra.Command, selector client.Pipel
 			return client.PipelineStep{}, false, streamError
 		}
 
-		consumePipelineLiveTail(command, selector, runID, step, events, &lastSeq)
+		tailEnd := consumePipelineLiveTail(command, selector, runID, step, events, &lastSeq)
 		cancelStream()
 		for range events {
 		}
+		// Ctrl+C closes the stream too, and that is the person stopping the
+		// command, not the stream failing under it.
+		if contextError := command.Context().Err(); contextError != nil {
+			return client.PipelineStep{}, false, contextError
+		}
 
+		madeProgress := tailEnd.printedLines > 0 || time.Since(connectedAt) >= pipelineLogStreamHealthyConnection
 		refreshed, _, statusError := readPipelineStep(command, selector, runID, step.StepKey)
 		if statusError != nil {
-			return client.PipelineStep{}, false, statusError
+			// The blip that cut the stream often takes the next request with
+			// it, and this read failing says nothing about the step, so it
+			// must not end --follow or replace the diagnostic a script needs.
+			// A refusal with its own exit code (401, 403, 404) is an answer
+			// rather than a blip, and stands as it always did.
+			if !tailEnd.wasInterrupted || exitCodeFor(statusError) != exitError {
+				return client.PipelineStep{}, false, statusError
+			}
+			reason := fmt.Sprintf("%s, and reading the step's status failed: %v", tailEnd.reason(), statusError)
+			if !follow {
+				return client.PipelineStep{}, false, pipelineLogStreamIncompleteError(selector, runID, step, reason)
+			}
+			if waitError := waitToReconnectPipelineLogStream(command, selector, runID, step, &backoff,
+				madeProgress, reason); waitError != nil {
+				return client.PipelineStep{}, false, waitError
+			}
+			continue
 		}
 		if follow && refreshed.ID != step.ID {
 			// A retry superseded the attempt this connection was reading, so
@@ -397,24 +483,158 @@ func runPipelineLogsFromLiveStream(command *cobra.Command, selector client.Pipel
 			return refreshed, true, nil
 		}
 		if refreshed.Status == pipelineStepStatusConcluded {
+			if tailEnd.wasInterrupted {
+				// The lines between the interruption and the conclusion were
+				// never delivered, and the step will not publish again, so
+				// reconnecting live would show nothing. The retained stream
+				// still holds them: resume it after the last line printed,
+				// so nothing is lost and nothing is printed twice. Exit 0
+				// then depends on that replay finishing. With nothing printed
+				// yet the cursor is zero and this replays the step's whole
+				// retained output, which can be more than a tail without
+				// --replay would have shown but is never less.
+				_, _ = fmt.Fprintf(progress,
+					"Log stream interrupted (%s) as step %q concluded; reading the rest of its output from "+
+						"the platform's retained log stream.\n", tailEnd.reason(), step.StepKey)
+				wasDrained, replayError := replayPipelineLogRetainedStream(command, selector, runID, step, lastSeq)
+				if replayError != nil {
+					return client.PipelineStep{}, false, replayError
+				}
+				if !wasDrained {
+					return client.PipelineStep{}, false, pipelineLogStreamIncompleteError(selector, runID, step,
+						"the replay of the rest of its output never ended")
+				}
+			}
 			_, _ = fmt.Fprintln(progress, "Log stream ended: the step has concluded.")
 			return client.PipelineStep{}, false, nil
 		}
 		if !follow {
+			if tailEnd.wasInterrupted {
+				return client.PipelineStep{}, false, pipelineLogStreamIncompleteError(selector, runID, step,
+					tailEnd.reason())
+			}
+			// The tail itself saw the attempt stop running without
+			// concluding - a retry superseded it, or it went back to waiting
+			// - so the output of the attempt it was reading is whole.
 			_, _ = fmt.Fprintln(progress, "Log stream ended.")
 			return client.PipelineStep{}, false, nil
 		}
 		if pipelineStepIsWaitingToStart(refreshed) {
 			return refreshed, true, nil
 		}
-		// Every reconnect waits, not only a faulted one: a proxy that closes
-		// each connection promptly would otherwise be reconnected to as fast
-		// as it hangs up. The wait is interruptible so Ctrl+C stops --follow
-		// at once rather than at the next network call.
-		if sleepError := sleepInterrupted(command.Context(), pipelineLogStreamReconnectDelay); sleepError != nil {
-			return client.PipelineStep{}, false, sleepError
+		reason := tailEnd.reason()
+		if !tailEnd.wasInterrupted {
+			reason = fmt.Sprintf("step %q stopped running but has not concluded (status %q)",
+				step.StepKey, refreshed.Status)
+		}
+		if waitError := waitToReconnectPipelineLogStream(command, selector, runID, step, &backoff,
+			madeProgress, reason); waitError != nil {
+			return client.PipelineStep{}, false, waitError
 		}
 	}
+}
+
+// waitToReconnectPipelineLogStream holds `logs --follow` for the backoff's
+// next wait, or answers the incomplete-output error once the bound is spent.
+// Every reconnect waits, not only a faulted one: a proxy that closes each
+// connection promptly would otherwise be reconnected to as fast as it hangs
+// up. The wait is interruptible so Ctrl+C stops --follow at once rather than
+// at the next network call.
+func waitToReconnectPipelineLogStream(command *cobra.Command, selector client.PipelineSelector, runID string,
+	step client.PipelineStep, backoff *pipelineLogStreamBackoff, madeProgress bool, reason string) error {
+	if madeProgress {
+		backoff.reset()
+	}
+	delay, canRetry := backoff.fail()
+	if !canRetry {
+		return pipelineLogStreamIncompleteError(selector, runID, step, backoff.gaveUpReason(reason))
+	}
+	_, _ = fmt.Fprintf(command.ErrOrStderr(), "Log stream interrupted (%s); reconnecting in %s.\n", reason, delay)
+	return sleepInterrupted(command.Context(), delay)
+}
+
+// pipelineLogStreamBackoff paces `logs --follow`'s reconnects. Each
+// connection in a row that fails without making progress waits twice as
+// long as the one before it, from pipelineLogStreamReconnectDelay up to
+// pipelineLogStreamReconnectMaxDelay, and the pipelineLogStreamReconnectBound-th
+// such failure ends the follow. It replaces a fixed two-second delay with no
+// bound at all, which retried a relay that would never answer for as long as
+// the command was left running.
+type pipelineLogStreamBackoff struct {
+	// failures counts the connections in a row that made no progress.
+	failures int
+}
+
+// fail records one more connection that made no progress, and answers how
+// long to wait before the next one - or false when that was the last one
+// the bound allows.
+func (backoff *pipelineLogStreamBackoff) fail() (time.Duration, bool) {
+	backoff.failures++
+	if backoff.failures >= pipelineLogStreamReconnectBound {
+		return 0, false
+	}
+	delay := pipelineLogStreamReconnectDelay
+	for doubling := 1; doubling < backoff.failures && delay < pipelineLogStreamReconnectMaxDelay; doubling++ {
+		delay *= 2
+	}
+	if delay > pipelineLogStreamReconnectMaxDelay {
+		delay = pipelineLogStreamReconnectMaxDelay
+	}
+	return delay, true
+}
+
+// reset starts the count again after a connection that made progress.
+func (backoff *pipelineLogStreamBackoff) reset() {
+	backoff.failures = 0
+}
+
+// gaveUpReason is the reason the incomplete-output error gives once the
+// bound is spent, naming the last failure so the cause is not lost.
+func (backoff *pipelineLogStreamBackoff) gaveUpReason(lastFailure string) string {
+	return fmt.Sprintf("gave up after %d connections in a row failed; the last: %s", backoff.failures, lastFailure)
+}
+
+// pipelineLogStreamOpenRetryReason reports whether a refusal to open the
+// live stream is worth retrying under --follow, and what to call it. The
+// relay's 503 says so itself. A request that never got a response - the
+// connection refused or reset, a DNS answer missing - is the same transient
+// trouble that drops an open stream, and is often what the reconnect right
+// after a drop meets while a proxy restarts. Every other refusal (a 404 for
+// a step that is gone, a 403) is an answer, and retrying it changes nothing;
+// so is the client's own refusal to send a path the edge would rewrite,
+// which arrives in a *url.Error too.
+func pipelineLogStreamOpenRetryReason(streamError error) (string, bool) {
+	if isRefusedBeforeSending(streamError) {
+		return "", false
+	}
+	var unavailable *client.PipelineLogStreamUnavailableError
+	if errors.As(streamError, &unavailable) {
+		return unavailable.Detail, true
+	}
+	var transportError *url.Error
+	if errors.As(streamError, &transportError) {
+		return streamError.Error(), true
+	}
+	return "", false
+}
+
+// pipelineLogStreamIncompleteError is the answer when the live stream drops
+// and the rest of the step's output cannot be read: without --follow at once,
+// and with it once pipelineLogStreamBackoff's bound is spent. It exits 1, the
+// generic failure, because the output above it is not the step's whole
+// output and a script that treated exit 0 as "I have the log" was being
+// told it did when it did not. A dropped log connection says nothing about
+// the step, which usually carries on regardless, so the message points at
+// where the step's own status is read rather than guess it, and gives the
+// command that reads the whole output again and keeps following.
+func pipelineLogStreamIncompleteError(selector client.PipelineSelector, runID string, step client.PipelineStep,
+	reason string) error {
+	runArguments := runID + pipelineSelectorArguments(selector)
+	return withExitCode(exitError, fmt.Errorf(
+		"the log stream for step %q was interrupted (%s), so the output above is "+
+			"incomplete - the step's own status is in 'ankra pipeline get %s'; reopen its log with "+
+			"'ankra pipeline logs %s --step %s --follow --replay' to read all of it and keep following",
+		step.StepKey, reason, runArguments, runArguments, step.StepKey))
 }
 
 // waitForPipelineStepToStart holds `logs --follow` open until the step it was
@@ -812,31 +1032,67 @@ func announceSupersededPipelineStepAttempts(command *cobra.Command, detail *clie
 // A status read that fails does not end the tail: not knowing whether the
 // step is still running is no reason to stop printing what it produces, and
 // the next quiet stretch asks again.
+//
+// It answers how the connection ended rather than printing a fault and
+// returning as if nothing happened. The fault used to be printed here and
+// then forgotten, so the caller could not tell a stream that broke from one
+// whose step had finished, and exited 0 for both.
 func consumePipelineLiveTail(command *cobra.Command, selector client.PipelineSelector, runID string,
-	step client.PipelineStep, events <-chan client.PipelineLogEvent, lastSequence *int64) {
+	step client.PipelineStep, events <-chan client.PipelineLogEvent, lastSequence *int64) pipelineLiveTailEnd {
 	out := command.OutOrStdout()
-	progress := command.ErrOrStderr()
 	quietTimer := time.NewTimer(pipelineLiveTailStatusCheckInterval)
 	defer quietTimer.Stop()
+	tailEnd := pipelineLiveTailEnd{}
 	for {
 		select {
 		case event, isStreamOpen := <-events:
 			if !isStreamOpen {
-				return
+				tailEnd.wasInterrupted = true
+				return tailEnd
 			}
-			printPipelineLogEvent(out, progress, event)
-			if event.Type == "line" {
+			switch event.Type {
+			case "line":
+				printPipelineLogLine(out, event)
 				*lastSequence = event.Seq
+				tailEnd.printedLines++
+			case "error":
+				// The client closes the channel right after its one error
+				// frame, so the close above reports it on the next receive.
+				tailEnd.fault = event.Error
 			}
 			quietTimer.Reset(pipelineLiveTailStatusCheckInterval)
 		case <-quietTimer.C:
 			refreshed, _, readError := readPipelineStep(command, selector, runID, step.StepKey)
 			if readError == nil && (refreshed.ID != step.ID || refreshed.Status != pipelineStepStatusRunning) {
-				return
+				return tailEnd
 			}
 			quietTimer.Reset(pipelineLiveTailStatusCheckInterval)
 		}
 	}
+}
+
+// pipelineLiveTailEnd is how one live connection ended.
+type pipelineLiveTailEnd struct {
+	// wasInterrupted is true when the connection closed under the tail -
+	// on a fault, or cleanly, which the relay never does to a running step
+	// of its own accord - and false when the tail ended it itself because
+	// the attempt stopped running.
+	wasInterrupted bool
+	// fault is the stream fault the connection closed on, empty for a
+	// clean close.
+	fault string
+	// printedLines counts the output lines this connection delivered, which
+	// is the progress pipelineLogStreamBackoff resets on.
+	printedLines int
+}
+
+// reason says why the connection ended, for the lines and the error that
+// report it.
+func (tailEnd pipelineLiveTailEnd) reason() string {
+	if tailEnd.fault != "" {
+		return tailEnd.fault
+	}
+	return "the connection closed"
 }
 
 // waitForPipelineStepLogArchive re-reads the run's artifacts until the step's
@@ -874,7 +1130,8 @@ func waitForPipelineStepLogArchive(command *cobra.Command, selector client.Pipel
 // retained log stream instead of reporting the step as having printed
 // nothing. A step_log still pending is waited for first
 // (waitForPipelineStepLogArchive), and one that stays pending past that bound
-// falls through to the retained stream the same way.
+// falls through to the retained stream the same way, as does one whose
+// archiving failed.
 func runPipelineLogsFromArchive(command *cobra.Command, selector client.PipelineSelector, runID string,
 	step client.PipelineStep) error {
 	out := command.OutOrStdout()
@@ -959,6 +1216,19 @@ func runPipelineLogsFromArchive(command *cobra.Command, selector client.Pipeline
 		if detail == "" {
 			detail = "Ankra could not archive this log."
 		}
+		// An archive that failed - the upload broke on the worker's way to
+		// object storage, or the vault refused it - leaves the step's output
+		// exactly where a pending one does: on the retained stream, for a
+		// step that reached an execution. Pending already fell through to it
+		// and Failed did not, so a step whose upload broke could not be read
+		// from the CLI at all while the retained stream still held its
+		// output.
+		if pipelineStepHasLogStream(step) {
+			_, _ = fmt.Fprintf(progress,
+				"Step %q's log was not archived (%s); replaying the platform's retained log stream instead.\n",
+				step.StepKey, strings.TrimRight(detail, "."))
+			return runPipelineLogsFromRetainedStream(command, selector, runID, step)
+		}
 		return fmt.Errorf("step %q's log was not archived: %s", step.StepKey, detail)
 	case client.PipelineArtifactStatusExpired:
 		return withExitCode(exitNotFound,
@@ -1026,15 +1296,36 @@ func findPipelineStepLogArtifact(command *cobra.Command, selector client.Pipelin
 // waiting for an end that is not coming. Stopping is reported rather than
 // dressed up as the end of the log, because a truncated replay and a
 // complete one are not the same answer.
+//
+// A replay the stream breaks off with a fault is an error, exit 1: the
+// output printed so far is not the step's whole log, and it used to exit 0
+// after printing the fault, which a script reading the exit status could not
+// tell from a log that printed in full.
 func runPipelineLogsFromRetainedStream(command *cobra.Command, selector client.PipelineSelector,
 	runID string, step client.PipelineStep) error {
+	_, replayError := replayPipelineLogRetainedStream(command, selector, runID, step, 0)
+	return replayError
+}
+
+// replayPipelineLogRetainedStream is that replay, and reports through
+// wasDrained whether the stream ended on its own rather than at the idle
+// guard. The whole-log read above does not need to know, since it has said
+// so on stderr and has nothing further to add. A resumed read does, because
+// it can only claim the remainder arrived if the replay said it was done.
+//
+// fromSequence resumes the replay after that stream sequence, for a live
+// tail that was interrupted as its step concluded and has already printed
+// everything up to it; zero replays the step's retained output from the
+// start.
+func replayPipelineLogRetainedStream(command *cobra.Command, selector client.PipelineSelector,
+	runID string, step client.PipelineStep, fromSequence int64) (wasDrained bool, replayError error) {
 	out := command.OutOrStdout()
 	progress := command.ErrOrStderr()
 
 	streamContext, cancelStream := context.WithCancel(command.Context())
 	isNotFollowing := false
 	events, streamError := apiClient.StreamPipelineStepLogs(streamContext, selector, runID, step.ID,
-		client.StepLogStreamOptions{IsFollowing: &isNotFollowing})
+		client.StepLogStreamOptions{FromSequence: fromSequence, IsFollowing: &isNotFollowing})
 	if streamError != nil {
 		cancelStream()
 		// The platform's own sentence is the whole message - it already says
@@ -1043,9 +1334,9 @@ func runPipelineLogsFromRetainedStream(command *cobra.Command, selector client.P
 		// failure worth retrying, so it exits like every other not-found.
 		var noLongerRetained *client.PipelineLogNoLongerRetainedError
 		if errors.As(streamError, &noLongerRetained) {
-			return withExitCode(exitNotFound, streamError)
+			return false, withExitCode(exitNotFound, streamError)
 		}
-		return streamError
+		return false, streamError
 	}
 	// The client's reader goroutine blocks once its channel fills, so a
 	// replay abandoned at the idle guard is cancelled and drained rather
@@ -1059,31 +1350,35 @@ func runPipelineLogsFromRetainedStream(command *cobra.Command, selector client.P
 	idleTimer := time.NewTimer(pipelineLogReplayIdleTimeout)
 	defer idleTimer.Stop()
 	printedLines := 0
-	sawStreamFault := false
 	for {
 		select {
 		case <-streamContext.Done():
-			return streamContext.Err()
+			return false, streamContext.Err()
 		case event, isStreamOpen := <-events:
 			if !isStreamOpen {
 				// Said as the stream's answer, not as the step's: inside the
 				// retention window an empty replay and a step that printed
-				// nothing are the same thing from here. A replay that
-				// faulted is not said at all - the fault is already on
-				// stderr, and a read that broke observed nothing about the
-				// output either way.
-				if printedLines == 0 && !sawStreamFault {
+				// nothing are the same thing from here. A resumed replay
+				// says nothing when it is empty: the live tail before it
+				// printed the output, and there was simply no more.
+				if printedLines == 0 && fromSequence == 0 {
 					_, _ = fmt.Fprintf(progress,
 						"The platform's retained log stream held no output for step %q.\n", step.StepKey)
 				}
-				return nil
+				return true, nil
 			}
-			printPipelineLogEvent(out, progress, event)
 			switch event.Type {
 			case "line":
+				printPipelineLogLine(out, event)
 				printedLines++
 			case "error":
-				sawStreamFault = true
+				// A read that broke observed nothing about the rest of the
+				// output, so it is neither stated as an empty stream nor
+				// passed off as the end of the log.
+				return false, withExitCode(exitError, fmt.Errorf(
+					"the platform's retained log stream for step %q was interrupted (%s), so the output above "+
+						"is incomplete - run 'ankra pipeline logs %s --step %s' again to read it whole",
+					step.StepKey, event.Error, runID+pipelineSelectorArguments(selector), step.StepKey))
 			}
 			// A bare Reset, deliberately. This module's go directive is
 			// 1.25, and from go1.23 a timer's channel is unbuffered and
@@ -1097,21 +1392,18 @@ func runPipelineLogsFromRetainedStream(command *cobra.Command, selector client.P
 				"The platform did not end step %q's log replay after %ds without output;"+
 					" it is older than the replay this command asked for. Stopping here.\n",
 				step.StepKey, int(pipelineLogReplayIdleTimeout.Seconds()))
-			return nil
+			return false, nil
 		}
 	}
 }
 
-// printPipelineLogEvent writes one decoded relay frame: output lines to
-// stdout so a redirected log holds only the step's own output, and the
-// relay's faults to stderr.
-func printPipelineLogEvent(out io.Writer, progress io.Writer, event client.PipelineLogEvent) {
-	switch event.Type {
-	case "line":
-		_, _ = fmt.Fprintf(out, "[%s] %s\n", event.Stream, event.Line)
-	case "error":
-		_, _ = fmt.Fprintf(progress, "Log stream fault: %s\n", event.Error)
-	}
+// printPipelineLogLine writes one output line frame to stdout, so a
+// redirected log holds only the step's own output. A fault frame is not
+// printed here: each caller reports it on stderr together with what it
+// means for the output - finished from the retained stream, reconnected, or
+// incomplete - and with the exit status that goes with that.
+func printPipelineLogLine(out io.Writer, event client.PipelineLogEvent) {
+	_, _ = fmt.Fprintf(out, "[%s] %s\n", event.Stream, event.Line)
 }
 
 // pipelineStepHasLogStream reports whether a step ever reached an execution,

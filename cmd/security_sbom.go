@@ -33,7 +33,7 @@ Drill further with 'ankra security pods --cluster <cluster> --namespace <ns>'.`,
 		order, _ := cmd.Flags().GetString("order")
 		options := client.SecurityNamespacesOptions{Page: page, PageSize: pageSize, Search: search, Sort: sort, Order: order}
 		if clusterFlag != "" {
-			clusterID, err := resolveClusterID(clusterFlag)
+			clusterID, err := resolveSecurityClusterID(cmd, clusterFlag)
 			if err != nil {
 				return err
 			}
@@ -73,7 +73,7 @@ not the same as clean.`,
 		if strings.TrimSpace(clusterFlag) == "" || strings.TrimSpace(namespace) == "" {
 			return withExitCode(exitUsage, fmt.Errorf("--cluster and --namespace are required"))
 		}
-		clusterID, err := resolveClusterID(clusterFlag)
+		clusterID, err := resolveSecurityClusterID(cmd, clusterFlag)
 		if err != nil {
 			return err
 		}
@@ -148,7 +148,7 @@ var securitySbomImagesCmd = &cobra.Command{
 			WorkloadKind: workloadKind, WorkloadName: workloadName, Sort: sort, Order: order,
 		}
 		if clusterFlag != "" {
-			clusterID, err := resolveClusterID(clusterFlag)
+			clusterID, err := resolveSecurityClusterID(cmd, clusterFlag)
 			if err != nil {
 				return err
 			}
@@ -185,7 +185,7 @@ var securitySbomComponentCmd = &cobra.Command{
 			PackageType: packageType,
 		}
 		if clusterFlag != "" {
-			clusterID, err := resolveClusterID(clusterFlag)
+			clusterID, err := resolveSecurityClusterID(cmd, clusterFlag)
 			if err != nil {
 				return err
 			}
@@ -318,7 +318,7 @@ The inventory line counts the scope (cluster, namespace, workload) before
 			WorkloadKind: workloadKind, WorkloadName: workloadName, Status: normalizedStatus, Sort: sort, Order: order,
 		}
 		if clusterFlag != "" {
-			clusterID, err := resolveClusterID(clusterFlag)
+			clusterID, err := resolveSecurityClusterID(cmd, clusterFlag)
 			if err != nil {
 				return err
 			}
@@ -457,7 +457,7 @@ func securitySbomComponentsOptionsFromFlags(cmd *cobra.Command) (client.Security
 		return options, withExitCode(exitUsage, fmt.Errorf("--vulnerable must be true, false or any, got %q", vulnerableRaw))
 	}
 	if clusterFlag != "" {
-		clusterID, err := resolveClusterID(clusterFlag)
+		clusterID, err := resolveSecurityClusterID(cmd, clusterFlag)
 		if err != nil {
 			return options, err
 		}
@@ -972,6 +972,8 @@ func intelligenceCaveats(intelligence client.SecurityIntelligenceStatus) []strin
 
 func init() {
 	securityCmd.AddCommand(securityNamespacesCmd, securityPodsCmd, securitySbomCmd)
+	registerSecurityProjectScopeFlag(securityNamespacesCmd, securityPodsCmd, securitySbomCmd, securitySbomImagesCmd, securitySbomImageCmd,
+		securitySbomComponentCmd, securitySbomFindingsCmd, securitySbomContainersCmd, securitySbomExportCmd)
 	securitySbomComponentCmd.Flags().String("version", "", "The exact installed version the component list shows; omit when the list shows none")
 	securitySbomComponentCmd.Flags().String("type", "", "The ecosystem the component list shows (deb, apk, rpm, npm, pypi, golang, maven, ...); required")
 	securitySbomComponentCmd.Flags().String("cluster", "", "Only the images, workload containers and clusters on one cluster (name or id)")

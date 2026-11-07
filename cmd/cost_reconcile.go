@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"ankra/internal/client"
@@ -32,11 +34,15 @@ it provisioned, a node's provider id, a volume's handle). Tax and credits are
 reported apart, since the estimate carries neither.
 
 Nothing unknown reads as agreement. A credential no billing document was
-imported for is unknown, not zero; a failed import says why; a difference is
-stated only when the provider's figures are final and the estimate covers
-every hour each named cluster existed that month, and otherwise the reason is
-shown. Billed lines no cluster could be placed on are counted with their
-amount.
+imported for is unknown, not zero; a failed import says why. A difference is
+stated only when the provider's figures are final, and then only over the
+clusters the metering covered for the hours they existed that month (a missed
+hour or so is allowed), never as the accuracy of the whole invoice: the
+Difference covers column says how many of the invoice's clusters that is,
+the share of the billed amount they hold, and the share of all the named
+clusters' hours that was metered for them. When no cluster qualifies, or the
+share is too small, no difference is stated and the reason is shown. Billed lines no cluster could
+be placed on are counted with their amount.
 
 --month reads a UTC calendar month as YYYY-MM (the last closed month when
 omitted; the running month is month to date on both sides). Pass -o json (or
@@ -87,14 +93,59 @@ func costReconcileReadError(readError error) error {
 		"reading the invoice reconciliation")
 }
 
-// costReconcileCredentialLabel names a credential, or says it was deleted
-// since the month it billed.
+// costReconcileOutsideLabel is how a credential outside the reader's
+// projects is named: the platform withheld which credential it is.
+const costReconcileOutsideLabel = "a credential outside your projects"
+
+// costReconcileOutsideNote is the note beside such a credential's row.
+const costReconcileOutsideNote = "Outside the projects you can read: which credential this is, its invoice numbers and " +
+	"its provider's errors are withheld. Its cost on your clusters is shown."
+
+// costReconcileCredentialLabel names one credential: its name; "deleted
+// credential" and the first block of its id when the platform kept the id
+// but the name is gone; or costReconcileOutsideLabel when the platform
+// withheld which credential it is. A withheld credential is never called
+// deleted, since withholding it says nothing about whether it still exists.
 func costReconcileCredentialLabel(credential client.CostReconciliationCredential) string {
-	name := "deleted credential " + costShortID(credential.CredentialID)
-	if credential.CredentialName != nil && *credential.CredentialName != "" {
+	var name string
+	switch {
+	case credential.CredentialOutsideProjects:
+		name = costReconcileOutsideLabel
+	case credential.CredentialName != nil && *credential.CredentialName != "":
 		name = *credential.CredentialName
+	case credential.CredentialID != nil:
+		name = "deleted credential " + costShortID(*credential.CredentialID)
+	default:
+		name = "a credential the platform did not name"
 	}
 	return name + " (" + costProviderLabel(credential.Provider) + ")"
+}
+
+// costReconcileCredentialLabels names every row, in the order the platform
+// listed the credentials. A row is keyed by its position, never by its
+// credential id: a credential outside the reader's projects comes with no
+// id, and two of them are still two rows. When one provider has more than
+// one such credential, each is numbered ("1 of 2") so its notes can be told
+// apart; the number says nothing about which credential it is.
+func costReconcileCredentialLabels(credentials []client.CostReconciliationCredential) []string {
+	outsideCount := map[string]int{}
+	for _, credential := range credentials {
+		if credential.CredentialOutsideProjects {
+			outsideCount[credential.Provider]++
+		}
+	}
+	outsideSeen := map[string]int{}
+	labels := make([]string, len(credentials))
+	for index, credential := range credentials {
+		if credential.CredentialOutsideProjects && outsideCount[credential.Provider] > 1 {
+			outsideSeen[credential.Provider]++
+			labels[index] = fmt.Sprintf("%s, %d of %d (%s)", costReconcileOutsideLabel, outsideSeen[credential.Provider],
+				outsideCount[credential.Provider], costProviderLabel(credential.Provider))
+			continue
+		}
+		labels[index] = costReconcileCredentialLabel(credential)
+	}
+	return labels
 }
 
 // costShortID is the first block of an id, enough to tell rows apart.
@@ -205,17 +256,133 @@ func costReconcileDifference(credential client.CostReconciliationCredential) str
 	return fmt.Sprintf("%.2f%%", *credential.DifferencePct)
 }
 
+// costReconcileCoverage is the Difference covers column: how many of the
+// clusters the invoice's lines are placed on the difference is taken over,
+// the share of the billed amount they hold, and the share of every named
+// cluster's hours that was metered for them (under 100 when the platform
+// allowed a missed hour, or left a cluster out). A
+// share the platform could not give reads unknown, never 0%. A platform
+// that predates the field said nothing, which is not the same as saying no
+// cluster qualified.
+func costReconcileCoverage(credential client.CostReconciliationCredential) string {
+	if !credential.CoverageReported {
+		return "not reported"
+	}
+	coverage := credential.DifferenceCoverage
+	if coverage == nil {
+		return "no cluster fully metered"
+	}
+	return fmt.Sprintf("%d/%d clusters · %s billed · %s hours", coverage.ClustersCovered, coverage.ClustersNamed,
+		costReconcileShare(coverage.InvoiceSharePct), costReconcileShare(coverage.HoursSharePct))
+}
+
+// costReconcileShare renders a share at two decimals at most, or unknown.
+// Rounding never turns a part into the whole or a sliver into nothing: a
+// share under 100 prints 99.99% at most, and one above 0 prints 0.01% at
+// least, whatever precision the platform sent.
+func costReconcileShare(percent *float64) string {
+	if percent == nil {
+		return "unknown"
+	}
+	rounded := math.Round(*percent*100) / 100
+	switch {
+	case *percent < 100 && rounded >= 100:
+		rounded = 99.99
+	case *percent > 0 && rounded <= 0:
+		rounded = 0.01
+	}
+	return strconv.FormatFloat(rounded, 'f', -1, 64) + "%"
+}
+
+// costReconcileBilled is the Billed column. An invoice counted under another
+// credential that reads the same provider account names that credential
+// rather than reading unknown, and a read for a project or a set of
+// clusters says the total was withheld. labelsByID holds the label of every
+// credential the platform named by id.
+func costReconcileBilled(credential client.CostReconciliationCredential, labelsByID map[string]string) string {
+	switch {
+	case credential.SameInvoiceAs != nil && *credential.SameInvoiceAs != "":
+		if label, known := labelsByID[*credential.SameInvoiceAs]; known {
+			return "counted under " + label
+		}
+		return "counted under " + costShortID(*credential.SameInvoiceAs)
+	case credential.InvoiceWithheld:
+		return "withheld (scoped read)"
+	default:
+		return costReconcileAmount(credential.InvoiceMinor, credential)
+	}
+}
+
+// costReconcileConversionNote says how the estimate was put in the invoice's
+// currency, for a credential whose estimate was converted. A platform that
+// predates rate and basis (cluster#6006) always sent the USD figure with
+// rate_from_usd, converted at the latest stored rate, and gets the sentence
+// it always got; that rate is named only when from is usd, never next to
+// another currency's figure. A payload with no rate the note can name says
+// the platform did not report it, and names no day and no basis: a sentence
+// never states a rate the platform did not send. Otherwise the note names
+// the rate applied and the day of its rates. Basis today is read only beside
+// the USD figure, where it says a cluster's month recorded no EUR figure, so
+// the estimate is the USD figure at today's rate and the difference includes
+// the rate's move since the month; for approximated, that a EUR figure was
+// made later from older data. A rate with no as_of is the built-in one,
+// never a rate of 0.
+func costReconcileConversionNote(fx client.CostReconciliationFX) string {
+	from, to := strings.ToUpper(fx.From), strings.ToUpper(fx.To)
+	fromUSD := strings.EqualFold(fx.From, "usd")
+	storedRate := "the built-in rate"
+	if fx.AsOf != nil && *fx.AsOf != "" {
+		storedRate = "the rate stored " + *fx.AsOf
+	}
+	if fx.Rate == nil {
+		if fx.RateFromUSD == nil || !fromUSD {
+			return fmt.Sprintf("The estimate is converted from %s at a rate the platform did not report.", from)
+		}
+		return fmt.Sprintf("The estimate is converted from %s at %g (%s), not the month's own rate.", from, *fx.RateFromUSD, storedRate)
+	}
+	basis := ""
+	if fx.Basis != nil {
+		basis = *fx.Basis
+	}
+	if basis == "today" && fromUSD {
+		return fmt.Sprintf("A cluster's month recorded no EUR figure, so the estimate is the %s figure converted into %s at today's rate, %g (%s), "+
+			"and the difference includes the rate's move since the month.", from, to, *fx.Rate, storedRate)
+	}
+	rateDay := "the built-in rate"
+	if fx.AsOf != nil && *fx.AsOf != "" {
+		day := *fx.AsOf
+		if cut := strings.IndexByte(day, 'T'); cut > 0 {
+			day = day[:cut]
+		}
+		rateDay = "the ECB rates of " + day
+	}
+	note := fmt.Sprintf("The estimate is converted from %s into %s at %g (%s).", from, to, *fx.Rate, rateDay)
+	if basis == "approximated" {
+		note += " At least one of the month's EUR figures was made later from older data."
+	}
+	return note
+}
+
 // costReconcileNotes is what a reader needs beside a credential's row: why
 // no difference is stated, the caveat on one that is, what was set apart,
 // the unplaced lines, failed imports in the provider's words, and the
-// conversion basis.
+// conversion basis. A credential outside the reader's projects says first
+// what was withheld about it.
 func costReconcileNotes(credential client.CostReconciliationCredential) []string {
 	var notes []string
+	if credential.CredentialOutsideProjects {
+		notes = append(notes, costReconcileOutsideNote)
+	}
 	if credential.DifferenceReason != nil && *credential.DifferenceReason != "" {
 		notes = append(notes, *credential.DifferenceReason)
 	}
 	if credential.DifferenceCaveat != nil && *credential.DifferenceCaveat != "" {
 		notes = append(notes, *credential.DifferenceCaveat)
+	}
+	if credential.InvoiceWithheld {
+		notes = append(notes, "Read for the project you act in: the invoice total, tax, credits and unplaced lines are "+
+			"withheld, and the difference and what it covers are that project's clusters alone. --all-projects reads the "+
+			"whole invoice where your access allows it.")
 	}
 	if credential.Currency != nil && !credential.CurrenciesMixed {
 		currency := *credential.Currency
@@ -231,13 +398,8 @@ func costReconcileNotes(credential client.CostReconciliationCredential) []string
 			}
 			notes = append(notes, note)
 		}
-		if credential.EstimateFX != nil && credential.EstimateFX.From != credential.EstimateFX.To {
-			basis := "the built-in rate"
-			if credential.EstimateFX.AsOf != nil && *credential.EstimateFX.AsOf != "" {
-				basis = "the rate stored " + *credential.EstimateFX.AsOf
-			}
-			notes = append(notes, fmt.Sprintf("The estimate is converted from %s at %g (%s), not the month's own rate.",
-				strings.ToUpper(credential.EstimateFX.From), credential.EstimateFX.RateFromUSD, basis))
+		if credential.EstimateFX != nil && !strings.EqualFold(credential.EstimateFX.From, credential.EstimateFX.To) {
+			notes = append(notes, costReconcileConversionNote(*credential.EstimateFX))
 		}
 	} else if credential.CurrenciesMixed && credential.UnmatchedLineCount > 0 {
 		notes = append(notes, pluralCount(credential.UnmatchedLineCount, "billed line")+" placed on no cluster, in more than one currency.")
@@ -267,6 +429,13 @@ func renderCostReconciliation(out io.Writer, reconciliation *client.CostReconcil
 		return
 	}
 	_, _ = fmt.Fprintln(out)
+	labels := costReconcileCredentialLabels(reconciliation.Credentials)
+	labelsByID := make(map[string]string, len(reconciliation.Credentials))
+	for index, credential := range reconciliation.Credentials {
+		if credential.CredentialID != nil {
+			labelsByID[*credential.CredentialID] = labels[index]
+		}
+	}
 	writer := newCostTable(out)
 	writer.SetColumnConfigs([]table.ColumnConfig{
 		{Number: 3, Align: text.AlignRight},
@@ -274,21 +443,22 @@ func renderCostReconciliation(out io.Writer, reconciliation *client.CostReconcil
 		{Number: 5, Align: text.AlignRight},
 		{Number: 6, Align: text.AlignRight},
 	})
-	writer.AppendHeader(table.Row{"Credential", "Import", "Billed", "On clusters", "Estimate", "Difference"})
-	for _, credential := range reconciliation.Credentials {
+	writer.AppendHeader(table.Row{"Credential", "Import", "Billed", "On clusters", "Estimate", "Difference", "Difference covers"})
+	for index, credential := range reconciliation.Credentials {
 		writer.AppendRow(table.Row{
-			costReconcileCredentialLabel(credential),
+			labels[index],
 			costReconcileImportCell(credential),
-			costReconcileAmount(credential.InvoiceMinor, credential),
+			costReconcileBilled(credential, labelsByID),
 			costReconcileAmount(credential.MatchedMinor, credential),
 			costReconcileEstimate(credential),
 			costReconcileDifference(credential),
+			costReconcileCoverage(credential),
 		})
 	}
 	writer.Render()
 
 	hasNotes := false
-	for _, credential := range reconciliation.Credentials {
+	for index, credential := range reconciliation.Credentials {
 		notes := costReconcileNotes(credential)
 		if len(notes) == 0 {
 			continue
@@ -298,7 +468,7 @@ func renderCostReconciliation(out io.Writer, reconciliation *client.CostReconcil
 			_, _ = fmt.Fprintln(out, "Notes:")
 			hasNotes = true
 		}
-		_, _ = fmt.Fprintf(out, "  %s\n", costReconcileCredentialLabel(credential))
+		_, _ = fmt.Fprintf(out, "  %s\n", labels[index])
 		for _, note := range notes {
 			_, _ = fmt.Fprintf(out, "    - %s\n", note)
 		}

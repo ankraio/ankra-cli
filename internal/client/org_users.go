@@ -5,7 +5,10 @@ package client
 // CLI called /api/v1/org/organisation/* routes the backend only serves to
 // browser sessions, so none of it ever worked.)
 
-import "fmt"
+import (
+	"fmt"
+	"net/url"
+)
 
 // OrganisationUser is one row of the organisation detail's users array
 // (id is the platform user UUID).
@@ -29,7 +32,7 @@ func (c *Client) ListOrganisationUsers(orgID string) ([]OrganisationUser, error)
 	var response struct {
 		Users []OrganisationUser `json:"users"`
 	}
-	url := fmt.Sprintf("%s/api/v1/org/organisation/%s", c.BaseURL, orgID)
+	url := fmt.Sprintf("%s/api/v1/org/organisation/%s", c.BaseURL, url.PathEscape(orgID))
 	if err := c.getJSON(url, &response); err != nil {
 		return nil, err
 	}
