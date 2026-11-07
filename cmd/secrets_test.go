@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"ankra/internal/client"
 
@@ -29,7 +32,12 @@ const (
 
 type secretsMock struct {
 	baseMock
-	slots           []client.SecretSlot
+	slots []client.SecretSlot
+	// relisted, when set, is what every listing after the first answers:
+	// the organisation as it stands once a resource started referencing a
+	// secret between the command's first read and its write.
+	relisted        []client.SecretSlot
+	listCalls       int
 	created         []client.SecretSlotCreateRequest
 	replacedIDs     []string
 	replaced        []client.SecretSlotReplaceRequest
@@ -38,6 +46,10 @@ type secretsMock struct {
 }
 
 func (m *secretsMock) ListSecretSlots(ctx context.Context) (*client.SecretSlotListResult, error) {
+	m.listCalls++
+	if m.relisted != nil && m.listCalls > 1 {
+		return &client.SecretSlotListResult{Slots: m.relisted}, nil
+	}
 	return &client.SecretSlotListResult{Slots: m.slots}, nil
 }
 
@@ -51,7 +63,12 @@ func (m *secretsMock) CreateSecretSlotWith(ctx context.Context, request client.S
 	return &slot, nil
 }
 
+// The write methods answer an expired context the way the real client
+// does: the request is never sent.
 func (m *secretsMock) ReplaceSecretSlot(ctx context.Context, slotID string, request client.SecretSlotReplaceRequest) (*client.SecretSlot, error) {
+	if contextError := ctx.Err(); contextError != nil {
+		return nil, contextError
+	}
 	m.replacedIDs = append(m.replacedIDs, slotID)
 	m.replaced = append(m.replaced, request)
 	for _, slot := range m.slots {
@@ -63,6 +80,9 @@ func (m *secretsMock) ReplaceSecretSlot(ctx context.Context, slotID string, requ
 }
 
 func (m *secretsMock) DeleteSecretSlot(ctx context.Context, slotID string) (*client.SecretSlotDeleteResult, error) {
+	if contextError := ctx.Err(); contextError != nil {
+		return nil, contextError
+	}
 	if m.deleteReference != nil {
 		return nil, m.deleteReference
 	}
@@ -109,11 +129,17 @@ func resetSecretsFlags(t *testing.T) {
 // separately.
 func executeSecrets(t *testing.T, stdin string, args ...string) (string, string, error) {
 	t.Helper()
+	return executeSecretsWithInput(t, strings.NewReader(stdin), args...)
+}
+
+// executeSecretsWithInput is executeSecrets reading stdin from input.
+func executeSecretsWithInput(t *testing.T, input io.Reader, args ...string) (string, string, error) {
+	t.Helper()
 	resetSecretsFlags(t)
 	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
-	rootCmd.SetIn(strings.NewReader(stdin))
+	rootCmd.SetIn(input)
 	rootCmd.SetArgs(args)
 	t.Cleanup(func() { rootCmd.SetIn(nil) })
 	executeError := rootCmd.Execute()
@@ -435,7 +461,48 @@ func TestSecretsDeleteRefusesAReferencedSecretAndNamesItsConsumers(t *testing.T)
 	}
 }
 
+// TestSecretsDeleteRaceNamesTheConsumers: the listing the name resolves from
+// shows no reference, a resource starts referencing the secret before the
+// delete arrives, and the platform refuses it (409) with a sentence that
+// names only the first consumer. The command reads the references again and
+// names every one of them.
 func TestSecretsDeleteRaceNamesTheConsumers(t *testing.T) {
+	mock := &secretsMock{
+		slots:           []client.SecretSlot{secretSlotFixture(secretTestSlotID, "grafana-admin", "generated")},
+		relisted:        []client.SecretSlot{referencedSlotFixture()},
+		deleteReference: &client.SecretSlotReferencedError{Detail: "Secret slot is referenced by addon grafana"},
+	}
+	setMockClient(t, mock)
+	_, stderr, executeError := executeSecrets(t, "", "secrets", "delete", "grafana-admin", "--yes")
+	if executeError == nil {
+		t.Fatal("the platform's refusal was reported as a delete")
+	}
+	if mock.listCalls != 2 {
+		t.Errorf("listed %d time(s), want 2: the resolve and the re-read after the refusal", mock.listCalls)
+	}
+	for _, want := range []string{
+		`Secret "grafana-admin" is referenced by 2 deployed resource(s)`,
+		"cluster prod: addon grafana at adminPassword",
+		"cluster staging: manifest grafana-secret at stringData.password",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, stderr)
+		}
+	}
+	for _, want := range []string{"still referenced, so nothing was deleted", "${SECRET_SLOT:" + secretTestSlotID + "}", "referenced by addon grafana"} {
+		if !strings.Contains(executeError.Error(), want) {
+			t.Errorf("error = %q, want it to carry %q", executeError, want)
+		}
+	}
+	if code := exitCodeFor(executeError); code != exitError {
+		t.Errorf("exit code = %d, want %d", code, exitError)
+	}
+}
+
+// TestSecretsDeleteRaceFallsBackToThePlatformsSentence: when the re-read
+// after a 409 still shows no reference, the platform's own sentence is the
+// refusal.
+func TestSecretsDeleteRaceFallsBackToThePlatformsSentence(t *testing.T) {
 	mock := &secretsMock{
 		slots:           []client.SecretSlot{secretSlotFixture(secretTestSlotID, "ci-token", "user")},
 		deleteReference: &client.SecretSlotReferencedError{Detail: "Secret slot is referenced by addon grafana"},
@@ -444,6 +511,203 @@ func TestSecretsDeleteRaceNamesTheConsumers(t *testing.T) {
 	_, _, executeError := executeSecrets(t, "", "secrets", "delete", "ci-token", "--yes")
 	if executeError == nil || !strings.Contains(executeError.Error(), "referenced by addon grafana") {
 		t.Errorf("error = %v, want the platform's refusal", executeError)
+	}
+	if mock.listCalls != 2 {
+		t.Errorf("listed %d time(s), want 2: the resolve and the re-read after the refusal", mock.listCalls)
+	}
+}
+
+// slowReader stands in for a person at a prompt: the first read answers
+// only after delay.
+type slowReader struct {
+	delay  time.Duration
+	reader io.Reader
+	waited bool
+}
+
+func (slow *slowReader) Read(buffer []byte) (int, error) {
+	if !slow.waited {
+		time.Sleep(slow.delay)
+		slow.waited = true
+	}
+	return slow.reader.Read(buffer)
+}
+
+// TestSecretsRequestBudgetStartsAfterThePerson: the request timeout of set,
+// rotate and delete starts once the value or the confirmation is in hand,
+// so a person who takes longer than the timeout to answer still gets the
+// request sent, not a deadline error for a request that never left.
+func TestSecretsRequestBudgetStartsAfterThePerson(t *testing.T) {
+	original := secretsRequestTimeout
+	secretsRequestTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { secretsRequestTimeout = original })
+
+	for _, step := range []struct {
+		name  string
+		stdin string
+		args  []string
+	}{
+		{"set waits for the value", secretTestValue, []string{"secrets", "set", "ci-token"}},
+		{"rotate waits for the value", secretTestValue, []string{"secrets", "rotate", "ci-token"}},
+		{"delete waits for the confirmation", "y\n", []string{"secrets", "delete", "ci-token"}},
+	} {
+		t.Run(step.name, func(t *testing.T) {
+			mock := &secretsMock{slots: []client.SecretSlot{secretSlotFixture(secretTestSlotID, "ci-token", "user")}}
+			setMockClient(t, mock)
+			input := &slowReader{delay: 3 * secretsRequestTimeout, reader: strings.NewReader(step.stdin)}
+			stdout, stderr, executeError := executeSecretsWithInput(t, input, step.args...)
+			if executeError != nil {
+				t.Fatalf("%v: %v (the request budget ran out while the person was answering)", step.args, executeError)
+			}
+			assertNoSecretValue(t, stdout, stderr)
+			if sent := len(mock.replacedIDs) + len(mock.deletedIDs); sent != 1 {
+				t.Errorf("%v: %d write(s) sent, want 1", step.args, sent)
+			}
+		})
+	}
+}
+
+// TestSecretsPermissionDeniedNamesThePermission drives the commands through
+// the real HTTP client against a platform that answers the write with its
+// RBAC 403 (ankra-e1ifg.18): set, rotate and delete need secrets.manage,
+// create needs variables.write. The refusal names the permission and who
+// can grant it, exits 7, is sent once (never retried), keeps stdout empty
+// and never carries the value read from stdin or --from-file.
+func TestSecretsPermissionDeniedNamesThePermission(t *testing.T) {
+	valuePath := filepath.Join(t.TempDir(), "value")
+	if writeError := os.WriteFile(valuePath, []byte(secretTestValue), 0o600); writeError != nil {
+		t.Fatal(writeError)
+	}
+	slot := map[string]any{
+		"slot_id": secretTestSlotID, "label": "ci-token", "created_at": "2026-10-22T10:00:00Z",
+		"sentinel": "${SECRET_SLOT:" + secretTestSlotID + "}", "created_via": "user", "references": []any{},
+	}
+	for _, testCase := range []struct {
+		name        string
+		stdin       string
+		args        []string
+		writeMethod string
+		permission  string
+	}{
+		{"set from stdin", secretTestValue, []string{"secrets", "set", "ci-token"}, http.MethodPut, "secrets.manage"},
+		{"set from a file", "", []string{"secrets", "set", "ci-token", "--from-file", valuePath}, http.MethodPut, "secrets.manage"},
+		{"rotate from stdin as json", secretTestValue, []string{"secrets", "rotate", "ci-token", "-o", "json"}, http.MethodPut, "secrets.manage"},
+		{"rotate from a file", "", []string{"secrets", "rotate", "ci-token", "--from-file", valuePath}, http.MethodPut, "secrets.manage"},
+		{"rotate generated", secretTestValue, []string{"secrets", "rotate", "ci-token", "--generate"}, http.MethodPut, "secrets.manage"},
+		{"delete", "", []string{"secrets", "delete", "ci-token", "--yes"}, http.MethodDelete, "secrets.manage"},
+		{"delete as json", "", []string{"secrets", "delete", "ci-token", "--yes", "-o", "json"}, http.MethodDelete, "secrets.manage"},
+		{"create from stdin", secretTestValue, []string{"secrets", "create", "ci-token"}, http.MethodPost, "variables.write"},
+		{"create from a file as json", "", []string{"secrets", "create", "ci-token", "--from-file", valuePath, "-o", "json"}, http.MethodPost, "variables.write"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			var writes atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.Method == http.MethodGet {
+					_ = json.NewEncoder(w).Encode(map[string]any{"slots": []any{slot}})
+					return
+				}
+				if r.Method != testCase.writeMethod {
+					t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+				}
+				writes.Add(1)
+				w.WriteHeader(http.StatusForbidden)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"detail": "permission_denied", "permission": testCase.permission, "scope_type": "organisation",
+				})
+			}))
+			t.Cleanup(server.Close)
+			setMockClient(t, client.New("test-token", server.URL))
+
+			stdout, stderr, executeError := executeSecrets(t, testCase.stdin, testCase.args...)
+			if executeError == nil {
+				t.Fatal("the refusal was reported as success")
+			}
+			if code := exitCodeFor(executeError); code != exitForbidden {
+				t.Errorf("exit code = %d, want %d (permission denied)", code, exitForbidden)
+			}
+			want := fmt.Sprintf("permission denied: this action requires the %q permission. Ask an organisation admin to change your role",
+				testCase.permission)
+			if !strings.Contains(executeError.Error(), want) {
+				t.Errorf("error = %q, want it to carry %q", executeError, want)
+			}
+			if sent := writes.Load(); sent != 1 {
+				t.Errorf("the write was sent %d time(s), want once: a refusal is never retried", sent)
+			}
+			if stdout != "" {
+				t.Errorf("stdout = %q, want nothing on a refusal", stdout)
+			}
+			assertNoSecretValue(t, stdout, stderr, executeError.Error())
+		})
+	}
+}
+
+// TestSecretsHelpNamesThePermissions: each command's help says which
+// permission it needs and who holds it.
+func TestSecretsHelpNamesThePermissions(t *testing.T) {
+	for _, command := range []*cobra.Command{secretsSetCmd, secretsRotateCmd, secretsDeleteCmd} {
+		if !strings.Contains(command.Long, "secrets.manage permission, which the organisation owner and admin\nroles hold") {
+			t.Errorf("%s help does not name secrets.manage and its holders:\n%s", command.Name(), command.Long)
+		}
+	}
+	if !strings.Contains(secretsCreateCmd.Long, "variables.write permission, which every role but viewer holds") {
+		t.Errorf("create help does not name variables.write:\n%s", secretsCreateCmd.Long)
+	}
+	if !strings.Contains(secretsCmd.Long, "variables.write") || !strings.Contains(secretsCmd.Long, "secrets.manage") {
+		t.Errorf("secrets help does not name both permissions:\n%s", secretsCmd.Long)
+	}
+}
+
+// TestSecretsReplaceExpiredRelaysThePlatformsSentence: replacing the value
+// of a secret that expired and is due for deletion is refused with 410 Gone
+// (ankra-e1ifg.23). The platform's sentence, which names the expiry and the
+// way out, is the whole message: no status line, no raw body.
+func TestSecretsReplaceExpiredRelaysThePlatformsSentence(t *testing.T) {
+	const expiredDetail = `Secret "ci-token" expired at 2026-11-01 10:00 UTC and is due for deletion; ` +
+		`create a new secret instead.`
+	slot := map[string]any{
+		"slot_id": secretTestSlotID, "label": "ci-token", "created_at": "2026-10-22T10:00:00Z",
+		"expires_at": "2026-11-01T10:00:00Z", "sentinel": "${SECRET_SLOT:" + secretTestSlotID + "}",
+		"created_via": "user", "references": []any{},
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{"slots": []any{slot}})
+			return
+		}
+		w.WriteHeader(http.StatusGone)
+		_ = json.NewEncoder(w).Encode(map[string]any{"detail": expiredDetail, "error_code": "secret_slot_expired"})
+	}))
+	t.Cleanup(server.Close)
+	setMockClient(t, client.New("test-token", server.URL))
+
+	for _, step := range []struct {
+		stdin string
+		args  []string
+	}{
+		{secretTestValue, []string{"secrets", "set", "ci-token"}},
+		{"", []string{"secrets", "rotate", "ci-token", "--generate", "-o", "json"}},
+	} {
+		stdout, stderr, executeError := executeSecrets(t, step.stdin, step.args...)
+		if executeError == nil {
+			t.Fatalf("%v: the refusal was reported as success", step.args)
+		}
+		if !strings.HasSuffix(executeError.Error(), ": "+expiredDetail) {
+			t.Errorf("%v: error = %q, want it to end with the platform's sentence", step.args, executeError)
+		}
+		for _, unwanted := range []string{"status 410", "body:", "error_code", "{"} {
+			if strings.Contains(executeError.Error(), unwanted) {
+				t.Errorf("%v: error = %q carries %q", step.args, executeError, unwanted)
+			}
+		}
+		if code := exitCodeFor(executeError); code != exitError {
+			t.Errorf("%v: exit code = %d, want %d (a refused request)", step.args, code, exitError)
+		}
+		if stdout != "" {
+			t.Errorf("%v: stdout = %q, want nothing on a refusal", step.args, stdout)
+		}
+		assertNoSecretValue(t, stdout, stderr, executeError.Error())
 	}
 }
 
