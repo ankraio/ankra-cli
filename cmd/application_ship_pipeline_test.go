@@ -556,6 +556,10 @@ func TestApplicationShipExplainsARunSkippedBecauseTheSetupPullRequestIsOpen(t *t
 	if code := exitCodeFor(executeError); code != exitWaiting {
 		t.Errorf("exit code = %d, want %d: an open setup pull request is not a failure", code, exitWaiting)
 	}
+	if strings.Contains(progress, "setup is complete") ||
+		!strings.Contains(progress, "its build starts once the setup pull request is merged") {
+		t.Errorf("with the setup pull request open, setup must not be called complete:\n%s", progress)
+	}
 }
 
 // With the setup pull request merged (or none at all) the pipeline itself
@@ -589,6 +593,9 @@ func TestApplicationShipNamesTheTriggerWhenARunIsSkippedWithTheSetupMerged(t *te
 	if strings.Contains(message, "setup pull request") {
 		t.Errorf("a merged setup pull request is not what is missing: %v", message)
 	}
+	if !strings.Contains(progress, "Application setup is complete (state: up).") {
+		t.Errorf("with the setup pull request merged, setup is complete:\n%s", progress)
+	}
 }
 
 // A setup pull request closed without merging is named as closed: merging is
@@ -612,5 +619,34 @@ func TestApplicationShipSaysTheSetupPullRequestWasClosedWhenARunIsSkipped(t *tes
 	if !strings.Contains(executeError.Error(), "was closed without merging (https://github.com/acme/shop/pull/1)") ||
 		!strings.Contains(executeError.Error(), "reopen and merge it") {
 		t.Errorf("the error must say the setup pull request was closed: %v", executeError)
+	}
+}
+
+func TestShipSetupSettledMessageFollowsTheSetupPullRequest(t *testing.T) {
+	pullRequestURL := "https://github.com/acme/shop/pull/1"
+	mergedAt := "2026-10-13T18:00:00Z"
+	closedAt := "2026-10-13T18:05:00Z"
+	empty := ""
+	for _, testCase := range []struct {
+		name         string
+		application  shipApplicationView
+		isRegistered bool
+		isComplete   bool
+	}{
+		{"no setup pull request", shipApplicationView{}, false, true},
+		{"empty setup pull request url", shipApplicationView{PullRequestURL: &empty}, false, true},
+		{"open setup pull request", shipApplicationView{PullRequestURL: &pullRequestURL}, true, false},
+		{"merged setup pull request", shipApplicationView{PullRequestURL: &pullRequestURL, PullRequestMergedAt: &mergedAt}, false, true},
+		{"closed setup pull request", shipApplicationView{PullRequestURL: &pullRequestURL, PullRequestClosedAt: &closedAt}, false, false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			message := shipSetupSettledMessage(testCase.application)
+			if testCase.isRegistered != strings.Contains(message, "once the setup pull request is merged") {
+				t.Errorf("message = %q", message)
+			}
+			if testCase.isComplete != strings.Contains(message, "setup is complete") {
+				t.Errorf("message = %q", message)
+			}
+		})
 	}
 }

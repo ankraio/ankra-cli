@@ -755,7 +755,7 @@ func waitForApplicationSetup(
 			announcedPullRequest = true
 		}
 		if application.State == "up" {
-			_, _ = fmt.Fprintf(progress, "Application setup is complete (state: up).\n")
+			_, _ = fmt.Fprintln(progress, shipSetupSettledMessage(application))
 			return application, nil
 		}
 		if shipSetupFailureStates[application.State] {
@@ -776,6 +776,25 @@ func waitForApplicationSetup(
 		if tickError := shipWaitTick(waitContext, shipPollInterval, "waiting for application setup"); tickError != nil {
 			return shipApplicationView{}, tickError
 		}
+	}
+}
+
+// shipSetupSettledMessage is the line printed once setup lands the
+// application in state `up`. While the setup pull request is still open the
+// application is registered but not set up: its pipeline arrives with that
+// pull request, so the build has not started and "complete" would be read as
+// the opposite of the error that may follow.
+func shipSetupSettledMessage(application shipApplicationView) string {
+	hasSetupPullRequest := application.PullRequestURL != nil && *application.PullRequestURL != ""
+	isMerged := application.PullRequestMergedAt != nil && *application.PullRequestMergedAt != ""
+	isClosed := application.PullRequestClosedAt != nil && *application.PullRequestClosedAt != ""
+	switch {
+	case !hasSetupPullRequest || isMerged:
+		return "Application setup is complete (state: up)."
+	case isClosed:
+		return "Application is registered (state: up), but its setup pull request was closed without merging."
+	default:
+		return "Application is registered (state: up); its build starts once the setup pull request is merged."
 	}
 }
 
