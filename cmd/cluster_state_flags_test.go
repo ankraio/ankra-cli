@@ -145,6 +145,35 @@ func TestHetznerStartRestoreSnapshotIDFlagIsSentAndValidated(t *testing.T) {
 	}
 }
 
+func TestHetznerStartRefusesContradictoryRestoreFlags(t *testing.T) {
+	const snapshotID = "6f1c2b3a-0d4e-4f5a-8b6c-7d8e9f0a1b2c"
+	cases := map[string][]string{
+		"snapshot with restore-state=false": {"--restore-snapshot-id", snapshotID, "--restore-state=false"},
+		"over-kept-etcd without snapshot":   {"--restore-over-kept-etcd"},
+	}
+	for name, flags := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Cleanup(func() {
+				_ = hetznerStartCmd.Flags().Set("restore-snapshot-id", "")
+				_ = hetznerStartCmd.Flags().Set("restore-state", "")
+				_ = hetznerStartCmd.Flags().Set("restore-over-kept-etcd", "false")
+			})
+			mock := &hetznerStateMock{}
+			setMockClient(t, mock)
+			var executeError error
+			_ = captureStdout(t, func() {
+				_, executeError = executeCommand(append([]string{"cluster", "hetzner", "start", testClusterID}, flags...)...)
+			})
+			if exitCodeFor(executeError) != exitUsage {
+				t.Fatalf("exit code = %d (%v), want usage", exitCodeFor(executeError), executeError)
+			}
+			if mock.startOptions != nil {
+				t.Fatalf("no start may be requested: %+v", mock.startOptions)
+			}
+		})
+	}
+}
+
 func TestHetznerStopModeFlagIsSentAndValidated(t *testing.T) {
 	t.Cleanup(func() {
 		_ = hetznerStopCmd.Flags().Set("mode", "")

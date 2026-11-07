@@ -64,11 +64,36 @@ const restoreOverKeptEtcdFlagUsage = "With --restore-snapshot-id: confirm that t
 	"etcd it finds alive."
 
 // registerRestoreFlags declares a start command's --restore-state, --restore-snapshot-id and
-// --restore-over-kept-etcd.
+// --restore-over-kept-etcd, and refuses the combinations that contradict each other before any
+// request is made.
 func registerRestoreFlags(cmd *cobra.Command) {
 	registerThreeStateFlag(cmd, "restore-state", restoreStateFlagUsage)
 	cmd.Flags().Var(&snapshotIdentifierValue{}, "restore-snapshot-id", restoreSnapshotIDFlagUsage)
 	cmd.Flags().Bool("restore-over-kept-etcd", false, restoreOverKeptEtcdFlagUsage)
+	existingPreRun := cmd.PreRunE
+	cmd.PreRunE = func(command *cobra.Command, arguments []string) error {
+		if validationError := validateRestoreFlags(command); validationError != nil {
+			return validationError
+		}
+		if existingPreRun != nil {
+			return existingPreRun(command, arguments)
+		}
+		return nil
+	}
+}
+
+// validateRestoreFlags refuses a snapshot id with --restore-state=false, which asks to restore
+// and not to restore at once, and --restore-over-kept-etcd without the snapshot it applies to.
+func validateRestoreFlags(cmd *cobra.Command) error {
+	snapshotID := restoreSnapshotIDFlag(cmd)
+	restoreState := restoreStateFlag(cmd)
+	if snapshotID != "" && restoreState != nil && !*restoreState {
+		return withExitCode(exitUsage, fmt.Errorf("--restore-snapshot-id restores a snapshot and cannot be combined with --restore-state=false"))
+	}
+	if restoreOverKeptEtcdFlag(cmd) && snapshotID == "" {
+		return withExitCode(exitUsage, fmt.Errorf("--restore-over-kept-etcd needs --restore-snapshot-id: it confirms the named snapshot may reset the kept etcd"))
+	}
+	return nil
 }
 
 // restoreOverKeptEtcdFlag reads --restore-over-kept-etcd; false when the command does not declare it.
