@@ -151,7 +151,7 @@ serving the page immediately.`,
 		yes, _ := cmd.Flags().GetBool("yes")
 
 		if err := confirmPrompt(
-			cmd.InOrStdin(), cmd.OutOrStdout(),
+			cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Unpublish canvas page %q? [y/N]: ", publicationID),
 			yes,
 		); err != nil {

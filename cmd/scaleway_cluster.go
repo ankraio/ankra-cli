@@ -316,7 +316,7 @@ accept that: answer the prompt on a terminal, or pass
 		if volumeError != nil {
 			return volumeError
 		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Deprovision Scaleway cluster %s? This permanently deletes its cloud resources and the cluster record! [y/N]: ",
 				clusterTarget(args[0], clusterID)),
 			scalewayDeprovisionYes); confirmError != nil {

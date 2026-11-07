@@ -126,38 +126,36 @@ func TestDecideSkillsRefresh(t *testing.T) {
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			var out, errOut bytes.Buffer
-			got, err := decideSkillsRefresh(strings.NewReader(testCase.input), &out, &errOut, testCase.choice)
+			var errOut bytes.Buffer
+			got, err := decideSkillsRefresh(strings.NewReader(testCase.input), &errOut, testCase.choice)
 			if err != nil {
 				t.Fatal(err)
 			}
+			said := errOut.String()
 			if got != testCase.want {
-				t.Fatalf("want %v, got %v (output %q)", testCase.want, got, out.String())
+				t.Fatalf("want %v, got %v (stderr %q)", testCase.want, got, said)
 			}
-			asked := strings.Contains(out.String(), "Also refresh the Ankra agent skills")
+			asked := strings.Contains(said, "Also refresh the Ankra agent skills")
 			if asked != testCase.asked {
-				t.Fatalf("asked=%v, want %v (output %q)", asked, testCase.asked, out.String())
+				t.Fatalf("asked=%v, want %v (stderr %q)", asked, testCase.asked, said)
 			}
-			hinted := strings.Contains(errOut.String(), "were not refreshed")
+			hinted := strings.Contains(said, "were not refreshed")
 			if hinted != testCase.hinted {
-				t.Fatalf("hinted=%v, want %v (stderr %q)", hinted, testCase.hinted, errOut.String())
+				t.Fatalf("hinted=%v, want %v (stderr %q)", hinted, testCase.hinted, said)
 			}
 			if testCase.hinted {
-				if strings.Count(strings.TrimSpace(errOut.String()), "\n") != 0 {
-					t.Fatalf("the --yes hint must be one line: %q", errOut.String())
+				if strings.Count(strings.TrimSpace(said), "\n") != 0 {
+					t.Fatalf("the --yes hint must be one line: %q", said)
 				}
-				if !strings.Contains(errOut.String(), "ankra skills install --force --client claude-code") {
-					t.Fatalf("the --yes hint must name the by-hand command: %q", errOut.String())
-				}
-				if out.Len() != 0 {
-					t.Fatalf("--yes alone must print nothing on stdout, got %q", out.String())
+				if !strings.Contains(said, "ankra skills install --force --client claude-code") {
+					t.Fatalf("the --yes hint must name the by-hand command: %q", said)
 				}
 			}
-			if testCase.asked && len(testCase.choice.Clients) == 2 && !strings.Contains(out.String(), "Claude Code and Cursor to v0.18.0") {
-				t.Fatalf("prompt should name the assistants and the version: %q", out.String())
+			if testCase.asked && len(testCase.choice.Clients) == 2 && !strings.Contains(said, "Claude Code and Cursor to v0.18.0") {
+				t.Fatalf("prompt should name the assistants and the version: %q", said)
 			}
-			if testCase.asked && testCase.input == "" && !strings.Contains(out.String(), "ankra skills install --force --client claude-code") {
-				t.Fatalf("an unanswered question must print the by-hand command: %q", out.String())
+			if testCase.asked && testCase.input == "" && !strings.Contains(said, "ankra skills install --force --client claude-code") {
+				t.Fatalf("an unanswered question must print the by-hand command: %q", said)
 			}
 		})
 	}
@@ -174,7 +172,7 @@ func TestSkillsPromptReadsTypedAheadInputAfterTheUpgradePrompt(t *testing.T) {
 	if err := confirmPrompt(input, &out, "Upgrade? [y/N]: ", false); err != nil {
 		t.Fatalf("the first prompt should read the y: %v", err)
 	}
-	refresh, err := decideSkillsRefresh(input, &out, io.Discard, skillsRefreshChoice{
+	refresh, err := decideSkillsRefresh(input, &out, skillsRefreshChoice{
 		Clients:   []skills.Client{clientNamed(t, "claude-code")},
 		FlagValue: true,
 	})

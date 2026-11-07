@@ -664,7 +664,7 @@ vault that registers a bucket you created yourself.`,
 			prompt = fmt.Sprintf("Delete backup vault %q AND destroy bucket %q on %s, including every restore point in it? [y/N]: ",
 				args[0], vault.Bucket, vault.Provider)
 		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(), prompt, yes); confirmError != nil {
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), prompt, yes); confirmError != nil {
 			return confirmError
 		}
 		if deleteError := apiClient.DeleteBackupVault(vaultID, destroyProviderResources); deleteError != nil {

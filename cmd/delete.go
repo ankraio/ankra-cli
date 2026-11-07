@@ -34,7 +34,7 @@ var deleteClusterCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := confirmPrompt(os.Stdin, os.Stdout,
+		if err := confirmPrompt(os.Stdin, cmd.ErrOrStderr(),
 			fmt.Sprintf("Are you sure you want to delete cluster %q? This action is irreversible! (y/N): ", name),
 			forceDelete); err != nil {
 			return err

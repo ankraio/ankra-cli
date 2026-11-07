@@ -141,7 +141,7 @@ seconds, without pausing the agent itself. Organisation admins only.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		runID := args[0]
 		yes, _ := cmd.Flags().GetBool("yes")
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Cancel agent run %q? [y/N]: ", runID), yes); err != nil {
 			return err
 		}

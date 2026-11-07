@@ -249,7 +249,7 @@ var clusterStacksDeleteCmd = &cobra.Command{
 		}
 
 		if err := confirmPrompt(
-			cmd.InOrStdin(), cmd.OutOrStdout(),
+			cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete stack %q from cluster %q? This removes every addon and manifest in the stack! [y/N]: ", stackName, cluster.Name),
 			yes,
 		); err != nil {

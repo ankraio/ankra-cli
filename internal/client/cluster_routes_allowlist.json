@@ -6,6 +6,7 @@
   "/api/v1/clusters/%s/%s/control-plane  (internal/client/control_plane.go)",
   "/api/v1/clusters/%s/%s/control-plane/instance-type  (internal/client/control_plane.go)",
   "/api/v1/clusters/%s/%s/gateway-api  (internal/client/gateway_api.go)",
+  "/api/v1/clusters/%s/%s/node-groups/%s/nodes/%s  (internal/client/node_group_node_removal.go)",
   "/api/v1/clusters/%s/%s/nodes  (internal/client/cluster_nodes.go)",
   "/api/v1/clusters/%s/%s/nodes/%s  (internal/client/cluster_nodes.go)",
   "/api/v1/clusters/%s/%s/nodes/%s/cloud-init-log  (internal/client/cluster_nodes.go)",

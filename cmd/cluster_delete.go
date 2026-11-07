@@ -76,7 +76,7 @@ Examples:
 
 		if !dryRun {
 			prompt := deleteResourcesPrompt(resolvedKind, names, namespace, cluster.Name)
-			if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(), prompt, yes); err != nil {
+			if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), prompt, yes); err != nil {
 				return err
 			}
 		}
