@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra ai keys` runs the chats and pull request reviews you start on your own AI keys.** `add` puts an Anthropic Console key (`sk-ant-api...`) or an OpenRouter key (`sk-or-...`) on your profile, `list` shows your keys in the order they are tried with each one's status (active, out of credit and when it is tried again, or rejected) and whether your organisation uses them, and `test`, `rename`, `order` and `remove` work on one key named by its id or its label. `order` takes the keys you want first and keeps the rest after them, so `ankra ai keys order work` moves one key to the top. The key is never a flag, where it would land in your shell history and the process list: `add` asks for it with the input hidden, or reads it from a pipe with `--key-stdin`, and only the masked preview is ever printed. A Claude subscription token (`sk-ant-oat...`) or an Anthropic admin key is refused before anything is sent. `ankra ai keys policy` shows whether the organisation lets members use their own keys, and an administrator turns that off and on with `policy disable` and `policy allow`. Every command takes `-o json`, and `test` exits 1 when the key fails. The same keys are in the portal under Profile, Connected accounts, Your AI keys.
+
 ## v0.69.0 - 2026-11-06
 
 This release adds three reads for working out why a node hung: `ankra cluster ovh nodes
