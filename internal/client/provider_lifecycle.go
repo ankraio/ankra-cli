@@ -66,6 +66,14 @@ type StartClusterOptions struct {
 	// RestoreState: nil restores the newest captured state snapshot when
 	// there is one, true requires one, false starts a fresh cluster.
 	RestoreState *bool
+	// RestoreSnapshotID names the state snapshot to restore, for a start the
+	// backend refuses to decide on its own (no capture after the last start,
+	// older ones waiting); "" leaves the choice to RestoreState.
+	RestoreSnapshotID string
+	// RestoreOverKeptEtcd, with RestoreSnapshotID, confirms that the etcd a
+	// stop kept is lost (the control-plane machines are gone), so the named
+	// snapshot may reset it.
+	RestoreOverKeptEtcd bool
 }
 
 func (options StopClusterOptions) query() string {
@@ -204,6 +212,15 @@ func (options StartClusterOptions) query() string {
 	}
 	if options.RestoreState != nil {
 		values.Set("restore_state", strconv.FormatBool(*options.RestoreState))
+	}
+	if options.RestoreSnapshotID != "" {
+		values.Set("restore_snapshot_id", options.RestoreSnapshotID)
+		if options.RestoreState == nil {
+			values.Set("restore_state", "true")
+		}
+	}
+	if options.RestoreOverKeptEtcd {
+		values.Set("restore_over_kept_etcd", "true")
 	}
 	if len(values) == 0 {
 		return ""
