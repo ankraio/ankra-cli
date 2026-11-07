@@ -325,8 +325,35 @@ func TestAIKeysAddAsksForTheKeyWithHiddenInputOnATerminal(t *testing.T) {
 	if prompts != 1 || mock.added == nil || mock.added.APIKey != rawKey {
 		t.Errorf("prompts = %d, added = %+v; want one hidden prompt and its key sent", prompts, mock.added)
 	}
+	if !strings.Contains(output, "Paste a Claude Console API key (it starts with sk-ant-) or an OpenRouter API key (it starts with sk-or-)") {
+		t.Errorf("the prompt should name both kinds of key by their prefix, got:\n%s", output)
+	}
 	if strings.Contains(output, rawKey) {
 		t.Errorf("the key must never be printed, got:\n%s", output)
+	}
+}
+
+// The Claude Console issues more than sk-ant-api keys: a personal key tied to
+// the member's identity starts with sk-ant-usr-. Every sk-ant- API key is an
+// Anthropic key; only subscription and admin keys are refused.
+func TestAIKeysAddTakesEveryClaudeConsoleAPIKeyAsAnthropic(t *testing.T) {
+	for _, rawKey := range []string{"sk-ant-api03-CONSOLE-SECRET", "sk-ant-usr01-PERSONAL-SECRET"} {
+		t.Run(rawKey[:10], func(t *testing.T) {
+			resetAIKeysCommandState(t)
+			mock := &aiKeysMock{}
+			setMockClient(t, mock)
+
+			output, executeError := runAIKeys(t, rawKey+"\n", "add", "--key-stdin")
+			if executeError != nil {
+				t.Fatalf("unexpected error: %v\n%s", executeError, output)
+			}
+			if mock.added == nil || mock.added.APIKey != rawKey || mock.added.Provider != "anthropic" {
+				t.Fatalf("AddPersonalAIKey(%+v), want the key sent as an Anthropic key", mock.added)
+			}
+			if strings.Contains(output, "SECRET") {
+				t.Errorf("the key must never be printed, got:\n%s", output)
+			}
+		})
 	}
 }
 
@@ -373,7 +400,7 @@ func TestAIKeysAddRefusesWhatIsNotAnAPIKeyBeforeSending(t *testing.T) {
 		{"subscription token", "sk-ant-oat01-SUBSCRIPTION-SECRET", nil, "Claude subscription token"},
 		{"subscription refresh token", "sk-ant-ort01-SUBSCRIPTION-SECRET", nil, "Claude subscription token"},
 		{"admin key", "sk-ant-admin01-ADMIN-SECRET", nil, "admin key"},
-		{"no known provider", "AKIA-NOT-A-MODEL-SECRET", nil, "does not look like an Anthropic API key"},
+		{"no known provider", "AKIA-NOT-A-MODEL-SECRET", nil, "does not look like a Claude Console API key (it starts with sk-ant-)"},
 		{"provider that does not match", "sk-or-v1-MISMATCH-SECRET", []string{"--provider", "anthropic"}, "is an OpenRouter key"},
 		{"unknown provider flag", "sk-ant-api03-FLAG-SECRET", []string{"--provider", "openai"}, "anthropic or openrouter"},
 		{"two words", "sk-ant-api03-ONE SECOND-SECRET", nil, "holds a space"},

@@ -45,6 +45,8 @@ ankra tokens delete <token-id>          # only after it is revoked
 ankra tokens create ci-deployer --service --role member --label pipeline --expires 2027-01-31T00:00:00Z
 ankra tokens list --service
 ankra tokens rotate <token-id> --service
+ankra tokens revoke <token-id> --service
+ankra tokens delete <token-id> --service   # after revoking; the account's last token names `ankra org remove <account_id>`
 ```
 
 - **Omitting `--scopes` creates a REST-only token** — it can drive the CLI and API but exposes no

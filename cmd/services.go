@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/url"
 
 	"ankra/internal/client"
 )
@@ -386,6 +387,7 @@ type APIClient interface {
 	GetApplicationContainerSecurity(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationCodeSecurity(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationSecurityVersions(requestContext context.Context, applicationID string, component string) (*client.ApplicationSecurityVersions, error)
+	GetApplicationBranchBuilds(requestContext context.Context, applicationID string) (*client.ApplicationBranchBuilds, error)
 	GetApplicationDemos(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	CheckApplicationDemoBuild(requestContext context.Context, applicationID string, branch string) (json.RawMessage, error)
 	DeployApplicationDemo(requestContext context.Context, applicationID string, demoRequest client.DeployApplicationDemoRequest) (json.RawMessage, error)
@@ -422,6 +424,9 @@ type APIClient interface {
 	UpdateRegistryStorageAddon(requestContext context.Context, blocks int, expectedVersion string) (*client.RegistryStorageAddonUpdateResult, error)
 	GetApplicationRepositoryCredential(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	SetApplicationRepositoryCredential(requestContext context.Context, applicationID string, credentialRequest client.SetApplicationRepositoryCredentialRequest) (json.RawMessage, error)
+	GetApplicationEnvironments(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	PreviewApplicationPromotion(requestContext context.Context, applicationID string, query url.Values) (json.RawMessage, error)
+	StartApplicationPromotion(requestContext context.Context, applicationID string, promotion map[string]string) (json.RawMessage, error)
 	GetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	UpdateApplicationAIConfig(requestContext context.Context, applicationID string, configuration json.RawMessage) (json.RawMessage, error)
 	ResetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error)
@@ -472,11 +477,15 @@ type APIClient interface {
 	CreateDNSCredential(name string, webhookProviderURL string) (*client.CreateDNSCredentialResponse, error)
 
 	ListAPITokens() ([]client.APIToken, error)
+	GetSlackInstallURL(requestContext context.Context) (*client.SlackInstallURL, error)
+	GetSlackStatus(requestContext context.Context) (*client.SlackStatus, error)
 	CreateAPIToken(request client.CreateAPITokenRequest) (*client.CreateAPITokenResponse, error)
 	RevokeAPIToken(tokenID string) (*client.RevokeAPITokenResponse, error)
 	DeleteAPIToken(tokenID string) (*client.DeleteAPITokenResponse, error)
 	RotateAPIToken(tokenID string, overlapHours *int) (*client.RotateTokenResponse, error)
 	RotateServiceToken(tokenID string, overlapHours *int) (*client.RotateTokenResponse, error)
+	RevokeServiceToken(tokenID string) (*client.RevokeAPITokenResponse, error)
+	DeleteServiceToken(tokenID string) (*client.DeleteAPITokenResponse, error)
 	ListServiceTokens() ([]client.ServiceToken, error)
 	CreateServiceToken(request client.CreateServiceTokenRequest) (*client.CreateServiceTokenResponse, error)
 
@@ -623,6 +632,7 @@ type APIClient interface {
 	GetControlPlaneHeal(ctx context.Context, clusterID string) (*client.ControlPlaneHeal, error)
 	SetControlPlaneHeal(ctx context.Context, clusterID string, enabled bool) (*client.ControlPlaneHeal, error)
 	GetStateSnapshotRetention(ctx context.Context, clusterID string) (*client.StateSnapshotRetention, error)
+	GetLatestStateSnapshot(kind, clusterID string) (*client.LatestStateSnapshotResponse, error)
 	SetStateSnapshotRetention(ctx context.Context, clusterID string, retentionDays int) (*client.StateSnapshotRetention, error)
 
 	GetOrganisationProvenancePolicy(ctx context.Context) (*client.OrganisationProvenancePolicy, error)

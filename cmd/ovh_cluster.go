@@ -409,7 +409,7 @@ var ovhStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, err := apiClient.StartOvhCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd)})
+		result, err := apiClient.StartOvhCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd), RestoreSnapshotID: restoreSnapshotIDFlag(cmd), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(cmd)})
 		if err != nil {
 			return fmt.Errorf("starting cluster: %w", err)
 		}
@@ -994,7 +994,7 @@ func init() {
 	_ = ovhCreateCmd.MarkFlagRequired("region")
 
 	ovhStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(ovhStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(ovhStartCmd)
 
 	ovhSSHKeysSetCmd.Flags().StringSlice("ssh-key-credential-ids", nil, "SSH key credential IDs to attach (comma-separated or repeated)")
 	_ = ovhSSHKeysSetCmd.MarkFlagRequired("ssh-key-credential-ids")

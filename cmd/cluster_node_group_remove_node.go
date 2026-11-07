@@ -71,14 +71,16 @@ node that is not a worker, a node of another group, a node already marked
 for deletion or whose server is stopping, the last node of its group,
 which is not removed on its own (scale the node group to 0 or delete the
 node group instead), a removal that would take an autoscaling group below
-its min count, a reference several nodes answer to, even nodes already
-being removed (the reason lists each by its node id, which is the server
-id; the command's lookup lists them too and sends the reference as typed),
-and a change while an identical one is in progress. A reference the
-platform cannot resolve is refused the same way: a providerID it cannot
-see on the cluster's Kubernetes nodes, and on AWS a name that may be a
-Kubernetes node name it has not recorded yet. Name the node by its server
-name or its server id then; neither needs the Kubernetes nodes.
+its min count (for both, only nodes that have joined the cluster count, so
+a node still being created does not keep the group), a reference several
+nodes answer to, even nodes already being removed (the reason lists each
+by its node id, which is the server id; the command's lookup lists them
+too and sends the reference as typed), and a change while an identical
+one is in progress. A reference the platform cannot resolve is refused
+the same way: a providerID it cannot see on the cluster's Kubernetes
+nodes, and on AWS a name that may be a Kubernetes node name it has not
+recorded yet. Name the node by its server name or its server id then;
+neither needs the Kubernetes nodes.
 
 A reference that names no node of the cluster exits 3 (the platform says
 it is not found in the node group); a node of another group is a refusal
