@@ -31,10 +31,10 @@ var aiKeysCmd = &cobra.Command{
 	Use:   "keys",
 	Short: "Run the chats and pull request reviews you start on your own AI keys",
 	Long: `Add your own Anthropic or OpenRouter API keys to your profile. The chats you
-send and the reviews of your GitHub pull requests then run on your keys, in the
-order you choose, and your provider bills your account instead of your
-organisation's. Background work, scheduled runs and alert analysis keep running
-on the organisation's AI.
+send and the reviews of your GitHub and Bitbucket Cloud pull requests then run
+on your keys, in the order you choose, and your provider bills your account
+instead of your organisation's. GitLab reviews, background work, scheduled runs
+and alert analysis keep running on the organisation's AI.
 
 Your keys are yours alone: they never serve another member's work, and after
 you add a key Ankra only ever shows its last four characters. You can keep up

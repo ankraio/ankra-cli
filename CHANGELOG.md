@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- **`ankra ai keys` help says Bitbucket Cloud reviews run on your keys too.** The platform now runs the reviews of your Bitbucket Cloud pull requests on your own AI keys, as it did for GitHub, when you connected your Bitbucket account under Profile, Connected accounts. The help and the bundled `ankra-ai-agents` skill said GitHub only; they now name both, and say GitLab reviews stay on the organisation's AI.
+
 ## v0.71.0 - 2026-11-07
 
 This release adds `ankra application promote` and `ankra application previews`, `ankra mcp
