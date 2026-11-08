@@ -189,9 +189,9 @@ func TestSilencesExpireConfirmsFirst(t *testing.T) {
 	}
 }
 
-func TestSilencesExpireNeedsOneID(t *testing.T) {
+func TestSilencesExpireRefusesABlankID(t *testing.T) {
 	mock := &alertmanagerSilencesMock{}
-	_, runError := runSilencesCommand(t, mock, "", "expire", "--yes", "--cluster", "prod")
+	_, runError := runSilencesCommand(t, mock, "", "expire", " ", "--yes", "--cluster", "prod")
 	if exitCodeFor(runError) != exitUsage || len(mock.expiredSilences) != 0 {
 		t.Fatalf("exit %d (%v), want a usage error and nothing sent", exitCodeFor(runError), runError)
 	}
