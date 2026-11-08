@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- **`ankra ai keys` help says Bitbucket Cloud reviews run on your keys too.** The platform now runs the reviews of your Bitbucket Cloud pull requests on your own AI keys, as it did for GitHub, when you connected your Bitbucket account under Profile, Connected accounts. The help and the bundled `ankra-ai-agents` skill said GitHub only; they now name both, and say GitLab reviews stay on the organisation's AI.
+
 ## v0.72.0 - 2026-11-07
 
 This release adds `ankra cluster node-group remove-node`, which retires the one node you
@@ -16,10 +20,6 @@ mistyped `-o` now exits 2 before anything is sent.
 ### Added
 
 - **Remove one chosen node from a node group.** `ankra cluster node-group remove-node <cluster> <group> <node>` retires the node you name, such as one on a failing host, and lowers the group's count by one so nothing recreates it. A scale-down still picks its own nodes; this is the way to pick one yourself. Name the node by its server id from `ankra cluster <provider> nodes list`, its server name, its Kubernetes node name or the providerID that node reports, in any letter case. Before it asks, the command looks the reference up and shows the node's name, server id and providerID, then sends that node's server id, so the node removed is the node you approved. When it cannot tell which node the reference names, it says why and sends the reference as typed, and the platform resolves it. A name several nodes answer to, even nodes already being removed, is never narrowed to one: the prompt lists their server ids, and the platform refuses the name until you give one of them. The node is drained through its PodDisruptionBudgets before its server is deleted, and a refused drain keeps it in service (and schedulable again) with the reason on the cluster; `--force-drain` removes it anyway. The command answers once the platform has marked the node and started the operation that drains and deletes it, and prints that operation with the command that follows it (`ankra cluster operations list <id> --watch`); `--wait` waits for that answer, not for the drain or the delete. When the platform names no operation, the output says that the platform starts the drain and the delete later. The prompt goes to stderr (`--yes` skips it and the lookup, declining exits 4), a refusal exits 1 with the platform's reason, and a reference that names no node of the cluster exits 3. The last node of a group is not removed on its own: scale the node group to 0 or delete it instead. Only nodes that have joined the cluster count here and against an autoscaling group's min count, so a node still being created does not keep the group. Nor is a node of a stopped cluster: the command refuses before it looks the node up, asks or sends anything, and exits 1; start the cluster first. A group or node that is blank, has spaces around it or is `.` or `..`, and an `-o` other than `json` or `yaml`, exit 2 before anything is looked up or sent, as does a node or group the platform cannot read. `-o json` prints the node, the group's counts and the operation, with a command a script can run to follow it. It needs a platform that serves the route (ankraio/cluster#5995); an older platform answers 404 without a reason, and the command says the platform does not serve node removal yet and exits 1, so a script never reads it as a node that is already gone.
-
-### Changed
-
-- **`ankra ai keys` help says Bitbucket Cloud reviews run on your keys too.** The platform now runs the reviews of your Bitbucket Cloud pull requests on your own AI keys, as it did for GitHub, when you connected your Bitbucket account under Profile, Connected accounts. The help and the bundled `ankra-ai-agents` skill said GitHub only; they now name both, and say GitLab reviews stay on the organisation's AI.
 
 ### Fixed
 
