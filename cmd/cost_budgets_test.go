@@ -61,11 +61,19 @@ func (m *costBudgetsMock) ListClusters(page int, pageSize int) (*client.ClusterL
 
 func runCostBudgetsCommand(t *testing.T, mock APIClient, input string, args ...string) (string, error) {
 	t.Helper()
+	stdout, _, executeError := runCostBudgetsCommandSplit(t, mock, input, args...)
+	return stdout, executeError
+}
+
+// runCostBudgetsCommandSplit is runCostBudgetsCommand that also returns what
+// the command wrote to stderr, where its confirmation prompt goes.
+func runCostBudgetsCommandSplit(t *testing.T, mock APIClient, input string, args ...string) (string, string, error) {
+	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)
-	stdout := new(bytes.Buffer)
+	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(new(bytes.Buffer))
+	rootCmd.SetErr(stderr)
 	rootCmd.SetIn(strings.NewReader(input))
 	rootCmd.SetArgs(args)
 	// Reset before the run as well as after the test: a test that runs the
@@ -73,7 +81,7 @@ func runCostBudgetsCommand(t *testing.T, mock APIClient, input string, args ...s
 	resetTreeFlags(t, costBudgetsListCmd, costBudgetsSetCmd, costBudgetsDeleteCmd)
 	t.Cleanup(func() { resetTreeFlags(t, costBudgetsListCmd, costBudgetsSetCmd, costBudgetsDeleteCmd) })
 	executeError := rootCmd.Execute()
-	return stdout.String(), executeError
+	return stdout.String(), stderr.String(), executeError
 }
 
 func budgetsPointer[T any](value T) *T {
@@ -481,12 +489,13 @@ func TestCostBudgetsWriteRelaysTheConflictDetail(t *testing.T) {
 
 func TestCostBudgetsDeleteAsksFirst(t *testing.T) {
 	mock := &costBudgetsMock{}
-	output, executeError := runCostBudgetsCommand(t, mock, "n\n", "cost", "budgets", "delete", costBudgetProdID)
+	output, prompt, executeError := runCostBudgetsCommandSplit(t, mock, "n\n", "cost", "budgets", "delete", costBudgetProdID)
 	if executeError == nil || exitCodeFor(executeError) != exitCancelled || len(mock.deletedIDs) != 0 {
 		t.Fatalf("a declined prompt deletes nothing and exits %d, got %v (deleted %v)", exitCancelled, executeError, mock.deletedIDs)
 	}
-	if !strings.Contains(output, "Delete cost budget "+costBudgetProdID+"? Its card will no longer be raised. [y/N]: ") {
-		t.Fatalf("the prompt names the budget:\n%s", output)
+	if !strings.Contains(prompt, "Delete cost budget "+costBudgetProdID+"? Its card will no longer be raised. [y/N]: ") ||
+		strings.Contains(output, "[y/N]") {
+		t.Fatalf("the prompt names the budget, on stderr:\nstdout: %s\nstderr: %s", output, prompt)
 	}
 
 	mock = &costBudgetsMock{}

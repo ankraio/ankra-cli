@@ -31,19 +31,19 @@ var aiKeysCmd = &cobra.Command{
 	Use:   "keys",
 	Short: "Run the chats and pull request reviews you start on your own AI keys",
 	Long: `Add your own Anthropic or OpenRouter API keys to your profile. The chats you
-send and the reviews of your GitHub pull requests then run on your keys, in the
-order you choose, and your provider bills your account instead of your
-organisation's. Background work, scheduled runs and alert analysis keep running
-on the organisation's AI.
+send and the reviews of your GitHub and Bitbucket Cloud pull requests then run
+on your keys, in the order you choose, and your provider bills your account
+instead of your organisation's. GitLab reviews, background work, scheduled runs
+and alert analysis keep running on the organisation's AI.
 
 Your keys are yours alone: they never serve another member's work, and after
 you add a key Ankra only ever shows its last four characters. You can keep up
 to 10 keys.
 
-Only API keys are accepted: an Anthropic key from the Claude Console (it
-starts with sk-ant-api) or an OpenRouter key (it starts with sk-or-). Claude
-subscription tokens (sk-ant-oat...) and Anthropic admin keys are refused,
-because Anthropic does not allow other services to store them.
+Only API keys are accepted: a Claude Console API key (it starts with
+sk-ant-) or an OpenRouter key (it starts with sk-or-). Claude subscription
+tokens (sk-ant-oat...) and Anthropic admin keys are refused, because
+Anthropic does not allow other services to store them.
 
 Ankra tries your keys from the top. A key that runs out of credit is tried
 again an hour later; a key the provider rejects is not used until
@@ -106,10 +106,11 @@ The key is never a flag: a flag value lands in your shell history and in the
 process list. Run the command in a terminal and paste the key when asked (the
 input is hidden), or pipe it in with --key-stdin.
 
-The provider is worked out from the key: sk-ant-api... is Anthropic and
-sk-or-... is OpenRouter. --provider is only needed to check that the key is
-the kind you meant. A Claude subscription token (sk-ant-oat...) or an
-Anthropic admin key is refused before anything is sent.
+The provider is worked out from the key: a Claude Console API key (it starts
+with sk-ant-) is Anthropic and sk-or-... is OpenRouter. --provider is only
+needed to check that the key is the kind you meant. A Claude subscription
+token (sk-ant-oat...) or an Anthropic admin key is refused before anything is
+sent.
 
 Only the key's masked preview is ever printed.`,
 	Example: `  # Paste the key when asked; the input is hidden.
@@ -473,7 +474,7 @@ func readPersonalAIKey(cmd *cobra.Command) (string, error) {
 		apiKey = line
 	case isTerminal:
 		line, promptError := readHiddenPersonalAIKey(descriptor, cmd.ErrOrStderr(),
-			"Paste your Anthropic (sk-ant-api...) or OpenRouter (sk-or-...) API key")
+			"Paste a Claude Console API key (it starts with sk-ant-) or an OpenRouter API key (it starts with sk-or-)")
 		if promptError != nil {
 			if errors.Is(promptError, errCancelled) {
 				return "", errCancelled
@@ -588,7 +589,7 @@ func personalAIKeyProvider(apiKey string, requested string) (string, error) {
 	switch {
 	case detected == "" && requested == "":
 		return "", withExitCode(exitUsage, errors.New(
-			"that does not look like an Anthropic API key (sk-ant-api...) or an OpenRouter key (sk-or-...); "+
+			"that does not look like a Claude Console API key (it starts with sk-ant-) or an OpenRouter key (it starts with sk-or-); "+
 				"check you copied the whole key. Nothing was sent"))
 	case detected == "":
 		return "", withExitCode(exitUsage, fmt.Errorf(

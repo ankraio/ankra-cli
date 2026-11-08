@@ -367,7 +367,7 @@ The prompt names the record before removing it.`,
 		if record.ManagedBy != "ankra" {
 			prompt += " This record was not created through Ankra."
 		}
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(), prompt+" [y/N]: ", yes); err != nil {
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), prompt+" [y/N]: ", yes); err != nil {
 			return err
 		}
 

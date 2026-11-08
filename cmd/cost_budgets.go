@@ -104,7 +104,7 @@ var costBudgetsDeleteCmd = &cobra.Command{
 			return err
 		}
 		yes, _ := cmd.Flags().GetBool("yes")
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete cost budget %s? Its card will no longer be raised. [y/N]: ", budgetID), yes); confirmError != nil {
 			return confirmError
 		}

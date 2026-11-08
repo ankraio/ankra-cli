@@ -130,7 +130,7 @@ var digitaloceanDeprovisionCmd = &cobra.Command{
 		if force {
 			warning = "This deletes all its servers, networks, SSH keys and load balancers!"
 		}
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Deprovision DigitalOcean cluster %s? %s [y/N]: ", clusterTarget(args[0], clusterID), warning),
 			yes); err != nil {
 			return err
@@ -545,7 +545,7 @@ var digitaloceanNodeGroupDeleteCmd = &cobra.Command{
 		groupName := args[1]
 		yes, _ := cmd.Flags().GetBool("yes")
 
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete node group %q from cluster %s? This deletes all its nodes! [y/N]: ", groupName, clusterTarget(args[0], clusterID)),
 			yes); err != nil {
 			return err

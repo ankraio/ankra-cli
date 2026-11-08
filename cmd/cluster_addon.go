@@ -359,7 +359,7 @@ var clusterAddonsUninstallCmd = &cobra.Command{
 		} else {
 			msg = fmt.Sprintf("Uninstall addon %q from cluster %q? [y/N]: ", addonName, cluster.Name)
 		}
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(), msg, yes); err != nil {
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), msg, yes); err != nil {
 			return err
 		}
 

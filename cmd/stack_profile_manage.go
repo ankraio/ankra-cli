@@ -147,7 +147,7 @@ the profile stops appearing in the catalogue and can no longer be applied.`,
 		}
 		yes, _ := cmd.Flags().GetBool("yes")
 		if confirmError := confirmPrompt(
-			cmd.InOrStdin(), cmd.OutOrStdout(),
+			cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete stack profile %q? Deployed stacks keep running, "+
 				"but the profile and its versions stop being available. [y/N]: ", args[0]),
 			yes,

@@ -229,6 +229,9 @@ func ankraCloudCreateRequestFromFlags(cmd *cobra.Command) (client.CreateAnkraClo
 		workerCount, _ := cmd.Flags().GetInt("worker-count")
 		request.WorkerCount = &workerCount
 	}
+	if sandboxError := applyAnkraCloudSandboxNodes(cmd, &request); sandboxError != nil {
+		return client.CreateAnkraCloudClusterRequest{}, sandboxError
+	}
 	if cmd.Flags().Changed("include-networking") {
 		includeNetworking, _ := cmd.Flags().GetBool("include-networking")
 		request.IncludeNetworking = &includeNetworking
@@ -404,7 +407,7 @@ pass --accept-volume-data-loss (--yes does not imply it).`,
 		if volumeError != nil {
 			return volumeError
 		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Deprovision Ankra Cloud cluster %s? This permanently deletes its servers and the cluster record! [y/N]: ",
 				clusterTarget(args[0], clusterID)),
 			skipConfirmation); confirmError != nil {
@@ -781,6 +784,60 @@ var ankraCloudPricingCmd = &cobra.Command{
 	},
 }
 
+// The node group --sandbox-nodes asks for, and the group the workers become
+// beside it.
+const (
+	ankraCloudSandboxGroupName = "sandbox"
+	ankraCloudWorkerGroupName  = "workers"
+	ankraCloudSandboxLabelKey  = "ankra.cloud/sandbox-runtime"
+	ankraCloudSandboxRuntime   = "gvisor"
+	ankraCloudDefaultWorkers   = 1
+)
+
+// applyAnkraCloudSandboxNodes turns --sandbox-nodes into the request's node
+// groups. Naming any group replaces the default pool, so the workers become a
+// group of their own beside the sandbox one, and the plain worker fields are
+// cleared so the request says one thing. A cluster of only sandbox nodes is
+// refused: Ankra AI's workspaces can run there, but image builds cannot.
+func applyAnkraCloudSandboxNodes(cmd *cobra.Command, request *client.CreateAnkraCloudClusterRequest) error {
+	sandboxNodes, _ := cmd.Flags().GetInt("sandbox-nodes")
+	sandboxPlan, _ := cmd.Flags().GetString("sandbox-node-plan")
+	if sandboxNodes < 0 {
+		return withExitCode(exitUsage, errors.New("--sandbox-nodes cannot be negative"))
+	}
+	if sandboxNodes == 0 {
+		if sandboxPlan != "" {
+			return withExitCode(exitUsage, errors.New("--sandbox-node-plan needs --sandbox-nodes"))
+		}
+		return nil
+	}
+	if request.Distribution == client.AnkraCloudDistributionK3s {
+		return withExitCode(exitUsage, errors.New("--sandbox-nodes needs --distribution kubeadm: the gVisor sandbox runtime is set up on kubeadm clusters only"))
+	}
+	workerCount := ankraCloudDefaultWorkers
+	if request.WorkerCount != nil {
+		workerCount = *request.WorkerCount
+	}
+	if workerCount <= 0 {
+		return withExitCode(exitUsage, errors.New("--sandbox-nodes needs workers beside it: image builds cannot run "+
+			"under gVisor, so a cluster of only sandbox nodes could not build"))
+	}
+	if request.WorkerPlan == "" {
+		return withExitCode(exitUsage, errors.New("--sandbox-nodes needs --worker-plan"))
+	}
+	if sandboxPlan == "" {
+		sandboxPlan = request.WorkerPlan
+	}
+	request.NodeGroups = []client.AddNodeGroupRequest{
+		{Name: ankraCloudWorkerGroupName, InstanceType: request.WorkerPlan, Count: workerCount},
+		{Name: ankraCloudSandboxGroupName, InstanceType: sandboxPlan, Count: sandboxNodes,
+			Labels: map[string]string{ankraCloudSandboxLabelKey: ankraCloudSandboxRuntime}},
+	}
+	request.WorkerCount = nil
+	request.WorkerPlan = ""
+	return nil
+}
+
 // registerAnkraCloudCreateFlags declares the create/preflight flag set once
 // so the two commands can never drift.
 func registerAnkraCloudCreateFlags(commands ...*cobra.Command) {
@@ -802,6 +859,8 @@ func registerAnkraCloudCreateFlags(commands ...*cobra.Command) {
 		command.Flags().String("control-plane-plan", "", "Control plane server plan (required)")
 		command.Flags().Int("worker-count", 0, "Default-pool worker count (server default: 1)")
 		command.Flags().String("worker-plan", "", "Worker server plan (required while workers are above zero)")
+		command.Flags().Int("sandbox-nodes", 0, "Nodes in a separate node group running the gVisor sandbox runtime, beside the workers (kubeadm only). Ankra AI runs code on its own, to fix a build or regenerate a lockfile, only behind a sandbox, so set this on a cluster that will run CI: 1 is enough to start")
+		command.Flags().String("sandbox-node-plan", "", "Server plan of the sandbox nodes (default: --worker-plan)")
 		command.Flags().String("distribution", client.AnkraCloudDistributionKubeadm, "Kubernetes distribution: kubeadm or k3s")
 		command.Flags().String("kubernetes-version", "", "Pin a Kubernetes version (default: latest supported)")
 		command.Flags().String("etcd-topology", "", "etcd topology: stacked or external (server default: stacked)")

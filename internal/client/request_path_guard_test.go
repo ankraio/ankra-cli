@@ -588,6 +588,7 @@ var httpClientConstructions = map[string]string{
 var httpClientParameters = map[string]string{
 	"oidc_trust.go:ExchangeGitHubOIDCToken":     "checks its own request with checkRequestPath before sending",
 	"csrf.go:doJSONWithClient":                  "called only with the package's own lanes (c.HTTP, httpClientForSlowWrite)",
+	"helpers.go:sendJSONThrough":                "called only with the package's own lanes (c.HTTP, httpClientForSlowWrite)",
 	"backup_vault_imports.go:putPresigned":      "presigned vault URLs on the storage host",
 	"backup_vault_imports.go:uploadMultipart":   "presigned vault URLs on the storage host",
 	"backup_vault_imports.go:completeMultipart": "presigned vault URLs on the storage host",

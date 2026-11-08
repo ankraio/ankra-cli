@@ -489,7 +489,7 @@ If no cluster name is provided, uses the currently selected cluster.`,
 			recordWarning = " The cluster record itself is DELETED - this cannot be provisioned again, only recreated."
 		}
 		if err := confirmPrompt(
-			cmd.InOrStdin(), cmd.OutOrStdout(),
+			cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Deprovision cluster %q? This deletes all its cloud resources (servers, networks, SSH keys) "+
 				"and uninstalls every stack resource on it - this is a teardown, not a power-off.%s [y/N]: ",
 				clusterName, recordWarning),

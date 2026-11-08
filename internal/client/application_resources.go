@@ -111,6 +111,12 @@ type SetApplicationRepositoryCredentialRequest struct {
 	CredentialName string `json:"credential_name"`
 }
 
+// SetApplicationTrackedBranchRequest mirrors the tracked-branch body: the
+// branch of the application's repository it should follow.
+type SetApplicationTrackedBranchRequest struct {
+	Branch string `json:"branch"`
+}
+
 // EnsureApplicationRegistryRobotRequest mirrors the registry-robot body:
 // rotate refreshes the secret of a robot that already backs the application.
 type EnsureApplicationRegistryRobotRequest struct {
@@ -408,6 +414,12 @@ func (client *Client) SetApplicationRepositoryCredential(requestContext context.
 	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/repository-credential"), nil, credentialRequest)
 }
 
+// --- tracked branch ---
+
+func (client *Client) SetApplicationTrackedBranch(requestContext context.Context, applicationID string, branchRequest SetApplicationTrackedBranchRequest) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/tracked-branch"), nil, branchRequest)
+}
+
 // --- AI lane configuration ---
 
 func (client *Client) GetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error) {
@@ -420,6 +432,20 @@ func (client *Client) UpdateApplicationAIConfig(requestContext context.Context, 
 
 func (client *Client) ResetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error) {
 	return client.applicationResourceRequest(requestContext, http.MethodDelete, applicationPath(applicationID, "/ai-config"), nil, nil)
+}
+
+// --- promotion ---
+
+func (client *Client) GetApplicationEnvironments(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/environments"), nil, nil)
+}
+
+func (client *Client) PreviewApplicationPromotion(requestContext context.Context, applicationID string, query url.Values) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/promotions/preview"), query, nil)
+}
+
+func (client *Client) StartApplicationPromotion(requestContext context.Context, applicationID string, promotion map[string]string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPost, applicationPath(applicationID, "/promotions"), nil, promotion)
 }
 
 // --- catalog publishing ---

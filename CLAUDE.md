@@ -80,7 +80,9 @@ the un-injected fallback; never bump it for a release.
   1 API/runtime, 2 usage, 3 not-found, 4 confirmation declined, 5
   `--wait`/`--timeout` expiry, 6 auth, 7 RBAC permission denied (role lacks
   the permission; re-login won't help), 8 a preflight blocked (nothing
-  changed). Commands use `RunE` and return errors (wrapped with
+  changed), 9 waiting (not a failure: the work is unfinished and waits on a
+  pause or a person's step, e.g. `ankra chat`, `application ship`). Map a
+  waiting state to 9, never to 0 or 1. Commands use `RunE` and return errors (wrapped with
   `withExitCode` where the class is known) — never `os.Exit`,
   never printing errors to stdout. Declined prompts return the shared
   `errCancelled`.

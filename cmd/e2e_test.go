@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -380,6 +381,18 @@ func (m baseMock) PutStackProfileLogo(requestContext context.Context, profileID 
 }
 
 func (m baseMock) DeleteStackProfileLogo(requestContext context.Context, profileID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationEnvironments(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PreviewApplicationPromotion(requestContext context.Context, applicationID string, query url.Values) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StartApplicationPromotion(requestContext context.Context, applicationID string, promotion map[string]string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1550,6 +1563,14 @@ func (m baseMock) GetApplicationSecurityVersions(context.Context, string, string
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetSlackInstallURL(context.Context) (*client.SlackInstallURL, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetSlackStatus(context.Context) (*client.SlackStatus, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetApplicationBranchBuilds(context.Context, string) (*client.ApplicationBranchBuilds, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1571,6 +1592,14 @@ func (m baseMock) RotateAPIToken(tokenID string, overlapHours *int) (*client.Rot
 }
 
 func (m baseMock) RotateServiceToken(tokenID string, overlapHours *int) (*client.RotateTokenResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RevokeServiceToken(tokenID string) (*client.RevokeAPITokenResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteServiceToken(tokenID string) (*client.DeleteAPITokenResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2042,6 +2071,10 @@ func (m baseMock) UpdateHetznerNodeGroupInstanceType(ctx context.Context, cluste
 
 func (m baseMock) DeleteHetznerNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions client.DrainOptions, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) RemoveNodeGroupNode(ctx context.Context, kind, clusterID, groupName, node string, drainOptions client.DrainOptions, wait bool) (*client.RemoveNodeGroupNodeResult, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (m baseMock) GetHetznerControlPlane(clusterID string) (*client.ControlPlaneInfo, error) {
@@ -3452,6 +3485,90 @@ func (m baseMock) GetClusterDNSZone(clusterID string) (*client.ClusterDNSZoneRes
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListAlertmanagerSilences(clusterID string, state string, location client.AlertmanagerLocation) (*client.AlertmanagerSilenceList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateAlertmanagerSilence(clusterID string, request client.CreateAlertmanagerSilenceRequest) (*client.AlertmanagerSilenceCreated, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ExpireAlertmanagerSilence(clusterID string, silenceID string, location client.AlertmanagerLocation) (*client.AlertmanagerSilenceExpired, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAlertRules(options client.ListAlertRulesOptions) (*client.AlertRuleList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAlertRule(alertID string) (*client.AlertRuleDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateAlertRule(definition map[string]any) (*client.AlertRule, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAlertRule(alertID string, changes map[string]any) (*client.AlertRule, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteAlertRule(alertID string) (*client.AlertRuleDeleteResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetAlertRuleEnabled(alertID string, enabled bool) (*client.AlertRule, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AcknowledgeAlertTrigger(alertID string, triggerID string, notes string) (map[string]any, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SnoozeAlertTrigger(alertID string, triggerID string, durationMinutes int, notes string) (map[string]any, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetEtcdMembers(ctx context.Context, provider string, clusterID string, nodeID string) (*client.NodeMaintenanceResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RemoveEtcdMember(ctx context.Context, provider string, clusterID string, nodeID string, memberID string) (*client.NodeMaintenanceResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetOSPatchStatus(provider string, clusterID string) (map[string]any, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PlanOSPatches(ctx context.Context, provider string, clusterID string) (map[string]any, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RunOSPatches(ctx context.Context, provider string, clusterID string, request client.OSPatchRunRequest) (map[string]any, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetOSPatchPolicy(ctx context.Context, provider string, clusterID string, update client.OSPatchPolicyUpdate) (map[string]any, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ApplyNodeOSPolicy(ctx context.Context, provider string, clusterID string, request client.NodeOSPolicyRequest) (*client.NodeMaintenanceResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetBillingStanding() (*client.BillingStanding, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetWallet() (*client.Wallet, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ApplyResource(clusterID string, request client.ApplyResourceRequest) (*client.ResourceMutationResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListAlertDestinations(options client.ListAlertDestinationsOptions) (*client.AlertDestinationList, error) {
 	return nil, errors.New("not implemented")
 }
@@ -3469,6 +3586,14 @@ func (m baseMock) GetAISpendCap() (*client.AISpendCap, error) {
 }
 
 func (m baseMock) UpdateAISpendCap(client.AISpendCapUpdate) (*client.AISpendCap, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAuditLogs(context.Context, client.AuditLogFilters) (*client.AuditLogTrail, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ExportAuditLogs(context.Context, client.AuditLogFilters, string, io.Writer) (*client.AuditLogExportResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -5342,6 +5467,10 @@ func (m baseMock) GetApplicationRepositoryCredential(requestContext context.Cont
 }
 
 func (m baseMock) SetApplicationRepositoryCredential(requestContext context.Context, applicationID string, credentialRequest client.SetApplicationRepositoryCredentialRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetApplicationTrackedBranch(requestContext context.Context, applicationID string, branchRequest client.SetApplicationTrackedBranchRequest) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
 

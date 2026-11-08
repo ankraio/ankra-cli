@@ -196,7 +196,7 @@ running - use 'delete' if you want those undeployed too.`,
 			addonID := strings.TrimSpace(arguments[0])
 			yes, _ := command.Flags().GetBool("yes")
 			if confirmError := confirmPrompt(
-				command.InOrStdin(), command.OutOrStdout(),
+				command.InOrStdin(), command.ErrOrStderr(),
 				fmt.Sprintf("Withdraw add-on %q from the catalog? "+
 					"Existing installations keep running, but nobody can install it again. [y/N]: ", addonID),
 				yes,
@@ -234,7 +234,7 @@ running.`,
 			addonID := strings.TrimSpace(arguments[0])
 			yes, _ := command.Flags().GetBool("yes")
 			if confirmError := confirmPrompt(
-				command.InOrStdin(), command.OutOrStdout(),
+				command.InOrStdin(), command.ErrOrStderr(),
 				fmt.Sprintf("Delete add-on %q? This undeploys every installation that came from it "+
 					"and cannot be undone! [y/N]: ", addonID),
 				yes,
