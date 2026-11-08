@@ -146,7 +146,7 @@ first. --state picks active (the default), pending, expired or all.
 					silence.EndsAt, silence.CreatedBy, silence.Comment})
 			}
 			writer.Render()
-			_, _ = fmt.Fprintf(out, "\n%d silence(s) on %s/%s\n", list.Count,
+			_, _ = fmt.Fprintf(out, "\n%d silence(s) on %s/%s\n", len(list.Silences),
 				list.Alertmanager.Namespace, list.Alertmanager.Service)
 			return nil
 		},
@@ -161,11 +161,12 @@ first. --state picks active (the default), pending, expired or all.
 func parseSilenceMatcher(text string) (client.AlertmanagerSilenceMatcher, error) {
 	name, value, hasSeparator := strings.Cut(text, "=")
 	name = strings.TrimSpace(name)
+	value = strings.TrimSpace(value)
 	if !hasSeparator || name == "" {
 		return client.AlertmanagerSilenceMatcher{}, fmt.Errorf("--matcher %q must be name=value or name=~regex", text)
 	}
 	if regex, isRegex := strings.CutPrefix(value, "~"); isRegex {
-		return client.AlertmanagerSilenceMatcher{Name: name, Value: regex, IsRegex: true}, nil
+		return client.AlertmanagerSilenceMatcher{Name: name, Value: strings.TrimSpace(regex), IsRegex: true}, nil
 	}
 	return client.AlertmanagerSilenceMatcher{Name: name, Value: value}, nil
 }
@@ -286,6 +287,9 @@ skips, declining exits 4); a silence Alertmanager does not have exits 3.
 			expired, expireError := apiClient.ExpireAlertmanagerSilence(cluster.ID, silenceID, location)
 			if expireError != nil {
 				return silenceRequestError("expiring the Alertmanager silence", expireError)
+			}
+			if !expired.Expired {
+				return fmt.Errorf("the platform did not confirm that silence %s expired; list the silences to check", silenceID)
 			}
 			if rendered, renderError := renderStructured(cmd, expired); rendered || renderError != nil {
 				return renderError

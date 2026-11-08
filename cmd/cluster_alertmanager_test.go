@@ -121,7 +121,7 @@ func TestSilencesListWithoutCredentialsExitsSix(t *testing.T) {
 func TestSilencesCreateSendsTheMatchersAndComment(t *testing.T) {
 	mock := &alertmanagerSilencesMock{}
 	output, runError := runSilencesCommand(t, mock, "", "create", "--matcher", "alertname=KubeVersionMismatch",
-		"--matcher", "pod=~web-.*", "--duration", "2w", "--comment", "pending upgrade", "--cluster", "prod")
+		"--matcher", "pod =~ web-.*", "--duration", "2w", "--comment", "pending upgrade", "--cluster", "prod")
 	if runError != nil {
 		t.Fatalf("create failed: %v\n%s", runError, output)
 	}
