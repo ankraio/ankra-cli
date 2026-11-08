@@ -562,3 +562,25 @@ func TestValidateBastionInstanceTypeTakesOnlyDigitsForMorpheus(t *testing.T) {
 		t.Errorf("aws instance types are not checked here, got %v", validationError)
 	}
 }
+
+// A blank instance type is refused before anything is sent, on every
+// provider: the argument is trimmed, and the platform would answer an empty
+// instance_type with a 422 the user saw as exit 1.
+func TestBastionResizeRefusesABlankInstanceTypeOnEveryProvider(t *testing.T) {
+	for _, provider := range []string{"hetzner", "ovh", "upcloud", "digitalocean", "ankracloud", "scaleway", "aws", "proxmox", "morpheus"} {
+		validationError := validateBastionInstanceType(provider, "")
+		if exitCodeFor(validationError) != exitUsage || !strings.Contains(validationError.Error(), "blank") {
+			t.Errorf("%s: blank instance type: error = %v, want a usage error saying it is blank", provider, validationError)
+		}
+	}
+	writeSelectedClusterJSON(t)
+	mock := &bastionResizeByProviderMock{}
+	setMockClient(t, mock)
+	_, runError := executeCommand("cluster", "scaleway", "bastion", "resize", testClusterID, "   ", "--wait=true")
+	if exitCodeFor(runError) != exitUsage {
+		t.Fatalf("a blank argument must exit 2, got %v (exit %d)", runError, exitCodeFor(runError))
+	}
+	if len(mock.calls) != 0 {
+		t.Fatalf("resize calls = %v, want none", mock.calls)
+	}
+}

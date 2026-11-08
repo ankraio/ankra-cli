@@ -162,8 +162,14 @@ func runBastionResize(cmd *cobra.Command, opsFn func() bastionOps, clusterID, in
 // by service plan, and the platform reads instance_type as the numeric plan
 // id: anything else fails there as a server error rather than a usage one.
 // Only digits are a plan id: ParseUint takes no sign, where ParseInt let
-// "-5" and "+5" through.
+// "-5" and "+5" through. A blank value is refused for every provider: the
+// argument is trimmed, and the platform answers an empty instance_type with
+// a 422 that reached the user as a runtime failure.
 func validateBastionInstanceType(provider, instanceType string) error {
+	if instanceType == "" {
+		return withExitCode(exitUsage, errors.New(
+			"the bastion instance type is blank; name the one to resize the bastion to"))
+	}
 	if provider != "morpheus" {
 		return nil
 	}
