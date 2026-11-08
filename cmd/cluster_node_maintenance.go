@@ -16,7 +16,8 @@ import (
 
 // The node maintenance commands of the Ankra-provisioned providers: etcd
 // membership and the rolling OS patch lane, the CLI side of the platform's
-// get_etcd_members / remove_etcd_member and *_os_patch* tools. Each provider
+// get_etcd_members / remove_etcd_member, *_os_patch* and apply_node_os_policy
+// tools. Each provider
 // command carries them only where the platform runs the lane, so an
 // unsupported provider has no command rather than one that always fails.
 

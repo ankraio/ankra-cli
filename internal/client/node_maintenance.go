@@ -109,12 +109,13 @@ func (c *Client) RunOSPatches(ctx context.Context, provider string, clusterID st
 	return run, nil
 }
 
-// SetOSPatchPolicy merges update onto the cluster's OS patch policy.
+// SetOSPatchPolicy merges update onto the cluster's OS patch policy
+// (PATCH: a member the update leaves nil is kept).
 func (c *Client) SetOSPatchPolicy(ctx context.Context, provider string, clusterID string, update OSPatchPolicyUpdate) (map[string]any, error) {
 	var policy map[string]any
-	if putError := c.sendJSONSlow(ctx, http.MethodPut, c.providerClusterURL(provider, clusterID, "os-patches/policy"),
-		update, &policy); putError != nil {
-		return nil, putError
+	if patchError := c.sendJSONSlow(ctx, http.MethodPatch, c.providerClusterURL(provider, clusterID, "os-patches/policy"),
+		update, &policy); patchError != nil {
+		return nil, patchError
 	}
 	return policy, nil
 }

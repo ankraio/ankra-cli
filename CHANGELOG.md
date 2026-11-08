@@ -9,7 +9,7 @@
 - **Typed storage writes.** `ankra cluster storage-classes create <name> --provisioner ...` builds a StorageClass from flags (reclaim policy, binding mode, expansion, `--parameter key=value`, `--default`), `storage-classes delete` removes classes, and `ankra cluster persistent-volumes delete` removes volumes after reading each one's phase: a volume a claim still holds (Bound) is refused with exit 8 and nothing deleted unless `--force`, and a phase it could not read refuses too.
 - **Billing standing and wallet.** `ankra org billing standing` says whether overdue invoices, the prepaid wallet or the free tier restrict the organisation and which actions that gates; `ankra org billing wallet` shows the prepaid balance. Both need billing.read and print the platform's whole answer with `-o json`.
 
-These commands need a platform that serves their routes (ankraio/cluster#6174); an older platform answers 404 and the command exits 1.
+These commands need a platform that serves their routes (ankraio/cluster#6174, and ankraio/cluster#6173 for `os-patches status|plan|run|policy`); an older platform answers 404 and the command exits 1.
 
 ### Changed
 
