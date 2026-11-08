@@ -11,8 +11,9 @@ import (
 const alertRulesBasePath = "/api/v1/org/alerts/alerts"
 
 // alertActionsBasePath carries the per-alert actions a member with
-// alerts.write may take: muting an alert and acting on its triggers.
-const alertActionsBasePath = "/api/v1/org/alerts"
+// alerts.write may take: muting an alert and acting on its triggers. It ends
+// in a slash because an alert id always follows it.
+const alertActionsBasePath = "/api/v1/org/alerts/"
 
 // AlertRule is one alert definition as the list, get, create and update
 // routes return it.
@@ -146,7 +147,7 @@ func (c *Client) DeleteAlertRule(alertID string) (*AlertRuleDeleteResult, error)
 // not the alerts.manage an edit of the definition needs.
 func (c *Client) SetAlertRuleEnabled(alertID string, enabled bool) (*AlertRule, error) {
 	var envelope alertRuleEnvelope
-	endpoint := c.BaseURL + alertActionsBasePath + "/" + neturl.PathEscape(alertID) + "/enabled"
+	endpoint := c.BaseURL + alertActionsBasePath + neturl.PathEscape(alertID) + "/enabled"
 	if setError := c.sendJSON(http.MethodPut, endpoint, map[string]any{"enabled": enabled}, &envelope); setError != nil {
 		return nil, setError
 	}
@@ -185,6 +186,6 @@ func (c *Client) alertRuleURL(alertID string) string {
 }
 
 func (c *Client) alertTriggerURL(alertID string, triggerID string, action string) string {
-	return c.BaseURL + alertActionsBasePath + "/" + neturl.PathEscape(alertID) + "/triggers/" +
+	return c.BaseURL + alertActionsBasePath + neturl.PathEscape(alertID) + "/triggers/" +
 		neturl.PathEscape(triggerID) + "/" + action
 }
