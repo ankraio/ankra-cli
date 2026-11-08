@@ -1052,6 +1052,8 @@ type APIClient interface {
 	RebindAlertIngestCredential(credentialID string, request client.RebindAlertIngestCredentialRequest) (*client.AlertIngestCredential, error)
 	GetAISpendCap() (*client.AISpendCap, error)
 	UpdateAISpendCap(update client.AISpendCapUpdate) (*client.AISpendCap, error)
+	ListAuditLogs(ctx context.Context, filters client.AuditLogFilters) (*client.AuditLogTrail, error)
+	ExportAuditLogs(ctx context.Context, filters client.AuditLogFilters, format string, destination io.Writer) (*client.AuditLogExportResult, error)
 	TestAlertDestination(destinationID string) (*client.AlertDestinationTestResult, error)
 	TestAlertDestinationURL(request client.TestAlertDestinationURLRequest) (*client.AlertDestinationTestResult, error)
 	ListSlackChannels() (*client.SlackChannelList, error)

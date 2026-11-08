@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **Read and export the organisation's audit trail from the terminal.** `ankra org audit-logs list` shows the newest entries: when, who (with agents, service accounts and the platform marked apart from people), what action, on what, on which cluster, and whether it worked. It reads the last 7 days unless you pass `--since` or `--until`, which take a span such as `24h`, `7d` or `2w`, a date, an RFC 3339 time, or `all`. Narrow it with `--actor-type`, `--outcome`, `--user`, `--cluster` (name or id), `--action`, `--resource-type`, `--agent-task` and `--search`; it shows 50 entries unless you change `--limit` (`0` shows them all), and `-o json` prints the entries with how many matched. `ankra org audit-logs export` downloads the trail as CSV (the default) or JSON with `--format`, to stdout or to `--file`, with the same filters and no default window. `ankra cluster audit-logs [cluster]` is the list narrowed to one cluster, the selected one when you name none. All three need the `audit.read` permission and work with an API token, so a scheduled job can forward the trail to a SIEM. The platform returns at most 100,000 rows per read; when it cuts a read short, the command says so on stderr and you can narrow the window. A missing login exits 6, a role without `audit.read` exits 7, and a mistyped filter, window or format exits 2 before anything is sent.
+
 ### Changed
 
 - **`ankra ai keys` help says Bitbucket Cloud reviews run on your keys too.** The platform now runs the reviews of your Bitbucket Cloud pull requests on your own AI keys, as it did for GitHub, when you connected your Bitbucket account under Profile, Connected accounts. The help and the bundled `ankra-ai-agents` skill said GitHub only; they now name both, and say GitLab reviews stay on the organisation's AI.

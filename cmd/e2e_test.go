@@ -3489,6 +3489,14 @@ func (m baseMock) UpdateAISpendCap(client.AISpendCapUpdate) (*client.AISpendCap,
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListAuditLogs(context.Context, client.AuditLogFilters) (*client.AuditLogTrail, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ExportAuditLogs(context.Context, client.AuditLogFilters, string, io.Writer) (*client.AuditLogExportResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetAlertDestination(destinationID string) (*client.AlertDestination, error) {
 	return nil, errors.New("not implemented")
 }
