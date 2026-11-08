@@ -394,7 +394,10 @@ ankra tokens rotate <token-id>              # renew before expiry; the old value
   you want the variable to win.
 - **Exit codes are a contract**: `0` success, `1` API/runtime, `2` usage, `3` not found,
   `4` confirmation declined, `5` `--wait`/`--timeout` expiry, `6` auth, `7` RBAC permission denied
-  (the role lacks the permission; re-logging in will not help).
+  (the role lacks the permission; re-logging in will not help), `8` a preflight blocked the change
+  (nothing was changed; for example `cluster upgrade`, `application promote`), `9` waiting: not a
+  failure, the work is unfinished and waits on a pause or a person's step (for example `ankra chat`,
+  `application ship`). Treat `9` as "check back later", not as an error to retry.
 - **Destructive commands confirm first** (`delete`, `uninstall`, `deprovision`); declining exits 4.
   In automation, decide deliberately whether to pass the command's non-interactive flag.
 
