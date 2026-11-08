@@ -49,8 +49,12 @@ type autoscalingBounds struct {
 // passed, else the one recorded for the group, else the CLI default (min 1,
 // max 5) when the group has none recorded. The record is read only when a
 // bound was left out, and a record that cannot be read refuses the write
-// rather than guessing a bound that could move the group's node count.
-func resolveAutoscalingBounds(cmd *cobra.Command, read nodeGroupAutoscalingGetFunc, clusterID, groupName string) (autoscalingBounds, error) {
+// rather than guessing a bound that could move the group's node count. For
+// the same reason an enable whose max is the CLI default is refused when the
+// group has more nodes than that default: the platform would scale it down
+// to 5, the clamp an 8-node group got from a plain --enabled before
+// (ankra-v3qdto.6).
+func resolveAutoscalingBounds(cmd *cobra.Command, calls nodeGroupCalls, clusterID, groupName string, enabled bool) (autoscalingBounds, error) {
 	minCount, _ := cmd.Flags().GetInt("min")
 	maxCount, _ := cmd.Flags().GetInt("max")
 	minGiven, maxGiven := cmd.Flags().Changed("min"), cmd.Flags().Changed("max")
@@ -59,7 +63,7 @@ func resolveAutoscalingBounds(cmd *cobra.Command, read nodeGroupAutoscalingGetFu
 		return bounds, nil
 	}
 
-	current, readError := read(clusterID, groupName)
+	current, readError := calls.autoscalingGet(clusterID, groupName)
 	if readError == nil && current == nil {
 		readError = errors.New("the platform answered no settings")
 	}
@@ -72,8 +76,8 @@ func resolveAutoscalingBounds(cmd *cobra.Command, read nodeGroupAutoscalingGetFu
 
 	recorded := current.Enabled || current.MinCount != unrecordedAutoscalingMinCount ||
 		current.MaxCount != unrecordedAutoscalingMaxCount
-	verb, source := "using", "the CLI default: the group records no bounds of its own "+
-		"(it reads as disabled with the platform's min 1 and max 100)"
+	verb, source := "using", "the CLI default: the group reads as disabled with min 1 and max 100, "+
+		"the answer for a group with no bounds recorded and for one that recorded exactly those"
 	if recorded {
 		verb, source = "keeping", "recorded for the group"
 	}
@@ -109,7 +113,51 @@ func resolveAutoscalingBounds(cmd *cobra.Command, read nodeGroupAutoscalingGetFu
 			"--max %d is below the min of %d the group would keep (%s); pass --min as well",
 			bounds.maxCount, bounds.minCount, source))
 	}
+	if enabled && !maxGiven && !recorded {
+		if refusal := refuseADefaultMaxThatScalesDown(calls, clusterID, groupName, bounds.maxCount); refusal != nil {
+			return autoscalingBounds{}, refusal
+		}
+	}
 	return bounds, nil
+}
+
+// refuseADefaultMaxThatScalesDown refuses an enable whose max is the CLI
+// default when the group has more nodes than that: the platform scales a
+// group down to its max as soon as autoscaling is on, so a bound nobody typed
+// would remove nodes. A node count that cannot be read refuses too.
+func refuseADefaultMaxThatScalesDown(calls nodeGroupCalls, clusterID, groupName string, maxCount int) error {
+	nodeCount, countKnown := 0, false
+	var listError error
+	if calls.list == nil {
+		listError = errors.New("this cluster kind has no node-group listing")
+	} else {
+		var groups *client.NodeGroupListResult
+		groups, listError = calls.list(clusterID)
+		if listError == nil && groups != nil {
+			for _, group := range groups.NodeGroups {
+				if group.Name == groupName {
+					nodeCount, countKnown = group.Count, true
+					break
+				}
+			}
+		}
+	}
+	if listError == nil && !countKnown {
+		listError = fmt.Errorf("node group %q is not in the cluster's node-group listing", groupName)
+	}
+	if listError != nil {
+		return fmt.Errorf("node group %q not changed: --max was left out and the group reads as recording no bounds, so the CLI "+
+			"default of %d would apply, and whether that scales the group down is not known: %w; pass --max",
+			groupName, maxCount, listError)
+	}
+	if nodeCount > maxCount {
+		return withExitCode(exitUsage, fmt.Errorf(
+			"node group %q not changed: --max was left out and the group reads as recording no bounds, so the CLI default of %d "+
+				"would apply, and the group has %d nodes: enabling would scale it down to %d; pass --max "+
+				"(--max %d keeps its size)",
+			groupName, maxCount, nodeCount, maxCount, nodeCount))
+	}
+	return nil
 }
 
 // omittedBoundFlags names the bound flags the user left out, for messages.

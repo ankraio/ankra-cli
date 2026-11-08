@@ -21,6 +21,10 @@ type autoscalingMock struct {
 	getResult   *client.NodeGroupAutoscalingResult
 	getError    error
 	getCalls    int
+	// nodeCount is the group's node count in the node-group listing.
+	nodeCount int
+	listError error
+	listCalls int
 
 	setCalls []client.NodeGroupAutoscalingRequest
 }
@@ -32,6 +36,14 @@ func (m *autoscalingMock) GetClusterByID(clusterID string) (client.ClusterListIt
 func (m *autoscalingMock) GetHetznerNodeGroupAutoscaling(clusterID, groupName string) (*client.NodeGroupAutoscalingResult, error) {
 	m.getCalls++
 	return m.getResult, m.getError
+}
+
+func (m *autoscalingMock) ListHetznerNodeGroups(clusterID string) (*client.NodeGroupListResult, error) {
+	m.listCalls++
+	if m.listError != nil {
+		return nil, m.listError
+	}
+	return &client.NodeGroupListResult{NodeGroups: []client.NodeGroupInfo{{Name: "default", Count: m.nodeCount}}}, nil
 }
 
 func (m *autoscalingMock) GetOvhNodeGroupAutoscaling(clusterID, groupName string) (*client.NodeGroupAutoscalingResult, error) {
@@ -131,20 +143,24 @@ func TestClusterNodeGroupAutoscalingSetKeepsTheRecordedBoundsItIsNotGiven(t *tes
 	for _, testCase := range []struct {
 		name      string
 		recorded  *client.NodeGroupAutoscalingResult
+		nodeCount int
 		args      []string
 		wantBody  string
 		wantReads int
+		wantLists int
 		wantNote  string
 	}{
 		{name: "omitted max keeps the recorded max", recorded: recordedAutoscaling(true, 2, 7),
 			args: []string{"--enabled", "--min", "1"}, wantBody: `{"enabled":true,"min_count":1,"max_count":7}`, wantReads: 1,
 			wantNote: "--max not given: keeping max 7, recorded for the group."},
-		{name: "omitted max with nothing recorded sends 5", recorded: recordedAutoscaling(false, 1, 100),
-			args: []string{"--enabled", "--min", "1"}, wantBody: `{"enabled":true,"min_count":1,"max_count":5}`, wantReads: 1,
-			wantNote: "--max not given: using max 5, the CLI default: the group records no bounds of its own " +
-				"(it reads as disabled with the platform's min 1 and max 100); pass --max to set another."},
-		{name: "plain enable with nothing recorded sends 1 and 5", recorded: recordedAutoscaling(false, 1, 100),
-			args: []string{"--enabled"}, wantBody: `{"enabled":true,"min_count":1,"max_count":5}`, wantReads: 1},
+		{name: "omitted max with nothing recorded sends 5", recorded: recordedAutoscaling(false, 1, 100), nodeCount: 3,
+			args: []string{"--enabled", "--min", "1"}, wantBody: `{"enabled":true,"min_count":1,"max_count":5}`, wantReads: 1, wantLists: 1,
+			wantNote: "--max not given: using max 5, the CLI default: the group reads as disabled with min 1 and max 100, " +
+				"the answer for a group with no bounds recorded and for one that recorded exactly those; pass --max to set another."},
+		{name: "plain enable with nothing recorded sends 1 and 5", recorded: recordedAutoscaling(false, 1, 100), nodeCount: 5,
+			args: []string{"--enabled"}, wantBody: `{"enabled":true,"min_count":1,"max_count":5}`, wantReads: 1, wantLists: 1},
+		{name: "plain disable with nothing recorded sends 1 and 5 without a listing", recorded: recordedAutoscaling(false, 1, 100), nodeCount: 8,
+			args: []string{"--enabled=false"}, wantBody: `{"enabled":false,"min_count":1,"max_count":5}`, wantReads: 1},
 		{name: "plain disable keeps both recorded bounds", recorded: recordedAutoscaling(true, 0, 9),
 			args: []string{"--enabled=false"}, wantBody: `{"enabled":false,"min_count":0,"max_count":9}`, wantReads: 1},
 		{name: "a disabled group keeps the bounds it recorded", recorded: recordedAutoscaling(false, 2, 7),
@@ -158,7 +174,7 @@ func TestClusterNodeGroupAutoscalingSetKeepsTheRecordedBoundsItIsNotGiven(t *tes
 			resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd)
 			t.Cleanup(func() { resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd) })
 			writeSelectedClusterJSON(t)
-			mock := &autoscalingMock{clusterKind: "hetzner", getResult: testCase.recorded}
+			mock := &autoscalingMock{clusterKind: "hetzner", getResult: testCase.recorded, nodeCount: testCase.nodeCount}
 			setMockClient(t, mock)
 
 			var stderr string
@@ -170,8 +186,9 @@ func TestClusterNodeGroupAutoscalingSetKeepsTheRecordedBoundsItIsNotGiven(t *tes
 			if runError != nil {
 				t.Fatalf("set: %v", runError)
 			}
-			if mock.getCalls != testCase.wantReads {
-				t.Errorf("autoscaling reads = %d, want %d", mock.getCalls, testCase.wantReads)
+			if mock.getCalls != testCase.wantReads || mock.listCalls != testCase.wantLists {
+				t.Errorf("autoscaling reads = %d, listings = %d, want %d and %d", mock.getCalls, mock.listCalls,
+					testCase.wantReads, testCase.wantLists)
 			}
 			if len(mock.setCalls) != 1 {
 				t.Fatalf("autoscaling update calls = %d, want 1", len(mock.setCalls))
@@ -243,12 +260,65 @@ func TestClusterNodeGroupAutoscalingSetRefusesAMinAboveTheKeptMax(t *testing.T) 
 	}
 }
 
+// The CLI default max is a bound nobody typed, so an enable is refused
+// rather than letting it scale a bigger group down: a plain --enabled on an
+// 8-node group used to clamp it to 5 (ankra-v3qdto.6). An unreadable node
+// count refuses too, keeping the listing's error class.
+func TestClusterNodeGroupAutoscalingSetRefusesADefaultMaxThatScalesTheGroupDown(t *testing.T) {
+	for _, testCase := range []struct {
+		name     string
+		mock     *autoscalingMock
+		wantExit int
+		want     string
+	}{
+		{name: "more nodes than the default max", mock: &autoscalingMock{clusterKind: "hetzner",
+			getResult: recordedAutoscaling(false, 1, 100), nodeCount: 8},
+			wantExit: exitUsage, want: "the group has 8 nodes: enabling would scale it down to 5; pass --max (--max 8 keeps its size)"},
+		{name: "node count unreadable", mock: &autoscalingMock{clusterKind: "hetzner",
+			getResult: recordedAutoscaling(false, 1, 100), listError: client.ErrUnauthorized},
+			wantExit: exitAuth, want: "whether that scales the group down is not known"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd)
+			t.Cleanup(func() { resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd) })
+			writeSelectedClusterJSON(t)
+			setMockClient(t, testCase.mock)
+
+			var runError error
+			captureStdout(t, func() {
+				_, runError = executeCommand("cluster", "node-group", "autoscaling", "set", testClusterID, "default", "--enabled")
+			})
+			if runError == nil || exitCodeFor(runError) != testCase.wantExit || !strings.Contains(runError.Error(), testCase.want) {
+				t.Fatalf("want exit %d saying %q, got %v (exit %d)", testCase.wantExit, testCase.want, runError, exitCodeFor(runError))
+			}
+			if len(testCase.mock.setCalls) != 0 {
+				t.Fatalf("nothing may be sent, sent %+v", testCase.mock.setCalls)
+			}
+		})
+	}
+
+	// A recorded max is kept whatever the node count: it is the user's.
+	resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd)
+	t.Cleanup(func() { resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd) })
+	writeSelectedClusterJSON(t)
+	mock := &autoscalingMock{clusterKind: "hetzner", getResult: recordedAutoscaling(false, 2, 7), nodeCount: 12}
+	setMockClient(t, mock)
+	captureStdout(t, func() {
+		if _, runError := executeCommand("cluster", "node-group", "autoscaling", "set", testClusterID, "default", "--enabled", "--wait"); runError != nil {
+			t.Fatalf("set with a recorded max: %v", runError)
+		}
+	})
+	if len(mock.setCalls) != 1 || mock.setCalls[0].MaxCount != 7 || mock.listCalls != 0 {
+		t.Fatalf("a recorded max must be sent without a listing, sent %+v after %d listings", mock.setCalls, mock.listCalls)
+	}
+}
+
 // The confirmation echoes the bounds that were sent.
 func TestClusterNodeGroupAutoscalingSetEchoesTheBoundsSent(t *testing.T) {
 	resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd)
 	t.Cleanup(func() { resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd) })
 	writeSelectedClusterJSON(t)
-	mock := &autoscalingMock{clusterKind: "hetzner", getResult: recordedAutoscaling(false, 1, 100)}
+	mock := &autoscalingMock{clusterKind: "hetzner", getResult: recordedAutoscaling(false, 1, 100), nodeCount: 2}
 	setMockClient(t, mock)
 
 	stdoutOutput := captureStdout(t, func() {

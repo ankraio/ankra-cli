@@ -807,17 +807,23 @@ var clusterNodeGroupAutoscalingSetCmd = &cobra.Command{
 	Use:   "set <cluster_id|name> <group_name>",
 	Short: "Enable or disable autoscaling for a node group",
 	Long: `Enable autoscaling with --enabled --min <n> --max <n>, or disable it with
---enabled=false. A --min or --max you leave out keeps the bound recorded for
-the group, which the command reads first; a group with no bounds recorded
-gets min 1 and max 5. The platform saves both bounds on every write, so this
-is what keeps --enabled=false on its own, or a change to one bound, from
-resetting the other. When the recorded bounds cannot be read, the command
-changes nothing and asks for both --min and --max. --min 0 (scale-to-zero)
-is accepted where the platform can size a node from the group's instance
-type and the cluster's ankra-agent serves the node template; the platform
-names what is missing otherwise. Enabling requires the cluster's ankra-agent
-to be recent enough to serve the autoscaler, and installs the Cluster
-Autoscaler on first enable.
+--enabled=false.
+
+A --min or --max you leave out keeps the bound recorded for the group,
+which the command reads first; a group with no bounds recorded gets min 1
+and max 5. A disabled group that recorded exactly min 1 and max 100 reads
+the same as one with none, and gets the same. The platform saves both
+bounds on every write, so this is what keeps --enabled=false on its own, or
+a change to one bound, from resetting the other. The command changes
+nothing, and asks for the bound, when the recorded bounds cannot be read,
+or when an enable would take the default max 5 while the group has more
+nodes than that, which would scale it down.
+
+--min 0 (scale-to-zero) is accepted where the platform can size a node from
+the group's instance type and the cluster's ankra-agent serves the node
+template; the platform names what is missing otherwise. Enabling requires
+the cluster's ankra-agent to be recent enough to serve the autoscaler, and
+installs the Cluster Autoscaler on first enable.
 
 Enabling with bounds the group is outside moves it inside them: a --max
 below the group's node count scales it down to --max, removing the least
@@ -854,7 +860,7 @@ Examples:
 		}
 		defer cancelRequestContext()
 
-		bounds, boundsError := resolveAutoscalingBounds(cmd, calls.autoscalingGet, clusterID, groupName)
+		bounds, boundsError := resolveAutoscalingBounds(cmd, calls, clusterID, groupName, enabled)
 		if boundsError != nil {
 			return boundsError
 		}
