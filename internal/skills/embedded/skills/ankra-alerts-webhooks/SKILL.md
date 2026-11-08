@@ -155,8 +155,11 @@ ankra alerts routes create --destination-id <id> \
 ## Alert rules, AI analysis and alerts from outside
 
 - **Alert rules** (the conditions behind `alert_trigger_fired`: cluster offline, a resource
-  degraded, AND/OR conditions) are authored in the portal under **Alerts**; the CLI manages
-  where their notifications go, not the rules.
+  degraded, AND/OR conditions) are authored in the portal under **Alerts** or with
+  `ankra alerts rules create -f alert.yaml` (the platform's create body, YAML or JSON).
+  `ankra alerts rules list|get|update|delete` manage them (alerts.manage to change one);
+  `ankra alerts rules disable <id>` mutes one and keeps its history (alerts.write), and
+  `ankra alerts triggers acknowledge|snooze <alert-id> <trigger-id>` act on one firing.
 - **Every firing gets an AI analysis** - pod status, warning events, recent logs, node conditions,
   root cause and recommended actions - on the firing and in **AI → Inbox**. A firing can also
   start auto-remediation; read its envelope with `ankra ai remediation policy` (changing it is an
