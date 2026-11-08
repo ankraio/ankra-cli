@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- **Alert definitions from the CLI.** `ankra alerts rules list|get|create|update|delete` manage the organisation's alert definitions, the rules Ankra evaluates and opens incidents from, which until now only the portal and the assistant could author. `create -f` and `update -f` take the platform's body as YAML or JSON (`-f -` reads stdin); an update changes only the members the file names. `ankra alerts rules disable <id>` mutes an alert and keeps its history, `enable` brings it back, and `ankra alerts triggers acknowledge|snooze <alert-id> <trigger-id>` act on one firing. Changing a definition needs alerts.manage; muting, acknowledging and snoozing need alerts.write. `delete` asks first (`--yes` skips, declining exits 4).
+- **etcd membership and rolling OS patches on Ankra-provisioned clusters.** `ankra cluster <provider> etcd members <cluster> <node>` lists the etcd members, their health and the quorum margin from one control-plane node, and `etcd remove <cluster> <node> <member>` removes the stale member a dead control-plane node left, through a healthy peer; the platform refuses a healthy member and a removal that would break quorum, and the command asks first. `ankra cluster <provider> os-patches status|plan|run|policy get|policy set` drive the rolling OS patch lane, one host at a time, and `os-patches node-policy` writes or removes the node OS update hold by hand. `run` and `node-policy` ask first. Each provider carries the commands its platform lane serves (etcd and the patch lane on Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, AWS and Ankra Cloud; the node OS policy everywhere but Scaleway). A job slower than `--timeout` exits 5.
+- **Typed storage writes.** `ankra cluster storage-classes create <name> --provisioner ...` builds a StorageClass from flags (reclaim policy, binding mode, expansion, `--parameter key=value`, `--default`), `storage-classes delete` removes classes, and `ankra cluster persistent-volumes delete` removes volumes after reading each one's phase: a volume a claim still holds (Bound) is refused with exit 8 and nothing deleted unless `--force`, and a phase it could not read refuses too.
+- **Billing standing and wallet.** `ankra org billing standing` says whether overdue invoices, the prepaid wallet or the free tier restrict the organisation and which actions that gates; `ankra org billing wallet` shows the prepaid balance. Both need billing.read and print the platform's whole answer with `-o json`.
+
+These commands need a platform that serves their routes (ankraio/cluster#6174); an older platform answers 404 and the command exits 1.
+
 ### Changed
 
 - **`ankra ai keys` help says Bitbucket Cloud reviews run on your keys too.** The platform now runs the reviews of your Bitbucket Cloud pull requests on your own AI keys, as it did for GitHub, when you connected your Bitbucket account under Profile, Connected accounts. The help and the bundled `ankra-ai-agents` skill said GitHub only; they now name both, and say GitLab reviews stay on the organisation's AI.

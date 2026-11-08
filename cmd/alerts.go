@@ -16,7 +16,7 @@ import (
 
 var alertsCmd = &cobra.Command{
 	Use:   "alerts",
-	Short: "Manage alert destinations and notification routes",
+	Short: "Manage alert definitions, their firings, destinations and notification routes",
 	Long: `Manage where Ankra delivers alerts and platform notifications.
 
 Destinations are the endpoints notifications are sent to: a webhook URL
@@ -26,6 +26,9 @@ notifications reach which destination, filtered by kind, severity, cluster,
 and source, so the whole alerting setup can live in scripts and CI next to
 the rest of your platform configuration.
 
+  ankra alerts rules list
+  ankra alerts rules disable <alert-id>
+  ankra alerts triggers snooze <alert-id> <trigger-id> --minutes 60
   ankra alerts destinations list
   ankra alerts destinations create --name ops-slack --url https://hooks.slack.com/services/...
   ankra alerts destinations test <destination-id>

@@ -3469,6 +3469,78 @@ func (m baseMock) GetClusterDNSZone(clusterID string) (*client.ClusterDNSZoneRes
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListAlertRules(options client.ListAlertRulesOptions) (*client.AlertRuleList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAlertRule(alertID string) (*client.AlertRuleDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateAlertRule(definition map[string]any) (*client.AlertRule, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAlertRule(alertID string, changes map[string]any) (*client.AlertRule, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteAlertRule(alertID string) (*client.AlertRuleDeleteResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetAlertRuleEnabled(alertID string, enabled bool) (*client.AlertRule, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AcknowledgeAlertTrigger(alertID string, triggerID string, notes string) (map[string]any, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SnoozeAlertTrigger(alertID string, triggerID string, durationMinutes int, notes string) (map[string]any, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetEtcdMembers(ctx context.Context, provider string, clusterID string, nodeID string) (*client.NodeMaintenanceResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RemoveEtcdMember(ctx context.Context, provider string, clusterID string, nodeID string, memberID string) (*client.NodeMaintenanceResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetOSPatchStatus(provider string, clusterID string) (map[string]any, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PlanOSPatches(ctx context.Context, provider string, clusterID string) (map[string]any, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RunOSPatches(ctx context.Context, provider string, clusterID string, request client.OSPatchRunRequest) (map[string]any, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetOSPatchPolicy(ctx context.Context, provider string, clusterID string, update client.OSPatchPolicyUpdate) (map[string]any, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ApplyNodeOSPolicy(ctx context.Context, provider string, clusterID string, request client.NodeOSPolicyRequest) (*client.NodeMaintenanceResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetBillingStanding() (*client.BillingStanding, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetWallet() (*client.Wallet, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ApplyResource(clusterID string, request client.ApplyResourceRequest) (*client.ResourceMutationResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListAlertDestinations(options client.ListAlertDestinationsOptions) (*client.AlertDestinationList, error) {
 	return nil, errors.New("not implemented")
 }
