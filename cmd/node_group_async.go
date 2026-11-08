@@ -74,19 +74,51 @@ func failedNodeGroupWriteCommand(clusterID string) string {
 	return "ankra cluster operations list --failed --cluster " + clusterID
 }
 
+// nodeGroupWaitReach is what --wait waits for on one node-group write, so
+// the answer to a write submitted without it says what re-running with it
+// would show.
+type nodeGroupWaitReach int
+
+const (
+	// waitUntilRecorded: the platform answers once it has recorded or
+	// refused the change, and the nodes change afterwards (add, scale,
+	// upgrade, delete, labels, taints).
+	waitUntilRecorded nodeGroupWaitReach = iota
+	// waitUntilOperationEnds: the command also follows the operation the
+	// platform names for the change until it ends (autoscaling set).
+	waitUntilOperationEnds
+)
+
+// hint is what re-running with --wait shows, for the JSON answer.
+func (reach nodeGroupWaitReach) hint() string {
+	if reach == waitUntilOperationEnds {
+		return "re-running with --wait shows whether the platform recorded or refused the change, then follows the operation applying it until that operation ends"
+	}
+	return "re-running with --wait shows whether the platform recorded or refused the change, not when the nodes are ready"
+}
+
+// sentence is what re-running with --wait shows, for the human answer.
+func (reach nodeGroupWaitReach) sentence() string {
+	if reach == waitUntilOperationEnds {
+		return "Re-run the same command with --wait to see whether the platform recorded or refused the change; --wait then follows the operation applying it until that operation ends."
+	}
+	return "Re-run the same command with --wait to see whether the platform recorded or refused the change; --wait does not wait for the nodes themselves."
+}
+
 // newNodeGroupSubmittedResult is newAsyncSubmittedResult for a node-group
-// write: the hint also names where a late refusal is recorded.
-func newNodeGroupSubmittedResult(operationLabel, clusterID string) asyncSubmittedResult {
+// write: the hint also names where a late refusal is recorded, and says what
+// --wait waits for on this write.
+func newNodeGroupSubmittedResult(operationLabel, clusterID string, reach nodeGroupWaitReach) asyncSubmittedResult {
 	result := newAsyncSubmittedResult(operationLabel)
-	result.Hint = "follow the nodes with '" + followNodeGroupWorkCommand(clusterID) + "'; re-running with --wait shows whether the platform recorded or refused the change, not when the nodes are ready; if the platform refuses it after accepting it, '" + failedNodeGroupWriteCommand(clusterID) +
+	result.Hint = "follow the nodes with '" + followNodeGroupWorkCommand(clusterID) + "'; " + reach.hint() + "; if the platform refuses it after accepting it, '" + failedNodeGroupWriteCommand(clusterID) +
 		"' shows the failed node_group_write operation with the provider's reason once it is decided; an empty listing right away does not mean the change was applied"
 	return result
 }
 
-func printNodeGroupWriteSubmitted(operationLabel, clusterID string) {
+func printNodeGroupWriteSubmitted(operationLabel, clusterID string, reach nodeGroupWaitReach) {
 	fmt.Printf("%s submitted.\n", operationLabel)
 	fmt.Println("The platform records the change, then creates, removes or changes the nodes in the background.")
-	fmt.Println("Re-run the same command with --wait to see whether the platform recorded or refused the change; --wait does not wait for the nodes themselves.")
+	fmt.Println(reach.sentence())
 	fmt.Println("Avoid submitting the same change again while it may still be running (duplicate node groups can double cost).")
 	fmt.Printf("Follow the nodes with:\n  %s\n", followNodeGroupWorkCommand(clusterID))
 	fmt.Printf("If the platform refuses it after accepting it (for example the provider has no stock of the requested server type), the refusal is recorded as a failed node_group_write operation with the provider's reason:\n  %s\n", failedNodeGroupWriteCommand(clusterID))

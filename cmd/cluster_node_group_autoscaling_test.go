@@ -19,6 +19,8 @@ type autoscalingMock struct {
 
 	clusterKind string
 	getResult   *client.NodeGroupAutoscalingResult
+	getError    error
+	getCalls    int
 
 	setCalls []client.NodeGroupAutoscalingRequest
 }
@@ -28,7 +30,8 @@ func (m *autoscalingMock) GetClusterByID(clusterID string) (client.ClusterListIt
 }
 
 func (m *autoscalingMock) GetHetznerNodeGroupAutoscaling(clusterID, groupName string) (*client.NodeGroupAutoscalingResult, error) {
-	return m.getResult, nil
+	m.getCalls++
+	return m.getResult, m.getError
 }
 
 func (m *autoscalingMock) GetOvhNodeGroupAutoscaling(clusterID, groupName string) (*client.NodeGroupAutoscalingResult, error) {
@@ -113,36 +116,62 @@ func TestClusterNodeGroupAutoscalingRefusesUnsupportedKind(t *testing.T) {
 	}
 }
 
-// The command used to send its own flag defaults (min 1, max 5) for bounds
-// the user never set: a plain enable capped the group at 5 nodes against the
-// platform's default of 100, and --enabled=false overwrote the recorded
-// bounds with 1 and 5 (ankra-v3qdto.6). Only the flags the user set travel
-// now.
-func TestClusterNodeGroupAutoscalingSetSendsOnlyTheBoundsTheUserSet(t *testing.T) {
+// recordedAutoscaling is what the platform's autoscaling read answers.
+func recordedAutoscaling(enabled bool, minCount, maxCount int) *client.NodeGroupAutoscalingResult {
+	return &client.NodeGroupAutoscalingResult{GroupName: "default", Enabled: enabled, MinCount: minCount, MaxCount: maxCount}
+}
+
+// The platform saves its default (min 1, max 100) for a bound the body
+// leaves out, so sending only the flags given raised a group capped at 5 to
+// 100 on a plain --enabled and reset both bounds on --enabled=false
+// (ankra-v3qdto.6 review). Both bounds are sent: the flag when given, else
+// the bound recorded for the group, else min 1 / max 5 when the group has
+// none recorded (the platform reads such a group as disabled, 1, 100).
+func TestClusterNodeGroupAutoscalingSetKeepsTheRecordedBoundsItIsNotGiven(t *testing.T) {
 	for _, testCase := range []struct {
-		name     string
-		args     []string
-		wantBody string
+		name      string
+		recorded  *client.NodeGroupAutoscalingResult
+		args      []string
+		wantBody  string
+		wantReads int
+		wantNote  string
 	}{
-		{name: "plain enable", args: []string{"--enabled"}, wantBody: `{"enabled":true}`},
-		{name: "plain disable", args: []string{"--enabled=false"}, wantBody: `{"enabled":false}`},
-		{name: "max only", args: []string{"--enabled", "--max", "8"}, wantBody: `{"enabled":true,"max_count":8}`},
-		{name: "both bounds", args: []string{"--enabled", "--min", "2", "--max", "6"}, wantBody: `{"enabled":true,"max_count":6,"min_count":2}`},
-		{name: "scale to zero", args: []string{"--enabled", "--min", "0", "--max", "4"}, wantBody: `{"enabled":true,"max_count":4,"min_count":0}`},
+		{name: "omitted max keeps the recorded max", recorded: recordedAutoscaling(true, 2, 7),
+			args: []string{"--enabled", "--min", "1"}, wantBody: `{"enabled":true,"min_count":1,"max_count":7}`, wantReads: 1,
+			wantNote: "--max not given: keeping max 7, recorded for the group."},
+		{name: "omitted max with nothing recorded sends 5", recorded: recordedAutoscaling(false, 1, 100),
+			args: []string{"--enabled", "--min", "1"}, wantBody: `{"enabled":true,"min_count":1,"max_count":5}`, wantReads: 1,
+			wantNote: "--max not given: using max 5, the CLI default"},
+		{name: "plain enable with nothing recorded sends 1 and 5", recorded: recordedAutoscaling(false, 1, 100),
+			args: []string{"--enabled"}, wantBody: `{"enabled":true,"min_count":1,"max_count":5}`, wantReads: 1},
+		{name: "plain disable keeps both recorded bounds", recorded: recordedAutoscaling(true, 0, 9),
+			args: []string{"--enabled=false"}, wantBody: `{"enabled":false,"min_count":0,"max_count":9}`, wantReads: 1},
+		{name: "a disabled group keeps the bounds it recorded", recorded: recordedAutoscaling(false, 2, 7),
+			args: []string{"--enabled", "--max", "8"}, wantBody: `{"enabled":true,"min_count":2,"max_count":8}`, wantReads: 1},
+		{name: "explicit flags win without a read", recorded: recordedAutoscaling(true, 2, 7),
+			args: []string{"--enabled", "--min", "3", "--max", "4"}, wantBody: `{"enabled":true,"min_count":3,"max_count":4}`},
+		{name: "explicit scale to zero", recorded: recordedAutoscaling(true, 2, 7),
+			args: []string{"--enabled", "--min", "0", "--max", "4"}, wantBody: `{"enabled":true,"min_count":0,"max_count":4}`},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd)
 			t.Cleanup(func() { resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd) })
 			writeSelectedClusterJSON(t)
-			mock := &autoscalingMock{clusterKind: "hetzner"}
+			mock := &autoscalingMock{clusterKind: "hetzner", getResult: testCase.recorded}
 			setMockClient(t, mock)
 
+			var stderr string
+			var runError error
 			captureStdout(t, func() {
 				arguments := append([]string{"cluster", "node-group", "autoscaling", "set", testClusterID, "default", "--wait"}, testCase.args...)
-				if _, runError := executeCommand(arguments...); runError != nil {
-					t.Fatalf("set: %v", runError)
-				}
+				stderr, runError = executeCommand(arguments...)
 			})
+			if runError != nil {
+				t.Fatalf("set: %v", runError)
+			}
+			if mock.getCalls != testCase.wantReads {
+				t.Errorf("autoscaling reads = %d, want %d", mock.getCalls, testCase.wantReads)
+			}
 			if len(mock.setCalls) != 1 {
 				t.Fatalf("autoscaling update calls = %d, want 1", len(mock.setCalls))
 			}
@@ -153,25 +182,79 @@ func TestClusterNodeGroupAutoscalingSetSendsOnlyTheBoundsTheUserSet(t *testing.T
 			if string(body) != testCase.wantBody {
 				t.Errorf("body = %s, want %s", body, testCase.wantBody)
 			}
+			if testCase.wantNote != "" && !strings.Contains(stderr, testCase.wantNote) {
+				t.Errorf("stderr lacks %q: %s", testCase.wantNote, stderr)
+			}
 		})
 	}
 }
 
-// An omitted bound still carries the platform default in the request, so
-// code that echoes the request (the confirmation line) reads 1 and 100, not
-// 0.
-func TestClusterNodeGroupAutoscalingSetEchoesThePlatformDefaults(t *testing.T) {
+// When a bound is left out and the recorded bounds cannot be read, nothing
+// is sent: a guessed bound could scale the group. The read's own error
+// class is kept (a missing group exits 3, a 403 exits 7...).
+func TestClusterNodeGroupAutoscalingSetRefusesWhenTheRecordedBoundsCannotBeRead(t *testing.T) {
+	for name, mock := range map[string]*autoscalingMock{
+		"read fails": {clusterKind: "hetzner", getError: client.ErrUnauthorized},
+		"empty read": {clusterKind: "hetzner"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd)
+			t.Cleanup(func() { resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd) })
+			writeSelectedClusterJSON(t)
+			setMockClient(t, mock)
+
+			var runError error
+			captureStdout(t, func() {
+				_, runError = executeCommand("cluster", "node-group", "autoscaling", "set", testClusterID, "default", "--enabled", "--min", "1")
+			})
+			if runError == nil || !strings.Contains(runError.Error(), "pass both --min and --max") ||
+				!strings.Contains(runError.Error(), "(--max)") {
+				t.Fatalf("want a refusal asking for both bounds, got %v", runError)
+			}
+			if len(mock.setCalls) != 0 {
+				t.Fatalf("nothing may be sent when the recorded bounds are unknown, sent %+v", mock.setCalls)
+			}
+			if mock.getError != nil && exitCodeFor(runError) != exitAuth {
+				t.Errorf("exit = %d, want the read's own %d", exitCodeFor(runError), exitAuth)
+			}
+		})
+	}
+}
+
+// A bound given beside one kept that it contradicts is refused before
+// anything is sent, naming where the kept bound comes from.
+func TestClusterNodeGroupAutoscalingSetRefusesAMinAboveTheKeptMax(t *testing.T) {
 	resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd)
 	t.Cleanup(func() { resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd) })
 	writeSelectedClusterJSON(t)
-	mock := &autoscalingMock{clusterKind: "hetzner"}
+	mock := &autoscalingMock{clusterKind: "hetzner", getResult: recordedAutoscaling(false, 1, 100)}
+	setMockClient(t, mock)
+
+	var runError error
+	captureStdout(t, func() {
+		_, runError = executeCommand("cluster", "node-group", "autoscaling", "set", testClusterID, "default", "--enabled", "--min", "8")
+	})
+	if runError == nil || exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "--min 8 is above the max of 5") {
+		t.Fatalf("want exit 2 naming the kept max, got %v (exit %d)", runError, exitCodeFor(runError))
+	}
+	if len(mock.setCalls) != 0 {
+		t.Fatalf("nothing may be sent, sent %+v", mock.setCalls)
+	}
+}
+
+// The confirmation echoes the bounds that were sent.
+func TestClusterNodeGroupAutoscalingSetEchoesTheBoundsSent(t *testing.T) {
+	resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd)
+	t.Cleanup(func() { resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd) })
+	writeSelectedClusterJSON(t)
+	mock := &autoscalingMock{clusterKind: "hetzner", getResult: recordedAutoscaling(false, 1, 100)}
 	setMockClient(t, mock)
 
 	stdoutOutput := captureStdout(t, func() {
 		_, _ = executeCommand("cluster", "node-group", "autoscaling", "set", testClusterID, "default", "--enabled", "--wait")
 	})
-	if !strings.Contains(stdoutOutput, "autoscaling enabled (min 1, max 100)") {
-		t.Errorf("expected the platform defaults in the confirmation, got: %s", stdoutOutput)
+	if !strings.Contains(stdoutOutput, "autoscaling enabled (min 1, max 5)") {
+		t.Errorf("expected the bounds sent in the confirmation, got: %s", stdoutOutput)
 	}
 }
 

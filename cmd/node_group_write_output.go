@@ -9,15 +9,16 @@ import (
 )
 
 // nodeGroupWriteWaitUsage is the --wait help of the node-group writes whose
-// cloud work the platform leaves to a reconcile operation it does not name
-// in its answer (scale, add, delete). With wait=true the platform holds the
-// request until the change is recorded or refused, not until a node exists:
+// work on the nodes the platform does after it answers (add, scale, upgrade,
+// delete, labels, taints). With wait=true the platform holds the request
+// until the change is recorded or refused, not until the nodes have changed:
 // a scale-up reported "scaled" about two minutes before its new node was
-// Ready, with nothing to follow (ankra-v3qdto.6).
+// Ready, with nothing to follow (ankra-v3qdto.6). The reconcile, or the
+// operation an instance-type change starts, does the rest.
 const nodeGroupWriteWaitUsage = "Wait until the platform has recorded the change or refused it. " +
-	"It does not wait for nodes to be created, drained or removed, or to become Ready: the platform does that " +
-	"afterwards in a reconcile operation, which 'ankra cluster operations list --cluster <cluster>' shows " +
-	"(default: submit and return immediately)"
+	"It does not wait for the change to reach the nodes (nodes created, resized, drained or removed, labels and taints applied) " +
+	"or for nodes to become Ready: the platform does that afterwards in an operation, which " +
+	"'ankra cluster operations list --cluster <cluster>' shows (default: submit and return immediately)"
 
 // registerNodeGroupWriteFlags is registerAsyncWriteFlags for those writes,
 // with the --wait help saying what it waits for.

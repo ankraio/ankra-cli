@@ -544,3 +544,21 @@ func TestClusterBastionResizeRefusesANonNumericMorpheusPlan(t *testing.T) {
 		t.Fatalf("resize calls = %v, want none", mock.calls)
 	}
 }
+
+// Only digits name a Morpheus plan: a sign passed ParseInt, so "-5" and
+// "+5" reached the platform as plan ids. Other providers take any name.
+func TestValidateBastionInstanceTypeTakesOnlyDigitsForMorpheus(t *testing.T) {
+	for _, refused := range []string{"-5", "+5", "", "4.2", "0x2a", "small-plan"} {
+		if validationError := validateBastionInstanceType("morpheus", refused); exitCodeFor(validationError) != exitUsage {
+			t.Errorf("morpheus plan %q: error = %v, want a usage error", refused, validationError)
+		}
+	}
+	for _, accepted := range []string{"42", "0042"} {
+		if validationError := validateBastionInstanceType("morpheus", accepted); validationError != nil {
+			t.Errorf("morpheus plan %q refused: %v", accepted, validationError)
+		}
+	}
+	if validationError := validateBastionInstanceType("aws", "-5"); validationError != nil {
+		t.Errorf("aws instance types are not checked here, got %v", validationError)
+	}
+}

@@ -161,11 +161,13 @@ func runBastionResize(cmd *cobra.Command, opsFn func() bastionOps, clusterID, in
 // would only refuse after accepting the request. A Morpheus bastion is sized
 // by service plan, and the platform reads instance_type as the numeric plan
 // id: anything else fails there as a server error rather than a usage one.
+// Only digits are a plan id: ParseUint takes no sign, where ParseInt let
+// "-5" and "+5" through.
 func validateBastionInstanceType(provider, instanceType string) error {
 	if provider != "morpheus" {
 		return nil
 	}
-	if _, parseError := strconv.ParseInt(instanceType, 10, 64); parseError != nil {
+	if _, parseError := strconv.ParseUint(instanceType, 10, 64); parseError != nil {
 		return withExitCode(exitUsage, fmt.Errorf(
 			"a Morpheus bastion is resized to a service plan ID, an integer, not %q; list them with 'ankra cluster morpheus plans'",
 			instanceType))

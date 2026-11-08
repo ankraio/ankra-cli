@@ -151,18 +151,102 @@ func TestNodeGroupWriteSubmittedSaysWhatWaitWaitsFor(t *testing.T) {
 	}
 }
 
-// The --wait help says what it waits for on every scale, add and delete.
+// The --wait help says what it waits for on every node-group write whose
+// nodes change after the platform answers: scale, add, upgrade and delete,
+// and labels and taints, generic and per provider.
 func TestNodeGroupWriteWaitHelpSaysWhatItWaitsFor(t *testing.T) {
 	for _, command := range []*cobra.Command{
-		clusterNodeGroupScaleCmd, clusterNodeGroupAddCmd, clusterNodeGroupDeleteCmd,
-		nodeGroupScaleCmd, nodeGroupAddCmd, nodeGroupDeleteCmd,
-		ovhNodeGroupScaleCmd, ovhNodeGroupAddCmd, ovhNodeGroupDeleteCmd,
-		upcloudNodeGroupScaleCmd, upcloudNodeGroupAddCmd, upcloudNodeGroupDeleteCmd,
-		digitaloceanNodeGroupScaleCmd, digitaloceanNodeGroupAddCmd, digitaloceanNodeGroupDeleteCmd,
+		clusterNodeGroupScaleCmd, clusterNodeGroupAddCmd, clusterNodeGroupDeleteCmd, clusterNodeGroupUpgradeCmd,
+		clusterNodeGroupLabelsCmd, clusterNodeGroupTaintsCmd,
+		nodeGroupScaleCmd, nodeGroupAddCmd, nodeGroupDeleteCmd, nodeGroupUpgradeCmd,
+		ovhNodeGroupScaleCmd, ovhNodeGroupAddCmd, ovhNodeGroupDeleteCmd, ovhNodeGroupUpgradeCmd,
+		ovhNodeGroupLabelsCmd, ovhNodeGroupTaintsCmd,
+		upcloudNodeGroupScaleCmd, upcloudNodeGroupAddCmd, upcloudNodeGroupDeleteCmd, upcloudNodeGroupUpgradeCmd,
+		digitaloceanNodeGroupScaleCmd, digitaloceanNodeGroupAddCmd, digitaloceanNodeGroupDeleteCmd, digitaloceanNodeGroupUpgradeCmd,
 	} {
 		usage := command.Flags().Lookup("wait").Usage
-		if !strings.Contains(usage, "does not wait for nodes") || strings.Contains(usage, "Wait for the operation to finish") {
+		if !strings.Contains(usage, "does not wait for the change to reach the nodes") || strings.Contains(usage, "Wait for the operation to finish") {
 			t.Errorf("%s --wait help = %q", command.CommandPath(), usage)
 		}
+	}
+}
+
+// submittedNodeGroupMock answers every older per-provider node-group write
+// the way the platform answers wait=false: accepted, nothing more.
+type submittedNodeGroupMock struct {
+	baseMock
+}
+
+func (m *submittedNodeGroupMock) AddHetznerNodeGroup(context.Context, string, client.AddNodeGroupRequest, bool) (*client.AddNodeGroupResult, bool, error) {
+	return nil, true, nil
+}
+
+func (m *submittedNodeGroupMock) ScaleOvhNodeGroup(context.Context, string, string, int, client.DrainOptions, bool) (*client.ScaleNodeGroupResult, bool, error) {
+	return nil, true, nil
+}
+
+func (m *submittedNodeGroupMock) DeleteUpcloudNodeGroup(context.Context, string, string, client.DrainOptions, bool) (*client.DeleteNodeGroupResult, bool, error) {
+	return nil, true, nil
+}
+
+func (m *submittedNodeGroupMock) UpdateDigitaloceanNodeGroupInstanceType(context.Context, string, string, string, client.DrainOptions, bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return nil, true, nil
+}
+
+// The older per-provider node-group writes printed the generic answer, which
+// said --wait "blocks until completion", beside --wait help saying it waits
+// only for the platform to record the change. They now print the node-group
+// answer the generic commands print.
+func TestOlderProviderNodeGroupWriteSubmittedSaysWhatWaitWaitsFor(t *testing.T) {
+	for _, arguments := range [][]string{
+		{"cluster", "hetzner", "node-group", "add", testClusterID, "--name", "gpu", "--instance-type", "cx32"},
+		{"cluster", "ovh", "node-group", "scale", testClusterID, "workers", "3"},
+		{"cluster", "upcloud", "node-group", "delete", testClusterID, "workers", "--yes"},
+		{"cluster", "digitalocean", "node-group", "upgrade", testClusterID, "workers", "s-4vcpu-8gb"},
+	} {
+		t.Run(strings.Join(arguments[1:4], " "), func(t *testing.T) {
+			var runError error
+			stdout := captureStdout(t, func() {
+				_, runError = runConfirmCommand(t, &submittedNodeGroupMock{}, "", []*cobra.Command{
+					nodeGroupAddCmd, ovhNodeGroupScaleCmd, upcloudNodeGroupDeleteCmd, digitaloceanNodeGroupUpgradeCmd,
+				}, arguments...)
+			})
+			if runError != nil {
+				t.Fatalf("%s: %v", strings.Join(arguments, " "), runError)
+			}
+			for _, want := range []string{
+				"--wait does not wait for the nodes themselves",
+				"ankra cluster operations list --cluster " + testClusterID,
+				"ankra cluster operations list --failed --cluster " + testClusterID,
+			} {
+				if !strings.Contains(stdout, want) {
+					t.Errorf("output lacks %q:\n%s", want, stdout)
+				}
+			}
+			if strings.Contains(stdout, "block until completion") {
+				t.Errorf("output still promises --wait blocks until completion:\n%s", stdout)
+			}
+		})
+	}
+}
+
+// autoscaling set --wait follows the operation the platform names to its
+// end, so its answer without --wait must not say --wait stops short of the
+// nodes, as the scale, add and delete answers rightly do.
+func TestAutoscalingSetSubmittedSaysWaitFollowsTheOperation(t *testing.T) {
+	stdout := captureStdout(t, func() {
+		printNodeGroupWriteSubmitted("Node group autoscaling update", testClusterID, waitUntilOperationEnds)
+	})
+	if !strings.Contains(stdout, "--wait then follows the operation applying it until that operation ends") ||
+		strings.Contains(stdout, "does not wait for the nodes") {
+		t.Errorf("autoscaling answer misstates --wait:\n%s", stdout)
+	}
+	hint := newNodeGroupSubmittedResult("Node group autoscaling update", testClusterID, waitUntilOperationEnds).Hint
+	if !strings.Contains(hint, "follows the operation applying it until that operation ends") ||
+		strings.Contains(hint, "not when the nodes are ready") {
+		t.Errorf("autoscaling hint misstates --wait: %q", hint)
+	}
+	if recordedHint := newNodeGroupSubmittedResult("Node group scale", testClusterID, waitUntilRecorded).Hint; !strings.Contains(recordedHint, "not when the nodes are ready") {
+		t.Errorf("scale hint = %q, want it to say --wait stops before the nodes are ready", recordedHint)
 	}
 }

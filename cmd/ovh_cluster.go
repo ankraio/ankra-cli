@@ -597,12 +597,12 @@ var ovhNodeGroupLabelsCmd = &cobra.Command{
 			return asyncWriteError("updating node group labels", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group labels update")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group labels update", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group labels update")
+			printNodeGroupWriteSubmitted("Node group labels update", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -653,12 +653,12 @@ var ovhNodeGroupTaintsCmd = &cobra.Command{
 			return asyncWriteError("updating node group taints", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group taints update")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group taints update", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group taints update")
+			printNodeGroupWriteSubmitted("Node group taints update", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -748,12 +748,12 @@ var ovhNodeGroupAddCmd = &cobra.Command{
 			return asyncWriteError("adding node group", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group add")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group add", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group add")
+			printNodeGroupWriteSubmitted("Node group add", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -792,12 +792,12 @@ var ovhNodeGroupScaleCmd = &cobra.Command{
 			return asyncWriteError("scaling node group", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group scale")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group scale", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group scale")
+			printNodeGroupWriteSubmitted("Node group scale", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -833,12 +833,12 @@ var ovhNodeGroupUpgradeCmd = &cobra.Command{
 			return asyncWriteError("upgrading node group", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group instance-type update")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group instance-type update", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group instance-type update")
+			printNodeGroupWriteSubmitted("Node group instance-type update", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -880,12 +880,12 @@ var ovhNodeGroupDeleteCmd = &cobra.Command{
 			return asyncWriteError("deleting node group", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group delete")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group delete", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group delete")
+			printNodeGroupWriteSubmitted("Node group delete", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -1009,9 +1009,9 @@ func init() {
 	_ = ovhNodeGroupAddCmd.MarkFlagRequired("name")
 	registerNodeGroupWriteFlags(ovhNodeGroupAddCmd)
 	registerNodeGroupWriteFlags(ovhNodeGroupScaleCmd)
-	registerAsyncWriteFlags(ovhNodeGroupUpgradeCmd)
-	registerAsyncWriteFlags(ovhNodeGroupLabelsCmd)
-	registerAsyncWriteFlags(ovhNodeGroupTaintsCmd)
+	registerNodeGroupWriteFlags(ovhNodeGroupUpgradeCmd)
+	registerNodeGroupWriteFlags(ovhNodeGroupLabelsCmd)
+	registerNodeGroupWriteFlags(ovhNodeGroupTaintsCmd)
 	registerNodeGroupWriteFlags(ovhNodeGroupDeleteCmd)
 
 	ovhNodeGroupLabelsCmd.Flags().String("labels", "", "Comma-separated key=value pairs to set on the group")
