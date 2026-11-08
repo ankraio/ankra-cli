@@ -215,3 +215,30 @@ func TestEveryCloudClusterKindSendsForceWithoutAWarning(t *testing.T) {
 		})
 	}
 }
+
+// The negative side: a deprovision without --force reaches every cloud
+// kind's lane with force off, so the platform's DELETE handler, which honours
+// force on all of them, never skips the agent uninstall unasked. --force=false
+// is spelled out because clusterDeprovisionCmd is package-level and a
+// --force set by another test would otherwise carry over.
+func TestEveryCloudClusterKindSendsNoForceUnlessAsked(t *testing.T) {
+	for _, cloudKind := range allCloudClusterKinds {
+		t.Run(string(cloudKind), func(subtest *testing.T) {
+			mock := &cloudDeprovisionDispatchMock{
+				cluster: client.ClusterListItem{ID: "c-1", Name: "demo", Kind: string(cloudKind)},
+			}
+			if _, executeError := runConfirmCommand(subtest, mock, "",
+				[]*cobra.Command{clusterDeprovisionCmd},
+				"cluster", "deprovision", "demo", "--yes", "--force=false"); executeError != nil {
+				subtest.Fatalf("deprovision failed: %v", executeError)
+			}
+			forced, reached := mock.sentForce[string(cloudKind)]
+			if !reached {
+				subtest.Fatalf("the deprovision did not reach the %s lane: sent %v", cloudKind, mock.sentForce)
+			}
+			if forced {
+				subtest.Fatalf("a deprovision without --force sent force to the %s lane", cloudKind)
+			}
+		})
+	}
+}

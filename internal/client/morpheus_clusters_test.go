@@ -113,6 +113,37 @@ func TestDeprovisionMorpheusClusterSendsTheOptions(t *testing.T) {
 	}
 }
 
+// A deprovision that was not forced sends no force parameter at all, with or
+// without the volume consent: the platform's shared DELETE handler honours
+// force on every cloud kind, so a stray one would skip the agent uninstall
+// and carry on past unreachable infrastructure unasked.
+func TestDeprovisionMorpheusClusterSendsNoForceUnlessAsked(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		options   DeprovisionOptions
+		wantQuery string
+	}{
+		{name: "no options", options: DeprovisionOptions{}, wantQuery: ""},
+		{name: "volume consent only", options: DeprovisionOptions{AcceptVolumeDataLoss: true}, wantQuery: "accept_volume_data_loss=true"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			var gotQuery string
+			var forceSent bool
+			testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				gotQuery = r.URL.RawQuery
+				forceSent = r.URL.Query().Has("force")
+				jsonResponse(t, w, http.StatusOK, ProviderDeprovisionClusterResponse{Success: true, ClusterID: "c-1"})
+			})
+			if _, deprovisionError := testClient.DeprovisionMorpheusCluster("c-1", testCase.options); deprovisionError != nil {
+				t.Fatalf("DeprovisionMorpheusCluster: %v", deprovisionError)
+			}
+			if forceSent || gotQuery != testCase.wantQuery {
+				t.Errorf("query = %q, want %q with no force", gotQuery, testCase.wantQuery)
+			}
+		})
+	}
+}
+
 func TestScaleMorpheusWorkers_Success(t *testing.T) {
 	expectedResponse := ScaleWorkersResult{PreviousCount: 2, NewCount: 4}
 	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
