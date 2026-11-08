@@ -240,7 +240,9 @@ added here would validate as `warn` and be skipped — say so in the PR that add
 Exit codes, every command: `0` ok · `1` API/runtime failure or a run that concluded without success ·
 `2` usage, bad flag, ambiguous selection · `3` target does not exist / no run matched · `4`
 confirmation declined · `5` `--wait`/`--timeout` expired, or `--exit-code` on an unconcluded run ·
-`6` not logged in / token rejected · `7` authenticated but forbidden. `-o json` is per command
+`6` not logged in / token rejected · `7` authenticated but forbidden · `8` a preflight blocked the
+change, nothing changed (a blocked `application promote`) · `9` waiting, not a failure: the work
+waits on a pause or a person's step (`application ship` waiting on its setup pull request). `-o json` is per command
 (`json`|`yaml`); the Kubernetes reads under `ankra cluster get|logs|events|describe` use `-o
 table|json|yaml`. Progress goes to stderr; stdout stays parseable.
 
