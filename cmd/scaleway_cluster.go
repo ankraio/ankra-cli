@@ -72,7 +72,7 @@ var scalewayStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, startError := apiClient.StartScalewayCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command)})
+		result, startError := apiClient.StartScalewayCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command), RestoreSnapshotID: restoreSnapshotIDFlag(command), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(command)})
 		if startError != nil {
 			return fmt.Errorf("starting Scaleway cluster: %w", startError)
 		}
@@ -90,7 +90,7 @@ var scalewayStartCmd = &cobra.Command{
 
 func init() {
 	scalewayStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(scalewayStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(scalewayStartCmd)
 	scalewayStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's tagged load balancers even when retention_policy is retain. The cluster's volumes are kept: only a deprovision deletes them")
 	registerThreeStateFlag(scalewayStopCmd, "preserve-state", preserveStateFlagUsage)
 	scalewayStopCmd.Flags().String("mode", "", stopModeFlagUsage)
@@ -316,7 +316,7 @@ accept that: answer the prompt on a terminal, or pass
 		if volumeError != nil {
 			return volumeError
 		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Deprovision Scaleway cluster %s? This permanently deletes its cloud resources and the cluster record! [y/N]: ",
 				clusterTarget(args[0], clusterID)),
 			scalewayDeprovisionYes); confirmError != nil {

@@ -216,7 +216,7 @@ remove or re-point them with 'ankra alerts routes'.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		destinationID := args[0]
 		yes, _ := cmd.Flags().GetBool("yes")
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete alert destination %q? [y/N]: ", destinationID), yes); confirmError != nil {
 			return confirmError
 		}

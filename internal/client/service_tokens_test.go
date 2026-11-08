@@ -116,3 +116,88 @@ func TestListOrganisationUsersKeepsServicePrincipalFields(t *testing.T) {
 		t.Fatalf("users = %+v", users)
 	}
 }
+
+func TestRevokeServiceTokenPostsToTheOrganisationRoute(t *testing.T) {
+	calls := 0
+	testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		calls++
+		if request.Method != http.MethodPost || request.URL.Path != "/api/v1/org/organisation/service-tokens/t-1/revoke" {
+			t.Errorf("request = %s %s", request.Method, request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != "Bearer "+testToken {
+			t.Errorf("missing bearer token")
+		}
+		jsonResponse(t, writer, http.StatusOK, map[string]string{"id": "t-1", "revoked_at": "2026-11-07T12:00:00"})
+	})
+	revoked, err := testClient.RevokeServiceToken("t-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || !revoked.Success {
+		t.Fatalf("calls %d, revoked = %+v", calls, revoked)
+	}
+}
+
+func TestDeleteServiceTokenDeletesOnTheOrganisationRoute(t *testing.T) {
+	calls := 0
+	testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		calls++
+		if request.Method != http.MethodDelete || request.URL.Path != "/api/v1/org/organisation/service-tokens/t-1" {
+			t.Errorf("request = %s %s", request.Method, request.URL.Path)
+		}
+		jsonResponse(t, writer, http.StatusOK, map[string]string{"id": "t-1", "deleted_at": "2026-11-07T12:00:00"})
+	})
+	deleted, err := testClient.DeleteServiceToken("t-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || !deleted.Success {
+		t.Fatalf("calls %d, deleted = %+v", calls, deleted)
+	}
+}
+
+// TestServiceTokenRevokeAndDeleteRelayThePlatformsRefusals pins the
+// outcomes the organisation routes answer: the platform's sentence as the
+// message with the status kept in the chain, and the 403 as a role denial.
+func TestServiceTokenRevokeAndDeleteRelayThePlatformsRefusals(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		detail string
+		call   func(*Client) error
+	}{
+		{"revoke unknown", http.StatusNotFound, "Service token not found",
+			func(c *Client) error { _, err := c.RevokeServiceToken("t-1"); return err }},
+		{"revoke twice", http.StatusConflict, "Service token is already revoked",
+			func(c *Client) error { _, err := c.RevokeServiceToken("t-1"); return err }},
+		{"delete live", http.StatusConflict, "Service token must be revoked before deletion",
+			func(c *Client) error { _, err := c.DeleteServiceToken("t-1"); return err }},
+		{"delete unknown", http.StatusNotFound, "Service token not found",
+			func(c *Client) error { _, err := c.DeleteServiceToken("t-1"); return err }},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+				jsonResponse(t, writer, testCase.status, map[string]string{"detail": testCase.detail})
+			})
+			err := testCase.call(testClient)
+			var unexpected *UnexpectedResponseError
+			if !errors.As(err, &unexpected) || unexpected.StatusCode != testCase.status || err.Error() != testCase.detail {
+				t.Fatalf("want the platform's sentence with status %d, got %T %v", testCase.status, err, err)
+			}
+		})
+	}
+
+	testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		jsonResponse(t, writer, http.StatusForbidden, map[string]string{"detail": "You do not have permission to manage service tokens"})
+	})
+	for name, call := range map[string]func() error{
+		"revoke": func() error { _, err := testClient.RevokeServiceToken("t-1"); return err },
+		"delete": func() error { _, err := testClient.DeleteServiceToken("t-1"); return err },
+	} {
+		var denied *PermissionDeniedError
+		if err := call(); !errors.As(err, &denied) || denied.Detail != "You do not have permission to manage service tokens" {
+			t.Errorf("%s: expected an RBAC denial carrying the platform's sentence, got %T %v", name, err, err)
+		}
+	}
+}

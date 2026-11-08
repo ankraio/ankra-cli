@@ -433,7 +433,7 @@ separately if nothing else uses them).`,
 			return resolveError
 		}
 		if confirmError := confirmPrompt(
-			cmd.InOrStdin(), cmd.OutOrStdout(),
+			cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete MCP server %q? [y/N]: ", args[0]),
 			yes,
 		); confirmError != nil {

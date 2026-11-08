@@ -81,7 +81,7 @@ var awsStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, startError := apiClient.StartAwsCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command)})
+		result, startError := apiClient.StartAwsCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command), RestoreSnapshotID: restoreSnapshotIDFlag(command), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(command)})
 		if startError != nil {
 			return fmt.Errorf("starting AWS cluster: %w", startError)
 		}
@@ -102,7 +102,7 @@ var awsStartCmd = &cobra.Command{
 
 func init() {
 	awsStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(awsStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(awsStartCmd)
 	awsStartCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
 	awsStopCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
 	awsStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's tagged load balancers even when retention_policy is retain. The cluster's EBS volumes are kept: only a deprovision deletes them")
@@ -550,7 +550,7 @@ terminal, or pass --accept-volume-data-loss (--yes does not imply it).`,
 		if volumeError != nil {
 			return volumeError
 		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Deprovision AWS cluster %s? This permanently deletes its EC2 resources and the cluster record! [y/N]: ",
 				clusterTarget(args[0], clusterID)),
 			awsDeprovisionYes); confirmError != nil {

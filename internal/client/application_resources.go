@@ -434,6 +434,20 @@ func (client *Client) ResetApplicationAIConfig(requestContext context.Context, a
 	return client.applicationResourceRequest(requestContext, http.MethodDelete, applicationPath(applicationID, "/ai-config"), nil, nil)
 }
 
+// --- promotion ---
+
+func (client *Client) GetApplicationEnvironments(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/environments"), nil, nil)
+}
+
+func (client *Client) PreviewApplicationPromotion(requestContext context.Context, applicationID string, query url.Values) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/promotions/preview"), query, nil)
+}
+
+func (client *Client) StartApplicationPromotion(requestContext context.Context, applicationID string, promotion map[string]string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPost, applicationPath(applicationID, "/promotions"), nil, promotion)
+}
+
 // --- catalog publishing ---
 
 // PublishApplicationAddonRequest mirrors the publish-addon body; every field

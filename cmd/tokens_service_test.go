@@ -52,7 +52,7 @@ func (m *serviceTokensMock) CreateServiceToken(request client.CreateServiceToken
 func runTokens(t *testing.T, mock APIClient, args ...string) (string, string, error) {
 	t.Helper()
 	setMockClient(t, mock)
-	t.Cleanup(func() { resetTreeFlags(t, tokensListCmd, tokensCreateCmd) })
+	t.Cleanup(func() { resetTreeFlags(t, tokensListCmd, tokensCreateCmd, tokensRevokeCmd, tokensDeleteCmd) })
 	var commandOutput, stdout string
 	var err error
 	stderr := captureStderr(t, func() {

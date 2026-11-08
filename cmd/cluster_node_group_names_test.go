@@ -142,6 +142,31 @@ func TestProviderNodeGroupCommandsRefuseAGroupNameNoGroupCanHave(t *testing.T) {
 	}
 }
 
+// An -o value the command cannot write is refused with the arguments, before
+// the cluster is looked up, a prompt is shown or a write is sent: a write
+// whose answer cannot be printed must not be sent at all. Every node-group
+// command that names a group shares the check, the provider ones too.
+func TestNodeGroupCommandsRefuseAnUnknownOutputFormatBeforeAnything(t *testing.T) {
+	lines := nodeGroupCommandsNaming("workers")
+	for _, provider := range []string{"hetzner", "ovh", "upcloud", "digitalocean"} {
+		lines[provider+" add"] = []string{"cluster", provider, "node-group", "add", testClusterID, "--name", "workers",
+			"--instance-type", "x"}
+		lines[provider+" scale"] = []string{"cluster", provider, "node-group", "scale", testClusterID, "workers", "2"}
+		lines[provider+" delete"] = []string{"cluster", provider, "node-group", "delete", testClusterID, "workers"}
+	}
+	resets := append(append([]*cobra.Command{}, nodeGroupNameResets...), providerNodeGroupResets...)
+	for command, args := range lines {
+		mock := &nodeGroupNameGuardMock{}
+		output, err := runConfirmCommand(t, mock, "y\n", resets, append(args, "-o", "xml")...)
+		if err == nil || exitCodeFor(err) != exitUsage || !strings.Contains(err.Error(), `invalid -o format "xml"`) {
+			t.Errorf("%s -o xml: got %v (exit %d), want the usage error", command, err, exitCodeFor(err))
+		}
+		if mock.lookups != 0 || strings.Contains(output, "[y/N]") {
+			t.Errorf("%s -o xml: checked too late (lookups=%d, output %q)", command, mock.lookups, output)
+		}
+	}
+}
+
 // A request the client refused to send is not a dropped connection: no retry
 // loop tries it again, so it ends as the usage error it is.
 func TestARefusedRequestIsNeverRetried(t *testing.T) {

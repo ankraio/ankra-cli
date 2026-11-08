@@ -54,7 +54,19 @@ type shipResult struct {
 	// URLProblem says why the published hostname does not route, when ship
 	// proved it does not (State "unroutable"): the URL is then left out.
 	URLProblem string `json:"url_problem,omitempty" yaml:"url_problem,omitempty"`
-	State      string `json:"state" yaml:"state"`
+	// PendingURL is the published address when it routes but did not answer
+	// inside ship's window (State "url_pending"), and URLPending says what was
+	// still pending. URL is then left out: it holds only an address that answered.
+	PendingURL string `json:"pending_url,omitempty" yaml:"pending_url,omitempty"`
+	URLPending string `json:"url_pending,omitempty" yaml:"url_pending,omitempty"`
+	// AddressFamilies lists the families the URL's hostname resolves to right
+	// now ("ipv4", "ipv6"); empty when no record could be read.
+	AddressFamilies []string `json:"address_families,omitempty" yaml:"address_families,omitempty"`
+	State           string   `json:"state" yaml:"state"`
+	// SetupPullRequestRun and BlockingFindings describe a stop at the setup
+	// pull request: its run, and when the gate blocked it, the worst findings.
+	SetupPullRequestRun *shipSetupPullRequestRun `json:"setup_pull_request_run,omitempty" yaml:"setup_pull_request_run,omitempty"`
+	BlockingFindings    []shipBlockingFinding    `json:"blocking_findings,omitempty" yaml:"blocking_findings,omitempty"`
 }
 
 // shipApplicationView is the slice of the application detail (and of each
@@ -129,9 +141,13 @@ The build it waits for is the one that actually builds the application:
     That needs the applications.deploy permission. A push during the wait
     moves ship on to the new head commit. A run whose publish step is skipped
     stops ship and asks for a push. A run the pipeline skipped outright - no
-    trigger it declares accepts the push, typically because the setup pull
-    request that adds .ankra/pipeline.yaml is not merged yet - stops ship
-    with the pull request to merge, or the trigger the branch needs.
+    trigger it declares accepts the push - stops ship with the trigger the
+    branch needs. When that is because the setup pull request that adds
+    .ankra/pipeline.yaml is not merged yet, the normal state of a new
+    repository, ship follows the pull request's own run and stops with state
+    waiting_for_setup_pull_request and exit 9. A gate that blocks the run
+    stops it with state setup_pull_request_blocked, the findings and exit 8.
+    Merge the pull request and run ship again to continue.
   - The repository's own GitHub Actions workflow: its latest run on the
     tracked branch.
   - The workflow Ankra generated: its latest run on the tracked branch, once
@@ -287,6 +303,21 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 		}
 	}
 	if buildError != nil {
+		if renderError := renderShipStop(buildError, func(result shipResult) error {
+			_, structuredError := renderStructured(command, result)
+			return structuredError
+		}, shipResult{
+			ApplicationID:    application.ID,
+			ApplicationName:  application.Name,
+			Repository:       repository.Owner + "/" + repository.Name,
+			Branch:           trackedBranch,
+			Registered:       registered,
+			OrganisationName: organisationName,
+			ClusterID:        cluster.ID,
+			ClusterName:      cluster.Name,
+		}); renderError != nil {
+			return fmt.Errorf("%w (printing the result failed: %v)", buildError, renderError)
+		}
 		return buildError
 	}
 
@@ -327,12 +358,30 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 			liveURL = ""
 		}
 	}
+	// A route that holds inside the cluster is still not an answer on the
+	// public address (ankra-oznf7k.26).
+	urlPending := ""
+	pendingURL := ""
+	if liveURL != "" {
+		urlPending = waitForShipURLToAnswer(waitContext, progress, liveURL)
+		if urlPending != "" {
+			pendingURL = liveURL
+			liveURL = ""
+		}
+	}
 	shipState := "healthy"
 	switch {
 	case parked:
 		shipState = "parked"
 	case routeProblem != "":
 		shipState = "unroutable"
+	case urlPending != "":
+		shipState = shipStateURLPending
+	}
+
+	addressFamilies := []string{}
+	if liveURL != "" {
+		addressFamilies = shipURLAddressFamilies(waitContext, liveURL)
 	}
 
 	result := shipResult{
@@ -350,6 +399,9 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 		InstallationID:   installationID,
 		URL:              liveURL,
 		URLProblem:       routeProblem,
+		PendingURL:       pendingURL,
+		URLPending:       urlPending,
+		AddressFamilies:  addressFamilies,
 		State:            shipState,
 	}
 	if rendered, renderError := renderStructured(command, result); rendered || renderError != nil {
@@ -374,6 +426,13 @@ func runApplicationShip(command *cobra.Command, arguments []string) error {
 	}
 	if liveURL != "" {
 		_, _ = fmt.Fprintf(output, "Live: %s\n", liveURL)
+		_, _ = fmt.Fprintln(output, shipAddressFamiliesLine(addressFamilies))
+		return nil
+	}
+	if pendingURL != "" {
+		_, _ = fmt.Fprintf(output,
+			"Deployed and healthy, not answering yet: %s - %s. Re-run 'ankra application ship' to check again.\n",
+			pendingURL, urlPending)
 		return nil
 	}
 	_, _ = fmt.Fprintf(output,
@@ -696,7 +755,7 @@ func waitForApplicationSetup(
 			announcedPullRequest = true
 		}
 		if application.State == "up" {
-			_, _ = fmt.Fprintf(progress, "Application setup is complete (state: up).\n")
+			_, _ = fmt.Fprintln(progress, shipSetupSettledMessage(application))
 			return application, nil
 		}
 		if shipSetupFailureStates[application.State] {
@@ -717,6 +776,25 @@ func waitForApplicationSetup(
 		if tickError := shipWaitTick(waitContext, shipPollInterval, "waiting for application setup"); tickError != nil {
 			return shipApplicationView{}, tickError
 		}
+	}
+}
+
+// shipSetupSettledMessage is the line printed once setup lands the
+// application in state `up`. While the setup pull request is still open the
+// application is registered but not set up: its pipeline arrives with that
+// pull request, so the build has not started and "complete" would be read as
+// the opposite of the error that may follow.
+func shipSetupSettledMessage(application shipApplicationView) string {
+	hasSetupPullRequest := application.PullRequestURL != nil && *application.PullRequestURL != ""
+	isMerged := application.PullRequestMergedAt != nil && *application.PullRequestMergedAt != ""
+	isClosed := application.PullRequestClosedAt != nil && *application.PullRequestClosedAt != ""
+	switch {
+	case !hasSetupPullRequest || isMerged:
+		return "Application setup is complete (state: up)."
+	case isClosed:
+		return "Application is registered (state: up), but its setup pull request was closed without merging."
+	default:
+		return "Application is registered (state: up); its build starts once the setup pull request is merged."
 	}
 }
 

@@ -137,7 +137,8 @@ var managedDeleteCmd = &cobra.Command{
 		force, _ := cmd.Flags().GetBool("force")
 		yes, _ := cmd.Flags().GetBool("yes")
 
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		warnDeprovisionOrganisationRoles(cmd, clusterID, clusterTarget(args[0], clusterID))
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete managed %s cluster %s? This destroys all cloud resources! [y/N]: ", provider, clusterTarget(args[0], clusterID)),
 			yes); err != nil {
 			return err
@@ -280,7 +281,7 @@ var managedNodePoolDeleteCmd = &cobra.Command{
 		nodePoolName := args[1]
 		yes, _ := cmd.Flags().GetBool("yes")
 
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete node pool %q from cluster %s? [y/N]: ", nodePoolName, clusterTarget(args[0], clusterID)),
 			yes); err != nil {
 			return err
@@ -483,7 +484,7 @@ var managedUpgradeCmd = &cobra.Command{
 		version, _ := cmd.Flags().GetString("version")
 		yes, _ := cmd.Flags().GetBool("yes")
 
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Upgrade managed cluster %s to Kubernetes %s? [y/N]: ", clusterTarget(args[0], clusterID), version),
 			yes); err != nil {
 			return err

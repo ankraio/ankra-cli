@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -380,6 +381,18 @@ func (m baseMock) PutStackProfileLogo(requestContext context.Context, profileID 
 }
 
 func (m baseMock) DeleteStackProfileLogo(requestContext context.Context, profileID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationEnvironments(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PreviewApplicationPromotion(requestContext context.Context, applicationID string, query url.Values) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StartApplicationPromotion(requestContext context.Context, applicationID string, promotion map[string]string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1550,6 +1563,18 @@ func (m baseMock) GetApplicationSecurityVersions(context.Context, string, string
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetSlackInstallURL(context.Context) (*client.SlackInstallURL, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetSlackStatus(context.Context) (*client.SlackStatus, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationBranchBuilds(context.Context, string) (*client.ApplicationBranchBuilds, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateAPIToken(client.CreateAPITokenRequest) (*client.CreateAPITokenResponse, error) {
 	return nil, errors.New("not implemented")
 }
@@ -1567,6 +1592,14 @@ func (m baseMock) RotateAPIToken(tokenID string, overlapHours *int) (*client.Rot
 }
 
 func (m baseMock) RotateServiceToken(tokenID string, overlapHours *int) (*client.RotateTokenResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RevokeServiceToken(tokenID string) (*client.RevokeAPITokenResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteServiceToken(tokenID string) (*client.DeleteAPITokenResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -1920,6 +1953,10 @@ func (m baseMock) GetStateSnapshotRetention(context.Context, string) (*client.St
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetLatestStateSnapshot(string, string) (*client.LatestStateSnapshotResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) SetStateSnapshotRetention(context.Context, string, int) (*client.StateSnapshotRetention, error) {
 	return nil, errors.New("not implemented")
 }
@@ -2034,6 +2071,10 @@ func (m baseMock) UpdateHetznerNodeGroupInstanceType(ctx context.Context, cluste
 
 func (m baseMock) DeleteHetznerNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions client.DrainOptions, wait bool) (*client.DeleteNodeGroupResult, bool, error) {
 	return nil, false, errors.New("not implemented")
+}
+
+func (m baseMock) RemoveNodeGroupNode(ctx context.Context, kind, clusterID, groupName, node string, drainOptions client.DrainOptions, wait bool) (*client.RemoveNodeGroupNodeResult, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (m baseMock) GetHetznerControlPlane(clusterID string) (*client.ControlPlaneInfo, error) {
@@ -3445,6 +3486,14 @@ func (m baseMock) GetAISpendCap() (*client.AISpendCap, error) {
 }
 
 func (m baseMock) UpdateAISpendCap(client.AISpendCapUpdate) (*client.AISpendCap, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAuditLogs(context.Context, client.AuditLogFilters) (*client.AuditLogTrail, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ExportAuditLogs(context.Context, client.AuditLogFilters, string, io.Writer) (*client.AuditLogExportResult, error) {
 	return nil, errors.New("not implemented")
 }
 

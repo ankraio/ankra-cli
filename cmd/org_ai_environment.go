@@ -247,6 +247,9 @@ func renderOrganisationPreviewSettings(cmd *cobra.Command,
 	if settings.PreviewTLSWarning != "" {
 		_, _ = fmt.Fprintf(out, "\n%s\n", settings.PreviewTLSWarning)
 	}
+	if settings.WorkspaceSandboxWarning != "" {
+		_, _ = fmt.Fprintf(out, "\n%s\n", settings.WorkspaceSandboxWarning)
+	}
 	return nil
 }
 
