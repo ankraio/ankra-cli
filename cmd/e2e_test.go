@@ -3469,6 +3469,18 @@ func (m baseMock) GetClusterDNSZone(clusterID string) (*client.ClusterDNSZoneRes
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListAlertmanagerSilences(clusterID string, state string, location client.AlertmanagerLocation) (*client.AlertmanagerSilenceList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateAlertmanagerSilence(clusterID string, request client.CreateAlertmanagerSilenceRequest) (*client.AlertmanagerSilenceCreated, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ExpireAlertmanagerSilence(clusterID string, silenceID string, location client.AlertmanagerLocation) (*client.AlertmanagerSilenceExpired, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListAlertRules(options client.ListAlertRulesOptions) (*client.AlertRuleList, error) {
 	return nil, errors.New("not implemented")
 }

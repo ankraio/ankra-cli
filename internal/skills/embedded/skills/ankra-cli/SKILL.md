@@ -69,6 +69,7 @@ exits 3 saying so and everything else works as before.
 | Secrets in Git | `ankra cluster encrypt\|decrypt\|sops-config` | `ankra-sops-secrets` |
 | Organisation secrets referenced by sentinel (values never in Git, argv or a model) | `ankra secrets list\|create\|set\|rotate\|delete` | `ankra-sops-secrets`, `ankra-security` |
 | Alerts and routing | `ankra alerts rules\|triggers\|destinations\|routes\|ingest-credentials ...` | `ankra-alerts-webhooks` |
+| Silencing alerts on a cluster's own Alertmanager | `ankra cluster alertmanager silences list\|create\|expire` | `ankra-alerts-webhooks`, `ankra-observability` |
 | Metrics and logs | `ankra cluster metrics\|top\|logs\|events\|logs-ship` | `ankra-observability`, `ankra-troubleshooting` |
 | Debugging inside a cluster | `ankra cluster exec\|terminal\|debug ...` | `ankra-troubleshooting` |
 | Storage classes and volumes | `ankra cluster storage-classes create\|delete`, `ankra cluster persistent-volumes delete` (refuses a Bound volume without `--force`) | `ankra-troubleshooting` |

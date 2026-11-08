@@ -1062,6 +1062,9 @@ type APIClient interface {
 	GetBillingStanding() (*client.BillingStanding, error)
 	GetWallet() (*client.Wallet, error)
 	ApplyResource(clusterID string, request client.ApplyResourceRequest) (*client.ResourceMutationResponse, error)
+	ListAlertmanagerSilences(clusterID string, state string, location client.AlertmanagerLocation) (*client.AlertmanagerSilenceList, error)
+	CreateAlertmanagerSilence(clusterID string, request client.CreateAlertmanagerSilenceRequest) (*client.AlertmanagerSilenceCreated, error)
+	ExpireAlertmanagerSilence(clusterID string, silenceID string, location client.AlertmanagerLocation) (*client.AlertmanagerSilenceExpired, error)
 
 	ListAlertDestinations(options client.ListAlertDestinationsOptions) (*client.AlertDestinationList, error)
 	GetAlertDestination(destinationID string) (*client.AlertDestination, error)
