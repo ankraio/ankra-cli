@@ -141,7 +141,8 @@ func TestClusterNodeGroupAutoscalingSetKeepsTheRecordedBoundsItIsNotGiven(t *tes
 			wantNote: "--max not given: keeping max 7, recorded for the group."},
 		{name: "omitted max with nothing recorded sends 5", recorded: recordedAutoscaling(false, 1, 100),
 			args: []string{"--enabled", "--min", "1"}, wantBody: `{"enabled":true,"min_count":1,"max_count":5}`, wantReads: 1,
-			wantNote: "--max not given: using max 5, the CLI default"},
+			wantNote: "--max not given: using max 5, the CLI default: the group records no bounds of its own " +
+				"(it reads as disabled with the platform's min 1 and max 100); pass --max to set another."},
 		{name: "plain enable with nothing recorded sends 1 and 5", recorded: recordedAutoscaling(false, 1, 100),
 			args: []string{"--enabled"}, wantBody: `{"enabled":true,"min_count":1,"max_count":5}`, wantReads: 1},
 		{name: "plain disable keeps both recorded bounds", recorded: recordedAutoscaling(true, 0, 9),

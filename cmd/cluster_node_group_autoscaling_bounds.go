@@ -21,9 +21,12 @@ const (
 
 // The platform's autoscaling read answers a group that has no settings
 // recorded as disabled with min 1 and max 100 (GetNodeGroupAutoscaling). A
-// disabled group recorded with exactly those bounds reads the same and is
-// treated the same: they are what the platform saves for a write that names
-// no bound, so nobody chose them.
+// disabled group recorded with exactly those bounds reads the same, and the
+// read carries nothing that tells the two apart (ankra-v3qdto.46), so it is
+// treated the same: an omitted bound takes the CLI default, which is what the
+// command sent before it read anything, and the note it prints says so and
+// says to pass the bound to set another (--max 100 keeps 100). Those are
+// also the bounds the platform saves for a write that names none.
 const (
 	unrecordedAutoscalingMinCount = 1
 	unrecordedAutoscalingMaxCount = 100
@@ -69,23 +72,31 @@ func resolveAutoscalingBounds(cmd *cobra.Command, read nodeGroupAutoscalingGetFu
 
 	recorded := current.Enabled || current.MinCount != unrecordedAutoscalingMinCount ||
 		current.MaxCount != unrecordedAutoscalingMaxCount
-	verb, source := "using", "the CLI default, as the group has no autoscaling bounds recorded"
+	verb, source := "using", "the CLI default: the group records no bounds of its own "+
+		"(it reads as disabled with the platform's min 1 and max 100)"
 	if recorded {
 		verb, source = "keeping", "recorded for the group"
+	}
+	note := func(flag, bound string, value int) string {
+		line := fmt.Sprintf("%s not given: %s %s %d, %s", flag, verb, bound, value, source)
+		if !recorded {
+			line += "; pass " + flag + " to set another"
+		}
+		return line + "."
 	}
 	if !minGiven {
 		bounds.minCount = autoscalingDefaultMinCount
 		if recorded {
 			bounds.minCount = current.MinCount
 		}
-		bounds.notes = append(bounds.notes, fmt.Sprintf("--min not given: %s min %d, %s.", verb, bounds.minCount, source))
+		bounds.notes = append(bounds.notes, note("--min", "min", bounds.minCount))
 	}
 	if !maxGiven {
 		bounds.maxCount = autoscalingDefaultMaxCount
 		if recorded {
 			bounds.maxCount = current.MaxCount
 		}
-		bounds.notes = append(bounds.notes, fmt.Sprintf("--max not given: %s max %d, %s.", verb, bounds.maxCount, source))
+		bounds.notes = append(bounds.notes, note("--max", "max", bounds.maxCount))
 	}
 
 	if bounds.minCount > bounds.maxCount {
