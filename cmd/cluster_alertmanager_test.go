@@ -143,6 +143,7 @@ func TestSilencesCreateUsageErrorsSendNothing(t *testing.T) {
 		{"create", "--comment", "x", "--cluster", "prod"},
 		{"create", "--matcher", "alertname=X", "--cluster", "prod"},
 		{"create", "--matcher", "novalue", "--comment", "x", "--cluster", "prod"},
+		{"create", "--matcher", "alertname=~.*", "--comment", "x", "--cluster", "prod"},
 	} {
 		mock := &alertmanagerSilencesMock{}
 		_, runError := runSilencesCommand(t, mock, "", args...)

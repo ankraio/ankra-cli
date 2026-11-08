@@ -170,6 +170,17 @@ func parseSilenceMatcher(text string) (client.AlertmanagerSilenceMatcher, error)
 	return client.AlertmanagerSilenceMatcher{Name: name, Value: value}, nil
 }
 
+// hasExactSilenceMatcher reports whether a matcher set carries the exact
+// (non-regex) matcher the platform requires.
+func hasExactSilenceMatcher(matchers []client.AlertmanagerSilenceMatcher) bool {
+	for _, matcher := range matchers {
+		if !matcher.IsRegex {
+			return true
+		}
+	}
+	return false
+}
+
 func newClusterAlertmanagerSilencesCreateCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "create --matcher <name=value> --comment <why>",
@@ -198,6 +209,9 @@ in Alertmanager. The silence starts at once and is attributed to you.
 					return withExitCode(exitUsage, matcherError)
 				}
 				matchers = append(matchers, matcher)
+			}
+			if !hasExactSilenceMatcher(matchers) {
+				return withExitCode(exitUsage, errors.New("at least one --matcher must be an exact name=value match, so the silence cannot mute everything"))
 			}
 			comment, _ := cmd.Flags().GetString("comment")
 			if strings.TrimSpace(comment) == "" {
