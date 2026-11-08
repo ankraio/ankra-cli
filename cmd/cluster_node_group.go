@@ -680,10 +680,7 @@ Examples:
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' instance type upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
-		if result.Notice != "" {
-			fmt.Printf("Note: %s\n", result.Notice)
-		}
+		printNodeGroupResized(result, clusterID, "instance type")
 		return nil
 	},
 }
@@ -809,15 +806,23 @@ var clusterNodeGroupAutoscalingSetCmd = &cobra.Command{
 	Long: `Enable autoscaling with --enabled --min <n> --max <n>, or disable it with
 --enabled=false.
 
-A --min or --max you leave out keeps the bound recorded for the group,
-which the command reads first; a group with no bounds recorded gets min 1
-and max 5. A disabled group that recorded exactly min 1 and max 100 reads
-the same as one with none, and gets the same. The platform saves both
-bounds on every write, so this is what keeps --enabled=false on its own, or
-a change to one bound, from resetting the other. The command changes
-nothing, and asks for the bound, when the recorded bounds cannot be read,
-or when an enable would take the default max 5 while the group has more
-nodes than that, which would scale it down.
+A --min or --max you leave out is read from the group first. The platform
+saves both bounds on every write, so this is what keeps --enabled=false on
+its own, or a change to one bound, from resetting the other:
+
+- A disable keeps the bounds exactly as the group reads, so --enabled=false
+  on its own changes nothing but the switch.
+- An enable keeps the bound recorded for the group, or takes min 1 and
+  max 5 when the group has none recorded. A disabled group that recorded
+  exactly min 1 and max 100 reads the same as one with none, and gets the
+  same.
+
+An enable without --max changes nothing and exits 8 when the group has more
+nodes than the max it would keep or take, since enabling would scale it
+down; it names the --max that keeps the group's size. The command also
+changes nothing when the group's current bounds or node count cannot be
+read. On a stopped cluster the platform does not answer the bounds read, so
+pass both --min and --max there.
 
 --min 0 (scale-to-zero) is accepted where the platform can size a node from
 the group's instance type and the cluster's ankra-agent serves the node
@@ -1066,8 +1071,8 @@ func init() {
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("instance-type")
 
 	clusterNodeGroupAutoscalingSetCmd.Flags().Bool("enabled", true, "Enable (true) or disable (false) autoscaling")
-	clusterNodeGroupAutoscalingSetCmd.Flags().Int("min", 0, "Minimum node count while autoscaling (0 allows scale-to-zero). Left out, the group keeps its recorded min, or 1 when none is recorded")
-	clusterNodeGroupAutoscalingSetCmd.Flags().Int("max", 0, "Maximum node count while autoscaling (at most 100). Left out, the group keeps its recorded max, or 5 when none is recorded")
+	clusterNodeGroupAutoscalingSetCmd.Flags().Int("min", 0, "Minimum node count while autoscaling (0 allows scale-to-zero). Left out, the group keeps its current min, or 1 when an enable finds none recorded")
+	clusterNodeGroupAutoscalingSetCmd.Flags().Int("max", 0, "Maximum node count while autoscaling (at most 100). Left out, the group keeps its current max, or 5 when an enable finds none recorded; an enable that would then scale the group down is refused (exit 8)")
 
 	clusterNodeGroupLabelsCmd.Flags().String("labels", "", "Comma-separated key=value pairs to set on the group")
 	clusterNodeGroupLabelsCmd.Flags().Bool("clear", false, "Remove all labels from the node group")

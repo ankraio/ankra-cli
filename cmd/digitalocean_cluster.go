@@ -528,7 +528,7 @@ var digitaloceanNodeGroupUpgradeCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' size upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
+		printNodeGroupResized(result, clusterID, "size")
 		return nil
 	},
 }

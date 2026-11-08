@@ -74,3 +74,28 @@ func printNodeGroupDeleted(result *client.DeleteNodeGroupResult, clusterID strin
 	fmt.Printf("Node group '%s' marked for deletion; its %d node(s) are drained and removed.\n", result.GroupName, result.Deleted)
 	printNodeGroupReconciling(clusterID)
 }
+
+// printNodeGroupResized reports an instance-type change the platform
+// recorded. change names what the command changes ("instance type", "plan",
+// "size"). The platform answers once the change is recorded, before any node
+// is resized, and names the operation resizing them when it started one, so
+// the answer says the resize rolls out rather than that it happened.
+func printNodeGroupResized(result *client.UpdateNodeGroupResult, clusterID, change string) {
+	if result.OperationID != nil && *result.OperationID != "" {
+		fmt.Printf("Node group '%s' %s change recorded for %d node(s); the resize rolls out in operation %s.\n",
+			result.GroupName, change, result.Updated, *result.OperationID)
+	} else {
+		fmt.Printf("Node group '%s' %s change recorded for %d node(s); the resize rolls out afterwards. "+
+			"The platform started no operation for it: a stopped cluster applies it when it starts, and a group "+
+			"still being created, or already being changed, takes it up in that work.\n",
+			result.GroupName, change, result.Updated)
+	}
+	if result.Notice != "" {
+		fmt.Printf("Note: %s\n", result.Notice)
+	}
+	if result.OperationID != nil && *result.OperationID != "" {
+		fmt.Printf("Follow it with:\n  ankra cluster operations list %s\n", *result.OperationID)
+		return
+	}
+	fmt.Printf("Follow it with:\n  %s\n", followNodeGroupWorkCommand(clusterID))
+}

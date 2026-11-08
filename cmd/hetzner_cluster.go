@@ -573,7 +573,7 @@ var nodeGroupUpgradeCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' instance type upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
+		printNodeGroupResized(result, clusterID, "instance type")
 		return nil
 	},
 }

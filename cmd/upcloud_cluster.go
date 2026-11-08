@@ -588,7 +588,7 @@ var upcloudNodeGroupUpgradeCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' plan upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
+		printNodeGroupResized(result, clusterID, "plan")
 		return nil
 	},
 }

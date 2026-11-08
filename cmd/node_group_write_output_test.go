@@ -250,3 +250,114 @@ func TestAutoscalingSetSubmittedSaysWaitFollowsTheOperation(t *testing.T) {
 		t.Errorf("scale hint = %q, want it to say --wait stops before the nodes are ready", recordedHint)
 	}
 }
+
+// resizedNodeGroupMock answers an instance-type change under wait=true the
+// way the platform does: once the change is recorded, before any node is
+// resized, with the operation resizing them when it started one.
+type resizedNodeGroupMock struct {
+	baseMock
+	operationID *string
+	notice      string
+}
+
+func (m *resizedNodeGroupMock) GetClusterByID(clusterID string) (client.ClusterListItem, error) {
+	return client.ClusterListItem{ID: clusterID, Name: "demo", Kind: "hetzner"}, nil
+}
+
+func (m *resizedNodeGroupMock) resized(groupName string) *client.UpdateNodeGroupResult {
+	return &client.UpdateNodeGroupResult{GroupName: groupName, Updated: 3, OperationID: m.operationID, Notice: m.notice}
+}
+
+func (m *resizedNodeGroupMock) UpdateHetznerNodeGroupInstanceType(_ context.Context, _, groupName, _ string, _ client.DrainOptions, _ bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return m.resized(groupName), false, nil
+}
+
+func (m *resizedNodeGroupMock) UpdateUpcloudNodeGroupInstanceType(_ context.Context, _, groupName, _ string, _ client.DrainOptions, _ bool) (*client.UpdateNodeGroupResult, bool, error) {
+	return m.resized(groupName), false, nil
+}
+
+// upgrade --wait answered "instance type upgraded. 3 node(s) affected." as
+// soon as the platform recorded the change, while its --wait help rightly
+// says it does not wait for the nodes to be resized. The answer now says the
+// change was recorded and the resize rolls out, and names the operation
+// doing it, which the platform returns (UpdateNodeGroupInstanceTypeResult).
+func TestNodeGroupUpgradeSaysTheResizeRollsOutAndNamesItsOperation(t *testing.T) {
+	operationID := "op-resize-9"
+	for _, testCase := range []struct {
+		name      string
+		mock      *resizedNodeGroupMock
+		command   *cobra.Command
+		arguments []string
+		want      []string
+	}{
+		{name: "generic with an operation", mock: &resizedNodeGroupMock{operationID: &operationID}, command: clusterNodeGroupUpgradeCmd,
+			arguments: []string{"cluster", "node-group", "upgrade", testClusterID, "workers", "cx43", "--wait"},
+			want: []string{
+				"Node group 'workers' instance type change recorded for 3 node(s); the resize rolls out in operation op-resize-9.",
+				"ankra cluster operations list op-resize-9",
+			}},
+		{name: "generic with no operation started", mock: &resizedNodeGroupMock{}, command: clusterNodeGroupUpgradeCmd,
+			arguments: []string{"cluster", "node-group", "upgrade", testClusterID, "workers", "cx43", "--wait"},
+			want: []string{
+				"Node group 'workers' instance type change recorded for 3 node(s); the resize rolls out afterwards.",
+				"The platform started no operation for it",
+				"ankra cluster operations list --cluster " + testClusterID,
+			}},
+		{name: "older upcloud command, with the platform's notice", mock: &resizedNodeGroupMock{operationID: &operationID,
+			notice: "the plan is in another family, so each node is replaced"}, command: upcloudNodeGroupUpgradeCmd,
+			arguments: []string{"cluster", "upcloud", "node-group", "upgrade", testClusterID, "workers", "2xCPU-4GB", "--wait"},
+			want: []string{
+				"Node group 'workers' plan change recorded for 3 node(s); the resize rolls out in operation op-resize-9.",
+				"Note: the plan is in another family, so each node is replaced",
+				"ankra cluster operations list op-resize-9",
+			}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			var runError error
+			stdout := captureStdout(t, func() {
+				_, runError = runConfirmCommand(t, testCase.mock, "", []*cobra.Command{testCase.command}, testCase.arguments...)
+			})
+			if runError != nil {
+				t.Fatalf("%s: %v", strings.Join(testCase.arguments, " "), runError)
+			}
+			for _, want := range testCase.want {
+				if !strings.Contains(stdout, want) {
+					t.Errorf("output lacks %q:\n%s", want, stdout)
+				}
+			}
+			if strings.Contains(stdout, "upgraded") || strings.Contains(stdout, "affected") {
+				t.Errorf("output still says the nodes were upgraded:\n%s", stdout)
+			}
+		})
+	}
+}
+
+// -o json carries the operation the resize runs in.
+func TestNodeGroupUpgradeJSONCarriesTheOperation(t *testing.T) {
+	operationID := "op-resize-9"
+	var output string
+	var runError error
+	human := captureStdout(t, func() {
+		output, runError = runConfirmCommand(t, &resizedNodeGroupMock{operationID: &operationID}, "",
+			[]*cobra.Command{clusterNodeGroupUpgradeCmd},
+			"cluster", "node-group", "upgrade", testClusterID, "workers", "cx43", "--wait", "-o", "json")
+	})
+	if runError != nil {
+		t.Fatalf("upgrade -o json: %v", runError)
+	}
+	// The buffer holds stderr too; the document is the JSON object in it.
+	start := strings.Index(output, "{")
+	if start < 0 {
+		t.Fatalf("output carries no JSON document:\n%s", output)
+	}
+	var decoded map[string]any
+	if decodeError := json.NewDecoder(strings.NewReader(output[start:])).Decode(&decoded); decodeError != nil {
+		t.Fatalf("output carries no JSON document: %v\n%s", decodeError, output)
+	}
+	if strings.Contains(output+human, "change recorded") {
+		t.Errorf("-o json printed the human answer too:\n%s%s", output, human)
+	}
+	if decoded["operation_id"] != operationID || decoded["group_name"] != "workers" {
+		t.Errorf("json = %v, want the group and operation_id %s", decoded, operationID)
+	}
+}
