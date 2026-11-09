@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **The lifecycle systemtest no longer passes a Kubernetes upgrade or an instance resize that failed.** The steps read the version `ankra cluster list` shows and the `type=` `ankra cluster node-group list` shows, which are the requested values from the moment the platform accepts the write, so on 2026-11-09 both k8s upgrades and the Hetzner resize passed within a second of being submitted and then failed, parked on PodDisruptionBudgets, in a run that read 24 passed, 0 failed. Each step now follows the operation its write names to its end and fails with the operation's own error when it does not succeed (the resize is submitted with `--wait`, so its answer names one), then reads the nodes: the upgrade passes only when every node is Ready with a kubelet at the target version, the resize only when every node of the group is Ready and carries the new type in its `node.kubernetes.io/instance-type` label (`UNASSERTED` when no node carries that label). A managed upgrade passes only when its `managed_k8s_upgrade` operation ended in success. The wait after a deprovision no longer starts a reconcile on every poll for a failure a later reconcile had already superseded, and the wait for a cluster being torn down never starts one at all. A run that executes lanes now requires `jq`, which the workflow installs.
+
 ## v0.73.0 - 2026-11-09
 
 This release reads and exports the organisation's audit trail, manages alert definitions and

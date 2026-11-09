@@ -24,6 +24,21 @@ cluster families the platform supports:
 7. **instance resize** of the default node group to a bigger plan
 8. **deprovision** and confirm the cluster record is removed (`deleted_at`)
 
+Steps 6 and 7 pass on what the cluster did, never on what was asked for: the
+version `ankra cluster list` shows and the `type=` `ankra cluster node-group
+list` shows are the requested values from the moment the platform accepts the
+write. Each step follows the operation its write names
+(`ankra cluster operations list <id> -o json`; the resize is submitted with
+`--wait` so its answer names one) until it ends, and a parked or failed
+operation fails the step with the operation's own error. Then it reads the
+nodes (`ankra cluster get nodes -o json`): the upgrade passes only when every
+node is Ready with a kubelet at the target version, the resize only when every
+node of the group is Ready and carries the new type in its
+`node.kubernetes.io/instance-type` label (a group whose nodes carry no such
+label at all is recorded `UNASSERTED`, never `PASS`). On 2026-11-09 both
+upgrades and the Hetzner resize passed within a second of being submitted and
+then failed, parked on PodDisruptionBudgets (ankra-ubycim).
+
 Between 7 and 8 the opt-in **node-group autoscaling** step runs when
 `ANKRA_SYSTEMTEST_AUTOSCALING=1` (see below); otherwise it is recorded as a
 `SKIP`, so every run says whether autoscaling was exercised.
@@ -167,7 +182,11 @@ or registered for the run with `ankra credentials aws create-role` from
 4. **node pool** add (`pool-b`, 2 nodes) then delete
 5. **Kubernetes upgrade** — only when `MANAGED_UPGRADE_K8S_VERSION_<PROVIDER>`
    is set (the CLI has no managed version listing, so the target is explicit);
-   otherwise the step is recorded as `SKIP`
+   otherwise the step is recorded as `SKIP`. It passes only when the
+   `managed_k8s_upgrade` operation that appeared after the write ended in
+   success and the cluster's version then reads the target (the control plane
+   is the provider's and its own version is not readable through the CLI; the
+   pool's kubelets are logged, not asserted)
 6. **delete** and confirm the cluster record is removed
 
 It is deliberately a thin wrapper over the exact CLI commands a customer runs, so
@@ -180,7 +199,11 @@ it is "as real as possible". It tolerates the real behaviours of the platform:
   "Cluster network is required.", or a validation error - the wait fails on
   the first attempt instead. The test runs against production, so every retry
   of a refused step is one more production ERROR; 5xx, timeouts and agent
-  offline still retry (`systemtest/reconcile_failure.sh`)
+  offline still retry (`systemtest/reconcile_failure.sh`). Only the newest
+  reconcile counts: a failure a later reconcile has superseded (or the
+  platform marked resolved) is never a reason to start another, and the wait
+  after a deprovision or managed delete never starts one at all - a teardown
+  that stalls goes to the bounded force fallback instead
 - the platform serialises writes (HTTP 409 while a reconcile runs, or a managed
   cluster reporting "not in a state that allows ...") → it waits and retries the
   day-2 operation

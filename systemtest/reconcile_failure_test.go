@@ -136,10 +136,35 @@ func TestRetryFailedReconcile(t *testing.T) {
 			wantReconcile: 1,
 		},
 		{
-			name: "a 422 a newer reconcile superseded keeps the old retry",
+			// ankra-ubycim: a superseded failure used to answer "transient",
+			// so every poll nudged one more reconcile behind the one running.
+			name: "a failure a newer reconcile superseded: no retry",
 			list: `[{"id":"exec-newer","name":"reconcile","display_name":"Reconcile","status":"running"},` +
 				`{"id":"exec-new","name":"reconcile","display_name":"Reconcile","status":"failed"}]`,
-			steps:         stepsFailedWith(uksNetworkRequired),
+			steps:         stepsFailedWith("uks API 503: Service Unavailable"),
+			wantRC:        "rc=0",
+			wantReconcile: 0,
+		},
+		{
+			name: "a failure a newer reconcile succeeded past: no retry",
+			list: `[{"id":"exec-newer","name":"reconcile","display_name":"Reconcile 1 resource","status":"success"},` +
+				`{"id":"exec-new","name":"reconcile","display_name":"Reconcile 2 resources","status":"failed"}]`,
+			steps:         stepsFailedWith("uks API 503: Service Unavailable"),
+			wantRC:        "rc=0",
+			wantReconcile: 0,
+		},
+		{
+			name: "the newest reconcile failed but the platform resolved it: no retry",
+			list: `[{"id":"exec-new","name":"reconcile","display_name":"Reconcile","status":"failed",` +
+				`"attention_state":"resolved","resolved_by_execution_id":"exec-recovery"}]`,
+			steps:         stepsFailedWith("uks API 503: Service Unavailable"),
+			wantRC:        "rc=0",
+			wantReconcile: 0,
+		},
+		{
+			name:          "the newest reconcile failed and still needs attention: retry",
+			list:          `[{"id":"exec-new","name":"reconcile","display_name":"Reconcile","status":"failed","attention_state":"open"}]`,
+			steps:         stepsFailedWith("uks API 503: Service Unavailable"),
 			wantRC:        "rc=0",
 			wantReconcile: 1,
 		},

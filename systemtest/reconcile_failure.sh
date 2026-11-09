@@ -62,13 +62,17 @@ classify_step_error() {
 }
 
 # jq: from `cluster operations list -o json` (newest first), the newest
-# failed reconcile and whether any reconcile has started since it.
+# failed reconcile and whether it is still the newest reconcile. A failure is
+# superseded when a reconcile has started since it, or when the platform
+# marked it resolved (attention_state "resolved": a later run or the
+# resource's own recovery cleared it).
 # shellcheck disable=SC2016 # a jq program
 RECONCILE_LIST_JQ='
   [ .[]? | select(((.display_name // "") + " " + (.name // "")) | test("reconcile"; "i")) ] as $reconciles
   | ([ $reconciles[] | select((.status // "") | test("failed|critical|timeout|timed"; "i")) ] | first) as $failed
   | if $failed == null then "none"
-    elif $reconciles[0].id == $failed.id then "latest \($failed.id)"
+    elif $reconciles[0].id == $failed.id and (($failed.attention_state // "") | ascii_downcase) != "resolved"
+      then "latest \($failed.id)"
     else "superseded \($failed.id)" end'
 
 # jq: from `cluster operations steps <id> -o json`, one "<step>\t<error>"
@@ -85,11 +89,22 @@ RECONCILE_STEPS_JQ='
 
 # reconcile_failure_verdict <cluster name>
 # Prints one line:
-#   none                         no reconcile in the recent operations failed
-#   transient                    one failed and a retry may clear it
+#   none                         no reconcile in the recent operations failed,
+#                                or the newest failure is superseded
+#   transient                    the newest reconcile failed and a retry may
+#                                clear it
 #   terminal<TAB><step><TAB><error>
 #                                the newest reconcile failed on a refusal a
 #                                retry repeats (nothing newer has started)
+#
+# A superseded failure is "none", not a reason to nudge: a reconcile has
+# started since it (or the platform resolved it), so the platform is already
+# past it, and a nudge only queues one more behind the work under way. It used
+# to answer "transient", and a wait polling every 15-20 s nudged a reconcile on
+# every poll for a failure long behind it: on 2026-11-09 the k8s upgrade the
+# systest had submitted failed parked on a PodDisruptionBudget, and the
+# deprovision wait after it started 7 reconciles on the AWS cluster being torn
+# down and 5 on the Hetzner one (ankra-ubycim).
 reconcile_failure_verdict() {
   local name="$1" listing found kind execution_id steps step error
   select_cluster "$name"
@@ -107,11 +122,10 @@ reconcile_failure_verdict() {
   execution_id="${found#* }"
   case "$kind" in
     latest) ;;
-    superseded) echo transient; return 0 ;;
     *) echo none; return 0 ;;
   esac
-  # A failure a later reconcile already superseded keeps the old retry; only
-  # the newest reconcile decides whether the next one would fail the same way.
+  # Only the newest reconcile decides whether the next one would fail the
+  # same way.
   steps="$(ank_out cluster operations steps "$execution_id" -o json \
     | jq -r "$RECONCILE_STEPS_JQ" 2>/dev/null)" || { echo transient; return 0; }
   while IFS=$'\t' read -r step error; do
@@ -126,28 +140,55 @@ reconcile_failure_verdict() {
 
 nudge_reconcile() { select_cluster "$1"; ank cluster reconcile >/dev/null 2>&1 || true; }
 
+# reconcile_refused <cluster name> <verdict>
+# Logs a terminal verdict and succeeds; fails for every other verdict.
+reconcile_refused() {
+  local step error
+  case "$2" in
+    terminal*)
+      IFS=$'\t' read -r _ step error <<<"$2"
+      log "  $1 reconcile failed at step $step on a refusal a retry repeats -> not retrying: $error"
+      return 0
+      ;;
+  esac
+  return 1
+}
+
 # retry_failed_reconcile <cluster name> <log text for a retry>
 # Called from the wait loops on every poll. Nudges a new reconcile when the
-# last one failed transiently and returns 0 (keep waiting). Returns 1 without
+# newest one failed transiently and returns 0 (keep waiting). Returns 1 without
 # nudging when the newest reconcile failed on a terminal refusal, so the
 # caller fails the step now instead of re-running it until its timeout.
 retry_failed_reconcile() {
-  local name="$1" retry_text="$2" verdict step error
+  local name="$1" retry_text="$2" verdict
   if [ -z "${RECONCILE_JQ_NOTED:-}" ] && ! command -v jq >/dev/null 2>&1; then
     RECONCILE_JQ_NOTED=1
     log "  note: jq is not installed, so a failed reconcile cannot be classified and every failure is retried"
   fi
   verdict="$(reconcile_failure_verdict "$name")"
-  case "$verdict" in
-    terminal*)
-      IFS=$'\t' read -r _ step error <<<"$verdict"
-      log "  $name reconcile failed at step $step on a refusal a retry repeats -> not retrying: $error"
-      return 1
-      ;;
-    transient)
-      log "  $name $retry_text -> retrying"
-      nudge_reconcile "$name"
-      ;;
-  esac
+  if reconcile_refused "$name" "$verdict"; then
+    return 1
+  fi
+  if [ "$verdict" = transient ]; then
+    log "  $name $retry_text -> retrying"
+    nudge_reconcile "$name"
+  fi
+  return 0
+}
+
+# watch_teardown_reconcile <cluster name>
+# The wait after a deprovision (or a managed delete) calls this instead of
+# retry_failed_reconcile: a reconcile refused outright still fails the wait at
+# once, so the caller moves on to its force fallback, but it never starts a
+# reconcile. A cluster being torn down is not one to reconcile: its teardown
+# is the platform's own work, a stall is what the bounded force fallback is
+# for, and every nudge is one more production reconcile against a cluster on
+# its way out (ankra-ubycim).
+watch_teardown_reconcile() {
+  local name="$1" verdict
+  verdict="$(reconcile_failure_verdict "$name")"
+  if reconcile_refused "$name" "$verdict"; then
+    return 1
+  fi
   return 0
 }
