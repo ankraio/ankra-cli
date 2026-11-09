@@ -150,7 +150,11 @@ The enable is idempotent and resumable. Without --wait it records the option
 and returns at once, saying what is next; run it again later to write the
 values once the CRDs are established, or check with 'status'. With --wait it
 follows the phase, repeats the enable when the values are next, and returns
-once the Gateway API is enabled. When the platform holds the values back (a
+once the Gateway API is enabled. Enabled means the cluster itself reports the
+Gateway as served: the platform reads GatewayClass 'traefik' as Accepted and
+Gateway 'traefik-gateway' as Programmed from the cluster's synced state. Until
+it does, the phase stays applying, and --wait prints the platform's note on
+what it is waiting for each time that note changes. When the platform holds the values back (a
 values hold: the cluster is offline, its GitOps sync is paused on open
 conflicts, or a Traefik or cert-manager values file was edited in git and is
 kept there until a person decides), nothing writes them until that is
@@ -163,7 +167,8 @@ refused without it. The verdict is the same with or without --wait.
 Exit codes:
   0  the Gateway API is on, or (without --wait) the option is recorded and
      the enable is moving: waiting for the CRDs, the values next and not
-     held back, or Traefik and cert-manager applying them
+     held back, or the values written and the Gateway not yet reported as
+     served
   1  the option is recorded but the platform needs a person: a conflict in
      the values, a values hold (the values are next but held back until a
      person resolves what the hold names), a failed CRD install or apply, a
@@ -392,12 +397,20 @@ func followGatewayAPIEnable(command *cobra.Command, target gatewayAPITarget,
 		return status, pushError
 	}
 	faults := gatewayAPIFollowFaults{target: target, errOut: errOut}
-	lastReported := ""
+	lastReported, lastNote := "", ""
 	enabledThisPoll := false
 	for {
 		if status.Phase != lastReported {
 			_, _ = fmt.Fprintf(errOut, "  %s\n", gatewayAPIPhaseLabel(status.Phase))
 			lastReported = status.Phase
+		}
+		// While the enable is moving, the note says what it waits for (the
+		// CRDs, the Gateway not yet Programmed, a Gateway status the platform
+		// cannot read yet), so it is printed whenever it changes. A phase that
+		// ends the follow carries its note in the verdict instead.
+		if gatewayAPIEnableIsMoving(status) && status.Note != "" && status.Note != lastNote {
+			_, _ = fmt.Fprintf(errOut, "    %s\n", status.Note)
+			lastNote = status.Note
 		}
 		if status.Phase == client.GatewayAPIPhaseEnabled {
 			_, _ = fmt.Fprintf(errOut, "\nThe Gateway API is on for cluster '%s'.\n\n", target.cluster.Name)
@@ -619,6 +632,20 @@ func gatewayAPIPhaseVerdict(target gatewayAPITarget, status *client.GatewayAPISt
 // and once the values are written there is nothing left to hold.
 func gatewayAPIValuesHeld(status *client.GatewayAPIStatus) bool {
 	return status.Phase == client.GatewayAPIPhaseValuesPending && strings.TrimSpace(status.ValuesHold) != ""
+}
+
+// gatewayAPIEnableIsMoving reports whether the enable is still moving on its
+// own towards enabled: waiting for the CRDs, the values next and not held
+// back, or the values written while the Gateway is not yet read as served.
+// These are the standings whose note --wait prints as it follows.
+func gatewayAPIEnableIsMoving(status *client.GatewayAPIStatus) bool {
+	switch status.Phase {
+	case client.GatewayAPIPhaseCRDsPending, client.GatewayAPIPhaseApplying:
+		return true
+	case client.GatewayAPIPhaseValuesPending:
+		return !gatewayAPIValuesHeld(status)
+	}
+	return false
 }
 
 // gatewayAPIHoldVerdict is the verdict on a values hold. It exits 1 like the
@@ -894,7 +921,7 @@ func gatewayAPIPhaseLabel(phase string) string {
 	case client.GatewayAPIPhaseApplyFailed:
 		return "values written, the latest Traefik or cert-manager apply failed"
 	case client.GatewayAPIPhaseApplying:
-		return "values written, Traefik or cert-manager is applying them"
+		return "values written, waiting for the cluster to report the Gateway served"
 	case client.GatewayAPIPhaseEnabled:
 		return "enabled"
 	case "":
