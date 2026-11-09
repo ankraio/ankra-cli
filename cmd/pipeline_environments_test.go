@@ -430,3 +430,18 @@ func TestPipelineTestEnvironmentsNameALegThatEndedWithoutAResult(t *testing.T) {
 		t.Fatalf("line = %q", line)
 	}
 }
+
+// A leg whose teardown time is recorded while its status still lags is torn
+// down everywhere: cell, counts and teardown line agree.
+func TestPipelineTestEnvironmentsTreatARecordedTeardownAsTornDown(t *testing.T) {
+	clusterID, destroyedAt := "c-1", "2026-11-09T10:10:00Z"
+	leg := client.PipelineTestEnvironment{Stage: "matrix", Attempt: 1, Matrix: map[string]string{"kubernetes": "1.37"},
+		Status: "tearing_down", ClusterID: &clusterID, DestroyedAt: &destroyedAt}
+	if cell := pipelineTestEnvironmentCell(leg); cell != "no result" {
+		t.Errorf("cell = %q, want \"no result\"", cell)
+	}
+	line := pipelineTestEnvironmentsSummaryLine([]client.PipelineTestEnvironment{leg}, []string{"kubernetes"})
+	if line != "0/1 leg passed - 1 ended without a result (kubernetes 1.37) - its cluster torn down" {
+		t.Fatalf("line = %q", line)
+	}
+}

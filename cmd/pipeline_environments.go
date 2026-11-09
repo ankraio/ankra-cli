@@ -277,10 +277,18 @@ func pipelineTestEnvironmentOutcome(leg client.PipelineTestEnvironment) string {
 	if result := pipelineStringValue(leg.Result); result != "" {
 		return result
 	}
-	if leg.Status == "destroyed" {
+	if isPipelineTestEnvironmentTornDown(leg) {
 		return pipelineTestEnvironmentNoResult
 	}
 	return ""
+}
+
+// isPipelineTestEnvironmentTornDown is the one test of whether a leg's
+// cluster is gone, shared by the cells, the counts and the teardown line so
+// they cannot disagree: its status says destroyed, or a teardown time was
+// recorded while the status still lags.
+func isPipelineTestEnvironmentTornDown(leg client.PipelineTestEnvironment) bool {
+	return leg.Status == "destroyed" || leg.DestroyedAt != nil
 }
 
 // pipelineTestEnvironmentCell is one grid cell: "passed 5m12s", "FAILED",
@@ -341,7 +349,8 @@ type pipelineTestEnvironmentCounts struct {
 func countPipelineTestEnvironmentLegs(legs []client.PipelineTestEnvironment) pipelineTestEnvironmentCounts {
 	counts := pipelineTestEnvironmentCounts{total: len(legs)}
 	for _, leg := range legs {
-		if leg.Status == "destroyed" || leg.DestroyedAt != nil {
+		isTornDown := isPipelineTestEnvironmentTornDown(leg)
+		if isTornDown {
 			counts.tornDown++
 		}
 		switch pipelineStringValue(leg.Result) {
@@ -356,11 +365,11 @@ func countPipelineTestEnvironmentLegs(legs []client.PipelineTestEnvironment) pip
 		case "cancelled":
 			counts.cancelled++
 		case "":
-			switch leg.Status {
-			case "queued":
-				counts.queued++
-			case "destroyed":
+			switch {
+			case isTornDown:
 				counts.noResult++
+			case leg.Status == "queued":
+				counts.queued++
 			default:
 				counts.running++
 			}
@@ -438,7 +447,7 @@ func pipelineTestEnvironmentTeardown(counts pipelineTestEnvironmentCounts,
 	}
 	stillUp := 0
 	for _, leg := range legs {
-		if leg.ClusterID != nil && leg.DestroyedAt == nil && leg.Status != "destroyed" {
+		if leg.ClusterID != nil && !isPipelineTestEnvironmentTornDown(leg) {
 			stillUp++
 		}
 	}
