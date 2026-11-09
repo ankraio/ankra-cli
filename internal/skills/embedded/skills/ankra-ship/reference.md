@@ -61,9 +61,12 @@ original's change list. A re-run of a tag, manual, API or agent run is planned a
 ## Stages
 
 Every stage: `name` (`^[a-z0-9][a-z0-9_-]*$`, unique across `stages`/`on_failure`/`finally`) and a
-`kind` from the closed vocabulary. Seven execute today: `checkout`, `run`, `build`, `scan`, `gate`,
-`publish`, `deploy`; `gate`, `publish` and `deploy` are settled by the platform, never a Job. The
-other eight (`preview`, `verify`, `agent`, `approval`, `webhook`, `automation`, `ankra`,
+`kind` from the closed vocabulary. Eight execute today: `checkout`, `run`, `build`, `scan`, `gate`,
+`publish`, `deploy`, `environment`; `gate`, `publish`, `deploy` and `environment` are settled by the
+platform, never a Job in the CI cluster. `environment` builds one ephemeral Ankra Cloud cluster per
+matrix leg, deploys the build under test, runs `test_environment.test` against it and always tears
+it down (a protected section; at most six live per organisation, 2h default and 6h maximum
+lifetime). The other eight (`preview`, `verify`, `agent`, `approval`, `webhook`, `automation`, `ankra`,
 `external`) warn at validation and are skipped by the planner (`kind_unavailable`). `deploy` rolls a
 signed release bundle out to **host targets** (machines outside Kubernetes running
 `ankra-host-agent`, `ankra targets`), never to a cluster: an application's push-to-deploy does that.
@@ -513,8 +516,8 @@ appended to `$ANKRA_OUTPUT` become `${{ needs.test.outputs.<name> }}` downstream
 
 ## What is not there yet, in full
 
-Say this out loud rather than promising it. The spec accepts fifteen stage kinds; **seven execute**:
-`checkout`, `run`, `build`, `scan`, `gate`, `publish`, `deploy`. `deploy` releases a signed bundle
+Say this out loud rather than promising it. The spec accepts sixteen stage kinds; **eight execute**:
+`checkout`, `run`, `build`, `scan`, `gate`, `publish`, `deploy`, `environment`. `deploy` releases a signed bundle
 to host targets outside Kubernetes (`ankra targets`), never to a cluster. `preview`, `verify`, `agent`,
 `approval`, `webhook`, `automation`, `ankra` and `external` validate with a warning and are skipped
 as `kind_unavailable`; `uses:` is refused outright (write the step as `run:`); `retry:` is
