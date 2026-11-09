@@ -15,7 +15,6 @@ package client
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -150,11 +149,17 @@ func (c *Client) GetPipelineTimeSavedSummary(ctx context.Context, selector Pipel
 	return &result, nil
 }
 
-// doTimeSavedRequest is doPipelineRequest for a GET whose 404 means the
-// platform has nothing to say. The status is checked before the body is
-// mapped, because a router 404 ({"detail": "Not Found"}) would otherwise
-// become a bare error that has lost its status.
+// doTimeSavedRequest is doPipelineReadRequest for the time-saved reads.
 func (c *Client) doTimeSavedRequest(ctx context.Context, endpoint string, target any) error {
+	return c.doPipelineReadRequest(ctx, endpoint, target, ErrPipelineTimeSavedUnavailable)
+}
+
+// doPipelineReadRequest is doPipelineRequest for a GET whose 404 means the
+// platform has nothing to say: a 404 answers notFound. The status is checked
+// before the body is mapped, because a router 404 ({"detail": "Not Found"})
+// would otherwise become a bare error that has lost its status. A target that
+// embeds RawDocument also keeps the body it was decoded from.
+func (c *Client) doPipelineReadRequest(ctx context.Context, endpoint string, target any, notFound error) error {
 	request, requestError := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if requestError != nil {
 		return fmt.Errorf("create request: %w", requestError)
@@ -170,7 +175,7 @@ func (c *Client) doTimeSavedRequest(ctx context.Context, endpoint string, target
 		return fmt.Errorf("read response: %w", readError)
 	}
 	if response.StatusCode == http.StatusNotFound {
-		return ErrPipelineTimeSavedUnavailable
+		return notFound
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return pipelineErrorFromResponse(response.StatusCode, body, response.Header.Get("Retry-After"))
@@ -178,7 +183,7 @@ func (c *Client) doTimeSavedRequest(ctx context.Context, endpoint string, target
 	if len(bytes.TrimSpace(body)) == 0 {
 		return nil
 	}
-	if unmarshalError := json.Unmarshal(body, target); unmarshalError != nil {
+	if unmarshalError := decodeKeepingRawDocument(body, target); unmarshalError != nil {
 		return fmt.Errorf("parse response: %w", unmarshalError)
 	}
 	return nil
