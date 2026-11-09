@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -24,7 +25,7 @@ const bastionAllowedIPsFlagUsage = "IPv4 addresses or CIDRs allowed to reach the
 // the provider firewall, and the remaining providers' bastions are not on
 // the public internet in the same way.
 func withBastionAllowedIPs(bastionCmd *cobra.Command, opsFn func() bastionOps) *cobra.Command {
-	allowedIPsCmd := withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	allowedIPsCmd := withClusterArgumentBeforeItems(clusterMustBeNamed, isAllowedIPsEntry, &cobra.Command{
 		Use:   "allowed-ips <cluster_id|name> [ip-or-cidr ...]",
 		Short: "Restrict which sources may SSH to the bastion/gateway",
 		Long: `Replace the bastion/gateway's SSH source allowlist. Only the listed IPv4
@@ -61,6 +62,25 @@ Examples:
 	registerStructuredOutputFlags(allowedIPsCmd)
 	bastionCmd.AddCommand(allowedIPsCmd)
 	return bastionCmd
+}
+
+// isAllowedIPsEntry reports whether an argument is an allowlist entry (an IP
+// address or a CIDR, or several of them comma-separated) rather than a
+// cluster, so `allowed-ips --cluster prod 203.0.113.7` puts prod first while
+// `allowed-ips staging --cluster prod` names two clusters and is refused.
+func isAllowedIPsEntry(argument string) bool {
+	for _, entry := range strings.Split(argument, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		if net.ParseIP(entry) != nil {
+			return true
+		}
+		_, _, cidrError := net.ParseCIDR(entry)
+		return cidrError == nil
+	}
+	return false
 }
 
 // bastionAllowedIPsArgs turns the positional entries into the list to send.

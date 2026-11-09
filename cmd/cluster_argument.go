@@ -24,7 +24,11 @@ import (
 //   - with --cluster set, the cluster argument is left out, so a command
 //     with further arguments takes one fewer (`node-group scale --cluster
 //     prod workers 3`). Naming the cluster in both places, the same way, is
-//     accepted;
+//     the argument as given, counted by the command's own check;
+//   - a command whose cluster argument may be left out (MaximumNArgs) and is
+//     reads --cluster itself, by name or id, exactly as it did before
+//     --cluster could stand in for the argument (resolveActiveCluster,
+//     resolveOptionalClusterArg);
 //   - named in neither place, a command whose usage line shows the cluster
 //     as required (<cluster...>) refuses with exit 2, saying how to name it.
 //     It never acts on the cluster `ankra cluster select` saved: that is one
@@ -50,13 +54,12 @@ const (
 	// line, as the argument or with --cluster. Every command whose usage
 	// line shows the cluster as required (<cluster_id|name>), which takes in
 	// every command that stops, starts, deprovisions, deletes, moves,
-	// scales, upgrades or bills a cluster.
+	// scales, upgrades, relabels or bills a cluster.
 	clusterMustBeNamed clusterArgumentAccess = "explicit"
 	// clusterSelectionAllowed: the cluster argument may be left out
 	// ([cluster]), and the command then uses the cluster `ankra cluster
 	// select` saved, as it did before --cluster could stand in for the
-	// argument. Reads, and reconcile and update, which neither remove nor
-	// bill anything.
+	// argument. Reads, and reconcile, which re-applies what is stored.
 	clusterSelectionAllowed clusterArgumentAccess = "selection"
 )
 
@@ -68,6 +71,15 @@ type clusterArgumentSpec struct {
 	// validate is the command's own argument check, of the whole argument
 	// list with the cluster at position.
 	validate cobra.PositionalArgs
+	// list: the arguments end in a list of any length (the usage line
+	// shows "..."), so their count cannot say whether the value at the
+	// cluster's position is the cluster or the list's first item.
+	list bool
+	// isListItem reports a value at the cluster's position that is the
+	// first item of the list rather than a cluster (an IP or CIDR for
+	// `bastion allowed-ips`). nil: every value there is a cluster (`mesh
+	// readiness <cluster_id|name> [cluster_id|name...]`).
+	isListItem func(string) bool
 }
 
 // clusterArgumentSpecs holds the spec of every command registered by
@@ -80,12 +92,25 @@ var clusterArgumentSpecs = map[*cobra.Command]clusterArgumentSpec{}
 // args[0]: both are wrapped so the cluster can come from --cluster instead.
 // Returns command.
 func withClusterArgument(access clusterArgumentAccess, command *cobra.Command) *cobra.Command {
-	return withClusterArgumentAt(0, access, command)
+	return registerClusterArgument(0, access, nil, command)
 }
 
 // withClusterArgumentAt is withClusterArgument for a command whose cluster is
 // the argument at position (`mesh leave <mesh_id> <cluster_id|name>`).
 func withClusterArgumentAt(position int, access clusterArgumentAccess, command *cobra.Command) *cobra.Command {
+	return registerClusterArgument(position, access, nil, command)
+}
+
+// withClusterArgumentBeforeItems is withClusterArgument for a command whose
+// cluster argument is followed by a list of other things (`bastion
+// allowed-ips <cluster_id|name> [ip-or-cidr ...]`). isListItem tells such a
+// thing from a cluster, so `--cluster prod 203.0.113.7` puts prod first
+// while `staging --cluster prod` names two clusters.
+func withClusterArgumentBeforeItems(access clusterArgumentAccess, isListItem func(string) bool, command *cobra.Command) *cobra.Command {
+	return registerClusterArgument(0, access, isListItem, command)
+}
+
+func registerClusterArgument(position int, access clusterArgumentAccess, isListItem func(string) bool, command *cobra.Command) *cobra.Command {
 	run := command.RunE
 	if run == nil {
 		panic(fmt.Sprintf("withClusterArgument: %q has no RunE to give the cluster to", command.Use))
@@ -94,7 +119,13 @@ func withClusterArgumentAt(position int, access clusterArgumentAccess, command *
 	if validate == nil {
 		validate = cobra.ArbitraryArgs
 	}
-	spec := clusterArgumentSpec{position: position, access: access, validate: validate}
+	spec := clusterArgumentSpec{
+		position:   position,
+		access:     access,
+		validate:   validate,
+		list:       strings.Contains(command.Use, "..."),
+		isListItem: isListItem,
+	}
 	command.Args = func(cmd *cobra.Command, args []string) error {
 		_, resolveError := spec.resolve(cmd, args)
 		return resolveError
@@ -123,9 +154,10 @@ const (
 	// clusterFromFlag: --cluster, put in the argument list at the
 	// cluster's position.
 	clusterFromFlag
-	// clusterLeftToCommand: an optional cluster argument was left out and
-	// --cluster is not set; the command uses the selected cluster itself
-	// (clusterSelectionAllowed only).
+	// clusterLeftToCommand: the cluster argument may be left out and was.
+	// The command finds the cluster itself: --cluster when it is set, by
+	// name or id, as it did before --cluster could stand in for the
+	// argument, else the selected cluster (clusterSelectionAllowed only).
 	clusterLeftToCommand
 )
 
@@ -133,9 +165,15 @@ const (
 type clusterArgumentResolution struct {
 	args []string
 	// typed is the cluster as it was named (the argument or the --cluster
-	// value); "" for clusterLeftToCommand.
+	// value); "" when the command reads the selected cluster.
 	typed  string
 	source clusterArgumentSource
+}
+
+// holdsCluster reports whether value, at the cluster's position of a list
+// command, is a cluster rather than the list's first item.
+func (spec clusterArgumentSpec) holdsCluster(value string) bool {
+	return spec.list && (spec.isListItem == nil || !spec.isListItem(value))
 }
 
 // resolve works out the argument list a command's RunE gets. It reads only
@@ -145,30 +183,53 @@ func (spec clusterArgumentSpec) resolve(cmd *cobra.Command, args []string) (clus
 	fits := func(candidate []string) bool { return spec.validate(cmd, candidate) == nil }
 	position := spec.position
 	named := len(args) > position
-	if flagged := clusterFlagOverride(cmd); flagged != "" {
-		// The same cluster as the argument and with --cluster: one cluster.
-		if named && strings.TrimSpace(args[position]) == flagged && fits(args) {
-			return clusterArgumentResolution{args: args, typed: flagged, source: clusterFromArgument}, nil
+	flagged := clusterFlagOverride(cmd)
+	if flagged == "" {
+		return spec.resolveUnflagged(cmd, args)
+	}
+	switch {
+	case named && strings.TrimSpace(args[position]) == flagged:
+		// The same cluster as the argument and with --cluster: the argument,
+		// as given, counted by the command's own check as it always was, so
+		// `node-group delete prod --cluster prod` lacks the group rather
+		// than deleting a group called prod.
+		if ownError := spec.validate(cmd, args); ownError != nil {
+			return clusterArgumentResolution{}, usageError(cmd, ownError, "")
 		}
-		if len(args) < position {
-			return clusterArgumentResolution{}, usageError(cmd, spec.validate(cmd, args),
-				"the arguments before the cluster are missing")
-		}
-		// --cluster stands in for the argument: the arguments given are the
-		// ones around it.
-		withFlag := insertClusterArgument(args, position, flagged)
-		flagError := spec.validate(cmd, withFlag)
-		if flagError == nil {
-			return clusterArgumentResolution{args: withFlag, typed: flagged, source: clusterFromFlag}, nil
-		}
-		// The arguments fit only with a cluster among them, and it is
-		// another one than --cluster names.
-		if named && fits(args) {
-			return clusterArgumentResolution{}, differentClustersError(cmd, flagged, args[position])
-		}
+		return clusterArgumentResolution{args: args, typed: flagged, source: clusterFromArgument}, nil
+	case len(args) < position:
+		return clusterArgumentResolution{}, usageError(cmd, spec.validate(cmd, args),
+			"the arguments before the cluster are missing")
+	case !named && fits(args):
+		// The cluster argument may be left out, and is: the command reads
+		// --cluster itself (resolveActiveCluster, resolveOptionalClusterArg),
+		// by name or id, with the same lookups and exit codes as before
+		// --cluster could stand in for the argument.
+		return clusterArgumentResolution{args: args, typed: flagged, source: clusterLeftToCommand}, nil
+	}
+	// --cluster stands in for the argument: the arguments given are the
+	// ones around it.
+	withFlag := insertClusterArgument(args, position, flagged)
+	flagError := spec.validate(cmd, withFlag)
+	// The arguments are complete with a cluster at its position, and it is
+	// another one than --cluster names. For a command ending in a list the
+	// count cannot tell, so the value there decides.
+	if named && fits(args) && (flagError != nil || spec.holdsCluster(args[position])) {
+		return clusterArgumentResolution{}, differentClustersError(cmd, flagged, args[position])
+	}
+	if flagError != nil {
 		return clusterArgumentResolution{}, withExitCode(exitUsage, fmt.Errorf(
 			"%w, counting --cluster %q as the cluster argument; usage: %s", flagError, flagged, cmd.UseLine()))
 	}
+	return clusterArgumentResolution{args: withFlag, typed: flagged, source: clusterFromFlag}, nil
+}
+
+// resolveUnflagged is resolve without --cluster: the cluster is the argument,
+// else the selection where the command may use it.
+func (spec clusterArgumentSpec) resolveUnflagged(cmd *cobra.Command, args []string) (clusterArgumentResolution, error) {
+	fits := func(candidate []string) bool { return spec.validate(cmd, candidate) == nil }
+	position := spec.position
+	named := len(args) > position
 	ownError := spec.validate(cmd, args)
 	switch {
 	case ownError == nil && named:
@@ -216,6 +277,25 @@ func differentClustersError(command *cobra.Command, flagValue, argument string) 
 	return withExitCode(exitUsage, fmt.Errorf(
 		"--cluster %q and the argument %q name different clusters; pass one, usage: %s",
 		flagValue, argument, command.UseLine()))
+}
+
+// clusterArgumentBesideOwnFlag is the Args check of a command that reads its
+// optional cluster argument and --cluster itself instead of through
+// withClusterArgument (`cluster select`, `kubeconfig add|remove`). It keeps
+// the checks ankra-oznf7k.10 gave every leading cluster argument: the
+// command's own argument error comes with the usage line, and an argument
+// beside a --cluster naming a different cluster is refused (exit 2).
+func clusterArgumentBesideOwnFlag(validate cobra.PositionalArgs) cobra.PositionalArgs {
+	return func(command *cobra.Command, args []string) error {
+		if validateError := validate(command, args); validateError != nil {
+			return usageError(command, validateError, "")
+		}
+		if flagValue := clusterFlagOverride(command); flagValue != "" && len(args) > 0 &&
+			strings.TrimSpace(args[0]) != flagValue {
+			return differentClustersError(command, flagValue, args[0])
+		}
+		return nil
+	}
 }
 
 // clusterNotNamedError refuses a command whose cluster neither its argument

@@ -121,8 +121,7 @@ func typedClusterOf(cmd *cobra.Command, args []string) string {
 	// its RunE got it: with --cluster, args holds only the arguments after
 	// the cluster, so args[0] would be a node-group name or a count.
 	if spec, registered := clusterArgumentSpecs[cmd]; registered {
-		if resolution, resolveError := spec.resolve(cmd, args); resolveError == nil &&
-			resolution.source != clusterLeftToCommand {
+		if resolution, resolveError := spec.resolve(cmd, args); resolveError == nil && resolution.typed != "" {
 			return resolution.typed
 		}
 	}

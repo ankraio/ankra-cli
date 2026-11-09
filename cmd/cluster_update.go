@@ -48,8 +48,8 @@ type clusterUpdateOutput struct {
 	Criticality *string `json:"criticality,omitempty"`
 }
 
-var clusterUpdateCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "update [cluster]",
+var clusterUpdateCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "update <cluster>",
 	Short: "Change a cluster's environment and reporting level",
 	Long: `Set the environment of an existing cluster - production, staging, development,
 testing, local, or a name of your own - and the reporting level its insights
@@ -75,11 +75,19 @@ never reverted by a file, so it stays until it is changed here or in the
 portal. Who chose a label is recorded from the credential: your own token
 records you, a service account records automation.
 
-The cluster is given by name or id; without one, the selected cluster is
-updated.`,
+The cluster is given by name or id, as the argument or with --cluster. An
+update never falls back to the cluster selected with 'ankra cluster select':
+that selection is shared by every shell and agent session on the machine,
+and the environment decides dynamic cluster groups and the access they
+grant, alert silencing ('local') and whether Ankra AI may remediate the
+cluster on its own (never on production), so a relabel aimed at the wrong
+cluster could switch that on for a production cluster.`,
 	Example: `  ankra cluster update so-infrastructure --environment development
-  ankra cluster update --environment eu-qa --criticality staging
+  ankra cluster update --cluster eu-qa-01 --environment eu-qa --criticality staging
   ankra cluster update 3d0e2935-963b-4c7b-a494-b7266776ec68 --environment production -o json`,
+	// The cluster argument may be left out for --cluster, which the run
+	// reads itself, by name or id, as it always has; named nowhere, the
+	// resolver refuses before the run (clusterMustBeNamed).
 	Args: cobra.MaximumNArgs(1),
 	RunE: runClusterUpdate,
 })

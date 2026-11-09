@@ -72,6 +72,11 @@ func (m *clusterFlagCommandMock) LeaveClusterMesh(meshID string, clusterID strin
 	return nil
 }
 
+func (m *clusterFlagCommandMock) UpdateHetznerBastionAllowedIPs(_ context.Context, clusterID string, allowedIPs []string) (*client.UpdateBastionAllowedIPsResult, error) {
+	m.record("allowed-ips " + clusterID + " " + strings.Join(allowedIPs, ","))
+	return &client.UpdateBastionAllowedIPsResult{}, nil
+}
+
 // clusterTreeCommands is every command under `ankra cluster`, so a test can
 // put all their flags back to their defaults.
 func clusterTreeCommands() []*cobra.Command {
@@ -125,6 +130,11 @@ func TestClusterCommandsTakeTheClusterFromTheFlag(t *testing.T) {
 		{[]string{"cluster", "hetzner", "node-group", "scale", "pool-a", "3", "--cluster", otherClusterID},
 			"node-group scale " + otherClusterID + " pool-a 3"},
 		{[]string{"cluster", "mesh", "leave", "mesh-1", "--cluster", otherClusterID}, "mesh leave mesh-1 " + otherClusterID},
+		// An address where the cluster goes is the allowlist's first entry.
+		{[]string{"cluster", "hetzner", "bastion", "allowed-ips", "--cluster", otherClusterID, "203.0.113.7", "198.51.100.0/24"},
+			"allowed-ips " + otherClusterID + " 203.0.113.7,198.51.100.0/24"},
+		{[]string{"cluster", "hetzner", "bastion", "allowed-ips", otherClusterID, "203.0.113.7", "--cluster", otherClusterID},
+			"allowed-ips " + otherClusterID + " 203.0.113.7"},
 		// The same cluster in both places, spelled the same way.
 		{[]string{"cluster", "node-group", "scale", otherClusterID, "pool-a", "3", "--cluster", otherClusterID},
 			"node-group scale " + otherClusterID + " pool-a 3"},
@@ -165,6 +175,14 @@ func TestClusterCommandsRefuseTheSelectedCluster(t *testing.T) {
 		{"cluster", "deprovision", "--yes"},
 		{"cluster", "move", "--organisation", "acme-prod", "--yes"},
 		{"cluster", "provision"},
+		// The environment decides alert silencing and whether Ankra AI may
+		// remediate on its own, so a relabel is never aimed at a selection
+		// another session made either.
+		{"cluster", "update", "--environment", "development"},
+		// The domain read falls back to the selection; creating or tearing
+		// down the zone does not.
+		{"cluster", "domain", "--enable"},
+		{"cluster", "domain", "--remove"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			mock := &clusterFlagCommandMock{}
@@ -190,6 +208,15 @@ func TestClusterCommandsRefuseTwoDifferentClusters(t *testing.T) {
 		{"cluster", "ssh-keys", "get", "demo", "--cluster", testClusterID},
 		{"cluster", "node-group", "scale", testClusterID, "pool-a", "3", "--cluster", otherClusterID},
 		{"cluster", "mesh", "leave", "mesh-1", testClusterID, "--cluster", otherClusterID},
+		// Commands ending in a list: the count cannot tell, the value where
+		// the cluster goes does.
+		{"cluster", "mesh", "up", "mesh-1", testClusterID, "--cluster", otherClusterID},
+		{"cluster", "mesh", "readiness", testClusterID, otherClusterID, "--cluster", otherClusterID},
+		{"cluster", "hetzner", "bastion", "allowed-ips", testClusterID, "203.0.113.7", "--cluster", otherClusterID},
+		// Commands that read the argument and --cluster themselves.
+		{"cluster", "select", testClusterID, "--cluster", otherClusterID},
+		{"cluster", "update", "demo", "--environment", "staging", "--cluster", otherClusterID},
+		{"cluster", "reconcile", "demo", "--cluster", otherClusterID},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			mock := &clusterFlagCommandMock{}
@@ -199,6 +226,39 @@ func TestClusterCommandsRefuseTwoDifferentClusters(t *testing.T) {
 			}
 			if len(mock.calls) != 0 {
 				t.Fatalf("calls %v, want none", mock.calls)
+			}
+		})
+	}
+}
+
+// The same cluster as the argument and with --cluster is the argument as
+// given, counted by the command's own check, as before --cluster could
+// stand in (#744): `node-group delete prod --cluster prod` lacks the group.
+// It does not delete a group called prod on the cluster prod.
+func TestClusterArgumentRepeatedAsTheFlagKeepsTheCommandsCount(t *testing.T) {
+	withTempHome(t)
+	writeSelectedClusterJSON(t)
+	for _, testCase := range []struct {
+		path []string
+		want string
+	}{
+		{[]string{"node-group", "delete"}, "accepts 2 arg(s), received 1"},
+		{[]string{"hetzner", "node-group", "delete"}, "accepts 2 arg(s), received 1"},
+		{[]string{"node-group", "scale"}, "accepts 3 arg(s), received 1"},
+		{[]string{"hetzner", "node-group", "scale"}, "accepts 3 arg(s), received 1"},
+		{[]string{"managed", "node-pool", "delete"}, "accepts 2 arg(s), received 1"},
+		{[]string{"hetzner", "nodes", "restart"}, "accepts 2 arg(s), received 1"},
+	} {
+		t.Run(strings.Join(testCase.path, " "), func(t *testing.T) {
+			command, _, findError := clusterCmd.Find(testCase.path)
+			if findError != nil || command.Name() != testCase.path[len(testCase.path)-1] {
+				t.Fatalf("finding %v: %v", testCase.path, findError)
+			}
+			err := censusArgs(t, command, "prod", []string{"prod"})
+			if err == nil || exitCodeFor(err) != exitUsage || !strings.Contains(err.Error(), testCase.want) ||
+				strings.Contains(err.Error(), "counting --cluster") {
+				t.Fatalf("--cluster prod beside prod: got %v (exit %d), want the command's own count error %q",
+					err, exitCodeFor(err), testCase.want)
 			}
 		})
 	}

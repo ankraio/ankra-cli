@@ -41,7 +41,7 @@ If no name is provided, an interactive picker is shown.
 Examples:
   ankra cluster select
   ankra cluster select my-cluster`,
-	Args: cobra.MaximumNArgs(1),
+	Args: clusterArgumentBesideOwnFlag(cobra.MaximumNArgs(1)),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 1 {
 			return selectClusterByName(args[0])

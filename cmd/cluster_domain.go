@@ -29,7 +29,9 @@ in its own DNS account) gets its own domain as the cluster domain this way.
 
 The plain command is a read: it never creates a zone. A cluster that has no
 domain reports state "none", and 'ankra org dns zones' lists every cluster in
-the organisation that does have one.
+the organisation that does have one. The read falls back to the cluster
+selected with 'ankra cluster select'; --enable and --remove never do, and
+need the cluster named as the argument or with --cluster.
 
 --enable queues the zone for a cluster that has none. It is idempotent: a
 cluster that already has a zone reports its existing domain unchanged. A fresh
@@ -55,11 +57,21 @@ for it keeps the same --txt-owner-id.`,
 		if clusterDomainEnable && clusterDomainRemove {
 			return withExitCode(exitUsage, errors.New("--enable and --remove are mutually exclusive"))
 		}
+		// --enable creates a zone and --remove tears one down without a
+		// prompt, so neither acts on the cluster `ankra cluster select`
+		// saved: that is one file shared by every session on the machine.
+		// The plain read still falls back to it.
+		if (clusterDomainEnable || clusterDomainRemove) && len(args) == 0 && clusterFlagOverride(cmd) == "" {
+			return withExitCode(exitUsage, fmt.Errorf(
+				"missing the cluster: --enable and --remove change the cluster's DNS zone, so name it as the argument "+
+					"or with --cluster <name|id>; they do not use the cluster selected with `ankra cluster select`, "+
+					"which every session on this machine shares; usage: %s", cmd.UseLine()))
+		}
 
-		// Without a positional argument the command targets the selected
-		// cluster, like its sibling cluster commands. The fallback names the
+		// Without a positional argument the command targets --cluster, else
+		// the selected cluster (a read only, see above). It names the
 		// cluster it resolved on stderr, because --enable/--remove mutate and
-		// a silently selected target must not be silent.
+		// a target that was not typed as the argument must not be silent.
 		var clusterID string
 		var clusterReference string
 		if len(args) == 1 {

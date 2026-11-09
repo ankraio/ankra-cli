@@ -298,7 +298,10 @@ Name the cluster as the argument or with --cluster. Provisioning builds
 infrastructure that bills, so it never falls back to the cluster selected with
 'ankra cluster select': that selection is shared by every shell and agent
 session on the machine.`,
-	Args: cobra.ExactArgs(1),
+	// The cluster argument may be left out for --cluster, which the run
+	// reads itself, by name or id, as it always has; named nowhere, the
+	// resolver refuses before the run (clusterMustBeNamed).
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		format, err := structuredFormatFromFlags(cmd)
 		if err != nil {
@@ -447,7 +450,10 @@ stop and start commands (for example "ankra cluster hetzner stop" and
 Name the cluster as the argument or with --cluster. Deprovision never falls
 back to the cluster selected with 'ankra cluster select': that selection is
 shared by every shell and agent session on the machine.`,
-	Args: cobra.ExactArgs(1),
+	// The cluster argument may be left out for --cluster, which the run
+	// reads itself, by name or id, as it always has; named nowhere, the
+	// resolver refuses before the run (clusterMustBeNamed).
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		force, _ := cmd.Flags().GetBool("force")
 		yes, _ := cmd.Flags().GetBool("yes")

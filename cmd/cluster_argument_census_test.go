@@ -14,7 +14,7 @@ import (
 // cluster from --cluster when the argument is left out, refuse an argument
 // and a --cluster that name different clusters, and act on the cluster
 // `ankra cluster select` saved only when it is one of the few reads (and
-// reconcile and update) listed in clusterSelectionFallbacks. A command added
+// reconcile) listed in clusterSelectionFallbacks. A command added
 // later that takes a cluster argument without going through
 // withClusterArgument fails here, and so does one that falls back to the
 // selection without being listed.
@@ -31,9 +31,12 @@ const (
 // clusterArgumentCensusExempt are the commands whose argument names a
 // cluster but that do not act on it through withClusterArgument, and why.
 var clusterArgumentCensusExempt = map[string]string{
-	"ankra cluster select":            "the argument is the cluster to select, not one to act on",
-	"ankra cluster kubeconfig add":    "folds its argument into its own --cluster flag (applyKubeconfigPositionalCluster), which already refuses two different clusters",
-	"ankra cluster kubeconfig remove": "folds its argument into its own --cluster flag (applyKubeconfigPositionalCluster), which already refuses two different clusters",
+	"ankra cluster select": "the argument is the cluster to select, not one to act on; " +
+		"clusterArgumentBesideOwnFlag refuses it beside a different --cluster",
+	"ankra cluster kubeconfig add": "folds its argument into its own --cluster flag (applyKubeconfigPositionalCluster); " +
+		"clusterArgumentBesideOwnFlag refuses it beside a different --cluster",
+	"ankra cluster kubeconfig remove": "folds its argument into its own --cluster flag (applyKubeconfigPositionalCluster); " +
+		"clusterArgumentBesideOwnFlag refuses it beside a different --cluster",
 }
 
 // clusterSelectionFallbacks are the only commands whose cluster argument may
@@ -44,8 +47,9 @@ var clusterArgumentCensusExempt = map[string]string{
 // one. Listing a command here is the reviewed decision to let it use the
 // selection; it is not keyed off the command's name.
 var clusterSelectionFallbacks = map[string]string{
-	"ankra cluster audit-logs":                   "reads the cluster's audit trail",
-	"ankra cluster domain":                       "reads the cluster's domain; it never creates a zone",
+	"ankra cluster audit-logs": "reads the cluster's audit trail",
+	"ankra cluster domain": "reads the cluster's domain; --enable and --remove, which create and tear down its zone, " +
+		"refuse with exit 2 unless the cluster is named",
 	"ankra cluster gitops status":                "reads the cluster's GitOps wiring",
 	"ankra cluster gitops conflicts list":        "reads the open merge conflicts",
 	"ankra cluster gitops preserved list":        "reads the preserved paths",
@@ -55,7 +59,21 @@ var clusterSelectionFallbacks = map[string]string{
 	"ankra cluster upcloud node-group list":      "reads the node groups",
 	"ankra cluster digitalocean node-group list": "reads the node groups",
 	"ankra cluster reconcile":                    "re-applies the cluster's stored definition; it removes and bills nothing, and fell back to the selection before",
-	"ankra cluster update":                       "sets the environment label and reporting level; it removes and bills nothing, and fell back to the selection before",
+}
+
+// clusterFlagReadByCommand are the commands that must be named but whose own
+// argument check lets the cluster argument be left out: with --cluster set
+// and no argument, the command reads --cluster itself, by name or id, as it
+// did before --cluster could stand in for the argument, and named nowhere,
+// the resolver refuses before it runs. Together with clusterSelectionFallbacks
+// they are every command whose run gets no cluster argument, so a run that
+// reads args[0] regardless cannot be registered with an optional check
+// unnoticed.
+var clusterFlagReadByCommand = map[string]string{
+	"ankra cluster deprovision": "resolveClusterFromArgsWithKind reads --cluster through resolveActiveCluster",
+	"ankra cluster move":        "resolveClusterFromArgsWithKind reads --cluster through resolveActiveCluster",
+	"ankra cluster update":      "resolveClusterFromArgsWithKind reads --cluster through resolveActiveCluster",
+	"ankra cluster provision":   "resolveClusterFromArgs reads --cluster through resolveActiveCluster",
 }
 
 var censusPlaceholder = regexp.MustCompile(`<[^<>]+>|\[[^\[\]]+\]`)
@@ -152,6 +170,16 @@ func TestEveryClusterArgumentCommandTakesTheClusterFlag(t *testing.T) {
 				if command.Annotations[censusClusterArgumentAnnotation] != "" {
 					t.Fatalf("%s is exempt from the census but registered with withClusterArgument; drop the exemption", path)
 				}
+				// It still refuses an argument beside a different --cluster,
+				// as every leading cluster argument has since #744.
+				twice := censusArgs(t, command, otherClusterID, []string{testClusterID})
+				if twice == nil || exitCodeFor(twice) != exitUsage || !strings.Contains(twice.Error(), "name different clusters") {
+					t.Errorf("%s with the argument and --cluster naming two clusters: got %v (exit %d), "+
+						"want the different-clusters usage error (exit 2)", path, twice, exitCodeFor(twice))
+				}
+				if err := censusArgs(t, command, testClusterID, []string{testClusterID}); err != nil {
+					t.Errorf("%s naming the same cluster as the argument and with --cluster: %v; that is allowed", path, err)
+				}
 			})
 			continue
 		}
@@ -190,11 +218,24 @@ func TestEveryClusterArgumentCommandTakesTheClusterFlag(t *testing.T) {
 			if err := censusArgs(t, command, otherClusterID, withCensusCluster(others, position, otherClusterID)); err != nil {
 				t.Errorf("%s naming the same cluster as the argument and with --cluster: %v; that is allowed", path, err)
 			}
-			if !variadic {
-				twice := censusArgs(t, command, otherClusterID, withCensusCluster(others, position, testClusterID))
-				if twice == nil || exitCodeFor(twice) != exitUsage || !strings.Contains(twice.Error(), "name different clusters") {
-					t.Errorf("%s with the argument and --cluster naming two clusters: got %v (exit %d), "+
-						"want the different-clusters usage error (exit 2)", path, twice, exitCodeFor(twice))
+			// A command ending in a list of clusters (`mesh readiness`) is
+			// held to this too: its count cannot tell the cluster from the
+			// list, so the value where the cluster goes decides.
+			twice := censusArgs(t, command, otherClusterID, withCensusCluster(others, position, testClusterID))
+			if twice == nil || exitCodeFor(twice) != exitUsage || !strings.Contains(twice.Error(), "name different clusters") {
+				t.Errorf("%s with the argument and --cluster naming two clusters: got %v (exit %d), "+
+					"want the different-clusters usage error (exit 2)", path, twice, exitCodeFor(twice))
+			}
+
+			// A command whose own check takes the cluster left out gets no
+			// cluster argument from --cluster: it reads the flag itself.
+			if spec, registered := clusterArgumentSpecs[command]; registered && spec.validate(command, others) == nil {
+				_, readsSelection := clusterSelectionFallbacks[path]
+				_, readsFlag := clusterFlagReadByCommand[path]
+				if !readsSelection && !readsFlag {
+					t.Errorf("%s takes its cluster argument left out (%q), so with only --cluster its run gets "+
+						"no cluster argument and must read --cluster itself; list it in clusterFlagReadByCommand "+
+						"once it does, or make the argument required", path, command.Use)
 				}
 			}
 
@@ -215,6 +256,17 @@ func TestEveryClusterArgumentCommandTakesTheClusterFlag(t *testing.T) {
 	for path := range clusterSelectionFallbacks {
 		if !fallbacksSeen[path] {
 			t.Errorf("clusterSelectionFallbacks lists %s, which the census did not find; drop the entry", path)
+		}
+	}
+	for path := range clusterFlagReadByCommand {
+		command, _, findError := rootCmd.Find(strings.Fields(path)[1:])
+		if findError != nil || command.CommandPath() != path {
+			t.Errorf("clusterFlagReadByCommand lists %s, which is not a command; drop the entry", path)
+			continue
+		}
+		if _, selection := clusterSelectionFallbacks[path]; selection ||
+			command.Annotations[censusClusterArgumentAnnotation] != censusMustBeNamed {
+			t.Errorf("clusterFlagReadByCommand lists %s, which is not registered clusterMustBeNamed", path)
 		}
 	}
 }

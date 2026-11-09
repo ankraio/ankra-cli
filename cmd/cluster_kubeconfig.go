@@ -89,7 +89,7 @@ itself time-boxed access with 'ankra cluster access elevate'.`,
   export ANKRA_API_TOKEN="$SERVICE_TOKEN"
   ankra cluster kubeconfig add my-cluster --use
   kubectl get pods`,
-	Args: cobra.MaximumNArgs(1),
+	Args: clusterArgumentBesideOwnFlag(cobra.MaximumNArgs(1)),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := applyKubeconfigPositionalCluster(args); err != nil {
 			return err
@@ -101,7 +101,7 @@ itself time-boxed access with 'ankra cluster access elevate'.`,
 var clusterKubeconfigRemoveCmd = &cobra.Command{
 	Use:   "remove [cluster]",
 	Short: "Remove Ankra contexts from your kubeconfig",
-	Args:  cobra.MaximumNArgs(1),
+	Args:  clusterArgumentBesideOwnFlag(cobra.MaximumNArgs(1)),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := applyKubeconfigPositionalCluster(args); err != nil {
 			return err

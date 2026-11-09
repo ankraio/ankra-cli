@@ -40,7 +40,10 @@ by every shell and agent session on the machine.`,
 	Example: `  ankra cluster move edge-01 --organisation acme-prod
   ankra cluster move --cluster edge-01 --organisation 6f1c... --yes
   ankra cluster move edge-01 --organisation "Acme Prod" -o json`,
-	Args: cobra.ExactArgs(1),
+	// The cluster argument may be left out for --cluster, which the run
+	// reads itself, by name or id, as it always has; named nowhere, the
+	// resolver refuses before the run (clusterMustBeNamed).
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		destinationReference, _ := cmd.Flags().GetString("organisation")
 		yes, _ := cmd.Flags().GetBool("yes")

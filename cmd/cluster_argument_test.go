@@ -19,14 +19,17 @@ func TestClusterArgumentCensusLiteralsMatch(t *testing.T) {
 	}
 }
 
-// clusterArgumentTestCommand is a command registered by withClusterArgumentAt
-// under a parent that carries --cluster the way `ankra cluster` does.
-func clusterArgumentTestCommand(t *testing.T, position int, access clusterArgumentAccess, validate cobra.PositionalArgs) *cobra.Command {
+// clusterArgumentTestCommand is a command registered the way
+// withClusterArgument registers one, under a parent that carries --cluster
+// the way `ankra cluster` does. use is its usage line (a command ending in a
+// list shows "..."); isListItem is that list's item check.
+func clusterArgumentTestCommand(t *testing.T, use string, position int, access clusterArgumentAccess,
+	validate cobra.PositionalArgs, isListItem func(string) bool) *cobra.Command {
 	t.Helper()
 	parent := &cobra.Command{Use: "parent"}
 	parent.PersistentFlags().String(activeClusterFlagName, "", "")
-	child := withClusterArgumentAt(position, access, &cobra.Command{
-		Use:  "child",
+	child := registerClusterArgument(position, access, isListItem, &cobra.Command{
+		Use:  use,
 		Args: validate,
 		RunE: func(*cobra.Command, []string) error { return nil },
 	})
@@ -54,9 +57,11 @@ func TestClusterArgumentResolution(t *testing.T) {
 	exact := func(count int) cobra.PositionalArgs { return cobra.ExactArgs(count) }
 	for _, testCase := range []struct {
 		name     string
+		use      string
 		position int
 		access   clusterArgumentAccess
 		validate cobra.PositionalArgs
+		listItem func(string) bool
 		flagged  string
 		args     []string
 		want     []string
@@ -87,18 +92,44 @@ func TestClusterArgumentResolution(t *testing.T) {
 			failure: "missing the cluster"},
 		{name: "cluster second, nothing before it", position: 1, validate: exact(2),
 			flagged: "prod", failure: "accepts 2 arg(s), received 0"},
+		// The same cluster in both places is the argument as given, so the
+		// command's own count applies: the group is missing, and the flag is
+		// not put in a second time to make up for it (#744).
+		{name: "same cluster twice, the count short", validate: exact(2), flagged: "prod", args: []string{"prod"},
+			failure: "accepts 2 arg(s), received 1"},
 		// `mesh up <mesh> <cluster> [cluster...]`: the flag is the first
 		// cluster, not left for the command to find (ankra AI review, #760).
-		{name: "list after the cluster, flag only", position: 1, validate: cobra.MinimumNArgs(2), flagged: "prod",
+		{name: "list after the cluster, flag only", use: "up <mesh> <cluster_id|name> [cluster_id|name...]", position: 1,
+			validate: cobra.MinimumNArgs(2), flagged: "prod",
 			args: []string{"mesh-1"}, want: []string{"mesh-1", "prod"}, source: clusterFromFlag},
-		{name: "list after the cluster, flag and more", position: 1, validate: cobra.MinimumNArgs(2), flagged: "prod",
-			args: []string{"mesh-1", "staging"}, want: []string{"mesh-1", "prod", "staging"}, source: clusterFromFlag},
-		{name: "list: the flag adds the first", validate: cobra.MinimumNArgs(1), flagged: "prod", args: []string{"10.0.0.1"},
+		// A cluster already where the cluster goes, and not the one
+		// --cluster names: two clusters, whatever the list's count allows.
+		{name: "list after the cluster, another cluster there", use: "up <mesh> <cluster_id|name> [cluster_id|name...]",
+			position: 1, validate: cobra.MinimumNArgs(2), flagged: "prod",
+			args: []string{"mesh-1", "staging"}, failure: "name different clusters"},
+		{name: "list of clusters, another first", use: "readiness <cluster_id|name> [cluster_id|name...]",
+			validate: cobra.MinimumNArgs(1), flagged: "prod", args: []string{"staging"}, failure: "name different clusters"},
+		{name: "list of clusters, the flag repeating the first", use: "readiness <cluster_id|name> [cluster_id|name...]",
+			validate: cobra.MinimumNArgs(1), flagged: "prod", args: []string{"prod", "staging"},
+			want: []string{"prod", "staging"}, source: clusterFromArgument},
+		{name: "list of items: the flag adds the cluster", use: "allowed-ips <cluster_id|name> [ip-or-cidr ...]",
+			validate: cobra.MinimumNArgs(1), listItem: isAllowedIPsEntry, flagged: "prod", args: []string{"10.0.0.1"},
 			want: []string{"prod", "10.0.0.1"}, source: clusterFromFlag},
-		{name: "list: the flag repeating the first", validate: cobra.MinimumNArgs(1), flagged: "prod",
+		{name: "list of items: a CIDR list first", use: "allowed-ips <cluster_id|name> [ip-or-cidr ...]",
+			validate: cobra.MinimumNArgs(1), listItem: isAllowedIPsEntry, flagged: "prod", args: []string{"10.0.0.0/8,10.1.0.1"},
+			want: []string{"prod", "10.0.0.0/8,10.1.0.1"}, source: clusterFromFlag},
+		{name: "list of items: another cluster first", use: "allowed-ips <cluster_id|name> [ip-or-cidr ...]",
+			validate: cobra.MinimumNArgs(1), listItem: isAllowedIPsEntry, flagged: "prod", args: []string{"staging", "10.0.0.1"},
+			failure: "name different clusters"},
+		{name: "list of items: the flag repeating the first", use: "allowed-ips <cluster_id|name> [ip-or-cidr ...]",
+			validate: cobra.MinimumNArgs(1), listItem: isAllowedIPsEntry, flagged: "prod",
 			args: []string{"prod", "10.0.0.1"}, want: []string{"prod", "10.0.0.1"}, source: clusterFromArgument},
-		{name: "optional: the flag becomes the argument", access: clusterSelectionAllowed, validate: cobra.MaximumNArgs(1),
-			flagged: "prod", want: []string{"prod"}, source: clusterFromFlag},
+		// An optional cluster argument left out: the command reads --cluster
+		// itself, by name or id, as it did before --cluster could stand in.
+		{name: "optional: the command reads the flag", access: clusterSelectionAllowed, validate: cobra.MaximumNArgs(1),
+			flagged: "prod", want: []string{}, source: clusterLeftToCommand},
+		{name: "optional and must be named: the command reads the flag", validate: cobra.MaximumNArgs(1),
+			flagged: "prod", want: []string{}, source: clusterLeftToCommand},
 		{name: "optional: the command reads the selection", access: clusterSelectionAllowed, validate: cobra.MaximumNArgs(1),
 			want: []string{}, source: clusterLeftToCommand},
 		{name: "optional, but must be named", validate: cobra.MaximumNArgs(1), failure: "missing the cluster"},
@@ -108,7 +139,11 @@ func TestClusterArgumentResolution(t *testing.T) {
 			if access == "" {
 				access = clusterMustBeNamed
 			}
-			command := clusterArgumentTestCommand(t, testCase.position, access, testCase.validate)
+			use := testCase.use
+			if use == "" {
+				use = "child"
+			}
+			command := clusterArgumentTestCommand(t, use, testCase.position, access, testCase.validate, testCase.listItem)
 			resolution, resolveError := resolveTestClusterArguments(t, command, testCase.flagged, testCase.args...)
 			if testCase.failure != "" {
 				if resolveError == nil || exitCodeFor(resolveError) != exitUsage || !strings.Contains(resolveError.Error(), testCase.failure) {

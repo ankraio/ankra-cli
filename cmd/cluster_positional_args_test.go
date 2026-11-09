@@ -168,6 +168,14 @@ func TestClusterPositionalArgsKeepsTheValidatorsOwnError(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "name different clusters") {
 		t.Errorf("--cluster prod beside staging 5: got %v, want the different-clusters refusal", err)
 	}
+
+	// #744's own assertion, kept: the same cluster as the argument and with
+	// --cluster is the argument as given, so the count is missing. The
+	// flag is not put in a second time to make up the count.
+	err = command.Args(command, []string{"prod"})
+	if err == nil || !strings.Contains(err.Error(), "accepts 2 arg(s)") || strings.Contains(err.Error(), "not --cluster") {
+		t.Errorf("--cluster prod agreeing with the positional but no count: got %v, want cobra's count error", err)
+	}
 }
 
 func TestClusterPositionalKindIgnoresOtherFirstArguments(t *testing.T) {
