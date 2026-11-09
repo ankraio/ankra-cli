@@ -137,11 +137,29 @@ func runStackInstallationChange(cmd *cobra.Command, rawStackName string, verb st
 	if callError != nil {
 		return stackInstallationError(callError, verb, stackName, cluster)
 	}
-	if rendered, renderError := renderStructured(cmd, result); rendered || renderError != nil {
+	rendered, renderError := renderStructured(cmd, result)
+	if renderError != nil {
 		return renderError
 	}
-	printStackInstallationResult(cmd.OutOrStdout(), verb, stackName, cluster, result)
-	return nil
+	if !rendered {
+		printStackInstallationResult(cmd.OutOrStdout(), verb, stackName, cluster, result)
+	}
+	return stackInstallationStateMismatch(verb, stackName, cluster, result)
+}
+
+// stackInstallationStateMismatch is the error for an answer whose installed
+// flag contradicts the verb, nil otherwise. The platform accepted the request,
+// and its answer is printed in full, but the state it reports is not what the
+// verb leaves, so the run must not read as done to a script: it exits 1 in
+// every output format.
+func stackInstallationStateMismatch(verb stackInstallationVerb, stackName string, cluster client.ClusterListItem,
+	result *client.StackInstallationResult) error {
+	if result.Installed == verb.installedAfter {
+		return nil
+	}
+	return fmt.Errorf("the platform accepted the %s but reports stack '%s' as installed=%t, which is not what an %s "+
+		"leaves; check it with 'ankra cluster stacks list %s --cluster %s'",
+		verb.name, stackName, result.Installed, verb.name, stackName, stackInstallationClusterFlag(cluster))
 }
 
 // stackUninstallConsequence is what an uninstall does, said before it is
@@ -271,8 +289,8 @@ func printStackInstallationResult(out io.Writer, verb stackInstallationVerb, sta
 		_, _ = fmt.Fprintf(out, "    - %s\n", resourceID)
 	}
 	if result.Installed != verb.installedAfter {
-		_, _ = fmt.Fprintf(out, "\nThe platform reports the stack as installed=%t, which is not what an %s leaves. "+
-			"Check it with 'ankra cluster stacks list %s --cluster %s'.\n", result.Installed, verb.name, stackName, clusterFlag)
+		// stackInstallationStateMismatch says what is wrong, on stderr, and
+		// the command exits 1; the follow-up below would read as success.
 		return
 	}
 	if verb == stackUninstallVerb {

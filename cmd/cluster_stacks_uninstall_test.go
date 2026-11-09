@@ -231,8 +231,13 @@ func TestStackUninstallJSONIsThePlatformsDocument(t *testing.T) {
 	if !jsonDocumentsEqual(printed, sent) {
 		t.Fatalf("stdout = %s, want the platform's document %s", stdout, document)
 	}
-	if strings.Contains(stderr, "Uninstalling stack") {
+	// The explanation still goes to stderr (--yes answers the question, it
+	// does not hide what the command does); only the progress line is left out.
+	if strings.Contains(stderr, "Uninstalling stack 'web' on cluster 'prod'...") {
 		t.Errorf("structured output prints no progress line:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "Data is treated exactly as a delete treats it") {
+		t.Errorf("structured output still explains what the uninstall does on stderr:\n%s", stderr)
 	}
 }
 
@@ -380,6 +385,41 @@ func TestStackInstallationNotFoundKeepsTheRouteAbsenceApart(t *testing.T) {
 	}
 }
 
+// TestStackInstallationStateMismatchExitsNonZero: an answer whose installed
+// flag contradicts the verb still prints the platform's answer, but the
+// command exits 1 naming the contradiction, in table and in JSON output, so a
+// script never reads it as done.
+func TestStackInstallationStateMismatchExitsNonZero(t *testing.T) {
+	for _, testCase := range []struct {
+		verb string
+		body string
+		want string
+	}{
+		{"uninstall", stackInstalledBody, "reports stack 'web' as installed=true"},
+		{"install", stackUninstalledBody, "reports stack 'web' as installed=false"},
+	} {
+		for _, format := range []string{"", "json"} {
+			t.Run(testCase.verb+" output "+format, func(t *testing.T) {
+				newStackInstallationServer(t, http.StatusOK, testCase.body)
+				arguments := confirmedStackInstallationArgs(testCase.verb)
+				if format != "" {
+					arguments = append(arguments, "-o", format)
+				}
+				stdout, _, runError := runStackInstallation(t, "", false, arguments...)
+				if runError == nil || exitCodeFor(runError) != exitError || !strings.Contains(runError.Error(), testCase.want) {
+					t.Fatalf("error = %v (exit %d), want exit %d saying %q", runError, exitCodeFor(runError), exitError, testCase.want)
+				}
+				if !strings.Contains(stdout, "addon-1") {
+					t.Errorf("the platform's answer is not printed:\n%s", stdout)
+				}
+				if strings.Contains(stdout, "deploys the stack again") || strings.Contains(stdout, "shows each member's state") {
+					t.Errorf("a contradicted answer must not end with the success follow-up:\n%s", stdout)
+				}
+			})
+		}
+	}
+}
+
 // TestClusterStacksListSaysAStackIsUninstalled: an uninstalled stack's own
 // state still reads up while its members are off the cluster, so the listing
 // must not show it as running, and the detail view says how to bring it back.
@@ -390,19 +430,28 @@ func TestClusterStacksListSaysAStackIsUninstalled(t *testing.T) {
 	setMockClient(t, &clusterStacksListMock{stacks: []client.ClusterStackListItem{
 		{Name: "web", State: "up", Uninstalled: true},
 		{Name: "db", State: "up"},
+		{Name: "cache", State: "failed", Uninstalled: true},
 	}})
 
 	table := captureStdout(t, func() {
 		_, _ = executeCommand("cluster", "stacks", "list")
 	})
-	var webRow, dbRow string
+	var webRow, dbRow, cacheRow string
 	for _, line := range strings.Split(stripANSICodes(table), "\n") {
 		switch {
 		case strings.Contains(line, " web "):
 			webRow = line
 		case strings.Contains(line, " db "):
 			dbRow = line
+		case strings.Contains(line, " cache "):
+			cacheRow = line
 		}
+	}
+	if !strings.Contains(cacheRow, "○ uninstalled (failed)") {
+		t.Errorf("an uninstalled stack that reports failed = %q, want both said:\n%s", cacheRow, table)
+	}
+	if strings.Contains(webRow, "(") {
+		t.Errorf("an uninstalled stack that reports up = %q, want only the uninstalled mark:\n%s", webRow, table)
 	}
 	if !strings.Contains(webRow, "uninstalled") || strings.Contains(webRow, "✓") {
 		t.Errorf("the uninstalled stack's row = %q, want it marked uninstalled and not up:\n%s", webRow, table)

@@ -73,20 +73,23 @@ func (refusal *StackInstallationRefusedError) Error() string {
 // stack stays declared in Ankra and in Git. It needs stacks.delete on the
 // cluster.
 func (c *Client) UninstallStack(ctx context.Context, clusterID, stackName string) (*StackInstallationResult, error) {
-	return c.changeStackInstallation(ctx, clusterID, stackName, "uninstall")
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/%s/uninstall",
+		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(stackName))
+	return c.changeStackInstallation(ctx, url, clusterID, stackName, "uninstall")
 }
 
 // InstallStack deploys an uninstalled stack again. It needs stacks.deploy on
 // the cluster.
 func (c *Client) InstallStack(ctx context.Context, clusterID, stackName string) (*StackInstallationResult, error) {
-	return c.changeStackInstallation(ctx, clusterID, stackName, "install")
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/%s/install",
+		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(stackName))
+	return c.changeStackInstallation(ctx, url, clusterID, stackName, "install")
 }
 
-// changeStackInstallation sends the bodiless POST both verbs share and keeps
-// the refusal's error_code, which the shared send helper drops.
-func (c *Client) changeStackInstallation(ctx context.Context, clusterID, stackName, action string) (*StackInstallationResult, error) {
-	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/stacks/%s/%s",
-		c.BaseURL, neturl.PathEscape(clusterID), neturl.PathEscape(stackName), neturl.PathEscape(action))
+// changeStackInstallation sends the bodiless POST both verbs share to url and
+// keeps the refusal's error_code, which the shared send helper drops. Each
+// verb spells its own path, so the cluster route check can resolve both.
+func (c *Client) changeStackInstallation(ctx context.Context, url, clusterID, stackName, action string) (*StackInstallationResult, error) {
 	request, requestError := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if requestError != nil {
 		return nil, fmt.Errorf("create request: %w", requestError)

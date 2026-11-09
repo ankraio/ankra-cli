@@ -180,10 +180,13 @@ var clusterStacksListCmd = &cobra.Command{
 
 			// An uninstalled stack's own state still reads up while its
 			// members are off the cluster, so it must not list as running.
+			// Any other state it reports is kept beside the mark.
 			state := stack.State
 			switch {
-			case stack.Uninstalled:
+			case stack.Uninstalled && (state == "" || strings.EqualFold(state, "up")):
 				state = text.FgYellow.Sprint("○ uninstalled")
+			case stack.Uninstalled:
+				state = text.FgYellow.Sprint("○ uninstalled (" + state + ")")
 			case strings.EqualFold(state, "up"):
 				state = text.FgGreen.Sprint("✓ " + state)
 			case strings.EqualFold(state, "failed"):
