@@ -10,13 +10,16 @@ package cmd
 //
 // Uninstall removes running workloads, and data goes as a delete treats it,
 // so it states that and asks first: --yes answers, and without a terminal
-// --yes is required. It also never acts on the cluster `ankra cluster select`
-// saved, which every shell and agent session on the machine shares: a
-// selection made in another session must not aim it at the wrong cluster
-// (the rule withClusterArgument applies to cluster teardowns). Install only
-// deploys what the stack declares and the platform refuses it for a stack
-// that is not uninstalled, so it neither asks nor needs --cluster, like
-// redeploy.
+// --yes is required. Install only deploys what the stack declares and the
+// platform refuses it for a stack that is not uninstalled, so it does not ask.
+//
+// Neither verb acts on the cluster `ankra cluster select` saved, which every
+// shell and agent session on the machine shares: a selection made in another
+// session must not aim either one at the wrong cluster (the rule
+// withClusterArgument applies to cluster teardowns). Install is held to it as
+// well as uninstall: a stack uninstalled on one cluster because it now runs on
+// another would otherwise come back on both, against whatever external
+// database, bucket or hostname they share.
 //
 // Every 409 either route answers is a refusal that changed nothing, with the
 // platform's sentence saying what to do first. It is printed as it came and
@@ -43,11 +46,14 @@ type stackInstallationVerb struct {
 	// installedAfter is what the platform's installed member must read after
 	// a successful call.
 	installedAfter bool
+	// clusterPreposition joins the verb to the cluster in the --cluster
+	// refusal: uninstall a stack "from" a cluster, install it "on" one.
+	clusterPreposition string
 }
 
 var (
-	stackUninstallVerb = stackInstallationVerb{name: "uninstall", progressive: "Uninstalling", installedAfter: false}
-	stackInstallVerb   = stackInstallationVerb{name: "install", progressive: "Installing", installedAfter: true}
+	stackUninstallVerb = stackInstallationVerb{name: "uninstall", progressive: "Uninstalling", installedAfter: false, clusterPreposition: "from"}
+	stackInstallVerb   = stackInstallationVerb{name: "install", progressive: "Installing", installedAfter: true, clusterPreposition: "on"}
 )
 
 var clusterStacksUninstallCmd = &cobra.Command{
@@ -55,7 +61,7 @@ var clusterStacksUninstallCmd = &cobra.Command{
 	Short: "Take a stack's add-ons, manifests and applications off the cluster, keeping the stack declared",
 	Long: "Uninstall a stack: take every add-on, manifest and application in it off the cluster. The stack itself " +
 		"is not deleted. It stays declared in Ankra and in your GitOps repository, nothing is committed to Git, and " +
-		"'ankra cluster stacks install <stack>' deploys it again.\n\n" +
+		"'ankra cluster stacks install <stack> --cluster <cluster>' deploys it again.\n\n" +
 		"Members come off in reverse dependency order. Data is treated exactly as a delete treats it: whatever a " +
 		"chart or operator removes together with its workload is removed too, and installing the stack again does " +
 		"not bring that back. Back the stack up first: 'ankra cluster stacks data list <stack>' lists what it " +
@@ -85,13 +91,15 @@ var clusterStacksInstallCmd = &cobra.Command{
 		"again, in dependency order, with the definitions the stack holds now, including members added or edited " +
 		"while it was uninstalled. A member that was already off the cluster when the stack was uninstalled, such " +
 		"as an add-on uninstalled on its own, stays off it.\n\n" +
-		"It acts on --cluster, or on the selected cluster when none is named.\n\n" +
+		"Name the cluster with --cluster. This command never uses the cluster 'ankra cluster select' saved, which " +
+		"every shell and agent session on this machine shares: a stack uninstalled on one cluster because it now " +
+		"runs on another must not come back on the wrong one.\n\n" +
 		"The platform refuses an install, and changes nothing, for a stack that is not uninstalled, one whose " +
 		"uninstall is still taking members off the cluster, one with an open draft or being deleted, and while the " +
 		"cluster is offline. The command then prints the platform's reason and exits 8. It needs the stacks.deploy " +
 		"permission on the cluster (exit 7 without it), and a stack the cluster does not have exits 3.",
 	Example: "  ankra cluster stacks install web --cluster prod\n" +
-		"  ankra cluster stacks install web -o json",
+		"  ankra cluster stacks install web --cluster prod -o json",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runStackInstallationChange(cmd, args[0], stackInstallVerb)
@@ -109,11 +117,11 @@ func runStackInstallationChange(cmd *cobra.Command, rawStackName string, verb st
 		return formatError
 	}
 	uninstalling := verb == stackUninstallVerb
-	if uninstalling && clusterFlagOverride(cmd) == "" {
+	if clusterFlagOverride(cmd) == "" {
 		return withExitCode(exitUsage, fmt.Errorf(
-			"name the cluster to uninstall stack '%s' from with --cluster <name|id>. Uninstall never acts on the "+
-				"cluster 'ankra cluster select' saved, which every shell and agent session on this machine shares. "+
-				"Nothing was changed", stackName))
+			"name the cluster to %s stack '%s' %s with --cluster <name|id>. It never acts on the cluster "+
+				"'ankra cluster select' saved, which every shell and agent session on this machine shares. "+
+				"Nothing was changed", verb.name, stackName, verb.clusterPreposition))
 	}
 	cluster, clusterError := resolveActiveCluster(cmd)
 	if clusterError != nil {

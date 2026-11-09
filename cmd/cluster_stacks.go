@@ -70,7 +70,8 @@ var clusterStacksListCmd = &cobra.Command{
 			fmt.Printf("  State:        %s\n", found.State)
 			if found.Uninstalled {
 				fmt.Printf("  Uninstalled:  yes, its members are off the cluster or being taken off; "+
-					"'ankra cluster stacks install %s' deploys it again\n", found.Name)
+					"'ankra cluster stacks install %s --cluster %s' deploys it again\n",
+					found.Name, stackInstallationClusterFlag(cluster))
 			}
 			fmt.Printf("  Deploy wave:  %s\n", formatDeployWave(found.DeployWave))
 			fmt.Printf("  Manifests:    %d\n", len(found.Manifests))

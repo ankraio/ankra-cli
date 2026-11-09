@@ -116,19 +116,30 @@ const (
 	stackInstalledBody   = `{"stack_name":"web","installed":true,"resource_ids":["addon-1","manifest-2"]}`
 )
 
-func TestStackUninstallNeedsTheClusterNamedAndSendsNothing(t *testing.T) {
-	recorder := newStackInstallationServer(t, http.StatusOK, stackUninstalledBody)
-	_, _, runError := runStackInstallation(t, "y\n", true, "uninstall", "web", "--yes")
-	if runError == nil || exitCodeFor(runError) != exitUsage {
-		t.Fatalf("error = %v (exit %d), want the usage exit", runError, exitCodeFor(runError))
-	}
-	for _, want := range []string{"--cluster", "ankra cluster select", "Nothing was changed"} {
-		if !strings.Contains(runError.Error(), want) {
-			t.Errorf("the refusal does not say %q: %v", want, runError)
-		}
-	}
-	if requests := recorder.seen(); len(requests) != 0 {
-		t.Fatalf("an uninstall on the selected cluster reached the platform: %+v", requests)
+func TestStackInstallationNeedsTheClusterNamedAndSendsNothing(t *testing.T) {
+	for verb, preposition := range map[string]string{"uninstall": "from", "install": "on"} {
+		t.Run(verb, func(t *testing.T) {
+			recorder := newStackInstallationServer(t, http.StatusOK, stackUninstalledBody)
+			arguments := []string{verb, "web"}
+			if verb == "uninstall" {
+				arguments = append(arguments, "--yes")
+			}
+			_, _, runError := runStackInstallation(t, "y\n", true, arguments...)
+			if runError == nil || exitCodeFor(runError) != exitUsage {
+				t.Fatalf("error = %v (exit %d), want the usage exit", runError, exitCodeFor(runError))
+			}
+			for _, want := range []string{
+				"name the cluster to " + verb + " stack 'web' " + preposition + " with --cluster",
+				"ankra cluster select", "Nothing was changed",
+			} {
+				if !strings.Contains(runError.Error(), want) {
+					t.Errorf("the refusal does not say %q: %v", want, runError)
+				}
+			}
+			if requests := recorder.seen(); len(requests) != 0 {
+				t.Fatalf("an %s on the selected cluster reached the platform: %+v", verb, requests)
+			}
+		})
 	}
 }
 
@@ -241,14 +252,14 @@ func TestStackUninstallJSONIsThePlatformsDocument(t *testing.T) {
 	}
 }
 
-func TestStackInstallUsesTheSelectedClusterAndNeverAsks(t *testing.T) {
+func TestStackInstallOnTheNamedClusterNeverAsks(t *testing.T) {
 	recorder := newStackInstallationServer(t, http.StatusOK, stackInstalledBody)
-	stdout, stderr, runError := runStackInstallation(t, "", true, "install", "web")
+	stdout, stderr, runError := runStackInstallation(t, "", true, "install", "web", "--cluster", stackInstallationTargetClusterID)
 	if runError != nil {
 		t.Fatalf("install failed: %v", runError)
 	}
 	requests := recorder.seen()
-	want := stackInstallationRequest{method: http.MethodPost, path: stackInstallationPath(testClusterID, "install"),
+	want := stackInstallationRequest{method: http.MethodPost, path: stackInstallationPath(stackInstallationTargetClusterID, "install"),
 		authorization: "Bearer test-token"}
 	if len(requests) != 1 || requests[0] != want {
 		t.Fatalf("requests = %+v, want exactly %+v", requests, want)
@@ -257,9 +268,9 @@ func TestStackInstallUsesTheSelectedClusterAndNeverAsks(t *testing.T) {
 		t.Errorf("install must not ask:\n%s", stderr)
 	}
 	for _, want := range []string{
-		"Stack 'web' is installed again on cluster 'test-cluster'. Ankra is deploying its members now.",
+		"Stack 'web' is installed again on cluster 'prod'. Ankra is deploying its members now.",
 		"Members being deployed: 2", "- addon-1",
-		"'ankra cluster stacks list web --cluster test-cluster' shows each member's state",
+		"'ankra cluster stacks list web --cluster prod' shows each member's state",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout does not say %q:\n%s", want, stdout)
@@ -463,7 +474,7 @@ func TestClusterStacksListSaysAStackIsUninstalled(t *testing.T) {
 	detail := captureStdout(t, func() {
 		_, _ = executeCommand("cluster", "stacks", "list", "web")
 	})
-	if !strings.Contains(detail, "Uninstalled:  yes") || !strings.Contains(detail, "'ankra cluster stacks install web'") {
+	if !strings.Contains(detail, "Uninstalled:  yes") || !strings.Contains(detail, "'ankra cluster stacks install web --cluster test-cluster'") {
 		t.Errorf("the detail view does not say the stack is uninstalled:\n%s", detail)
 	}
 	installedDetail := captureStdout(t, func() {
