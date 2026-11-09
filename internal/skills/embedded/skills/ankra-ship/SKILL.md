@@ -307,11 +307,15 @@ in that cluster's Stack (`ankra-sops-secrets`).
 ```bash
 # 1. Portal: application Settings → Push to deploy → "What follows pushes": development on, production off.
 #    (`auto-deploy set --enabled=false` turns push-to-deploy off for EVERY environment - not this.)
-# 2. Promote the exact tag development proved - a re-tag, never a rebuild:
+# 2. Promote the exact build development proved - a re-tag, never a rebuild (CLI v0.71.0):
+ankra application promote <application> --from development --to production --dry-run   # what would change
+ankra application promote <application> --from development --to production              # shows it, asks, deploys
+#    Exits 8 with the blockers (source not settled, target follows pushes, missing env-secrets).
+# 2b. Or, before the target environment exists, deploy the tag by hand:
 ankra application deploy <application-id> --cluster <prod-cluster> --namespace shop \
   --set image_tag=sha-<the-tag-that-passed> --mode high_availability --set replicas=3 \
   --set ingress_enabled=true --set ingress_host=shop.example.com
-# Rollback is the same command with the previous tag from `ankra application deployments`.
+# Rollback is the deploy command with the previous tag from `ankra application deployments`.
 ```
 
 Production is not brought online until development is online and tested, and production is a
@@ -349,6 +353,8 @@ into a TTL namespace on the organisation's staging cluster and posts the URL in 
 (marker `<!-- ankra-ai:review -->`, sections pipeline · preview · review). By hand:
 
 ```bash
+ankra application previews <application>             # does every pull request get a preview? (CLI v0.71.0)
+ankra application previews enable <application>      # this repository's rule; `disable`, or `follow` the connection default
 ankra application demo deploy <application-id> --pr-number 42 --ttl-hours 8
 ankra application demo deploy <application-id> --branch feature/x
 ankra application demo config set <application-id> --database --migrate-command "npm run migrate"
@@ -373,8 +379,8 @@ cluster helm rollback <release> -n <ns> --revision <n>` after `ankra cluster hel
 for addon-managed releases — change the stack). Roll back first, fix on a branch.
 
 **Promotion.** The tag, and only the tag, moves between environments; configuration stays in each
-environment's deploy options and cluster configuration. Besides §7's `deploy --set image_tag=`, the
-portal's Environments page, chat and the API (`GET …/promotions/preview`, `POST …/promotions`)
+environment's deploy options and cluster configuration. `ankra application promote --from --to`
+(§7), the portal's Environments page, chat and the API (`GET …/promotions/preview`, `POST …/promotions`)
 preview every config difference first: a source whose deploy has not settled is
 `source_not_settled`, a target that follows pushes is `target_follows_pushes` (switch production
 off under **What follows pushes**), and missing env-secrets block by name. The same `sha-<7>` in
@@ -419,7 +425,10 @@ Ankra AI is in the loop at four points, and it never holds authority it was not 
 - **You can ask.** `ankra chat "why did the last pipeline run for shop fail?" --mode ask` reads
   runs, logs, findings, pods and events; in `--mode agent` every write it proposes waits for
   `ankra chat actions confirm <action-id>`. `ankra tickets list --needs-human` is the board's queue
-  of decisions waiting on you.
+  of decisions waiting on you. To work from your own coding agent instead, `ankra mcp connect
+  --client claude-code|cursor|codex` registers the Ankra MCP server with a read-only, 90-day token
+  (`--write` for Agent-mode tools), and `ankra slack connect` installs Ankra in Slack (an admin
+  approves in the browser).
 
 What the AI **never** does, by construction: approve a pipeline definition's authority, approve a
 promotion (`promotions.approve` is human-only), merge without a green gate, push to a default
