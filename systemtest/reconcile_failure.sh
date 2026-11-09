@@ -178,17 +178,27 @@ retry_failed_reconcile() {
 
 # watch_teardown_reconcile <cluster name>
 # The wait after a deprovision (or a managed delete) calls this instead of
-# retry_failed_reconcile: a reconcile refused outright still fails the wait at
-# once, so the caller moves on to its force fallback, but it never starts a
-# reconcile. A cluster being torn down is not one to reconcile: its teardown
-# is the platform's own work, a stall is what the bounded force fallback is
-# for, and every nudge is one more production reconcile against a cluster on
-# its way out (ankra-ubycim).
+# retry_failed_reconcile, and it never starts a reconcile and never ends the
+# wait. A cluster being torn down is not one to reconcile: its teardown is the
+# platform's own work, and every nudge was one more production reconcile
+# against a cluster on its way out (ankra-ubycim). Nor does a teardown
+# reconcile refused with a 4xx end the wait: the refusal may be a provider 404
+# on a resource that is already gone, and giving up on the first one sent the
+# lane to its force fallback and then to a FAIL while the platform was still
+# tearing the cluster down (ankra-zmp39). The cluster leaving the list is the
+# wait's only verdict, and a stall is what the bounded force fallback is for.
+# A refusal is logged once, for the run log.
 watch_teardown_reconcile() {
-  local name="$1" verdict
+  local name="$1" verdict step error
   verdict="$(reconcile_failure_verdict "$name")"
-  if reconcile_refused "$name" "$verdict"; then
-    return 1
-  fi
+  case "$verdict" in
+    terminal*)
+      if [ "${TEARDOWN_REFUSAL_LOGGED:-}" != "$name $verdict" ]; then
+        TEARDOWN_REFUSAL_LOGGED="$name $verdict"
+        IFS=$'\t' read -r _ step error <<<"$verdict"
+        log "  $name teardown reconcile failed at step $step: $error -> not starting another; still waiting for the cluster to go"
+      fi
+      ;;
+  esac
   return 0
 }

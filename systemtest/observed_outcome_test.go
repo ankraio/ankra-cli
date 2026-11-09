@@ -542,6 +542,35 @@ func TestDeprovisionWaitNeverNudgesAReconcile(t *testing.T) {
 	}
 }
 
+// TestRefusedTeardownReconcileDoesNotEndTheWait pins ankra-zmp39: the
+// deprovision wait used to give up on the first teardown reconcile refused
+// with a 4xx - a provider 404 on a server already gone is one - which sent
+// the lane to its force fallback and then to a FAIL while the platform was
+// still tearing the cluster down. The wait goes on until the cluster leaves
+// the list, logs the refusal once, and starts no reconcile.
+func TestRefusedTeardownReconcileDoesNotEndTheWait(t *testing.T) {
+	const refusal = "deleting server: HTTP 404 Not Found"
+	files := map[string]string{
+		"cluster-list":      clusterList(awsClusterName, upgradeTarget),
+		"cluster-list-gone": clusterList("some-other-cluster", upgradeTarget),
+		"present-for":       "8",
+		"operations.json": `[{"id":"exec-teardown","name":"reconcile","display_name":"Reconcile 39 resources across 3 stacks","status":"failed","attention_state":"open"},` +
+			`{"id":"exec-before","name":"reconcile","display_name":"Reconcile 1 resource","status":"success"}]`,
+		"steps.json": `{"execution":{"id":"exec-teardown","status":"failed","error_excerpt":` + jsonString(refusal) + `},` +
+			`"steps":[{"name":"aws_delete_server","status":"failed","error_excerpt":` + jsonString(refusal) + `}]}`,
+	}
+	run := runLane(t, files, nil, `wait_for_removed `+awsClusterName+` 30; echo "rc=$?"`)
+	if !strings.Contains(run.output, "rc=0") {
+		t.Fatalf("a refused teardown reconcile ended the wait before the cluster was gone:\n%s", run.output)
+	}
+	if run.reconciles != 0 {
+		t.Fatalf("the deprovision wait started %d reconciles, want none:\n%s", run.reconciles, run.output)
+	}
+	if got := strings.Count(run.output, refusal); got != 1 {
+		t.Fatalf("the refusal was logged %d times, want once:\n%s", got, run.output)
+	}
+}
+
 // TestOperationIDIsReadFromTheWritesAnswer: the answers the step follows,
 // as the CLI prints them. The "Follow progress" hint alone names the
 // operation after "operations list", which is not an operation line.

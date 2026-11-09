@@ -201,9 +201,11 @@ it is "as real as possible". It tolerates the real behaviours of the platform:
   of a refused step is one more production ERROR; 5xx, timeouts and agent
   offline still retry (`systemtest/reconcile_failure.sh`). Only the newest
   reconcile counts: a failure a later reconcile has superseded (or the
-  platform marked resolved) is never a reason to start another, and the wait
-  after a deprovision or managed delete never starts one at all - a teardown
-  that stalls goes to the bounded force fallback instead
+  platform marked resolved) is never a reason to start another. The wait
+  after a deprovision or managed delete never starts one at all, and a
+  refused teardown reconcile does not end it either (a provider 404 on a
+  resource already gone is one): it waits for the cluster to leave the list,
+  and a teardown that stalls goes to the bounded force fallback
 - the platform serialises writes (HTTP 409 while a reconcile runs, or a managed
   cluster reporting "not in a state that allows ...") → it waits and retries the
   day-2 operation

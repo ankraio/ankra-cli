@@ -771,16 +771,17 @@ wait_idle() {
 }
 
 # Wait until the cluster is gone. Called only after a deprovision or managed
-# delete was submitted, so it never nudges a reconcile (watch_teardown_reconcile
-# in reconcile_failure.sh): a teardown reconcile refused outright fails the
-# wait at once and the caller's force fallback takes over.
+# delete was submitted, so it never nudges a reconcile and a refused teardown
+# reconcile does not end it (watch_teardown_reconcile in reconcile_failure.sh):
+# the cluster leaving the list is the only verdict, and the caller's bounded
+# force fallback takes over when it does not by the timeout.
 wait_for_removed() {
   local name="$1" timeout="$2" deadline
   deadline=$(( $(date +%s) + timeout ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
     if ! cluster_in_list "$name"; then return 0; fi
     log "  $name still present (state=$(cluster_state "$name"))"
-    watch_teardown_reconcile "$name" || return 1
+    watch_teardown_reconcile "$name"
     sleep "$POLL_INTERVAL"
   done
   return 1
