@@ -40,7 +40,7 @@ variable "ankra_project_id" {
 - **`project_id`** or `ANKRA_PROJECT_ID`: the project to act in. **Set it in any organisation that uses projects.** Without it a token acts in the organisation's default project, or the oldest project a project-only member reaches, never the project its user last picked in the portal. The resources added in 0.3.0 refuse to run in an organisation with more than one project until it is set. An ID, not a slug.
 - Terraform 1.0 or newer. `ankra_application_env_secret.value_wo` (write-only) needs Terraform 1.11.
 
-## What exists (0.3.0)
+## What exists (0.3.0, plus 0.5.0 where marked)
 
 | Area | Resources | Data sources |
 |---|---|---|
@@ -54,8 +54,37 @@ variable "ankra_project_id" {
 | Alerts and DNS | `ankra_alert_destination`, `ankra_alert_route`, `ankra_organisation_dns_record`, `ankra_organisation_custom_dns_zone`, `ankra_organisation_domain`, `ankra_dns_credential`, `ankra_cloudflare_credential`, `ankra_cloudflare_dns_record` | `ankra_alert_destinations`, `ankra_alert_routes`, `ankra_organisation_dns_zone`, `ankra_organisation_dns_records`, `ankra_organisation_custom_dns_zones`, `ankra_dns_credentials`, `ankra_cloudflare_credentials`, `ankra_cloudflare_domains` |
 | Applications and pipelines | `ankra_application`, `ankra_application_settings`, `ankra_application_auto_deploy`, `ankra_application_ai_config`, `ankra_application_demo_config`, `ankra_application_env_secret`, `ankra_application_deployment`, `ankra_pipeline_repository`, `ankra_pipeline_definition`, `ankra_pipeline_schedule`, `ankra_pipeline_merge_train` | `ankra_applications`, `ankra_application`, `ankra_pipeline_repositories` |
 | Stack profiles, backups, image registry | `ankra_stack_profile`, `ankra_stack_profile_version`, `ankra_stack_profile_share`, `ankra_stack_profile_logo`, `ankra_backup_vault`, `ankra_object_storage_bucket`, `ankra_registry_project`, `ankra_registry_robot`, `ankra_registry_retention` | `ankra_stack_profiles`, `ankra_backup_vaults`, `ankra_object_storage_buckets`, `ankra_registry_projects`, `ankra_registry_robots` |
-| Organisation and access | `ankra_organisation`, `ankra_organisation_member`, `ankra_api_token`, `ankra_service_token`, `ankra_mcp_server`, `ankra_mcp_tool_grant`, `ankra_ci_settings`, `ankra_ci_pool_member`, `ankra_ai_review_repository`, `ankra_ai_review_related_repository`, `ankra_ai_spend_cap`, `ankra_ai_environment` | `ankra_organisation`, `ankra_organisations`, `ankra_mcp_servers` |
+| Organisation and access | `ankra_organisation`, `ankra_organisation_member`, `ankra_project` (0.5.0), `ankra_oidc_trust_policy` (0.5.0), `ankra_api_token`, `ankra_service_token`, `ankra_mcp_server`, `ankra_mcp_tool_grant`, `ankra_ci_settings`, `ankra_ci_pool_member`, `ankra_ai_review_repository`, `ankra_ai_review_related_repository`, `ankra_ai_spend_cap`, `ankra_ai_environment` | `ankra_organisation`, `ankra_organisations`, `ankra_mcp_servers`, `ankra_projects`, `ankra_project`, `ankra_oidc_trust_policies`, `ankra_cluster_access_policy` (all 0.5.0) |
 | AI, cost, security, services, targets | `ankra_ai_provider`, `ankra_ai_anthropic_key`, `ankra_ai_openrouter_key`, `ankra_ai_openai_compatible`, `ankra_ai_endpoint`, `ankra_ai_model`, `ankra_ai_lane_model`, `ankra_ai_board_identity`, `ankra_cost_budget`, `ankra_cost_autopilot`, `ankra_cost_autopilot_override`, `ankra_cost_settings`, `ankra_security_disposition`, `ankra_security_compliance_framework`, `ankra_security_report_schedule`, `ankra_service_placement_policy`, `ankra_service_consumer`, `ankra_host_join_token` | `ankra_ai_models`, `ankra_ai_endpoints`, `ankra_ai_lanes`, `ankra_cost_budgets`, `ankra_security_compliance_frameworks`, `ankra_host_targets`, `ankra_deploy_environments` |
+
+**Projects and GitHub OIDC trust (provider 0.5.0).** These belong to the organisation and need no provider `project_id`, however many projects exist.
+
+```hcl
+resource "ankra_project" "payments" {
+  name = "Payments"
+  slug = "payments" # immutable on the platform: changing it replaces the project
+}
+
+resource "ankra_service_token" "payments_ci" {
+  name       = "payments-ci"
+  role_slug  = "member"
+  project_id = ankra_project.payments.id # pin the CI token to the project
+}
+
+resource "ankra_oidc_trust_policy" "deploy" {
+  name                = "payments-deploy"
+  repository_owner    = "my-org"
+  repository_name     = "payments"
+  repository_owner_id = 1234567  # gh api users/my-org --jq .id
+  repository_id       = 89012345 # gh api repos/my-org/payments --jq .id
+  ref                 = "refs/heads/main" # pin ref, environment or job_workflow_ref above viewer
+  role_slug           = "operator"
+}
+```
+
+- `ankra_project` needs `projects.manage`; destroy is refused while the project holds resources (`ankra project move` them first), and the Default project is never deleted. Import by ID or slug.
+- `ankra_oidc_trust_policy` has no in-place update: changing any argument deletes the policy (revoking every token it minted) and creates a new one. It needs `members.manage` on a person's own API token; service tokens and project-pinned tokens are refused. `ttl_seconds` 60-3600 (900), `allow_pull_request` false, `scopes` only `mcp:read`/`mcp:write` and never empty. The workflow signs in with `ankra login --github-oidc`.
+- `data.ankra_cluster_access_policy` is read-only on purpose: changing the policy needs the human-only `kube_access.policy`, which no token carries. Propose with `ankra org access-policy set` and have an owner or admin apply it; use the data source in a `check` block.
 
 Not available as Terraform: stack variables (stack-scoped `ankra cluster stacks variables`; use cluster or organisation variables, or the stack's own YAML), managed services setup, stack profile builder drafts, restore points and restores, migrations, and every operational command above.
 

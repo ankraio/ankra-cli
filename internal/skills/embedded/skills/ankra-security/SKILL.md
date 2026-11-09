@@ -67,7 +67,12 @@ ankra tokens delete <token-id> --service   # after revoking; the account's last 
   the platform, and a GitHub Actions job that must call Ankra can exchange its OIDC token for a
   minutes-long one (`ankra org oidc-trust create ...`, then `ankra login --github-oidc
   --organisation-id <id>`). A policy names one repository by its numeric ids; pin a ref and a
-  protected environment.
+  protected environment. From Terraform (provider 0.5.0) the same policy is
+  `ankra_oidc_trust_policy`; changing any argument replaces it and revokes every token it minted.
+- **Connecting a coding agent:** `ankra mcp connect --client claude-code|cursor|codex` mints an
+  `mcp:read` token (`--write` adds `mcp:write`) that expires in 90 days, keeps it in a file only you
+  can read and never writes it into the client's config. Prefer it over pasting a token by hand;
+  re-running renews and revokes the old one.
 
 Resolution order in the CLI is `--token`, then the saved login from `ankra login`, then
 `ANKRA_API_TOKEN`. A saved login **beats** the environment variable, so a script that seems to
@@ -393,7 +398,19 @@ ankra security sbom containers --status absent   # running containers with no bi
 ankra org mcp-servers list               # read_write tiers, wide tool grants
 ankra ai remediation policy              # per-tool auto overrides, unscoped clusters
 ankra backup vaults list                 # every vault ready, keys scoped to their bucket
+ankra org audit-logs list --since 7d --actor-type agent --outcome failed   # what agents tried and were refused
+ankra org audit-logs list --since 7d --resource-type <type>                # e.g. kubernetes_secret reveals, grants
 ```
+
+**The audit trail (CLI v0.73.0).** `ankra org audit-logs list` reads the newest entries (last 7
+days and 50 rows by default; `--since`/`--until` take `24h`, `7d`, a date, RFC 3339 or `all`;
+`--limit 0` shows every match) filtered by `--actor-type agent|human|service_account|system`,
+`--outcome`, `--user`, `--cluster`, `--action`, `--resource-type`, `--agent-task`, `--search`.
+`ankra org audit-logs export --format csv|json --file <path>` downloads it (whole trail, 100,000-row
+cap reported on stderr), and `ankra cluster audit-logs [cluster]` is one cluster's slice. All need
+`audit.read` (exit 7 without it) and work with a service token holding a role with only
+`audit.read`, which is how a scheduled job forwards the trail to a SIEM. Retention is 365 days:
+export what a framework needs kept longer.
 
 Report findings ranked by exposure: what is reachable, by whom, and the one command or change that
 closes it. Do not change anything in a review pass without asking, and never print a secret value.
