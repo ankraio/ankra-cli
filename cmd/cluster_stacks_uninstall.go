@@ -127,7 +127,6 @@ func runStackInstallationChange(cmd *cobra.Command, rawStackName string, verb st
 	if format == outputDefault {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s stack '%s' on cluster '%s'...\n", verb.progressive, stackName, cluster.Name)
 	}
-	// The command's own context, so Ctrl-C cancels the request.
 	var result *client.StackInstallationResult
 	var callError error
 	if uninstalling {
