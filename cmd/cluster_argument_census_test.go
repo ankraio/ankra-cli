@@ -108,6 +108,21 @@ func clusterArgumentUse(use string) (position int, others []string, variadic, ok
 	return position, others, variadic, position >= 0
 }
 
+// censusListItems is the placeholder of the list a usage line ends in, as
+// "ip-or-cidr" for `allowed-ips <cluster_id|name> [ip-or-cidr ...]`, and ""
+// when it ends in none.
+func censusListItems(use string) string {
+	if flagStart := strings.Index(use, " -"); flagStart >= 0 {
+		use = use[:flagStart]
+	}
+	for _, token := range censusPlaceholder.FindAllString(use, -1) {
+		if inner := strings.TrimSpace(token[1 : len(token)-1]); strings.Contains(inner, "...") {
+			return strings.TrimSpace(strings.TrimSuffix(inner, "..."))
+		}
+	}
+	return ""
+}
+
 func withCensusCluster(others []string, position int, cluster string) []string {
 	arguments := append([]string{}, others[:position]...)
 	arguments = append(arguments, cluster)
@@ -225,6 +240,17 @@ func TestEveryClusterArgumentCommandTakesTheClusterFlag(t *testing.T) {
 			if twice == nil || exitCodeFor(twice) != exitUsage || !strings.Contains(twice.Error(), "name different clusters") {
 				t.Errorf("%s with the argument and --cluster naming two clusters: got %v (exit %d), "+
 					"want the different-clusters usage error (exit 2)", path, twice, exitCodeFor(twice))
+			}
+
+			// A command ending in a list of other things (`allowed-ips
+			// <cluster_id|name> [ip-or-cidr ...]`) must tell such a thing
+			// from a cluster, or `--cluster prod 203.0.113.7` would be
+			// refused as naming two clusters.
+			if items := censusListItems(command.Use); items != "" && !strings.HasPrefix(items, "cluster") {
+				if spec, registered := clusterArgumentSpecs[command]; registered && spec.isListItem == nil {
+					t.Errorf("%s ends in a list of %q, not clusters, so it must be registered with "+
+						"withClusterArgumentBeforeItems and the check that tells an item from a cluster", path, items)
+				}
 			}
 
 			// A command whose own check takes the cluster left out gets no
