@@ -3679,6 +3679,13 @@ func (m baseMock) GetPipelineRunTimeSaved(ctx context.Context, selector client.P
 	return nil, client.ErrPipelineTimeSavedUnavailable
 }
 
+// GetPipelineRunTestEnvironments answers as a platform older than the route
+// does, so every mock-driven `pipeline get` and `pipeline tests` prints what
+// it printed before the read.
+func (m baseMock) GetPipelineRunTestEnvironments(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRunTestEnvironments, error) {
+	return nil, client.ErrPipelineTestEnvironmentsUnavailable
+}
+
 func (m baseMock) GetPipelineTimeSavedSummary(ctx context.Context, selector client.PipelineSelector, window string) (*client.PipelineTimeSavedSummary, error) {
 	return nil, errors.New("not implemented")
 }

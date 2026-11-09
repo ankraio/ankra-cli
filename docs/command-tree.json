@@ -858,6 +858,7 @@
     "ankra pipeline definition put",
     "ankra pipeline definitions approve",
     "ankra pipeline definitions get",
+    "ankra pipeline environments",
     "ankra pipeline findings",
     "ankra pipeline get",
     "ankra pipeline list",

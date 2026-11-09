@@ -57,7 +57,7 @@ exits 3 saying so and everything else works as before.
 | Clusters, stacks, addons, manifests, variables | `ankra cluster apply\|draft\|stacks\|addons\|manifests\|variables ...` | `ankra-import-cluster`, `ankra-stacks-addons` |
 | GitOps sync state and merge conflicts | `ankra cluster gitops status\|conflicts list\|resolve` | `ankra-gitops` |
 | Shipping code end to end | `ankra application ship\|add\|deploy\|deployments\|auto-deploy\|env-secrets\|demo ...` | `ankra-ship`, `ankra-applications` |
-| Ankra Pipelines (CI for any repository) | `ankra pipeline list\|get\|logs\|run\|rerun\|cancel\|validate\|tests\|findings\|artifacts\|time-saved`, `ankra pipeline repositories\|definitions\|schedules\|train ...`, `ankra org ci-settings`, `ankra cluster agent ci` | `ankra-cicd` |
+| Ankra Pipelines (CI for any repository) | `ankra pipeline list\|get\|logs\|run\|rerun\|cancel\|validate\|tests\|environments\|findings\|artifacts\|time-saved`, `ankra pipeline repositories\|definitions\|schedules\|train ...`, `ankra org ci-settings`, `ankra cluster agent ci` | `ankra-cicd` |
 | AI review of pull requests | `ankra org ai-review repos\|related-repos ...` | `ankra-ai-gateway` |
 | Managed services, image registry | `ankra services ...`, `ankra registry projects\|robots\|storage ...` | `ankra-app-integrations`, `ankra-applications` |
 | Reusable parameterised stacks | `ankra stack-profiles ...` | `ankra-stack-profiles` |

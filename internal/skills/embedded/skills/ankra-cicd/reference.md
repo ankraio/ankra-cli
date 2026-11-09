@@ -406,7 +406,9 @@ on: [failure, timeout, infra_error]}`.
 Kind blocks: `build {component, dockerfile, context, target, platforms, build_args, provenance,
 sbom, cache_to, bundle {path, manifest}}` · `scan {scanners, fail_on}` · `gate {approval_roles, require_stages}` · `publish {tags,
 promote_from: pull_request}` · `preview`,
-`verify`, `agent`, `approval`, `webhook`, `external` (validate, not yet executed).
+`verify`, `agent`, `approval`, `webhook`, `external` (validate, not yet executed). `environment`: one ephemeral
+cluster per `matrix` leg, the build deployed and tested on it, the result recorded and the cluster
+torn down; read with `ankra pipeline environments <run-id>`.
 
 Build attribution (application-bound repositories): `build.component: <name>` names the component
 a build stage belongs to; without it a `build-<component>` stage name does, and a single-component
