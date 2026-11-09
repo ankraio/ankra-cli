@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## v0.73.0 - 2026-11-09
+
+This release reads and exports the organisation's audit trail, manages alert definitions and
+Alertmanager silences, etcd membership, rolling OS patches, storage classes and volumes, shows
+billing standing, changes the branch an application tracks, and brings every provider's create
+and day-2 commands level. It has one breaking change for scripts: `ankra cluster deprovision`,
+`move`, `provision` and `update`, and `ankra cluster domain --enable` and `--remove`, no longer
+act on the cluster `ankra cluster select` saved. Run without a cluster named they exit 2, so
+pass the cluster as the argument or with `--cluster <name|id>`. `--cluster` now stands in for
+the cluster argument on every `ankra cluster` command, and a mistyped `-o` on any command whose
+`-o` takes `json` or `yaml` exits 2 before anything is sent.
+
 ### Added
 
 - **Read and export the organisation's audit trail from the terminal.** `ankra org audit-logs list` shows the newest entries: when, who (with agents, service accounts and the platform marked apart from people), what action, on what, on which cluster, and whether it worked. It reads the last 7 days unless you pass `--since` or `--until`, which take a span such as `24h`, `7d` or `2w`, a date, an RFC 3339 time, or `all`. Narrow it with `--actor-type`, `--outcome`, `--user`, `--cluster` (name or id), `--action`, `--resource-type`, `--agent-task` and `--search`; it shows 50 entries unless you change `--limit` (`0` shows them all), and `-o json` prints the entries with how many matched. `ankra org audit-logs export` downloads the trail as CSV (the default) or JSON with `--format`, to stdout or to `--file`, with the same filters and no default window. `ankra cluster audit-logs [cluster]` is the list narrowed to one cluster, the selected one when you name none. All three need the `audit.read` permission and work with an API token, so a scheduled job can forward the trail to a SIEM. The platform returns at most 100,000 rows per read; when it cuts a read short, the command says so on stderr and you can narrow the window. A missing login exits 6, a role without `audit.read` exits 7, and a mistyped filter, window or format exits 2 before anything is sent.
@@ -15,6 +27,7 @@ These commands need a platform that serves their routes (ankraio/cluster#6174, a
 
 - **`ankra cluster scaleway|aws|proxmox|morpheus bastion resize` resize the bastion.** The platform resizes the bastion on these four providers the way it does on the others, but the CLI only offered `resize` on Hetzner, OVH, UpCloud, DigitalOcean and Ankra Cloud. The argument is what each provider sizes a bastion by: a Public Gateway type on Scaleway (`scaleway gateway-types`), an EC2 instance type on AWS (`aws instance-types`), a size preset on Proxmox VE (`proxmox sizes`) and a service plan ID on HPE Morpheus (`morpheus plans`). A Morpheus plan that is not a number is refused with exit 2 before anything is sent, and so is a blank instance type on every provider's `bastion resize`, which the platform answered with a validation error the command reported as exit 1.
 - **`ankra cluster scaleway deprovision` and `ankra cluster ankracloud deprovision` take `--force`.** It reaches the platform like `ankra cluster deprovision --force` does.
+- **Change the branch an application tracks.** The tracked branch decides which branch's builds auto-deploy, which pipeline runs belong to the application and which branch Ankra's setup pull requests target, and until now it was set once at create time: changing it meant deleting the application. `ankra application tracked-branch set <application> <branch>` (alias `branch`) points the application at another branch of its repository, and `ankra application tracked-branch get <application>` shows the one it tracks. The platform checks that the branch exists on the repository; when GitHub cannot confirm it, nothing is changed and the command fails with the platform's reason. A blank branch exits 2 before anything is sent. Both take `-o json|yaml`. `set` needs a platform that serves the route (ankraio/cluster#5482); an older platform answers 404 and the command exits 3.
 
 ### Changed
 
