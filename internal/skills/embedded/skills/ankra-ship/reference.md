@@ -64,8 +64,9 @@ Every stage: `name` (`^[a-z0-9][a-z0-9_-]*$`, unique across `stages`/`on_failure
 `kind` from the closed vocabulary. Eight execute today: `checkout`, `run`, `build`, `scan`, `gate`,
 `publish`, `deploy`, `environment`; `gate`, `publish`, `deploy` and `environment` are settled by the
 platform, never a Job in the CI cluster. `environment` builds one ephemeral Ankra Cloud cluster per
-matrix leg, deploys the build under test, runs `test_environment.test` against it and always tears
-it down (a protected section; at most six live per organisation, 2h default and 6h maximum
+matrix leg, deploys the build under test, runs `test_environment.test` against it and tears it
+down when the leg ends (`teardown: always`, the default; `on_success` keeps a failed leg's cluster
+until its lifetime ends; a protected section; at most six live per organisation, 2h default and 6h maximum
 lifetime). The other eight (`preview`, `verify`, `agent`, `approval`, `webhook`, `automation`, `ankra`,
 `external`) warn at validation and are skipped by the planner (`kind_unavailable`). `deploy` rolls a
 signed release bundle out to **host targets** (machines outside Kubernetes running

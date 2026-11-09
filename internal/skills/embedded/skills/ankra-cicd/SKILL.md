@@ -437,8 +437,8 @@ in a warm Ankra Workspace on the CI pool and `ankra dev install` routes heavy co
 Test against real clusters with a stage of `kind: environment`: for each leg of its `matrix` (for
 example `kubernetes: ["1.35", "1.36", "1.37"]` x `postgres: ["16", "17"]`) Ankra builds an ephemeral
 Ankra Cloud cluster in the organisation, deploys the build under test, runs the tests, records the
-result and tears the cluster down - always, whatever the result (`teardown: on_success` keeps a
-failed leg's cluster until its lifetime ends). A `publish` that needs the stage waits for every leg.
+result and tears the cluster down when the leg ends, whatever the result (`teardown: always`, the
+default; `teardown: on_success` keeps a failed leg's cluster for debugging until its lifetime ends). A `publish` that needs the stage waits for every leg.
 
 ```yaml
   - name: test-matrix
