@@ -64,6 +64,52 @@ func nodeGroupArgs(count, groupIndex int) cobra.PositionalArgs {
 	})
 }
 
+// nodeGroupListArgs is the Args check of a node-group list: the cluster is
+// optional, so --cluster or the selected cluster can name it the way they do
+// for every other cluster-scoped read. Resolved by resolveOptionalClusterArg.
+var nodeGroupListArgs = cobra.MaximumNArgs(1)
+
+// resolveOptionalClusterArg resolves the cluster of a command whose
+// <cluster_id|name> argument may be left out: the argument when given, else
+// --cluster, else the cluster `ankra cluster select` saved. typed is what the
+// user named it by, for messages. node-group list used to demand the
+// argument and never read --cluster, so `node-group list --cluster <id>`
+// failed with "accepts 1 arg(s), received 0" and an argument beside a
+// different --cluster silently won (ankra-v3qdto.6). Both given and naming
+// different clusters is refused rather than one quietly ignored.
+func resolveOptionalClusterArg(cmd *cobra.Command, args []string) (typed, clusterID string, err error) {
+	override := clusterFlagOverride(cmd)
+	if len(args) > 0 {
+		// The same check and words as clusterPositionalArgs, which runs
+		// first in the binary, so the refusal never depends on which check
+		// met it. A name beside the same cluster's id is refused there too.
+		if override != "" && strings.TrimSpace(args[0]) != override {
+			return "", "", differentClustersError(cmd, override, args[0])
+		}
+		clusterID, err = resolveClusterArg(args[0])
+		if err != nil {
+			return "", "", err
+		}
+		return args[0], clusterID, nil
+	}
+	if override != "" {
+		clusterID, err = resolveClusterArg(override)
+		if err != nil {
+			return "", "", err
+		}
+		return override, clusterID, nil
+	}
+	selected, selectedError := loadSelectedCluster()
+	if selectedError != nil || strings.TrimSpace(selected.ID) == "" {
+		return "", "", withExitCode(exitUsage, errNoClusterSelected{})
+	}
+	typed = selected.Name
+	if typed == "" {
+		typed = selected.ID
+	}
+	return typed, selected.ID, nil
+}
+
 // nodeGroupAddArgs is the Args check of a node-group add: the cluster, the
 // --name flag, which every later command puts in its request path, so a
 // group that could never be addressed there is not created, and the -o
@@ -297,15 +343,17 @@ HPE Morpheus) is detected automatically from the cluster.`,
 }
 
 var clusterNodeGroupListCmd = &cobra.Command{
-	Use:   "list <cluster_id|name>",
+	Use:   "list [cluster_id|name]",
 	Short: "List node groups",
-	Args:  cobra.ExactArgs(1),
+	Long: `List the node groups of a cloud cluster. The cluster is the argument, else
+--cluster, else the cluster selected with 'ankra cluster select'.`,
+	Args: nodeGroupListArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID, resolveError := resolveClusterArg(args[0])
+		typed, clusterID, resolveError := resolveOptionalClusterArg(cmd, args)
 		if resolveError != nil {
 			return resolveError
 		}
-		kind, kindError := resolveNodeGroupClusterKind(args[0], clusterID)
+		kind, kindError := resolveNodeGroupClusterKind(typed, clusterID)
 		if kindError != nil {
 			return kindError
 		}
@@ -503,12 +551,12 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 			return asyncWriteError("adding node group", wait, addError)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group add", clusterID)); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group add", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printNodeGroupWriteSubmitted("Node group add", clusterID)
+			printNodeGroupWriteSubmitted("Node group add", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -516,7 +564,7 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' created with %d node(s).\n", result.GroupName, result.Count)
+		printNodeGroupAdded(result, clusterID)
 		return nil
 	},
 }
@@ -558,12 +606,12 @@ Examples:
 			return asyncWriteError("scaling node group", wait, scaleError)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group scale", clusterID)); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group scale", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printNodeGroupWriteSubmitted("Node group scale", clusterID)
+			printNodeGroupWriteSubmitted("Node group scale", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -571,7 +619,7 @@ Examples:
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' scaled from %d to %d.\n", result.GroupName, result.PreviousCount, result.NewCount)
+		printNodeGroupScaled(result, clusterID)
 		return nil
 	},
 }
@@ -619,12 +667,12 @@ Examples:
 			return asyncWriteError("upgrading node group", wait, upgradeError)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group instance-type update", clusterID)); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group instance-type update", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printNodeGroupWriteSubmitted("Node group instance-type update", clusterID)
+			printNodeGroupWriteSubmitted("Node group instance-type update", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -632,10 +680,7 @@ Examples:
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' instance type upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
-		if result.Notice != "" {
-			fmt.Printf("Note: %s\n", result.Notice)
-		}
+		printNodeGroupResized(result, clusterID, "instance type")
 		return nil
 	},
 }
@@ -687,12 +732,12 @@ Examples:
 			return asyncWriteError("deleting node group", wait, deleteError)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group delete", clusterID)); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group delete", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printNodeGroupWriteSubmitted("Node group delete", clusterID)
+			printNodeGroupWriteSubmitted("Node group delete", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -700,7 +745,7 @@ Examples:
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' deleted. %d node(s) removed.\n", result.GroupName, result.Deleted)
+		printNodeGroupDeleted(result, clusterID)
 		return nil
 	},
 }
@@ -759,9 +804,33 @@ var clusterNodeGroupAutoscalingSetCmd = &cobra.Command{
 	Use:   "set <cluster_id|name> <group_name>",
 	Short: "Enable or disable autoscaling for a node group",
 	Long: `Enable autoscaling with --enabled --min <n> --max <n>, or disable it with
---enabled=false. min must be at least 1 (scale-to-zero is not supported);
-enabling requires the cluster's ankra-agent to be recent enough to serve
-the autoscaler, and installs the Cluster Autoscaler on first enable.
+--enabled=false.
+
+A --min or --max you leave out is read from the group first. The platform
+saves both bounds on every write, so this is what keeps --enabled=false on
+its own, or a change to one bound, from resetting the other:
+
+- A disable keeps the bounds exactly as the group reads, so --enabled=false
+  on its own changes nothing but the switch. Given only --min on a group
+  with no bounds recorded, it sends max 5 rather than the 100 the group
+  reads as, so a later --enabled never keeps a max of 100 nobody typed.
+- An enable keeps the bound recorded for the group, or takes min 1 and
+  max 5 when the group has none recorded. A disabled group that recorded
+  exactly min 1 and max 100 reads the same as one with none, and gets the
+  same.
+
+An enable without --max changes nothing and exits 8 when the group has more
+nodes than the max it would keep or take, since enabling would scale it
+down; it names the --max that keeps the group's size. The command also
+changes nothing when the group's current bounds or node count cannot be
+read. On a stopped cluster the platform does not answer the bounds read, so
+pass both --min and --max there.
+
+--min 0 (scale-to-zero) is accepted where the platform can size a node from
+the group's instance type and the cluster's ankra-agent serves the node
+template; the platform names what is missing otherwise. Enabling requires
+the cluster's ankra-agent to be recent enough to serve the autoscaler, and
+installs the Cluster Autoscaler on first enable.
 
 Enabling with bounds the group is outside moves it inside them: a --max
 below the group's node count scales it down to --max, removing the least
@@ -781,14 +850,16 @@ Examples:
 		}
 		groupName := args[1]
 		enabled, _ := cmd.Flags().GetBool("enabled")
-		minCount, _ := cmd.Flags().GetInt("min")
-		maxCount, _ := cmd.Flags().GetInt("max")
 		kind, kindError := resolveNodeGroupClusterKind(args[0], clusterID)
 		if kindError != nil {
 			return kindError
 		}
 
-		req := client.NodeGroupAutoscalingRequest{Enabled: enabled, MinCount: minCount, MaxCount: maxCount}
+		calls := nodeGroupCallsFor(kind)
+		autoscalingSet := calls.autoscalingSet
+		if autoscalingSet == nil || calls.autoscalingGet == nil {
+			return unsupportedAutoscalingKindError(args[0], kind)
+		}
 
 		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
 		if err != nil {
@@ -796,22 +867,26 @@ Examples:
 		}
 		defer cancelRequestContext()
 
-		autoscalingSet := nodeGroupCallsFor(kind).autoscalingSet
-		if autoscalingSet == nil {
-			return unsupportedAutoscalingKindError(args[0], kind)
+		bounds, boundsError := resolveAutoscalingBounds(cmd, calls, clusterID, groupName, enabled)
+		if boundsError != nil {
+			return boundsError
 		}
+		for _, note := range bounds.notes {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), note)
+		}
+		req := bounds.request(enabled)
 
 		result, submitted, setError := autoscalingSet(requestContext, clusterID, groupName, req, wait)
 		if setError != nil {
 			return asyncWriteError("updating node group autoscaling", wait, setError)
 		}
 		if submitted && result == nil {
-			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group autoscaling update", clusterID)); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group autoscaling update", clusterID, waitUntilOperationEnds)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printNodeGroupWriteSubmitted("Node group autoscaling update", clusterID)
+			printNodeGroupWriteSubmitted("Node group autoscaling update", clusterID, waitUntilOperationEnds)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -900,12 +975,12 @@ var clusterNodeGroupLabelsCmd = &cobra.Command{
 			return asyncWriteError("updating node group labels", wait, updateError)
 		}
 		if submitted {
-			if handled, renderError := renderStructured(cmd, newNodeGroupSubmittedResult("Node group labels update", clusterID)); renderError != nil {
+			if handled, renderError := renderStructured(cmd, newNodeGroupSubmittedResult("Node group labels update", clusterID, waitUntilRecorded)); renderError != nil {
 				return renderError
 			} else if handled {
 				return nil
 			}
-			printNodeGroupWriteSubmitted("Node group labels update", clusterID)
+			printNodeGroupWriteSubmitted("Node group labels update", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, renderError := renderStructured(cmd, result); renderError != nil {
@@ -960,12 +1035,12 @@ var clusterNodeGroupTaintsCmd = &cobra.Command{
 			return asyncWriteError("updating node group taints", wait, updateError)
 		}
 		if submitted {
-			if handled, renderError := renderStructured(cmd, newNodeGroupSubmittedResult("Node group taints update", clusterID)); renderError != nil {
+			if handled, renderError := renderStructured(cmd, newNodeGroupSubmittedResult("Node group taints update", clusterID, waitUntilRecorded)); renderError != nil {
 				return renderError
 			} else if handled {
 				return nil
 			}
-			printNodeGroupWriteSubmitted("Node group taints update", clusterID)
+			printNodeGroupWriteSubmitted("Node group taints update", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, renderError := renderStructured(cmd, result); renderError != nil {
@@ -998,23 +1073,23 @@ func init() {
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("instance-type")
 
 	clusterNodeGroupAutoscalingSetCmd.Flags().Bool("enabled", true, "Enable (true) or disable (false) autoscaling")
-	clusterNodeGroupAutoscalingSetCmd.Flags().Int("min", 1, "Minimum node count while autoscaling (>= 1)")
-	clusterNodeGroupAutoscalingSetCmd.Flags().Int("max", 5, "Maximum node count while autoscaling")
+	clusterNodeGroupAutoscalingSetCmd.Flags().Int("min", 0, "Minimum node count while autoscaling (0 allows scale-to-zero). Left out, the group keeps its current min, or 1 when an enable finds none recorded")
+	clusterNodeGroupAutoscalingSetCmd.Flags().Int("max", 0, "Maximum node count while autoscaling (at most 100). Left out, the group keeps its current max, or 5 when it has none recorded and this is an enable or a disable given --min; an enable that would then scale the group down is refused (exit 8)")
 
 	clusterNodeGroupLabelsCmd.Flags().String("labels", "", "Comma-separated key=value pairs to set on the group")
 	clusterNodeGroupLabelsCmd.Flags().Bool("clear", false, "Remove all labels from the node group")
 	clusterNodeGroupTaintsCmd.Flags().String("taints", "", "Comma-separated key=value:Effect taints to set on the group")
 	clusterNodeGroupTaintsCmd.Flags().Bool("clear", false, "Remove all taints from the node group")
 
-	registerAsyncWriteFlags(clusterNodeGroupAddCmd)
-	registerAsyncWriteFlags(clusterNodeGroupScaleCmd)
-	registerAsyncWriteFlags(clusterNodeGroupUpgradeCmd)
-	registerAsyncWriteFlags(clusterNodeGroupDeleteCmd)
+	registerNodeGroupWriteFlags(clusterNodeGroupAddCmd)
+	registerNodeGroupWriteFlags(clusterNodeGroupScaleCmd)
+	registerNodeGroupWriteFlags(clusterNodeGroupUpgradeCmd)
+	registerNodeGroupWriteFlags(clusterNodeGroupDeleteCmd)
 	registerAsyncWriteFlags(clusterNodeGroupRemoveNodeCmd)
 	clusterNodeGroupRemoveNodeCmd.Flags().Lookup("wait").Usage = removeNodeWaitUsage
 	registerAsyncWriteFlagsWithTimeout(clusterNodeGroupAutoscalingSetCmd, nodeGroupAutoscalingWaitTimeout)
-	registerAsyncWriteFlags(clusterNodeGroupLabelsCmd)
-	registerAsyncWriteFlags(clusterNodeGroupTaintsCmd)
+	registerNodeGroupWriteFlags(clusterNodeGroupLabelsCmd)
+	registerNodeGroupWriteFlags(clusterNodeGroupTaintsCmd)
 
 	clusterNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 	clusterNodeGroupRemoveNodeCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")

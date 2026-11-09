@@ -85,8 +85,11 @@ func (c *Client) CreateMorpheusCluster(request CreateMorpheusClusterRequest) (*C
 	return &result, nil
 }
 
-func (c *Client) DeprovisionMorpheusCluster(clusterID string) (*ProviderDeprovisionClusterResponse, error) {
-	return c.deprovisionProviderCluster(morpheusKind, clusterID, DeprovisionOptions{})
+// DeprovisionMorpheusCluster sends the options like every other provider: the
+// platform honours force on a Morpheus teardown too, and an earlier version
+// of this method dropped it.
+func (c *Client) DeprovisionMorpheusCluster(clusterID string, options DeprovisionOptions) (*ProviderDeprovisionClusterResponse, error) {
+	return c.deprovisionProviderCluster(morpheusKind, clusterID, options)
 }
 
 func (c *Client) StopMorpheusCluster(clusterID string, options StopClusterOptions) (*ProviderStopClusterResponse, error) {

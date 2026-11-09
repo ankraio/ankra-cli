@@ -21,6 +21,7 @@ type ankraCloudClusterMock struct {
 	stopClusterID     string
 	startScope        string
 	deprovisionedID   string
+	deprovisionForce  bool
 }
 
 func (mock *ankraCloudClusterMock) CreateAnkraCloudCluster(request client.CreateAnkraCloudClusterRequest) (*client.CreateAnkraCloudClusterResponse, error) {
@@ -45,6 +46,7 @@ func (mock *ankraCloudClusterMock) StartAnkraCloudCluster(clusterID string, opti
 
 func (mock *ankraCloudClusterMock) DeprovisionAnkraCloudCluster(clusterID string, options client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
 	mock.deprovisionedID = clusterID
+	mock.deprovisionForce = options.Force
 	return &client.ProviderDeprovisionClusterResponse{ClusterID: clusterID}, nil
 }
 
@@ -501,6 +503,42 @@ func TestAnkraCloudIsWiredIntoTheSharedProviderSwitches(t *testing.T) {
 		if found, _, findError := ankraCloudCmd.Find([]string{subcommand}); findError != nil || found == ankraCloudCmd {
 			t.Errorf("ankra cluster ankracloud %s is not registered", subcommand)
 		}
+	}
+}
+
+// The platform treats the credential (when it has a built-in Ankra Cloud
+// credential) and the SSH key (it generates one) as optional, but the CLI
+// required both flags (ankra-v3qdto.6). Left out, neither member is sent,
+// and neither is network_mode, so the platform's ipv6_only default applies.
+func TestAnkraCloudCreateWithoutCredentialOrSSHKeySendsNeither(t *testing.T) {
+	mock := &ankraCloudClusterMock{}
+	if output, runError := runAnkraCloudCommand(t, mock, "create", "--name", "prod", "--zone", "fi-hel1",
+		"--bastion-plan", "s-1", "--control-plane-plan", "s-4", "--worker-plan", "s-8"); runError != nil {
+		t.Fatalf("create: %v\n%s", runError, output)
+	}
+	if len(mock.createRequests) != 1 {
+		t.Fatalf("create calls = %d, want 1", len(mock.createRequests))
+	}
+	body, marshalError := json.Marshal(mock.createRequests[0])
+	if marshalError != nil {
+		t.Fatalf("marshal: %v", marshalError)
+	}
+	for _, member := range []string{`"credential_id"`, `"ssh_key_credential_id"`, `"network_mode"`} {
+		if strings.Contains(string(body), member) {
+			t.Errorf("body sends %s although the flag was not given: %s", member, body)
+		}
+	}
+}
+
+// --force reached neither the Scaleway nor the Ankra Cloud deprovision
+// subcommand: they had no such flag.
+func TestAnkraCloudDeprovisionSendsForce(t *testing.T) {
+	mock := &ankraCloudClusterMock{}
+	if output, runError := runAnkraCloudCommand(t, mock, "deprovision", testClusterID, "--yes", "--force"); runError != nil {
+		t.Fatalf("deprovision --force: %v\n%s", runError, output)
+	}
+	if !mock.deprovisionForce {
+		t.Fatal("--force did not reach the Ankra Cloud deprovision")
 	}
 }
 

@@ -150,8 +150,7 @@ func runClusterDraft(cmd *cobra.Command, _ []string) error {
 
 	fmt.Printf("\nStaged %d draft(s), %d stack(s) already up to date. Nothing was deployed.\n", created, unchanged)
 	if created > 0 {
-		fmt.Printf("Review and deploy the drafts in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
-			strings.TrimRight(baseURL, "/"), clusterID)
+		fmt.Printf("Review and deploy the drafts in the UI:\n  %s\n", portalClusterURLByID(clusterID))
 	}
 	return nil
 }

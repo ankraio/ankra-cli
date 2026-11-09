@@ -15,14 +15,37 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// structuredOutputFlagAnnotation marks an -o/--output flag declared by
+// registerStructuredOutputFlags, whose only values are json and yaml. A
+// command that declared its own -o first (table, raw, a file path) keeps its
+// flag and does not carry the mark.
+const structuredOutputFlagAnnotation = "ankra_structured_output"
+
 // registerStructuredOutputFlags adds the shared -o/--output flag (json or
 // yaml) to commands whose default rendering is human-readable.
 func registerStructuredOutputFlags(cmds ...*cobra.Command) {
 	for _, command := range cmds {
 		if command.Flags().Lookup("output") == nil {
 			command.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
+			_ = command.Flags().SetAnnotation("output", structuredOutputFlagAnnotation, []string{"true"})
 		}
 	}
+}
+
+// validateStructuredOutputFlag refuses an -o value the shared flag cannot
+// print, before the command runs. Most commands only read -o when they
+// render, which for a write is after the platform has done it: `cluster
+// hetzner create -o jsn` exited 2 with the cluster already created and its id
+// never printed, so a retry built a second one. Checked once here, every
+// command that registered the shared flag refuses the value with exit 2
+// before it sends anything.
+func validateStructuredOutputFlag(cmd *cobra.Command) error {
+	flag := cmd.Flags().Lookup("output")
+	if flag == nil || flag.Annotations[structuredOutputFlagAnnotation] == nil {
+		return nil
+	}
+	_, err := structuredFormatFromFlags(cmd)
+	return err
 }
 
 // structuredFormatFromFlags resolves the requested structured output format

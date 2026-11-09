@@ -318,14 +318,13 @@ func TestClusterBastionGroupIsMountedForEveryProvider(t *testing.T) {
 		{provider: "ovh", subcommands: []string{"status", "resize", "diagnose"}},
 		{provider: "upcloud", subcommands: []string{"status", "resize", "diagnose"}},
 		{provider: "digitalocean", subcommands: []string{"status", "resize", "diagnose"}},
-		{provider: "proxmox", subcommands: []string{"status", "diagnose"}, absentGroups: []string{"resize"}},
-		{provider: "morpheus", subcommands: []string{"status", "diagnose"}, absentGroups: []string{"resize"}},
-		// Scaleway's managed Public Gateway is probed by the health loop but
-		// has no SSH job lane, so its verdict is the whole surface.
-		{provider: "scaleway", subcommands: []string{"status"}, absentGroups: []string{"resize", "diagnose"}},
-		// AWS carries a real EC2 bastion with the SSH job lane behind it, but
-		// no resize client method yet: the instance type is a create-time flag.
-		{provider: "aws", subcommands: []string{"status", "diagnose"}, absentGroups: []string{"resize"}},
+		{provider: "proxmox", subcommands: []string{"status", "resize", "diagnose"}},
+		{provider: "morpheus", subcommands: []string{"status", "resize", "diagnose"}},
+		// Scaleway's managed Public Gateway is probed by the health loop and
+		// resizes by gateway type, but has no SSH job lane to diagnose with.
+		{provider: "scaleway", subcommands: []string{"status", "resize"}, absentGroups: []string{"diagnose"}},
+		// AWS carries a real EC2 bastion with the SSH job lane behind it.
+		{provider: "aws", subcommands: []string{"status", "resize", "diagnose"}},
 	} {
 		t.Run(testCase.provider, func(t *testing.T) {
 			for _, subcommand := range testCase.subcommands {
@@ -466,5 +465,122 @@ func TestClusterBastionStatusCommandStructuredOutputIsClean(t *testing.T) {
 	}
 	if decoded.State != "healthy" || !decoded.DiagnoseSupported {
 		t.Errorf("decoded = %+v", decoded)
+	}
+}
+
+// bastionResizeByProviderMock records which provider's resize call a command
+// reached, so a mis-wired ops constructor cannot resize another provider's
+// bastion.
+type bastionResizeByProviderMock struct {
+	baseMock
+
+	calls []string
+}
+
+func (m *bastionResizeByProviderMock) record(provider, clusterID, instanceType string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error) {
+	m.calls = append(m.calls, fmt.Sprintf("%s:%s:%s:%v", provider, clusterID, instanceType, wait))
+	return &client.UpdateBastionInstanceTypeResult{Name: "bastion", InstanceType: instanceType}, false, nil
+}
+
+func (m *bastionResizeByProviderMock) UpdateScalewayBastionInstanceType(_ context.Context, clusterID, instanceType string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error) {
+	return m.record("scaleway", clusterID, instanceType, wait)
+}
+
+func (m *bastionResizeByProviderMock) UpdateAwsBastionInstanceType(_ context.Context, clusterID, instanceType string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error) {
+	return m.record("aws", clusterID, instanceType, wait)
+}
+
+func (m *bastionResizeByProviderMock) UpdateProxmoxBastionInstanceType(_ context.Context, clusterID, instanceType string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error) {
+	return m.record("proxmox", clusterID, instanceType, wait)
+}
+
+func (m *bastionResizeByProviderMock) UpdateMorpheusBastionInstanceType(_ context.Context, clusterID, instanceType string, wait bool) (*client.UpdateBastionInstanceTypeResult, bool, error) {
+	return m.record("morpheus", clusterID, instanceType, wait)
+}
+
+// Scaleway, AWS, Proxmox and Morpheus carry the platform's bastion
+// instance-type route like the other providers, but the CLI had no resize
+// for them (ankra-v3qdto.6). Each must reach its own provider's call.
+func TestClusterBastionResizeReachesEachNewProvider(t *testing.T) {
+	for _, testCase := range []struct {
+		provider     string
+		instanceType string
+	}{
+		{provider: "scaleway", instanceType: "VPC-GW-M"},
+		{provider: "aws", instanceType: "t3.medium"},
+		{provider: "proxmox", instanceType: "px-medium"},
+		{provider: "morpheus", instanceType: "42"},
+	} {
+		t.Run(testCase.provider, func(t *testing.T) {
+			writeSelectedClusterJSON(t)
+			mock := &bastionResizeByProviderMock{}
+			setMockClient(t, mock)
+			captureStdout(t, func() {
+				if _, runError := executeCommand("cluster", testCase.provider, "bastion", "resize",
+					testClusterID, testCase.instanceType, "--wait=true"); runError != nil {
+					t.Fatalf("resize: %v", runError)
+				}
+			})
+			want := fmt.Sprintf("%s:%s:%s:true", testCase.provider, testClusterID, testCase.instanceType)
+			if len(mock.calls) != 1 || mock.calls[0] != want {
+				t.Fatalf("resize calls = %v, want [%s]", mock.calls, want)
+			}
+		})
+	}
+}
+
+// The platform reads a Morpheus bastion's instance_type as a numeric plan id
+// and fails a name with a server error, so the CLI refuses it as a usage
+// error before any write.
+func TestClusterBastionResizeRefusesANonNumericMorpheusPlan(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &bastionResizeByProviderMock{}
+	setMockClient(t, mock)
+	_, runError := executeCommand("cluster", "morpheus", "bastion", "resize", testClusterID, "small-plan", "--wait=true")
+	if exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "morpheus plans") {
+		t.Fatalf("error = %v, want a usage error pointing at 'morpheus plans'", runError)
+	}
+	if len(mock.calls) != 0 {
+		t.Fatalf("resize calls = %v, want none", mock.calls)
+	}
+}
+
+// Only digits name a Morpheus plan: a sign passed ParseInt, so "-5" and
+// "+5" reached the platform as plan ids. Other providers take any name.
+func TestValidateBastionInstanceTypeTakesOnlyDigitsForMorpheus(t *testing.T) {
+	for _, refused := range []string{"-5", "+5", "", "4.2", "0x2a", "small-plan"} {
+		if validationError := validateBastionInstanceType("morpheus", refused); exitCodeFor(validationError) != exitUsage {
+			t.Errorf("morpheus plan %q: error = %v, want a usage error", refused, validationError)
+		}
+	}
+	for _, accepted := range []string{"42", "0042"} {
+		if validationError := validateBastionInstanceType("morpheus", accepted); validationError != nil {
+			t.Errorf("morpheus plan %q refused: %v", accepted, validationError)
+		}
+	}
+	if validationError := validateBastionInstanceType("aws", "-5"); validationError != nil {
+		t.Errorf("aws instance types are not checked here, got %v", validationError)
+	}
+}
+
+// A blank instance type is refused before anything is sent, on every
+// provider: the argument is trimmed, and the platform would answer an empty
+// instance_type with a 422 the user saw as exit 1.
+func TestBastionResizeRefusesABlankInstanceTypeOnEveryProvider(t *testing.T) {
+	for _, provider := range []string{"hetzner", "ovh", "upcloud", "digitalocean", "ankracloud", "scaleway", "aws", "proxmox", "morpheus"} {
+		validationError := validateBastionInstanceType(provider, "")
+		if exitCodeFor(validationError) != exitUsage || !strings.Contains(validationError.Error(), "blank") {
+			t.Errorf("%s: blank instance type: error = %v, want a usage error saying it is blank", provider, validationError)
+		}
+	}
+	writeSelectedClusterJSON(t)
+	mock := &bastionResizeByProviderMock{}
+	setMockClient(t, mock)
+	_, runError := executeCommand("cluster", "scaleway", "bastion", "resize", testClusterID, "   ", "--wait=true")
+	if exitCodeFor(runError) != exitUsage {
+		t.Fatalf("a blank argument must exit 2, got %v (exit %d)", runError, exitCodeFor(runError))
+	}
+	if len(mock.calls) != 0 {
+		t.Fatalf("resize calls = %v, want none", mock.calls)
 	}
 }

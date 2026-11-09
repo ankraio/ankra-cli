@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -77,6 +79,7 @@ func digitaloceanBastionOps() bastionOps {
 func scalewayBastionOps() bastionOps {
 	return bastionOps{
 		provider: "scaleway",
+		resize:   apiClient.UpdateScalewayBastionInstanceType,
 		health:   apiClient.GetScalewayBastionHealth,
 	}
 }
@@ -91,12 +94,11 @@ func ankraCloudBastionOps() bastionOps {
 }
 
 // AWS builds a real EC2 bastion with the SSH job lane behind it, so it
-// carries diagnose; there is no Update<Provider>BastionInstanceType client
-// method for it yet, so resize stays off (the instance type is a create-time
-// choice, --bastion-instance-type).
+// carries diagnose as well as resize.
 func awsBastionOps() bastionOps {
 	return bastionOps{
 		provider: "aws",
+		resize:   apiClient.UpdateAwsBastionInstanceType,
 		health:   apiClient.GetAwsBastionHealth,
 		diagnose: apiClient.DiagnoseAwsBastion,
 	}
@@ -105,6 +107,7 @@ func awsBastionOps() bastionOps {
 func proxmoxBastionOps() bastionOps {
 	return bastionOps{
 		provider: "proxmox",
+		resize:   apiClient.UpdateProxmoxBastionInstanceType,
 		health:   apiClient.GetProxmoxBastionHealth,
 		diagnose: apiClient.DiagnoseProxmoxBastion,
 	}
@@ -113,6 +116,7 @@ func proxmoxBastionOps() bastionOps {
 func morpheusBastionOps() bastionOps {
 	return bastionOps{
 		provider: "morpheus",
+		resize:   apiClient.UpdateMorpheusBastionInstanceType,
 		health:   apiClient.GetMorpheusBastionHealth,
 		diagnose: apiClient.DiagnoseMorpheusBastion,
 	}
@@ -120,6 +124,10 @@ func morpheusBastionOps() bastionOps {
 
 func runBastionResize(cmd *cobra.Command, opsFn func() bastionOps, clusterID, instanceType string) error {
 	ops := opsFn()
+	instanceType = strings.TrimSpace(instanceType)
+	if validationError := validateBastionInstanceType(ops.provider, instanceType); validationError != nil {
+		return validationError
+	}
 	requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
 	if err != nil {
 		return err
@@ -147,6 +155,67 @@ func runBastionResize(cmd *cobra.Command, opsFn func() bastionOps, clusterID, in
 	}
 	printBastionResized(result)
 	return nil
+}
+
+// validateBastionInstanceType refuses, before any write, a value the platform
+// would only refuse after accepting the request. A Morpheus bastion is sized
+// by service plan, and the platform reads instance_type as the numeric plan
+// id: anything else fails there as a server error rather than a usage one.
+// Only digits are a plan id: ParseUint takes no sign, where ParseInt let
+// "-5" and "+5" through. A blank value is refused for every provider: the
+// argument is trimmed, and the platform answers an empty instance_type with
+// a 422 that reached the user as a runtime failure.
+func validateBastionInstanceType(provider, instanceType string) error {
+	if instanceType == "" {
+		return withExitCode(exitUsage, errors.New(
+			"the bastion instance type is blank; name the one to resize the bastion to"))
+	}
+	if provider != "morpheus" {
+		return nil
+	}
+	if _, parseError := strconv.ParseUint(instanceType, 10, 64); parseError != nil {
+		return withExitCode(exitUsage, fmt.Errorf(
+			"a Morpheus bastion is resized to a service plan ID, an integer, not %q; list them with 'ankra cluster morpheus plans'",
+			instanceType))
+	}
+	return nil
+}
+
+// bastionResizeLong is the resize help: the shared accept/wait contract, then
+// what the instance_type argument means for this provider and where its
+// values are listed, because four of the providers do not take a plain cloud
+// instance type name.
+func bastionResizeLong(provider string) string {
+	const shared = `Resize the bastion/gateway node. The provider's bastion/gateway update job
+powers it off, resizes it, and powers it back on, causing brief SSH/NAT
+downtime for the cluster.
+
+--wait covers the platform write only; the cloud resize runs as the operation
+reported on success. Follow it with 'ankra cluster operations list <operation_id>'.`
+	switch provider {
+	case "Scaleway":
+		return shared + `
+
+On Scaleway the bastion is the cluster's managed Public Gateway, so
+<instance_type> is a gateway type such as VPC-GW-M; list them with
+'ankra cluster scaleway gateway-types'.`
+	case "AWS":
+		return shared + `
+
+On AWS <instance_type> is an EC2 instance type such as t3.medium; list them
+with 'ankra cluster aws instance-types'.`
+	case "Proxmox VE":
+		return shared + `
+
+On Proxmox VE <instance_type> is an instance-size preset such as px-medium;
+list them with 'ankra cluster proxmox sizes'.`
+	case "HPE Morpheus":
+		return shared + `
+
+On HPE Morpheus <instance_type> is the numeric ID of a service plan; list them
+with 'ankra cluster morpheus plans'.`
+	}
+	return shared
 }
 
 // printBastionResized reports the write, not the cloud resize: the platform
@@ -305,6 +374,9 @@ Find its node ID with 'nodes list'.`
 	case supportsDiagnose:
 		return `Inspect and diagnose the cluster's single bastion/gateway node.
 Find its node ID with 'nodes list'.`
+	case supportsResize:
+		return `Inspect and resize the cluster's single bastion/gateway node.
+Find its node ID with 'nodes list'.`
 	default:
 		return `Inspect the cluster's single bastion/gateway node.
 Find its node ID with 'nodes list'.`
@@ -360,13 +432,8 @@ func newBastionCmd(opsFn func() bastionOps, provider string, supportsResize, sup
 		resizeCmd := &cobra.Command{
 			Use:   "resize <cluster_id|name> <instance_type>",
 			Short: "Change the bastion/gateway instance type",
-			Long: `Resize the bastion/gateway node. The provider's bastion/gateway update job
-powers it off, resizes it, and powers it back on, causing brief SSH/NAT
-downtime for the cluster.
-
---wait covers the platform write only; the cloud resize runs as the operation
-reported on success. Follow it with 'ankra cluster operations list <operation_id>'.`,
-			Args: cobra.ExactArgs(2),
+			Long:  bastionResizeLong(provider),
+			Args:  cobra.ExactArgs(2),
 			RunE: func(cmd *cobra.Command, args []string) error {
 				clusterID, resolveError := resolveClusterArg(args[0])
 				if resolveError != nil {
@@ -413,11 +480,11 @@ func init() {
 	upcloudCmd.AddCommand(withBastionAllowedIPs(newBastionCmd(upcloudBastionOps, "UpCloud", true, true), upcloudBastionOps))
 	digitaloceanCmd.AddCommand(withBastionAllowedIPs(newBastionCmd(digitaloceanBastionOps, "DigitalOcean", true, true), digitaloceanBastionOps))
 	ankraCloudCmd.AddCommand(newBastionCmd(ankraCloudBastionOps, "Ankra Cloud", true, true))
-	// The remaining three carry the bastion routes but not the resize client
-	// method, and Scaleway's managed Public Gateway has no diagnose job lane
-	// at all - its health verdict answers diagnose_supported=false.
-	scalewayCmd.AddCommand(newBastionCmd(scalewayBastionOps, "Scaleway", false, false))
-	proxmoxCmd.AddCommand(newBastionCmd(proxmoxBastionOps, "Proxmox VE", false, true))
-	morpheusCmd.AddCommand(newBastionCmd(morpheusBastionOps, "HPE Morpheus", false, true))
-	awsCmd.AddCommand(newBastionCmd(awsBastionOps, "AWS", false, true))
+	// Scaleway's managed Public Gateway has no diagnose job lane - its health
+	// verdict answers diagnose_supported=false - but its gateway type resizes
+	// like any other bastion.
+	scalewayCmd.AddCommand(newBastionCmd(scalewayBastionOps, "Scaleway", true, false))
+	proxmoxCmd.AddCommand(newBastionCmd(proxmoxBastionOps, "Proxmox VE", true, true))
+	morpheusCmd.AddCommand(newBastionCmd(morpheusBastionOps, "HPE Morpheus", true, true))
+	awsCmd.AddCommand(newBastionCmd(awsBastionOps, "AWS", true, true))
 }

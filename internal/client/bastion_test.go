@@ -356,3 +356,49 @@ func TestDiagnoseHetznerBastion_HonoursTheContextDeadline(t *testing.T) {
 		t.Fatalf("error = %v, want context.DeadlineExceeded", err)
 	}
 }
+
+// Scaleway, AWS, Proxmox and Morpheus resize their bastion through the same
+// PUT route and body as the other providers (ankra-v3qdto.6).
+func TestUpdateBastionInstanceType_NewProviders(t *testing.T) {
+	for _, testCase := range []struct {
+		provider     string
+		instanceType string
+		call         func(*Client, string) (*UpdateBastionInstanceTypeResult, bool, error)
+	}{
+		{provider: "scaleway", instanceType: "VPC-GW-M", call: func(c *Client, value string) (*UpdateBastionInstanceTypeResult, bool, error) {
+			return c.UpdateScalewayBastionInstanceType(context.Background(), "cluster-1", value, true)
+		}},
+		{provider: "aws", instanceType: "t3.medium", call: func(c *Client, value string) (*UpdateBastionInstanceTypeResult, bool, error) {
+			return c.UpdateAwsBastionInstanceType(context.Background(), "cluster-1", value, true)
+		}},
+		{provider: "proxmox", instanceType: "px-medium", call: func(c *Client, value string) (*UpdateBastionInstanceTypeResult, bool, error) {
+			return c.UpdateProxmoxBastionInstanceType(context.Background(), "cluster-1", value, true)
+		}},
+		{provider: "morpheus", instanceType: "42", call: func(c *Client, value string) (*UpdateBastionInstanceTypeResult, bool, error) {
+			return c.UpdateMorpheusBastionInstanceType(context.Background(), "cluster-1", value, true)
+		}},
+	} {
+		t.Run(testCase.provider, func(t *testing.T) {
+			var gotBody map[string]any
+			testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPut || r.URL.Path != "/api/v1/clusters/"+testCase.provider+"/cluster-1/bastion/instance-type" {
+					t.Errorf("request = %s %s", r.Method, r.URL.Path)
+				}
+				if r.URL.Query().Get("wait") != "true" {
+					t.Errorf("wait query = %q, want true", r.URL.RawQuery)
+				}
+				if decodeError := json.NewDecoder(r.Body).Decode(&gotBody); decodeError != nil {
+					t.Errorf("decode body: %v", decodeError)
+				}
+				jsonResponse(t, w, http.StatusOK, UpdateBastionInstanceTypeResult{NodeID: "n1", Name: "bastion", InstanceType: testCase.instanceType})
+			})
+			result, submitted, callError := testCase.call(testClient, testCase.instanceType)
+			if callError != nil || submitted || result == nil || result.InstanceType != testCase.instanceType {
+				t.Fatalf("result = %+v, submitted = %v, error = %v", result, submitted, callError)
+			}
+			if len(gotBody) != 1 || gotBody["instance_type"] != testCase.instanceType {
+				t.Errorf("body = %v, want only instance_type %q", gotBody, testCase.instanceType)
+			}
+		})
+	}
+}

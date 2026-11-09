@@ -103,8 +103,9 @@ var awsStartCmd = &cobra.Command{
 func init() {
 	awsStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
 	registerRestoreFlags(awsStartCmd)
-	awsStartCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
-	awsStopCmd.Flags().StringP("output", "o", "", "Output format: json or yaml (default: human-readable)")
+	// The shared flag, so a mistyped -o is refused before the start or stop
+	// is sent rather than after it.
+	registerStructuredOutputFlags(awsStartCmd, awsStopCmd)
 	awsStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's tagged load balancers even when retention_policy is retain. The cluster's EBS volumes are kept: only a deprovision deletes them")
 	registerThreeStateFlag(awsStopCmd, "preserve-state", preserveStateFlagUsage)
 	awsStopCmd.Flags().String("mode", "", stopModeFlagUsage)
@@ -455,8 +456,7 @@ Examples:
 		if result.OperationID != nil && *result.OperationID != "" {
 			fmt.Printf("  Operation ID: %s\n", *result.OperationID)
 		}
-		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
-			strings.TrimRight(baseURL, "/"), result.ClusterID)
+		fmt.Printf("\nView it in the UI:\n  %s\n", portalClusterURLByID(result.ClusterID))
 		return nil
 	},
 }

@@ -18,11 +18,11 @@ const (
 	AnkraCloudDistributionK3s     = "k3s"
 )
 
-// AnkraCloud network modes. ipv4_nat is the server default: a NAT router for
-// the nodes' IPv4 egress and a bastion with a public IPv4 address. ipv6_only
-// is for a zone without public IPv4: no router, the bastion is reached over
-// IPv6 and the Cloud's port forward, and the nodes reach IPv4 through the
-// zone's NAT64.
+// AnkraCloud network modes. ipv6_only is the server default for a create that
+// names none: no router, the bastion is reached over IPv6 and the Cloud's port
+// forward, and the nodes reach IPv4 through the zone's NAT64. ipv4_nat adds a
+// NAT router for the nodes' IPv4 egress and a bastion with a public IPv4
+// address, a paid add-on under a per-account quota.
 const (
 	AnkraCloudNetworkModeIPv4NAT  = "ipv4_nat"
 	AnkraCloudNetworkModeIPv6Only = "ipv6_only"
@@ -40,8 +40,11 @@ const (
 //
 // The network is either adopted (private_network_id) or created from
 // network_ip_range (an RFC 1918 /16../29; server default a /24 derived from the cluster); the
-// server refuses both together. network_mode is ipv4_nat (server default) or
-// ipv6_only; omitted, the server's default applies. bastion_plan and
+// server refuses both together. network_mode is ipv6_only (server default) or
+// ipv4_nat; omitted, the server's default applies. credential_id is omitted
+// when not given, so a platform with a built-in Ankra Cloud credential uses it;
+// ssh_key_credential_id is omitted when not given, so the cluster uses a key
+// Ankra generates for it. bastion_plan and
 // control_plane_plan are required; worker_plan is required while worker_count
 // is above zero and no node_groups are sent, and etcd_plan for an external
 // etcd topology.
@@ -56,9 +59,9 @@ const (
 type CreateAnkraCloudClusterRequest struct {
 	Name                      string                `json:"name"`
 	Description               *string               `json:"description,omitempty"`
-	CredentialID              string                `json:"credential_id"`
+	CredentialID              string                `json:"credential_id,omitempty"`
 	RuntimeCredentialID       *string               `json:"runtime_credential_id,omitempty"`
-	SSHKeyCredentialID        string                `json:"ssh_key_credential_id"`
+	SSHKeyCredentialID        string                `json:"ssh_key_credential_id,omitempty"`
 	Zone                      string                `json:"zone"`
 	Template                  string                `json:"template,omitempty"`
 	PrivateNetworkID          *string               `json:"private_network_id,omitempty"`

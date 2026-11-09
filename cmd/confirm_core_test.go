@@ -221,8 +221,8 @@ func TestClusterDeprovision_YesFlagProceeds(t *testing.T) {
 }
 
 func TestClusterDeprovision_ForceWarnsWhenIgnored(t *testing.T) {
-	// An imported cluster routes to the generic deprovision endpoint, one of
-	// the lanes where the backend discards force.
+	// An imported cluster routes to the generic deprovision endpoint, the one
+	// lane that takes no force.
 	mock := &deprovisionMock{cluster: client.ClusterListItem{ID: testClusterID, Name: "demo", Kind: "imported"}}
 	output, err := runConfirmCommand(t, mock, "",
 		[]*cobra.Command{clusterDeprovisionCmd},

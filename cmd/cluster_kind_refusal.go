@@ -89,10 +89,14 @@ func wrapProviderFamilyCommands(command *cobra.Command, family providerFamily) {
 		command.Annotations[providerKindRefusalAnnotation] = family.kind
 		command.RunE = func(cmd *cobra.Command, args []string) error {
 			runError := run(cmd, args)
-			if runError == nil || len(args) == 0 {
+			if runError == nil {
+				return nil
+			}
+			typed := typedClusterOf(cmd, args)
+			if typed == "" {
 				return runError
 			}
-			return providerKindError(cmd, family, args[0], runError)
+			return providerKindError(cmd, family, typed, runError)
 		}
 	}
 	for _, sub := range command.Commands() {
@@ -102,9 +106,27 @@ func wrapProviderFamilyCommands(command *cobra.Command, family providerFamily) {
 
 // takesClusterFirst reports whether a command's first positional argument
 // is a cluster, read from its usage line ("workers <cluster_id|name>").
+// An optional cluster ("list [cluster_id|name]") counts: left out, it is
+// --cluster or the selected cluster (typedClusterOf).
 func takesClusterFirst(command *cobra.Command) bool {
 	fields := strings.Fields(command.Use)
-	return len(fields) > 1 && strings.HasPrefix(fields[1], "<cluster")
+	return len(fields) > 1 && (strings.HasPrefix(fields[1], "<cluster") || strings.HasPrefix(fields[1], "[cluster"))
+}
+
+// typedClusterOf is the cluster a wrapped command was pointed at, as the user
+// named it: its first argument, else --cluster, else the selected cluster's
+// id for a command whose cluster argument is optional. "" when none.
+func typedClusterOf(cmd *cobra.Command, args []string) string {
+	if len(args) > 0 {
+		return args[0]
+	}
+	if override := clusterFlagOverride(cmd); override != "" {
+		return override
+	}
+	if selected, selectedError := loadSelectedCluster(); selectedError == nil {
+		return strings.TrimSpace(selected.ID)
+	}
+	return ""
 }
 
 // providerKindError turns a platform refusal of a provider command into a

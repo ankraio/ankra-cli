@@ -40,6 +40,29 @@ func (c *Client) UpdateDigitaloceanBastionInstanceType(ctx context.Context, clus
 	return c.updateBastionInstanceType(ctx, "digitalocean", clusterID, instanceType, wait)
 }
 
+// UpdateScalewayBastionInstanceType changes the Public Gateway type (the
+// cluster's bastion), for example VPC-GW-S to VPC-GW-M.
+func (c *Client) UpdateScalewayBastionInstanceType(ctx context.Context, clusterID, gatewayType string, wait bool) (*UpdateBastionInstanceTypeResult, bool, error) {
+	return c.updateBastionInstanceType(ctx, scalewayKind, clusterID, gatewayType, wait)
+}
+
+// UpdateAwsBastionInstanceType changes the bastion's EC2 instance type.
+func (c *Client) UpdateAwsBastionInstanceType(ctx context.Context, clusterID, instanceType string, wait bool) (*UpdateBastionInstanceTypeResult, bool, error) {
+	return c.updateBastionInstanceType(ctx, awsKind, clusterID, instanceType, wait)
+}
+
+// UpdateProxmoxBastionInstanceType moves the bastion VM to another
+// instance-size preset.
+func (c *Client) UpdateProxmoxBastionInstanceType(ctx context.Context, clusterID, sizePreset string, wait bool) (*UpdateBastionInstanceTypeResult, bool, error) {
+	return c.updateBastionInstanceType(ctx, proxmoxKind, clusterID, sizePreset, wait)
+}
+
+// UpdateMorpheusBastionInstanceType moves the bastion instance to another
+// service plan. The platform reads instance_type as the numeric plan id.
+func (c *Client) UpdateMorpheusBastionInstanceType(ctx context.Context, clusterID, planID string, wait bool) (*UpdateBastionInstanceTypeResult, bool, error) {
+	return c.updateBastionInstanceType(ctx, morpheusKind, clusterID, planID, wait)
+}
+
 // updateBastionInstanceType follows the node-group instance-type async
 // accept/wait contract: without --wait the platform answers 202 and applies
 // the resize in the background; with --wait it blocks for the resized

@@ -74,6 +74,35 @@ func portalClusterURL(cluster client.ClusterListItem) string {
 	return portalURL(cluster.OrganisationID, nil, portalClusterSegments(cluster.ID, "overview")...)
 }
 
+// portalClusterURLByID is the overview page of a cluster this invocation
+// created, imported or staged drafts on, where only the id is in hand. Those
+// answers carry no organisation, so the link names the one the request was
+// sent to (invocationOrganisationIDForLinks) and, when that is not known
+// locally, the one the platform reports for the cluster. A link without
+// ?org= opens "not found" for a member whose portal is on another
+// organisation. A cluster that cannot be read keeps the link without it.
+func portalClusterURLByID(clusterID string) string {
+	organisationID := invocationOrganisationIDForLinks()
+	if organisationID == "" && clusterID != "" && apiClient != nil {
+		if cluster, readError := apiClient.GetClusterByID(clusterID); readError == nil {
+			organisationID = strings.TrimSpace(cluster.OrganisationID)
+		}
+	}
+	return portalClusterURL(client.ClusterListItem{ID: clusterID, OrganisationID: organisationID})
+}
+
+// invocationOrganisationIDForLinks is the organisation this invocation's
+// requests were scoped to: --org/ANKRA_ORG, or the organisation `ankra org
+// switch` saved when it is the one being sent. "" when the requests named
+// none, so the platform answered in the token's current organisation, which
+// nothing local records.
+func invocationOrganisationIDForLinks() string {
+	if apiClient == nil {
+		return ""
+	}
+	return strings.TrimSpace(apiClient.OrganisationOverride())
+}
+
 // portalStackURL opens one stack in the stack editor.
 func portalStackURL(cluster client.ClusterListItem, stackName string) string {
 	if cluster.ID == "" || stackName == "" {

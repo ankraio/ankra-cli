@@ -382,6 +382,12 @@ type UpdateTaintsRequest struct {
 type UpdateNodeGroupResult struct {
 	GroupName string `json:"group_name"`
 	Updated   int    `json:"updated"`
+	// OperationID is the operation an instance-type change started to
+	// resize the group's nodes, which it does after answering. It is unset
+	// when the change started none (a stopped cluster applies it on start,
+	// and a group being created or already being changed takes it up in
+	// that work), and on a labels or taints change, which answers none.
+	OperationID *string `json:"operation_id,omitempty"`
 	// Notice is set by an instance-type change that is not the in-place
 	// resize the caller asked for: an UpCloud plan in another family than
 	// the nodes' current one replaces each node instead.
@@ -394,7 +400,12 @@ type DeleteNodeGroupResult struct {
 }
 
 // NodeGroupAutoscalingRequest is the PUT .../node-groups/{g}/autoscaling
-// body (Cluster Autoscaler min/max bounds; min_count >= 1 in v1).
+// body (Cluster Autoscaler min/max bounds). Both bounds are always sent: the
+// platform does not keep the recorded bound for one the body leaves out, it
+// saves its default (min_count 1, max_count 100) in its place, so the caller
+// sends the bound it means to keep (ankra-v3qdto.6). min_count 0
+// (scale-to-zero) is accepted where the platform can size a node from the
+// group's instance type and the cluster's agent serves the node template.
 type NodeGroupAutoscalingRequest struct {
 	Enabled  bool `json:"enabled"`
 	MinCount int  `json:"min_count"`

@@ -50,12 +50,20 @@ func clusterPositionalArgs(validate cobra.PositionalArgs, isRequired bool) cobra
 		case validateError != nil:
 			return withExitCode(exitUsage, fmt.Errorf("%w; usage: %s", validateError, command.UseLine()))
 		case flagValue != "" && len(args) > 0 && strings.TrimSpace(args[0]) != flagValue:
-			return withExitCode(exitUsage, fmt.Errorf(
-				"--cluster %q and the argument %q name different clusters; pass one, usage: %s",
-				flagValue, args[0], command.UseLine()))
+			return differentClustersError(command, flagValue, args[0])
 		}
 		return nil
 	}
+}
+
+// differentClustersError refuses a --cluster that names a different cluster
+// from the leading argument. A command that resolves an optional cluster
+// itself (resolveOptionalClusterArg) answers with the same words, so the
+// refusal reads the same whichever check meets it first.
+func differentClustersError(command *cobra.Command, flagValue, argument string) error {
+	return withExitCode(exitUsage, fmt.Errorf(
+		"--cluster %q and the argument %q name different clusters; pass one, usage: %s",
+		flagValue, argument, command.UseLine()))
 }
 
 // wrapClusterPositionalArgs gives every command under `ankra cluster` that
