@@ -147,7 +147,7 @@ func printPipelineTestEnvironments(output io.Writer, environments client.Pipelin
 	if !writePipelineTestEnvironmentGrid(output, legs, axes) {
 		writePipelineTestEnvironmentTable(output, legs, axes)
 	}
-	_, _ = fmt.Fprintln(output, pipelineTestEnvironmentsSummaryLine(environments.Summary, legs, axes))
+	_, _ = fmt.Fprintln(output, pipelineTestEnvironmentsSummaryLine(legs, axes))
 	writePipelineTestEnvironmentFailures(output, legs, axes, options)
 }
 
@@ -258,7 +258,7 @@ func writePipelineTestEnvironmentTable(output io.Writer, legs []client.PipelineT
 			pipelineTestText(leg.StepKey),
 			pipelineTestText(pipelineTestEnvironmentMatrix(leg, axes)),
 			pipelineTestText(pipelineTestEnvironmentStatus(leg.Status)),
-			pipelineTestText(pipelineStringValue(leg.Result)),
+			pipelineTestText(pipelineTestEnvironmentOutcome(leg)),
 			pipelineTestText(pipelineTestEnvironmentDuration(leg.DurationSeconds)),
 			pipelineTestText(pipelineStringValue(leg.ClusterID)),
 		})
@@ -266,13 +266,28 @@ func writePipelineTestEnvironmentTable(output io.Writer, legs []client.PipelineT
 	legTable.Render()
 }
 
-// pipelineTestEnvironmentCell is one grid cell: "passed 5m12s", "FAILED",
-// or the phase of a leg that has no result yet ("queued", "testing").
-func pipelineTestEnvironmentCell(leg client.PipelineTestEnvironment) string {
-	if leg.Result == nil {
-		return pipelineTestEnvironmentStatus(leg.Status)
+// pipelineTestEnvironmentNoResult stands for a leg whose cluster is gone but
+// whose outcome was never recorded: it is over, not still in flight.
+const pipelineTestEnvironmentNoResult = "no result"
+
+// pipelineTestEnvironmentOutcome is the leg's result, "no result" for a
+// leg torn down without one, and empty while it is still queued or in
+// flight.
+func pipelineTestEnvironmentOutcome(leg client.PipelineTestEnvironment) string {
+	if result := pipelineStringValue(leg.Result); result != "" {
+		return result
 	}
-	switch *leg.Result {
+	if leg.Status == "destroyed" {
+		return pipelineTestEnvironmentNoResult
+	}
+	return ""
+}
+
+// pipelineTestEnvironmentCell is one grid cell: "passed 5m12s", "FAILED",
+// "no result" for a leg torn down without one, or the phase of a leg that
+// has no result yet ("queued", "testing").
+func pipelineTestEnvironmentCell(leg client.PipelineTestEnvironment) string {
+	switch pipelineTestEnvironmentOutcome(leg) {
 	case "passed":
 		if duration := pipelineTestEnvironmentDuration(leg.DurationSeconds); duration != "" {
 			return "passed " + duration
@@ -287,7 +302,7 @@ func pipelineTestEnvironmentCell(leg client.PipelineTestEnvironment) string {
 	case "":
 		return pipelineTestEnvironmentStatus(leg.Status)
 	default:
-		return strings.ReplaceAll(*leg.Result, "_", " ")
+		return strings.ReplaceAll(pipelineTestEnvironmentOutcome(leg), "_", " ")
 	}
 }
 
@@ -315,28 +330,64 @@ func pipelineTestEnvironmentDuration(seconds *int64) string {
 	}
 }
 
+// pipelineTestEnvironmentCounts is the shown legs counted by outcome. It is
+// counted from the legs the grid shows (each cell's newest attempt), never
+// taken from the platform's summary, so the line under the grid cannot
+// contradict it when a leg was retried.
+type pipelineTestEnvironmentCounts struct {
+	total, passed, failed, errored, timedOut, cancelled, noResult, running, queued, tornDown int
+}
+
+func countPipelineTestEnvironmentLegs(legs []client.PipelineTestEnvironment) pipelineTestEnvironmentCounts {
+	counts := pipelineTestEnvironmentCounts{total: len(legs)}
+	for _, leg := range legs {
+		if leg.Status == "destroyed" || leg.DestroyedAt != nil {
+			counts.tornDown++
+		}
+		switch pipelineStringValue(leg.Result) {
+		case "passed":
+			counts.passed++
+		case "failed":
+			counts.failed++
+		case "error":
+			counts.errored++
+		case "timed_out":
+			counts.timedOut++
+		case "cancelled":
+			counts.cancelled++
+		case "":
+			switch leg.Status {
+			case "queued":
+				counts.queued++
+			case "destroyed":
+				counts.noResult++
+			default:
+				counts.running++
+			}
+		}
+	}
+	return counts
+}
+
 // pipelineTestEnvironmentsSummaryLine is "5/6 legs passed - 1 failed
 // (kubernetes 1.37 x postgres 16) - all 6 clusters torn down".
-func pipelineTestEnvironmentsSummaryLine(summary client.PipelineTestEnvironmentsSummary,
-	legs []client.PipelineTestEnvironment, axes []string) string {
-	total := summary.Total
-	if total == 0 {
-		total = len(legs)
-	}
+func pipelineTestEnvironmentsSummaryLine(legs []client.PipelineTestEnvironment, axes []string) string {
+	counts := countPipelineTestEnvironmentLegs(legs)
 	legNoun := "legs"
-	if total == 1 {
+	if counts.total == 1 {
 		legNoun = "leg"
 	}
-	parts := []string{fmt.Sprintf("%d/%d %s passed", summary.Passed, total, legNoun)}
+	parts := []string{fmt.Sprintf("%d/%d %s passed", counts.passed, counts.total, legNoun)}
 	for _, outcome := range []struct {
 		count  int
 		result string
 		label  string
 	}{
-		{summary.Failed, "failed", "failed"},
-		{summary.Errored, "error", "errored"},
-		{summary.TimedOut, "timed_out", "timed out"},
-		{summary.Cancelled, "cancelled", "cancelled"},
+		{counts.failed, "failed", "failed"},
+		{counts.errored, "error", "errored"},
+		{counts.timedOut, "timed_out", "timed out"},
+		{counts.cancelled, "cancelled", "cancelled"},
+		{counts.noResult, pipelineTestEnvironmentNoResult, "ended without a result"},
 	} {
 		if outcome.count == 0 {
 			continue
@@ -347,13 +398,13 @@ func pipelineTestEnvironmentsSummaryLine(summary client.PipelineTestEnvironments
 		}
 		parts = append(parts, part)
 	}
-	if summary.Running > 0 {
-		parts = append(parts, fmt.Sprintf("%d running", summary.Running))
+	if counts.running > 0 {
+		parts = append(parts, fmt.Sprintf("%d running", counts.running))
 	}
-	if summary.Queued > 0 {
-		parts = append(parts, fmt.Sprintf("%d queued", summary.Queued))
+	if counts.queued > 0 {
+		parts = append(parts, fmt.Sprintf("%d queued", counts.queued))
 	}
-	if teardown := pipelineTestEnvironmentTeardown(summary, legs, total); teardown != "" {
+	if teardown := pipelineTestEnvironmentTeardown(counts, legs); teardown != "" {
 		parts = append(parts, teardown)
 	}
 	return strings.Join(parts, " - ")
@@ -362,7 +413,7 @@ func pipelineTestEnvironmentsSummaryLine(summary client.PipelineTestEnvironments
 func pipelineTestEnvironmentNames(legs []client.PipelineTestEnvironment, axes []string, result string) string {
 	var names []string
 	for _, leg := range legs {
-		if leg.Result != nil && *leg.Result == result {
+		if pipelineTestEnvironmentOutcome(leg) == result {
 			names = append(names, pipelineTestEnvironmentName(leg, axes))
 		}
 	}
@@ -376,9 +427,10 @@ func pipelineTestEnvironmentNames(legs []client.PipelineTestEnvironment, axes []
 // pipelineTestEnvironmentTeardown says what became of the legs' clusters:
 // "all 6 clusters torn down", "2 clusters still up, 4 torn down", or nothing
 // while no leg has had a cluster.
-func pipelineTestEnvironmentTeardown(summary client.PipelineTestEnvironmentsSummary,
-	legs []client.PipelineTestEnvironment, total int) string {
-	if total > 0 && summary.TornDown >= total {
+func pipelineTestEnvironmentTeardown(counts pipelineTestEnvironmentCounts,
+	legs []client.PipelineTestEnvironment) string {
+	total := counts.total
+	if total > 0 && counts.tornDown >= total {
 		if total == 1 {
 			return "its cluster torn down"
 		}
@@ -391,12 +443,12 @@ func pipelineTestEnvironmentTeardown(summary client.PipelineTestEnvironmentsSumm
 		}
 	}
 	switch {
-	case stillUp > 0 && summary.TornDown > 0:
-		return fmt.Sprintf("%s still up, %d torn down", pluralClusters(stillUp), summary.TornDown)
+	case stillUp > 0 && counts.tornDown > 0:
+		return fmt.Sprintf("%s still up, %d torn down", pluralClusters(stillUp), counts.tornDown)
 	case stillUp > 0:
 		return pluralClusters(stillUp) + " still up"
-	case summary.TornDown > 0:
-		return fmt.Sprintf("%d of %d clusters torn down", summary.TornDown, total)
+	case counts.tornDown > 0:
+		return fmt.Sprintf("%d of %d clusters torn down", counts.tornDown, total)
 	default:
 		return ""
 	}

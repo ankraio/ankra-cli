@@ -395,3 +395,38 @@ func TestPipelineTestEnvironmentDurationFormats(t *testing.T) {
 		t.Errorf("pipelineTestEnvironmentDuration(nil) = %q", formatted)
 	}
 }
+
+// A retried leg is counted once, by its newest attempt: the line under the
+// grid never contradicts the cells above it.
+func TestPipelineTestEnvironmentsSummaryCountsTheShownAttempts(t *testing.T) {
+	failed, passed := "failed", "passed"
+	firstCluster, secondCluster := "c-1", "c-2"
+	destroyedAt := "2026-11-09T10:10:00Z"
+	legs := latestPipelineTestEnvironmentLegs([]client.PipelineTestEnvironment{
+		{Stage: "matrix", Attempt: 1, Matrix: map[string]string{"kubernetes": "1.37", "postgres": "16"},
+			Status: "destroyed", Result: &failed, ClusterID: &firstCluster, DestroyedAt: &destroyedAt},
+		{Stage: "matrix", Attempt: 2, Matrix: map[string]string{"kubernetes": "1.37", "postgres": "16"},
+			Status: "destroyed", Result: &passed, ClusterID: &secondCluster, DestroyedAt: &destroyedAt},
+	}, []string{"kubernetes", "postgres"})
+	line := pipelineTestEnvironmentsSummaryLine(legs, []string{"kubernetes", "postgres"})
+	if line != "1/1 leg passed - its cluster torn down" {
+		t.Fatalf("line = %q", line)
+	}
+}
+
+// A leg torn down without a recorded result is over, and says so: it is not
+// shown as a phase a leg still in flight would be in.
+func TestPipelineTestEnvironmentsNameALegThatEndedWithoutAResult(t *testing.T) {
+	passed := "passed"
+	legs := []client.PipelineTestEnvironment{
+		{Stage: "matrix", Attempt: 1, Matrix: map[string]string{"kubernetes": "1.36"}, Status: "destroyed", Result: &passed},
+		{Stage: "matrix", Attempt: 1, Matrix: map[string]string{"kubernetes": "1.37"}, Status: "destroyed"},
+	}
+	if cell := pipelineTestEnvironmentCell(legs[1]); cell != "no result" {
+		t.Errorf("cell = %q, want \"no result\"", cell)
+	}
+	line := pipelineTestEnvironmentsSummaryLine(legs, []string{"kubernetes"})
+	if line != "1/2 legs passed - 1 ended without a result (kubernetes 1.37) - all 2 clusters torn down" {
+		t.Fatalf("line = %q", line)
+	}
+}
