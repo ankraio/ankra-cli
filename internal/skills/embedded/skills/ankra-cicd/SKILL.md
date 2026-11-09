@@ -433,6 +433,15 @@ run it inside the checkout for `affected:` stages. `ankra pipeline get <run-id>`
 saved** per skipped or promoted stage. For local test and lint loops, `ankra exec -- <command>` runs
 in a warm Ankra Workspace on the CI pool and `ankra dev install` routes heavy commands there.
 
+Test against real clusters with a stage of `kind: environment`: for each leg of its `matrix` (for
+example `kubernetes: ["1.35", "1.36", "1.37"]` x `postgres: ["16", "17"]`) Ankra builds an ephemeral
+cluster, deploys the build under test, runs the tests, records the result and tears the cluster
+down. Legs beyond the organisation's concurrency cap wait as `queued`. `ankra pipeline environments
+<run-id>` (alias `envs`) prints the legs as a grid with a one-line verdict and each failed leg's
+message and last log lines (`--logs` for the whole tail, `-o json` for the platform's answer);
+`ankra pipeline get <run-id>` and `ankra pipeline tests <run-id>` print the same grid under "Test
+environments".
+
 ## 8. Troubleshooting
 
 | Symptom | Cause | Do |

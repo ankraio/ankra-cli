@@ -104,7 +104,8 @@ func readPipelineRunTimeSaved(command *cobra.Command, selector client.PipelineSe
 }
 
 // renderPipelineGet writes `pipeline get`'s answer: the structured body with
-// time_saved added, or the readable detail followed by the time saved.
+// time_saved added, or the readable detail followed by the time saved and the
+// run's test environments.
 func renderPipelineGet(command *cobra.Command, format outputFormat, detail *client.PipelineRunDetail,
 	timeSaved *client.PipelineRunTimeSaved, selector client.PipelineSelector) error {
 	out := command.OutOrStdout()
@@ -113,6 +114,7 @@ func renderPipelineGet(command *cobra.Command, format outputFormat, detail *clie
 	}
 	printPipelineRunDetail(out, *detail, selector)
 	printPipelineRunTimeSaved(out, timeSaved)
+	printPipelineRunTestEnvironmentsSection(command, selector, detail.ID)
 	return nil
 }
 
