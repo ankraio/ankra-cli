@@ -811,7 +811,9 @@ saves both bounds on every write, so this is what keeps --enabled=false on
 its own, or a change to one bound, from resetting the other:
 
 - A disable keeps the bounds exactly as the group reads, so --enabled=false
-  on its own changes nothing but the switch.
+  on its own changes nothing but the switch. Given only --min on a group
+  with no bounds recorded, it sends max 5 rather than the 100 the group
+  reads as, so a later --enabled never keeps a max of 100 nobody typed.
 - An enable keeps the bound recorded for the group, or takes min 1 and
   max 5 when the group has none recorded. A disabled group that recorded
   exactly min 1 and max 100 reads the same as one with none, and gets the
@@ -1072,7 +1074,7 @@ func init() {
 
 	clusterNodeGroupAutoscalingSetCmd.Flags().Bool("enabled", true, "Enable (true) or disable (false) autoscaling")
 	clusterNodeGroupAutoscalingSetCmd.Flags().Int("min", 0, "Minimum node count while autoscaling (0 allows scale-to-zero). Left out, the group keeps its current min, or 1 when an enable finds none recorded")
-	clusterNodeGroupAutoscalingSetCmd.Flags().Int("max", 0, "Maximum node count while autoscaling (at most 100). Left out, the group keeps its current max, or 5 when an enable finds none recorded; an enable that would then scale the group down is refused (exit 8)")
+	clusterNodeGroupAutoscalingSetCmd.Flags().Int("max", 0, "Maximum node count while autoscaling (at most 100). Left out, the group keeps its current max, or 5 when it has none recorded and this is an enable or a disable given --min; an enable that would then scale the group down is refused (exit 8)")
 
 	clusterNodeGroupLabelsCmd.Flags().String("labels", "", "Comma-separated key=value pairs to set on the group")
 	clusterNodeGroupLabelsCmd.Flags().Bool("clear", false, "Remove all labels from the node group")

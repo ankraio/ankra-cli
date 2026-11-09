@@ -79,15 +79,19 @@ func printNodeGroupDeleted(result *client.DeleteNodeGroupResult, clusterID strin
 // recorded. change names what the command changes ("instance type", "plan",
 // "size"). The platform answers once the change is recorded, before any node
 // is resized, and names the operation resizing them when it started one, so
-// the answer says the resize rolls out rather than that it happened.
+// the answer says the resize rolls out rather than that it happened. An
+// answer with no operation carries no reason for it (the platform has
+// several: a stopped cluster, a forced-stop window, a group still being
+// created or already being changed, an inline operation it failed to create
+// and leaves to its reconcile), so the answer names none rather than guess.
 func printNodeGroupResized(result *client.UpdateNodeGroupResult, clusterID, change string) {
 	if result.OperationID != nil && *result.OperationID != "" {
 		fmt.Printf("Node group '%s' %s change recorded for %d node(s); the resize rolls out in operation %s.\n",
 			result.GroupName, change, result.Updated, *result.OperationID)
 	} else {
 		fmt.Printf("Node group '%s' %s change recorded for %d node(s); the resize rolls out afterwards. "+
-			"The platform started no operation for it: a stopped cluster applies it when it starts, and a group "+
-			"still being created, or already being changed, takes it up in that work.\n",
+			"The platform started no operation for it, and its answer does not say why; later work on the "+
+			"cluster applies the change, such as its start when it is stopped or the platform's reconcile.\n",
 			result.GroupName, change, result.Updated)
 	}
 	if result.Notice != "" {

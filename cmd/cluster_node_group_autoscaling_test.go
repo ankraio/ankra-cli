@@ -171,9 +171,16 @@ func TestClusterNodeGroupAutoscalingSetKeepsTheRecordedBoundsItIsNotGiven(t *tes
 		{name: "plain disable with nothing recorded sends what the group reads, without a listing", recorded: recordedAutoscaling(false, 1, 100), nodeCount: 8,
 			args: []string{"--enabled=false"}, wantBody: `{"enabled":false,"min_count":1,"max_count":100}`, wantReads: 1,
 			wantNote: "--max not given: keeping max 100, what the group reads as now."},
-		{name: "a disable with one bound keeps the other as the group reads", recorded: recordedAutoscaling(false, 1, 100),
+		{name: "a disable with only --max keeps the min as the group reads", recorded: recordedAutoscaling(false, 1, 100),
 			args: []string{"--enabled=false", "--max", "9"}, wantBody: `{"enabled":false,"min_count":1,"max_count":9}`, wantReads: 1,
 			wantNote: "--min not given: keeping min 1, what the group reads as now."},
+		{name: "a disable with only --min on nothing recorded takes max 5, not 100", recorded: recordedAutoscaling(false, 1, 100),
+			args: []string{"--enabled=false", "--min", "2"}, wantBody: `{"enabled":false,"min_count":2,"max_count":5}`, wantReads: 1,
+			wantNote: "--max not given: using max 5, the CLI default: the group reads as disabled with min 1 and max 100, " +
+				"the answer for a group with no bounds recorded and for one that recorded exactly those; pass --max to set another."},
+		{name: "a disable with only --min keeps a recorded max", recorded: recordedAutoscaling(true, 1, 9),
+			args: []string{"--enabled=false", "--min", "2"}, wantBody: `{"enabled":false,"min_count":2,"max_count":9}`, wantReads: 1,
+			wantNote: "--max not given: keeping max 9, recorded for the group."},
 		{name: "plain disable keeps both recorded bounds", recorded: recordedAutoscaling(true, 0, 9),
 			args: []string{"--enabled=false"}, wantBody: `{"enabled":false,"min_count":0,"max_count":9}`, wantReads: 1},
 		{name: "a disabled group keeps the bounds it recorded", recorded: recordedAutoscaling(false, 2, 7),
@@ -354,16 +361,28 @@ func TestClusterNodeGroupAutoscalingSetRefusesAnUntypedMaxThatScalesTheGroupDown
 // as recorded and scaled an 8-node group down to 5 unguarded. The disable now
 // sends what the group reads, and the enable is refused whatever the max's
 // source. A group an older CLI left disabled at 1/5 is refused the same way.
+// A disable that sets --min alone on a group with nothing recorded sends the
+// CLI default max 5, not the read 100: saved beside --min 2, a 100 would read
+// as recorded, and the next plain enable would keep it and let the autoscaler
+// grow the group to 100. With 5 the enable is refused like the others.
 func TestClusterNodeGroupAutoscalingSetDisableThenEnableNeverScalesTheGroupDown(t *testing.T) {
 	for _, testCase := range []struct {
-		name     string
-		recorded *client.NodeGroupAutoscalingResult
-		want     string
+		name        string
+		recorded    *client.NodeGroupAutoscalingResult
+		disableArgs []string
+		wantDisable client.NodeGroupAutoscalingRequest
+		want        string
 	}{
 		{name: "no bounds recorded", recorded: recordedAutoscaling(false, 1, 100),
-			want: "the CLI default max of 5 (the group reads as recording no bounds) would apply, and the group has 8 nodes"},
+			wantDisable: client.NodeGroupAutoscalingRequest{MinCount: 1, MaxCount: 100},
+			want:        "the CLI default max of 5 (the group reads as recording no bounds) would apply, and the group has 8 nodes"},
 		{name: "1 and 5 an older CLI recorded", recorded: recordedAutoscaling(false, 1, 5),
-			want: "the max of 5 recorded for the group would apply, and the group has 8 nodes"},
+			wantDisable: client.NodeGroupAutoscalingRequest{MinCount: 1, MaxCount: 5},
+			want:        "the max of 5 recorded for the group would apply, and the group has 8 nodes"},
+		{name: "a disable with --min alone on no bounds recorded", recorded: recordedAutoscaling(false, 1, 100),
+			disableArgs: []string{"--min", "2"},
+			wantDisable: client.NodeGroupAutoscalingRequest{MinCount: 2, MaxCount: 5},
+			want:        "the max of 5 recorded for the group would apply, and the group has 8 nodes"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd)
@@ -373,14 +392,14 @@ func TestClusterNodeGroupAutoscalingSetDisableThenEnableNeverScalesTheGroupDown(
 			setMockClient(t, mock)
 
 			captureStdout(t, func() {
-				if _, runError := executeCommand("cluster", "node-group", "autoscaling", "set", testClusterID, "default",
-					"--enabled=false", "--wait"); runError != nil {
+				arguments := append([]string{"cluster", "node-group", "autoscaling", "set", testClusterID, "default",
+					"--enabled=false", "--wait"}, testCase.disableArgs...)
+				if _, runError := executeCommand(arguments...); runError != nil {
 					t.Fatalf("disable: %v", runError)
 				}
 			})
-			if len(mock.setCalls) != 1 || mock.setCalls[0] != (client.NodeGroupAutoscalingRequest{
-				Enabled: false, MinCount: testCase.recorded.MinCount, MaxCount: testCase.recorded.MaxCount}) {
-				t.Fatalf("the disable must send the bounds the group reads, sent %+v", mock.setCalls)
+			if len(mock.setCalls) != 1 || mock.setCalls[0] != testCase.wantDisable {
+				t.Fatalf("the disable sent %+v, want %+v", mock.setCalls, testCase.wantDisable)
 			}
 
 			resetTreeFlags(t, clusterNodeGroupAutoscalingSetCmd)

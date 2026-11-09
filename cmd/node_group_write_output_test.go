@@ -300,7 +300,7 @@ func TestNodeGroupUpgradeSaysTheResizeRollsOutAndNamesItsOperation(t *testing.T)
 			arguments: []string{"cluster", "node-group", "upgrade", testClusterID, "workers", "cx43", "--wait"},
 			want: []string{
 				"Node group 'workers' instance type change recorded for 3 node(s); the resize rolls out afterwards.",
-				"The platform started no operation for it",
+				"The platform started no operation for it, and its answer does not say why",
 				"ankra cluster operations list --cluster " + testClusterID,
 			}},
 		{name: "older upcloud command, with the platform's notice", mock: &resizedNodeGroupMock{operationID: &operationID,

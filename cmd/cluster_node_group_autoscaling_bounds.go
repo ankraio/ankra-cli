@@ -11,9 +11,10 @@ import (
 )
 
 // The bounds `node-group autoscaling set` sends for one the user leaves out
-// when an enable finds none recorded: what the command always sent for an
-// omitted bound, so leaving --max out never raises a group's ceiling to the
-// platform's 100.
+// when the group has none recorded: on an enable, and for the max on a
+// disable that sets --min (resolveAutoscalingBounds). They are what the
+// command always sent for an omitted bound, so leaving --max out never raises
+// a group's ceiling to the platform's 100.
 const (
 	autoscalingDefaultMinCount = 1
 	autoscalingDefaultMaxCount = 5
@@ -50,7 +51,11 @@ type autoscalingBounds struct {
 //
 //   - on a disable, exactly what the group reads as now, so a disable
 //     changes nothing but the switch and invents no bound the next enable
-//     would take for the user's;
+//     would take for the user's. The one exception is a group that reads as
+//     recording none (1/100) given --min alone: sent beside the read max
+//     100, the --min would make the group read as recorded with max 100,
+//     which a later plain --enabled would keep and could grow the group to.
+//     So that max takes the CLI default 5 instead;
 //   - on an enable, the bound recorded for the group, or the CLI default
 //     (min 1, max 5) when the group reads as recording none.
 //
@@ -83,17 +88,28 @@ func resolveAutoscalingBounds(cmd *cobra.Command, calls nodeGroupCalls, clusterI
 
 	recorded := current.Enabled || current.MinCount != unrecordedAutoscalingMinCount ||
 		current.MaxCount != unrecordedAutoscalingMaxCount
-	verb, source := "keeping", "recorded for the group"
-	switch {
-	case !enabled && !recorded:
-		source = "what the group reads as now"
-	case enabled && !recorded:
-		verb, source = "using", "the CLI default: the group reads as disabled with min 1 and max 100, "+
-			"the answer for a group with no bounds recorded and for one that recorded exactly those"
+	// Which omitted bound takes the CLI default rather than the one read: on
+	// a group that reads as recording none, both on an enable, and the max on
+	// a disable that sets --min (see above).
+	minDefaulted := enabled && !recorded
+	maxDefaulted := !recorded && (enabled || minGiven)
+	sourceOf := func(defaulted bool) string {
+		switch {
+		case defaulted:
+			return "the CLI default: the group reads as disabled with min 1 and max 100, " +
+				"the answer for a group with no bounds recorded and for one that recorded exactly those"
+		case recorded:
+			return "recorded for the group"
+		default:
+			return "what the group reads as now"
+		}
 	}
-	defaulted := enabled && !recorded
-	note := func(flag, bound string, value int) string {
-		line := fmt.Sprintf("%s not given: %s %s %d, %s", flag, verb, bound, value, source)
+	note := func(flag, bound string, value int, defaulted bool) string {
+		verb := "keeping"
+		if defaulted {
+			verb = "using"
+		}
+		line := fmt.Sprintf("%s not given: %s %s %d, %s", flag, verb, bound, value, sourceOf(defaulted))
 		if defaulted {
 			line += "; pass " + flag + " to set another"
 		}
@@ -101,32 +117,32 @@ func resolveAutoscalingBounds(cmd *cobra.Command, calls nodeGroupCalls, clusterI
 	}
 	if !minGiven {
 		bounds.minCount = current.MinCount
-		if defaulted {
+		if minDefaulted {
 			bounds.minCount = autoscalingDefaultMinCount
 		}
-		bounds.notes = append(bounds.notes, note("--min", "min", bounds.minCount))
+		bounds.notes = append(bounds.notes, note("--min", "min", bounds.minCount, minDefaulted))
 	}
 	if !maxGiven {
 		bounds.maxCount = current.MaxCount
-		if defaulted {
+		if maxDefaulted {
 			bounds.maxCount = autoscalingDefaultMaxCount
 		}
-		bounds.notes = append(bounds.notes, note("--max", "max", bounds.maxCount))
+		bounds.notes = append(bounds.notes, note("--max", "max", bounds.maxCount, maxDefaulted))
 	}
 
 	if bounds.minCount > bounds.maxCount {
 		if minGiven {
 			return autoscalingBounds{}, withExitCode(exitUsage, fmt.Errorf(
 				"--min %d is above the max of %d the group would keep (%s); pass --max as well",
-				bounds.minCount, bounds.maxCount, source))
+				bounds.minCount, bounds.maxCount, sourceOf(maxDefaulted)))
 		}
 		return autoscalingBounds{}, withExitCode(exitUsage, fmt.Errorf(
 			"--max %d is below the min of %d the group would keep (%s); pass --min as well",
-			bounds.maxCount, bounds.minCount, source))
+			bounds.maxCount, bounds.minCount, sourceOf(minDefaulted)))
 	}
 	if enabled && !maxGiven {
 		maxSource := fmt.Sprintf("the max of %d recorded for the group", bounds.maxCount)
-		if defaulted {
+		if maxDefaulted {
 			maxSource = fmt.Sprintf("the CLI default max of %d (the group reads as recording no bounds)", bounds.maxCount)
 		}
 		if refusal := refuseAnUntypedMaxThatScalesDown(calls, clusterID, groupName, bounds.maxCount, maxSource); refusal != nil {
