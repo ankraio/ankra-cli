@@ -928,6 +928,7 @@
     "ankra runs get",
     "ankra runs list",
     "ankra runs retry",
+    "ankra secrets adopt",
     "ankra secrets create",
     "ankra secrets delete",
     "ankra secrets list",
