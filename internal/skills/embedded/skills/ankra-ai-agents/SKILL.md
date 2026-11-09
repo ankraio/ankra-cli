@@ -87,11 +87,12 @@ is authoritative — check it before promising an air-gapped setup.
 
 ### A member's own AI keys
 
-Separate from the organisation's provider: each member can put their own Anthropic Console
-(`sk-ant-api...`) or OpenRouter (`sk-or-...`) API keys on their profile, and the chats they send and
-the reviews of their GitHub pull requests run on those keys, in their order, billed to their own
-account. Background work, scheduled runs and alert analysis stay on the organisation's AI. A key only
-ever serves the member who added it, and no admin role is needed to add one.
+Separate from the organisation's provider: each member can put their own Claude Console API keys
+(they start with `sk-ant-`) or OpenRouter API keys (`sk-or-...`) on their profile, and the chats
+they send and the reviews of their GitHub and Bitbucket Cloud pull requests run on those keys, in
+their order, billed to their own account. GitLab reviews, background work, scheduled runs and
+alert analysis stay on the organisation's AI. A key only ever serves the member who added it, and
+no admin role is needed to add one.
 
 ```bash
 ankra ai keys list                    # your keys, in the order tried, with status, and whether the org uses them

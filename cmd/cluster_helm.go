@@ -111,7 +111,7 @@ var clusterHelmUninstallCmd = &cobra.Command{
 		}
 
 		yes, _ := cmd.Flags().GetBool("yes")
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Uninstall Helm release %q (namespace %q) from cluster %q? [y/N]: ", releaseName, namespace, cluster.Name),
 			yes); err != nil {
 			return err
@@ -330,7 +330,7 @@ Examples:
 		if err != nil {
 			return err
 		}
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Roll back Helm release %q (namespace %q) on cluster %q to revision %d? [y/N]: ",
 				releaseName, namespace, cluster.Name, revision),
 			yes); err != nil {
@@ -407,7 +407,7 @@ Examples:
 		if chartVersion != "" {
 			chartLabel += " " + chartVersion
 		}
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Upgrade Helm release %q (namespace %q) on cluster %q with chart %s and the values in %s? [y/N]: ",
 				releaseName, namespace, cluster.Name, chartLabel, valuesPath),
 			yes); err != nil {

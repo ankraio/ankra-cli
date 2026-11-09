@@ -107,7 +107,7 @@ var morpheusCreateCmd = &cobra.Command{
 }
 
 var morpheusStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "stop [cluster_id|name]",
+	Use:   "stop <cluster_id|name>",
 	Short: "Stop an HPE Morpheus cluster",
 	Long:  "Stop an HPE Morpheus cluster's instances while keeping its configuration so it can be started again later.",
 	Args:  cobra.ExactArgs(1),
@@ -143,7 +143,7 @@ var morpheusStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 })
 
 var morpheusStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "start [cluster_id|name]",
+	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped HPE Morpheus cluster",
 	Long:  "Start (re-provision) a stopped HPE Morpheus cluster. Use --scope control_plane to bring up only the control plane.",
 	Args:  cobra.ExactArgs(1),
@@ -157,7 +157,7 @@ var morpheusStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, startError := apiClient.StartMorpheusCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd)})
+		result, startError := apiClient.StartMorpheusCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd), RestoreSnapshotID: restoreSnapshotIDFlag(cmd), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(cmd)})
 		if startError != nil {
 			return fmt.Errorf("starting cluster: %w", startError)
 		}
@@ -173,8 +173,8 @@ var morpheusStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	},
 })
 
-var morpheusWorkersCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "workers [cluster_id|name]",
+var morpheusWorkersCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for an HPE Morpheus cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -201,8 +201,8 @@ var morpheusWorkersCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Com
 	},
 })
 
-var morpheusK8sVersionCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "k8s-version [cluster_id|name]",
+var morpheusK8sVersionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for an HPE Morpheus cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -412,7 +412,7 @@ func init() {
 	_ = morpheusCreateCmd.MarkFlagRequired("worker-plan-id")
 
 	morpheusStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(morpheusStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(morpheusStartCmd)
 
 	for _, catalogCmd := range []*cobra.Command{morpheusGroupsCmd, morpheusCloudsCmd, morpheusPlansCmd, morpheusLayoutsCmd, morpheusNetworksCmd} {
 		catalogCmd.Flags().String("credential-id", "", "HPE Morpheus API credential ID (required)")

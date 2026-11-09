@@ -93,6 +93,19 @@ func (c *Client) sendJSON(method string, url string, payload any, target any) er
 // owns a deadline or a cancellable context can stop the request instead of
 // waiting out the shared client's timeout.
 func (c *Client) sendJSONContext(ctx context.Context, method string, url string, payload any, target any) error {
+	return c.sendJSONThrough(ctx, c.HTTP, method, url, payload, target)
+}
+
+// sendJSONSlow is sendJSONContext for a call the platform answers only once
+// a job it dispatched reports or its wait budget runs out, which can be past
+// the shared client's 30s response-header timeout: it rides
+// httpClientForSlowWrite and is bounded by ctx instead.
+func (c *Client) sendJSONSlow(ctx context.Context, method string, url string, payload any, target any) error {
+	return c.sendJSONThrough(ctx, c.httpClientForSlowWrite(), method, url, payload, target)
+}
+
+// sendJSONThrough is the shared body of sendJSONContext and sendJSONSlow.
+func (c *Client) sendJSONThrough(ctx context.Context, httpClient *http.Client, method string, url string, payload any, target any) error {
 	var bodyReader *bytes.Reader
 	if payload != nil {
 		encoded, marshalError := json.Marshal(payload)
@@ -111,7 +124,7 @@ func (c *Client) sendJSONContext(ctx context.Context, method string, url string,
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+c.Token)
 
-	response, doError := c.HTTP.Do(request)
+	response, doError := httpClient.Do(request)
 	if doError != nil {
 		return fmt.Errorf("request failed: %w", doError)
 	}

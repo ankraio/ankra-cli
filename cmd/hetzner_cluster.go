@@ -143,7 +143,7 @@ func mergeSSHKeyCredentialIDs(listed []string, single string) []string {
 }
 
 var hetznerDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "deprovision [cluster_id|name]",
+	Use:   "deprovision <cluster_id|name>",
 	Short: "Initiate deprovision of a Hetzner cluster",
 	Long: "Initiate asynchronous deprovision of a Hetzner cluster. The platform schedules teardown " +
 		"jobs that delete cloud resources (servers, networks, SSH keys). Cloud resources are not " +
@@ -162,7 +162,7 @@ var hetznerDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Comma
 			return volumeError
 		}
 
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Deprovision Hetzner cluster %s? This deletes all its servers, networks and SSH keys! [y/N]: ", clusterTarget(args[0], clusterID)),
 			yes); err != nil {
 			return err
@@ -195,8 +195,8 @@ var hetznerDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Comma
 	},
 })
 
-var hetznerWorkersCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "workers [cluster_id|name]",
+var hetznerWorkersCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for a Hetzner cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -224,7 +224,7 @@ var hetznerWorkersCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Comm
 })
 
 var hetznerScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "scale [cluster_id|name] <worker_count>",
+	Use:   "scale <cluster_id|name> <worker_count>",
 	Short: "Scale workers for a Hetzner cluster",
 	Long:  "Scale the number of worker nodes up or down for a Hetzner cluster.",
 	Args:  cobra.ExactArgs(2),
@@ -262,8 +262,8 @@ var hetznerScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	},
 })
 
-var hetznerK8sVersionCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "k8s-version [cluster_id|name]",
+var hetznerK8sVersionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for a Hetzner cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -294,7 +294,7 @@ var hetznerK8sVersionCmd = withClusterArgument(clusterSelectionAllowed, &cobra.C
 })
 
 var hetznerStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "stop [cluster_id|name]",
+	Use:   "stop <cluster_id|name>",
 	Short: "Stop a Hetzner cluster",
 	Long:  "Stop a Hetzner cluster's compute while keeping its configuration so it can be started again later.",
 	Args:  cobra.ExactArgs(1),
@@ -336,7 +336,7 @@ var hetznerStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 })
 
 var hetznerStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "start [cluster_id|name]",
+	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped Hetzner cluster",
 	Long:  "Start (re-provision) a stopped Hetzner cluster. Use --scope control_plane to bring up only the control plane.",
 	Args:  cobra.ExactArgs(1),
@@ -350,7 +350,7 @@ var hetznerStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, startError := apiClient.StartHetznerCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd)})
+		result, startError := apiClient.StartHetznerCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd), RestoreSnapshotID: restoreSnapshotIDFlag(cmd), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(cmd)})
 		if startError != nil {
 			return fmt.Errorf("starting cluster: %w", startError)
 		}
@@ -373,7 +373,7 @@ var hetznerStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 })
 
 var hetznerUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:        "upgrade [cluster_id|name] <target_version>",
+	Use:        "upgrade <cluster_id|name> <target_version>",
 	Short:      "Upgrade Kubernetes version for a Hetzner cluster",
 	Long:       "Upgrade the Kubernetes version on all nodes in a Hetzner cluster. This deprecated form always runs the safe non-forced rollout; use `ankra cluster upgrade` for --force (PodDisruptionBudget override) and operation progress tracking.",
 	Deprecated: "use `ankra cluster upgrade <cluster_id> <target_version>` instead; the cloud provider is detected automatically.",
@@ -446,7 +446,7 @@ var nodeGroupListCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Comma
 })
 
 var nodeGroupAddCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "add [cluster_id|name]",
+	Use:   "add <cluster_id|name>",
 	Short: "Add a node group",
 	Args:  nodeGroupAddArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -475,12 +475,12 @@ var nodeGroupAddCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 			return asyncWriteError("adding node group", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group add")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group add", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group add")
+			printNodeGroupWriteSubmitted("Node group add", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -494,7 +494,7 @@ var nodeGroupAddCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 })
 
 var nodeGroupScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "scale [cluster_id|name] <group_name> <count>",
+	Use:   "scale <cluster_id|name> <group_name> <count>",
 	Short: "Scale a node group",
 	Args:  nodeGroupArgs(3, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -519,12 +519,12 @@ var nodeGroupScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 			return asyncWriteError("scaling node group", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group scale")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group scale", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group scale")
+			printNodeGroupWriteSubmitted("Node group scale", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -538,7 +538,7 @@ var nodeGroupScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 })
 
 var nodeGroupUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "upgrade [cluster_id|name] <group_name> <instance_type>",
+	Use:   "upgrade <cluster_id|name> <group_name> <instance_type>",
 	Short: "Upgrade instance type for a node group (cannot be reversed)",
 	Args:  nodeGroupArgs(3, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -560,12 +560,12 @@ var nodeGroupUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command
 			return asyncWriteError("upgrading node group", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group instance-type update")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group instance-type update", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group instance-type update")
+			printNodeGroupWriteSubmitted("Node group instance-type update", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -573,13 +573,13 @@ var nodeGroupUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' instance type upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
+		printNodeGroupResized(result, clusterID, "instance type")
 		return nil
 	},
 })
 
 var nodeGroupDeleteCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "delete [cluster_id|name] <group_name>",
+	Use:   "delete <cluster_id|name> <group_name>",
 	Short: "Delete a node group and all its nodes",
 	Args:  nodeGroupArgs(2, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -590,7 +590,7 @@ var nodeGroupDeleteCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 		groupName := args[1]
 		yes, _ := cmd.Flags().GetBool("yes")
 
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete node group %q from cluster %s? This deletes all its nodes! [y/N]: ", groupName, clusterTarget(args[0], clusterID)),
 			yes); err != nil {
 			return err
@@ -607,12 +607,12 @@ var nodeGroupDeleteCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 			return asyncWriteError("deleting node group", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group delete")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group delete", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group delete")
+			printNodeGroupWriteSubmitted("Node group delete", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -740,11 +740,11 @@ func init() {
 	_ = nodeGroupAddCmd.MarkFlagRequired("instance-type")
 	registerNodeGroupWriteFlags(nodeGroupAddCmd)
 	registerNodeGroupWriteFlags(nodeGroupScaleCmd)
-	registerAsyncWriteFlags(nodeGroupUpgradeCmd)
+	registerNodeGroupWriteFlags(nodeGroupUpgradeCmd)
 	registerNodeGroupWriteFlags(nodeGroupDeleteCmd)
 
 	hetznerStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(hetznerStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(hetznerStartCmd)
 	hetznerStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's load balancers. The cluster's CSI volumes are kept and keep billing while stopped: only a deprovision deletes them")
 	registerThreeStateFlag(hetznerStopCmd, "preserve-state", preserveStateFlagUsage)
 	hetznerStopCmd.Flags().String("mode", "", stopModeFlagUsage)

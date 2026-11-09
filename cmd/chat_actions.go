@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -270,7 +271,9 @@ func decodeActionProposal(data any) (*client.ChatActionProposal, error) {
 func resolvePendingProposals(reader *bufio.Reader, proposals []*client.ChatActionProposal) {
 	for _, proposal := range proposals {
 		renderActionProposal(proposal)
-		fmt.Print("Run this action? [y/N]: ")
+		// The question goes to stderr with every other prompt; the proposal and
+		// the outcome are the session's output.
+		_, _ = fmt.Fprint(os.Stderr, "Run this action? [y/N]: ")
 		answer, readError := reader.ReadString('\n')
 		if readError != nil && readError != io.EOF {
 			fmt.Printf("Could not read your answer (%v); leaving the action pending.\n", readError)

@@ -172,7 +172,7 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	prompt := fmt.Sprintf("%s ankra from v%s to v%s (%s)? [y/N]: ",
 		action, currentVersion, targetVersion, executablePath)
 	input := bufio.NewReader(cmd.InOrStdin())
-	if err := confirmPrompt(input, out, prompt, skipConfirm); err != nil {
+	if err := confirmPrompt(input, cmd.ErrOrStderr(), prompt, skipConfirm); err != nil {
 		return err
 	}
 
@@ -181,7 +181,7 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	if detectionError != nil && skillsFlag {
 		_, _ = fmt.Fprintf(out, "Warning: could not check which assistants carry the Ankra agent skills (%v); refresh them by hand afterwards with `ankra skills install --force`.\n", detectionError)
 	}
-	refreshSkills, err := decideSkillsRefresh(input, out, cmd.ErrOrStderr(), skillsRefreshChoice{
+	refreshSkills, err := decideSkillsRefresh(input, cmd.ErrOrStderr(), skillsRefreshChoice{
 		Clients:       installedSkillClients,
 		Groups:        skillRefreshGroups,
 		TargetVersion: targetVersion,
@@ -278,8 +278,10 @@ type skillsRefreshChoice struct {
 // means yes, because skills that lag the binary are the failure this exists
 // to prevent. Input that ends before the question is answered is not Enter:
 // nobody saw the question, so nothing is overwritten and the command to run
-// by hand is printed instead.
-func decideSkillsRefresh(in io.Reader, out, errOut io.Writer, choice skillsRefreshChoice) (bool, error) {
+// by hand is printed instead. The question and what follows from it are
+// written to errOut: a prompt is for the person at the terminal, not output
+// to pipe onward.
+func decideSkillsRefresh(in io.Reader, errOut io.Writer, choice skillsRefreshChoice) (bool, error) {
 	if len(choice.Clients) == 0 || (choice.FlagExplicit && !choice.FlagValue) {
 		return false, nil
 	}
@@ -291,14 +293,14 @@ func decideSkillsRefresh(in io.Reader, out, errOut io.Writer, choice skillsRefre
 			clientDisplayNames(choice.Clients), skillsRefreshCommandLine("ankra", choice.refreshGroups()))
 		return false, nil
 	}
-	_, _ = fmt.Fprintf(out, "Also refresh the Ankra agent skills installed for %s to v%s? [Y/n]: ",
+	_, _ = fmt.Fprintf(errOut, "Also refresh the Ankra agent skills installed for %s to v%s? [Y/n]: ",
 		clientDisplayNames(choice.Clients), choice.TargetVersion)
 	line, err := bufio.NewReader(in).ReadString('\n')
 	if err != nil && err != io.EOF {
 		return false, fmt.Errorf("read confirmation: %w", err)
 	}
 	if err == io.EOF && line == "" {
-		_, _ = fmt.Fprintf(out, "\nNo answer; the skills are left as they are. Refresh them afterwards with: %s\n",
+		_, _ = fmt.Fprintf(errOut, "\nNo answer; the skills are left as they are. Refresh them afterwards with: %s\n",
 			skillsRefreshCommandLine("ankra", choice.refreshGroups()))
 		return false, nil
 	}

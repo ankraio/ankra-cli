@@ -25,7 +25,7 @@ plane use 'ankra cluster managed'.`,
 }
 
 var awsStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "stop [cluster_id|name]",
+	Use:   "stop <cluster_id|name>",
 	Short: "Stop an AWS cluster",
 	Long:  "Stop an AWS cluster by terminating its EC2 instances while preserving its configuration so it can be re-provisioned later.",
 	Args:  cobra.ExactArgs(1),
@@ -64,7 +64,7 @@ var awsStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 })
 
 var awsStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "start [cluster_id|name]",
+	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped AWS cluster",
 	Long:  "Re-provision a stopped AWS cluster. Use --scope control_plane to bring up only the control plane.",
 	Args:  cobra.ExactArgs(1),
@@ -81,7 +81,7 @@ var awsStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, startError := apiClient.StartAwsCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command)})
+		result, startError := apiClient.StartAwsCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command), RestoreSnapshotID: restoreSnapshotIDFlag(command), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(command)})
 		if startError != nil {
 			return fmt.Errorf("starting AWS cluster: %w", startError)
 		}
@@ -102,7 +102,7 @@ var awsStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 
 func init() {
 	awsStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(awsStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(awsStartCmd)
 	// The shared flag, so a mistyped -o is refused before the start or stop
 	// is sent rather than after it.
 	registerStructuredOutputFlags(awsStartCmd, awsStopCmd)
@@ -526,7 +526,7 @@ Takes the same flags as 'create'.`,
 }
 
 var awsDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "deprovision [cluster_id|name]",
+	Use:   "deprovision <cluster_id|name>",
 	Short: "Deprovision an AWS cluster and release its EC2 resources",
 	Long: `Permanently delete an AWS cluster and the provider resources Ankra created
 for it: the instances, security groups, bastion and generated SSH key, and -
@@ -550,7 +550,7 @@ terminal, or pass --accept-volume-data-loss (--yes does not imply it).`,
 		if volumeError != nil {
 			return volumeError
 		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Deprovision AWS cluster %s? This permanently deletes its EC2 resources and the cluster record! [y/N]: ",
 				clusterTarget(args[0], clusterID)),
 			awsDeprovisionYes); confirmError != nil {
@@ -577,8 +577,8 @@ terminal, or pass --accept-volume-data-loss (--yes does not imply it).`,
 	},
 })
 
-var awsWorkersCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "workers [cluster_id|name]",
+var awsWorkersCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for an AWS cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -604,8 +604,8 @@ var awsWorkersCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
 	},
 })
 
-var awsK8sVersionCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "k8s-version [cluster_id|name]",
+var awsK8sVersionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for an AWS cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -634,8 +634,8 @@ var awsK8sVersionCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Comma
 	},
 })
 
-var awsAccessInfoCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "access-info [cluster_id|name]",
+var awsAccessInfoCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "access-info <cluster_id|name>",
 	Short: "Show SSH access details for an AWS cluster",
 	Long:  "Show the bastion and control plane IPs plus ready-to-use SSH jump and Kubernetes API port-forward commands.",
 	Args:  cobra.ExactArgs(1),

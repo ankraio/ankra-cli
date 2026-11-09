@@ -16,8 +16,8 @@ import (
 // errUpgradePreflightBlocked is the refusal of a preflight that blocks.
 var errUpgradePreflightBlocked = errors.New("the upgrade preflight blocked this Kubernetes upgrade; nothing was changed")
 
-var clusterUpgradePreflightCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "preflight [cluster_id|name] <target_version>",
+var clusterUpgradePreflightCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "preflight <cluster_id|name> <target_version>",
 	Short: "Check whether a cloud cluster is ready for a Kubernetes upgrade, without changing anything",
 	Long: `Run the read-only upgrade preflight for a hop to <target_version>.
 

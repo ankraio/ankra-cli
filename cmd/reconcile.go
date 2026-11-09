@@ -274,8 +274,8 @@ func resolveClusterFromArgs(cmd *cobra.Command, args []string) (string, string, 
 	return selected.ID, selected.Name, nil
 }
 
-var clusterProvisionCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "provision [cluster_name]",
+var clusterProvisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "provision <cluster_name>",
 	Short: "Provision a managed cluster (build its infrastructure and redeploy its stacks)",
 	Long: `Provision a managed cluster that is not running.
 
@@ -294,8 +294,11 @@ This is not a power-on. To resume a cluster you powered off, use its provider's
 start command (for example "ankra cluster hetzner start") or
 "ankra cluster power-schedules".
 
-If no cluster name is provided, uses the currently selected cluster.`,
-	Args: cobra.MaximumNArgs(1),
+Name the cluster as the argument or with --cluster. Provisioning builds
+infrastructure that bills, so it never falls back to the cluster selected with
+'ankra cluster select': that selection is shared by every shell and agent
+session on the machine.`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		format, err := structuredFormatFromFlags(cmd)
 		if err != nil {
@@ -410,7 +413,7 @@ func isCloudClusterKind(kind cloudClusterKind) bool {
 }
 
 var clusterDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "deprovision [cluster_name]",
+	Use:   "deprovision <cluster_name>",
 	Short: "Deprovision a managed cluster (tear it down and release everything it runs on)",
 	Long: `Tear down a managed cluster: everything it runs on is released.
 
@@ -441,9 +444,10 @@ To power a cluster off and back on while keeping its state, use its provider's
 stop and start commands (for example "ankra cluster hetzner stop" and
 "ankra cluster hetzner start") or "ankra cluster power-schedules" instead.
 
-Name the cluster as the argument or with --cluster: deprovision never falls
-back to the cluster selected with 'ankra cluster select'.`,
-	Args: cobra.MaximumNArgs(1),
+Name the cluster as the argument or with --cluster. Deprovision never falls
+back to the cluster selected with 'ankra cluster select': that selection is
+shared by every shell and agent session on the machine.`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		force, _ := cmd.Flags().GetBool("force")
 		yes, _ := cmd.Flags().GetBool("yes")
@@ -490,7 +494,7 @@ back to the cluster selected with 'ankra cluster select'.`,
 			recordWarning = " The cluster record itself is DELETED - this cannot be provisioned again, only recreated."
 		}
 		if err := confirmPrompt(
-			cmd.InOrStdin(), cmd.OutOrStdout(),
+			cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Deprovision cluster %q? This deletes all its cloud resources (servers, networks, SSH keys) "+
 				"and uninstalls every stack resource on it - this is a teardown, not a power-off.%s [y/N]: ",
 				clusterName, recordWarning),

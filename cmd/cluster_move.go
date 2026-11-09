@@ -12,7 +12,7 @@ import (
 )
 
 var clusterMoveCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "move [cluster_name]",
+	Use:   "move <cluster_name>",
 	Short: "Move a cluster to another organisation you administer",
 	Long: `Move a cluster into another existing organisation.
 
@@ -34,12 +34,13 @@ and sandbox clusters, and when the destination already has a cluster with the
 same name.
 
 The destination is resolved among your organisations by id, slug or name.
-Name the cluster as the argument or with --cluster: a move never falls back
-to the cluster selected with 'ankra cluster select'.`,
+Name the cluster as the argument or with --cluster. A move never falls back
+to the cluster selected with 'ankra cluster select': that selection is shared
+by every shell and agent session on the machine.`,
 	Example: `  ankra cluster move edge-01 --organisation acme-prod
   ankra cluster move --cluster edge-01 --organisation 6f1c... --yes
   ankra cluster move edge-01 --organisation "Acme Prod" -o json`,
-	Args: cobra.MaximumNArgs(1),
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		destinationReference, _ := cmd.Flags().GetString("organisation")
 		yes, _ := cmd.Flags().GetBool("yes")
@@ -68,7 +69,7 @@ to the cluster selected with 'ankra cluster select'.`,
 		}
 		destinationLabel := organisationDisplayName(*destination)
 
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Move cluster %q to organisation %q? Access grants, kube tokens, notification routes "+
 				"and group memberships from the current organisation are detached. [y/N]: ", clusterName, destinationLabel),
 			yes); confirmError != nil {

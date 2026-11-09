@@ -12,7 +12,9 @@ package cmd
 // saying who moves the enable on. `enable` prints the same plan, asks, and
 // PUTs. The PUT is idempotent and resumable: it records the option, and
 // writes the values only once the CRDs are established, so --wait follows the
-// phase and repeats the PUT when the platform says the values are next.
+// phase and repeats the PUT when the platform says the values are next. When
+// the platform holds that write back (values_hold), nothing writes the values
+// until a person clears the hold, so --wait stops there and names it.
 //
 // The cluster is resolved like the sibling `cluster logs-ship` verbs, through
 // --cluster or the selected cluster. The route is mounted per provider, so
@@ -38,8 +40,8 @@ const gatewayAPIRequestTimeout = 30 * time.Second
 
 // gatewayAPIDefaultWaitTimeout is how long `enable --wait` follows the enable
 // before giving up: the reconciler's republish, the CRD addon's install, the
-// values commit and one Traefik rollout, each a few minutes on a healthy
-// cluster.
+// values commit and one rollout each of Traefik and cert-manager, each a few
+// minutes on a healthy cluster.
 const gatewayAPIDefaultWaitTimeout = 20 * time.Minute
 
 // gatewayAPIPollInterval is the pause between two status reads while --wait
@@ -101,7 +103,8 @@ func newClusterGatewayAPIStatusCommand() *cobra.Command {
 option is recorded, where the Gateway API CRDs come from and whether the
 platform reads them as established, what the Traefik and cert-manager values
 still need (with any key that says the opposite of what the option needs), the
-last apply of each, and the note saying who moves the enable on next.
+last apply of each, any hold on the values write and what it names, and the
+note saying who moves the enable on next.
 
 Reading Gateway API objects on the cluster afterwards takes the singular kind:
 'ankra cluster get resources gatewayclass --group gateway.networking.k8s.io'.
@@ -133,9 +136,11 @@ option on the cluster, installs the Gateway API CRDs through a gateway-api-crds
 addon in the networking stack (or uses the ones the cluster already carries),
 and, once it reads them as established, writes the Gateway API settings into
 the Traefik and cert-manager values through the ordinary stack write: one
-GitOps commit on a GitOps-backed cluster, then one Traefik rollout. Values you
-wrote yourself are never changed: a key that says the opposite of what the
-option needs is reported as a conflict and nothing is written until you decide.
+GitOps commit on a GitOps-backed cluster, then Traefik and the cert-manager
+controller each restart once to pick the settings up (a member whose values
+already carry them is left alone). Values you wrote yourself are never
+changed: a key that says the opposite of what the option needs is reported as
+a conflict and nothing is written until you decide.
 
 Because it changes what the cluster's ingress serves, enable prints the plan
 and asks for confirmation first. --yes skips the question; without a terminal
@@ -145,23 +150,30 @@ The enable is idempotent and resumable. Without --wait it records the option
 and returns at once, saying what is next; run it again later to write the
 values once the CRDs are established, or check with 'status'. With --wait it
 follows the phase, repeats the enable when the values are next, and returns
-once the Gateway API is enabled. A passing platform fault while it follows (a
-5xx, a dropped connection, one request timing out) is tried again on the next
-poll; five in a row end the follow. --timeout bounds --wait and is refused
-without it. The verdict is the same with or without --wait.
+once the Gateway API is enabled. When the platform holds the values back (a
+values hold: the cluster is offline, its GitOps sync is paused on open
+conflicts, or a Traefik or cert-manager values file was edited in git and is
+kept there until a person decides), nothing writes them until that is
+resolved, so --wait stops at once, names the hold and exits 1 instead of
+repeating the enable until --timeout. A passing platform fault while it
+follows (a 5xx, a dropped connection, one request timing out) is tried again
+on the next poll; five in a row end the follow. --timeout bounds --wait and is
+refused without it. The verdict is the same with or without --wait.
 
 Exit codes:
   0  the Gateway API is on, or (without --wait) the option is recorded and
-     the enable is moving: waiting for the CRDs, the values next, or
-     Traefik and cert-manager applying them
+     the enable is moving: waiting for the CRDs, the values next and not
+     held back, or Traefik and cert-manager applying them
   1  the option is recorded but the platform needs a person: a conflict in
-     the values, a failed CRD install or apply, a networking stack with no
-     Ankra-installed Traefik and cert-manager to write into, or a values
-     write whose GitOps push failed (the values reached the platform, the
-     repository does not carry them yet). The reason goes to stderr. Also
-     a refusal of the enable --wait repeats (the option stays recorded),
-     any request that failed, five failed requests in a row during --wait
-     (the enable keeps going), and a platform without this route
+     the values, a values hold (the values are next but held back until a
+     person resolves what the hold names), a failed CRD install or apply, a
+     networking stack with no Ankra-installed Traefik and cert-manager to
+     write into, or a values write whose GitOps push failed (the values
+     reached the platform, the repository does not carry them yet). The
+     reason goes to stderr. Also a refusal of the enable --wait repeats
+     (the option stays recorded), any request that failed, five failed
+     requests in a row during --wait (the enable keeps going), and a
+     platform without this route
   2  no terminal to confirm on and no --yes, --timeout without --wait, or a
      cluster Ankra did not build
   3  the cluster is not in the selected organisation
@@ -359,10 +371,14 @@ func runClusterGatewayAPIEnable(command *cobra.Command) error {
 // phase a person has to act on, or the deadline. The platform writes the
 // values only on an enable call once the CRDs are established, so a
 // values_pending reading repeats the enable (once per poll) rather than
-// waiting for a write nobody will make. A request that fails on a passing
-// fault is tried again on the next poll (gatewayAPIFollowFaults); a refusal
-// ends the follow at once. Progress goes to stderr so -o json stays one
-// document; the standing the wait ended on is returned with the verdict.
+// waiting for a write nobody will make. A values_pending reading that names a
+// values hold is the exception: the platform holds that write back until a
+// person clears the hold, so a repeated enable writes nothing, and the follow
+// stops on the hold before any further enable (gatewayAPIPhaseVerdict). A
+// request that fails on a passing fault is tried again on the next poll
+// (gatewayAPIFollowFaults); a refusal ends the follow at once. Progress goes
+// to stderr so -o json stays one document; the standing the wait ended on is
+// returned with the verdict.
 func followGatewayAPIEnable(command *cobra.Command, target gatewayAPITarget,
 	first *client.GatewayAPIEnableResult, timeout time.Duration) (*client.GatewayAPIStatus, error) {
 	deadline, cancel := context.WithTimeout(gatewayAPICommandContext(command), timeout)
@@ -383,15 +399,18 @@ func followGatewayAPIEnable(command *cobra.Command, target gatewayAPITarget,
 			_, _ = fmt.Fprintf(errOut, "  %s\n", gatewayAPIPhaseLabel(status.Phase))
 			lastReported = status.Phase
 		}
-		switch status.Phase {
-		case client.GatewayAPIPhaseEnabled:
+		if status.Phase == client.GatewayAPIPhaseEnabled {
 			_, _ = fmt.Fprintf(errOut, "\nThe Gateway API is on for cluster '%s'.\n\n", target.cluster.Name)
 			return status, nil
-		case client.GatewayAPIPhaseConflict, client.GatewayAPIPhaseCRDsFailed,
-			client.GatewayAPIPhaseApplyFailed, client.GatewayAPIPhaseNoPlatformNetworking:
+		}
+		// The phases a person has to act on, and a values hold, end the follow
+		// with the same verdict the enable gives without --wait. The check runs
+		// before the repeated enable below, so a held write is never repeated.
+		if verdict := gatewayAPIPhaseVerdict(target, status); verdict != nil {
 			_, _ = fmt.Fprintln(errOut)
-			return status, gatewayAPIPhaseVerdict(target, status)
-		case client.GatewayAPIPhaseValuesPending:
+			return status, verdict
+		}
+		if status.Phase == client.GatewayAPIPhaseValuesPending {
 			if !enabledThisPoll {
 				enabledThisPoll = true
 				requestContext, cancelRequest := gatewayAPIContext(deadline)
@@ -548,9 +567,10 @@ func gatewayAPIFaultIsPassing(fault error) bool {
 // gatewayAPIEnableVerdict is the verdict of one enable call, the same with
 // and without --wait: nil when the enable is done or moving on its own, exit
 // 1 when a person must act. That is a values write whose GitOps push failed,
-// and the phases the platform holds for a person (a conflict in the values, a
-// failed CRD install or apply, no Ankra-installed networking). The error
-// carries the platform's own wording, so it reaches stderr with the verdict.
+// the phases the platform holds for a person (a conflict in the values, a
+// failed CRD install or apply, no Ankra-installed networking), and a values
+// hold. The error carries the platform's own wording, so it reaches stderr
+// with the verdict.
 func gatewayAPIEnableVerdict(target gatewayAPITarget, result *client.GatewayAPIEnableResult) error {
 	if pushError := gatewayAPIPushVerdict(target, result); pushError != nil {
 		return pushError
@@ -572,7 +592,8 @@ func gatewayAPIPushVerdict(target gatewayAPITarget, result *client.GatewayAPIEna
 }
 
 // gatewayAPIPhaseVerdict is exit 1 for the phases the platform holds for a
-// person; every other phase is either done or moving on its own.
+// person and for a values hold (gatewayAPIValuesHeld); every other standing is
+// either done or moving on its own.
 func gatewayAPIPhaseVerdict(target gatewayAPITarget, status *client.GatewayAPIStatus) error {
 	switch status.Phase {
 	case client.GatewayAPIPhaseConflict, client.GatewayAPIPhaseCRDsFailed,
@@ -581,7 +602,39 @@ func gatewayAPIPhaseVerdict(target gatewayAPITarget, status *client.GatewayAPISt
 			"the Gateway API enable for cluster '%s' needs attention (%s): %s",
 			target.cluster.Name, status.Phase, status.Note))
 	}
+	if gatewayAPIValuesHeld(status) {
+		return gatewayAPIHoldVerdict(target, status)
+	}
 	return nil
+}
+
+// gatewayAPIValuesHeld reports whether the values the enable writes next are
+// held back: the phase says the values are next and the platform names what
+// holds the write (values_hold: an offline cluster, a GitOps sync paused on
+// open conflicts, a Traefik or cert-manager values file edited in git and kept
+// there for its owner). The platform does not write held values by itself,
+// and an enable repeated while the hold stands writes nothing either, so only
+// a person moves it on. A hold read in another phase is left to that phase:
+// while the CRDs are pending the enable is still moving towards the values,
+// and once the values are written there is nothing left to hold.
+func gatewayAPIValuesHeld(status *client.GatewayAPIStatus) bool {
+	return status.Phase == client.GatewayAPIPhaseValuesPending && strings.TrimSpace(status.ValuesHold) != ""
+}
+
+// gatewayAPIHoldVerdict is the verdict on a values hold. It exits 1 like the
+// other states a person has to act on (a conflict in the values is the
+// nearest): the option is recorded, so it is not exit 8's "nothing was
+// changed", and nothing is moving, so it is not exit 5's "keeps going on the
+// platform". It carries the platform's sentence for the hold, says what clears
+// it and how to resume.
+func gatewayAPIHoldVerdict(target gatewayAPITarget, status *client.GatewayAPIStatus) error {
+	hold := strings.TrimRight(strings.TrimSpace(status.ValuesHold), ".")
+	return withExitCode(exitError, fmt.Errorf(
+		"the Gateway API enable for cluster '%s' needs attention (values hold): %s. "+
+			"The Traefik and cert-manager values are next, but nothing on the platform writes them while the hold stands, "+
+			"and repeating the enable writes nothing either. Clear the hold first (bring the cluster back online, resolve its "+
+			"open GitOps conflicts, or settle the values file kept in git, whichever the hold names); the option stays recorded, "+
+			"so then run 'ankra cluster gateway-api enable --wait' again to write the values", target.cluster.Name, hold))
 }
 
 // gatewayAPIFollowStopped is the verdict when the follow's deadline context
@@ -689,7 +742,8 @@ func gatewayAPIEnableExplanation(target gatewayAPITarget, plan *client.GatewayAP
 	}
 	lines = append(lines, "",
 		"The values are written through the ordinary stack write (one GitOps commit on a GitOps-backed cluster); "+
-			"Traefik restarts once to pick them up. Nothing you wrote into those values is changed or removed. "+
+			"Traefik and the cert-manager controller each restart once to pick the settings up (a member whose values "+
+			"already carry them is left alone). Nothing you wrote into those values is changed or removed. "+
 			"There is no 'disable': to stop the shared Gateway later, set gateway.enabled: false in Traefik's values; routes and CRDs stay.")
 	if conflicts := gatewayAPIConflicts(plan); len(conflicts) > 0 {
 		lines = append(lines, "", "Conflicts (nothing is written to these values until they are resolved):")
@@ -803,9 +857,15 @@ func printGatewayAPIEnableResult(out io.Writer, result *client.GatewayAPIEnableR
 
 // printGatewayAPINextStep says what the person runs next, when there is a
 // next step for them: the phases that need a person are explained by the
-// platform's note already.
+// platform's note already. Held values are not offered --wait, which would
+// stop on the hold at once.
 func printGatewayAPINextStep(out io.Writer, status *client.GatewayAPIStatus) {
 	if !status.Available {
+		return
+	}
+	if gatewayAPIValuesHeld(status) {
+		_, _ = fmt.Fprintln(out, "\nThe values are held back (see 'Values hold' above) and nothing writes them until that is resolved; "+
+			"then run 'ankra cluster gateway-api enable --wait' to write them.")
 		return
 	}
 	switch status.Phase {

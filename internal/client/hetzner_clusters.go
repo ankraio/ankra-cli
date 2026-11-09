@@ -382,6 +382,12 @@ type UpdateTaintsRequest struct {
 type UpdateNodeGroupResult struct {
 	GroupName string `json:"group_name"`
 	Updated   int    `json:"updated"`
+	// OperationID is the operation an instance-type change started to
+	// resize the group's nodes, which it does after answering. It is unset
+	// when the change started none (a stopped cluster applies it on start,
+	// and a group being created or already being changed takes it up in
+	// that work), and on a labels or taints change, which answers none.
+	OperationID *string `json:"operation_id,omitempty"`
 	// Notice is set by an instance-type change that is not the in-place
 	// resize the caller asked for: an UpCloud plan in another family than
 	// the nodes' current one replaces each node instead.
@@ -394,44 +400,42 @@ type DeleteNodeGroupResult struct {
 }
 
 // NodeGroupAutoscalingRequest is the PUT .../node-groups/{g}/autoscaling
-// body (Cluster Autoscaler min/max bounds). enabled is required; a bound the
-// body leaves out takes the platform's default (min_count 1, max_count 100),
-// so a plain {"enabled": false} disables without restating bounds. min_count
-// 0 (scale-to-zero) is accepted where the platform can size a node from the
+// body (Cluster Autoscaler min/max bounds). Both bounds are always sent: the
+// platform does not keep the recorded bound for one the body leaves out, it
+// saves its default (min_count 1, max_count 100) in its place, so the caller
+// sends the bound it means to keep (ankra-v3qdto.6). min_count 0
+// (scale-to-zero) is accepted where the platform can size a node from the
 // group's instance type and the cluster's agent serves the node template.
-//
-// OmitMinCount/OmitMaxCount leave that bound out of the body. MinCount and
-// MaxCount keep the value the caller means either way (the platform default
-// for an omitted bound), so code that echoes the request still reads it.
 type NodeGroupAutoscalingRequest struct {
-	Enabled      bool `json:"enabled"`
-	MinCount     int  `json:"min_count"`
-	MaxCount     int  `json:"max_count"`
-	OmitMinCount bool `json:"-"`
-	OmitMaxCount bool `json:"-"`
+	Enabled  bool `json:"enabled"`
+	MinCount int  `json:"min_count"`
+	MaxCount int  `json:"max_count"`
 }
 
-// MarshalJSON writes enabled and only the bounds that are not omitted. The
-// command used to send its own flag defaults (min 1, max 5) for bounds the
-// user never set, so a plain enable capped the group at 5 nodes against the
-// platform's 100, and a disable overwrote the recorded bounds.
-func (request NodeGroupAutoscalingRequest) MarshalJSON() ([]byte, error) {
-	body := map[string]any{"enabled": request.Enabled}
-	if !request.OmitMinCount {
-		body["min_count"] = request.MinCount
-	}
-	if !request.OmitMaxCount {
-		body["max_count"] = request.MaxCount
-	}
-	return json.Marshal(body)
-}
-
-// NodeGroupAutoscalingResult is the GET/PUT autoscaling response body.
+// NodeGroupAutoscalingResult is the GET/PUT autoscaling response body. The
+// members after MaxCount are the PUT's only: what the write does to the
+// group's node count. A max_count below the group's node count scales the
+// group down to it, a min_count above it scales the group up to it.
 type NodeGroupAutoscalingResult struct {
 	GroupName string `json:"group_name"`
 	Enabled   bool   `json:"enabled"`
 	MinCount  int    `json:"min_count"`
 	MaxCount  int    `json:"max_count"`
+	// NodeCount is the group's node count when the write was made.
+	NodeCount *int `json:"node_count,omitempty"`
+	// TargetCount is the node count the write moves the group to.
+	TargetCount *int `json:"target_count,omitempty"`
+	// OperationID is the operation applying the write; nil when none was
+	// created now.
+	OperationID *string `json:"operation_id,omitempty"`
+	// Message says in words what will happen to the group.
+	Message string `json:"message,omitempty"`
+}
+
+// ChangesNodeCount reports whether the write moves the group to another
+// node count.
+func (result NodeGroupAutoscalingResult) ChangesNodeCount() bool {
+	return result.NodeCount != nil && result.TargetCount != nil && *result.NodeCount != *result.TargetCount
 }
 
 func (c *Client) ListHetznerNodeGroups(clusterID string) (*NodeGroupListResult, error) {
@@ -504,7 +508,7 @@ func (c *Client) UpdateHetznerNodeGroupAutoscaling(ctx context.Context, clusterI
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", err)
 	}
-	return c.doUpdateNodeGroupAutoscaling(ctx, endpoint, payload, wait)
+	return c.doUpdateNodeGroupAutoscaling(ctx, endpoint, payload, groupName, req, wait)
 }
 
 func (c *Client) doGetNodeGroupAutoscaling(url string) (*NodeGroupAutoscalingResult, error) {
@@ -515,14 +519,37 @@ func (c *Client) doGetNodeGroupAutoscaling(url string) (*NodeGroupAutoscalingRes
 	return &result, nil
 }
 
-func (c *Client) doUpdateNodeGroupAutoscaling(ctx context.Context, url string, payload []byte, wait bool) (*NodeGroupAutoscalingResult, bool, error) {
+// doUpdateNodeGroupAutoscaling answers the write's result, or, for a write
+// the platform accepted without waiting, nil and true - unless the accepted
+// answer already says what the write does (a platform that finished it
+// inside its verdict window), which is then answered with true and the
+// group name and bounds of the request that was accepted, so a structured
+// rendering of it never shows zero bounds.
+func (c *Client) doUpdateNodeGroupAutoscaling(ctx context.Context, url string, payload []byte, groupName string,
+	request NodeGroupAutoscalingRequest, wait bool) (*NodeGroupAutoscalingResult, bool, error) {
 	var result NodeGroupAutoscalingResult
-	submitted, err := c.doJSONWriteRequest(ctx, http.MethodPut, url, payload, wait, &result)
-	if err != nil {
-		return nil, false, err
+	accepted, writeError := c.doJSONWriteRequestAccepted(ctx, http.MethodPut, url, payload, wait, &result)
+	if writeError != nil {
+		return nil, false, writeError
 	}
-	if submitted {
-		return nil, true, nil
+	if accepted != nil {
+		if accepted.Message == "" && accepted.OperationID == "" {
+			return nil, true, nil
+		}
+		acceptedResult := &NodeGroupAutoscalingResult{
+			GroupName:   groupName,
+			Enabled:     request.Enabled,
+			MinCount:    request.MinCount,
+			MaxCount:    request.MaxCount,
+			NodeCount:   accepted.NodeCount,
+			TargetCount: accepted.TargetCount,
+			Message:     accepted.Message,
+		}
+		if accepted.OperationID != "" {
+			operationID := accepted.OperationID
+			acceptedResult.OperationID = &operationID
+		}
+		return acceptedResult, true, nil
 	}
 	return &result, false, nil
 }

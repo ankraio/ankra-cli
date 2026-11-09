@@ -118,7 +118,7 @@ slug or name.`,
 			return resolveError
 		}
 		yes, _ := cmd.Flags().GetBool("yes")
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Drop the AI board channels of project %q? [y/N]: ", args[0]), yes); confirmError != nil {
 			return confirmError
 		}

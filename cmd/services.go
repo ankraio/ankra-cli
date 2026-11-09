@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/url"
 
 	"ankra/internal/client"
 )
@@ -386,6 +387,7 @@ type APIClient interface {
 	GetApplicationContainerSecurity(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationCodeSecurity(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationSecurityVersions(requestContext context.Context, applicationID string, component string) (*client.ApplicationSecurityVersions, error)
+	GetApplicationBranchBuilds(requestContext context.Context, applicationID string) (*client.ApplicationBranchBuilds, error)
 	GetApplicationDemos(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	CheckApplicationDemoBuild(requestContext context.Context, applicationID string, branch string) (json.RawMessage, error)
 	DeployApplicationDemo(requestContext context.Context, applicationID string, demoRequest client.DeployApplicationDemoRequest) (json.RawMessage, error)
@@ -422,6 +424,10 @@ type APIClient interface {
 	UpdateRegistryStorageAddon(requestContext context.Context, blocks int, expectedVersion string) (*client.RegistryStorageAddonUpdateResult, error)
 	GetApplicationRepositoryCredential(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	SetApplicationRepositoryCredential(requestContext context.Context, applicationID string, credentialRequest client.SetApplicationRepositoryCredentialRequest) (json.RawMessage, error)
+	SetApplicationTrackedBranch(requestContext context.Context, applicationID string, branchRequest client.SetApplicationTrackedBranchRequest) (json.RawMessage, error)
+	GetApplicationEnvironments(requestContext context.Context, applicationID string) (json.RawMessage, error)
+	PreviewApplicationPromotion(requestContext context.Context, applicationID string, query url.Values) (json.RawMessage, error)
+	StartApplicationPromotion(requestContext context.Context, applicationID string, promotion map[string]string) (json.RawMessage, error)
 	GetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	UpdateApplicationAIConfig(requestContext context.Context, applicationID string, configuration json.RawMessage) (json.RawMessage, error)
 	ResetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error)
@@ -472,11 +478,15 @@ type APIClient interface {
 	CreateDNSCredential(name string, webhookProviderURL string) (*client.CreateDNSCredentialResponse, error)
 
 	ListAPITokens() ([]client.APIToken, error)
+	GetSlackInstallURL(requestContext context.Context) (*client.SlackInstallURL, error)
+	GetSlackStatus(requestContext context.Context) (*client.SlackStatus, error)
 	CreateAPIToken(request client.CreateAPITokenRequest) (*client.CreateAPITokenResponse, error)
 	RevokeAPIToken(tokenID string) (*client.RevokeAPITokenResponse, error)
 	DeleteAPIToken(tokenID string) (*client.DeleteAPITokenResponse, error)
 	RotateAPIToken(tokenID string, overlapHours *int) (*client.RotateTokenResponse, error)
 	RotateServiceToken(tokenID string, overlapHours *int) (*client.RotateTokenResponse, error)
+	RevokeServiceToken(tokenID string) (*client.RevokeAPITokenResponse, error)
+	DeleteServiceToken(tokenID string) (*client.DeleteAPITokenResponse, error)
 	ListServiceTokens() ([]client.ServiceToken, error)
 	CreateServiceToken(request client.CreateServiceTokenRequest) (*client.CreateServiceTokenResponse, error)
 
@@ -623,6 +633,7 @@ type APIClient interface {
 	GetControlPlaneHeal(ctx context.Context, clusterID string) (*client.ControlPlaneHeal, error)
 	SetControlPlaneHeal(ctx context.Context, clusterID string, enabled bool) (*client.ControlPlaneHeal, error)
 	GetStateSnapshotRetention(ctx context.Context, clusterID string) (*client.StateSnapshotRetention, error)
+	GetLatestStateSnapshot(kind, clusterID string) (*client.LatestStateSnapshotResponse, error)
 	SetStateSnapshotRetention(ctx context.Context, clusterID string, retentionDays int) (*client.StateSnapshotRetention, error)
 
 	GetOrganisationProvenancePolicy(ctx context.Context) (*client.OrganisationProvenancePolicy, error)
@@ -648,6 +659,7 @@ type APIClient interface {
 	ScaleHetznerNodeGroup(ctx context.Context, clusterID, groupName string, count int, drainOptions client.DrainOptions, wait bool) (*client.ScaleNodeGroupResult, bool, error)
 	UpdateHetznerNodeGroupInstanceType(ctx context.Context, clusterID, groupName, instanceType string, drainOptions client.DrainOptions, wait bool) (*client.UpdateNodeGroupResult, bool, error)
 	DeleteHetznerNodeGroup(ctx context.Context, clusterID, groupName string, drainOptions client.DrainOptions, wait bool) (*client.DeleteNodeGroupResult, bool, error)
+	RemoveNodeGroupNode(ctx context.Context, kind, clusterID, groupName, node string, drainOptions client.DrainOptions, wait bool) (*client.RemoveNodeGroupNodeResult, error)
 	GetHetznerNodeGroupAutoscaling(clusterID, groupName string) (*client.NodeGroupAutoscalingResult, error)
 	UpdateHetznerNodeGroupAutoscaling(ctx context.Context, clusterID, groupName string, req client.NodeGroupAutoscalingRequest, wait bool) (*client.NodeGroupAutoscalingResult, bool, error)
 	UpdateHetznerNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*client.UpdateNodeGroupResult, bool, error)
@@ -1036,6 +1048,28 @@ type APIClient interface {
 	EnableClusterDNSZone(clusterID string) (*client.ClusterDNSZoneResponse, error)
 	GetClusterDNSZone(clusterID string) (*client.ClusterDNSZoneResponse, error)
 
+	ListAlertRules(options client.ListAlertRulesOptions) (*client.AlertRuleList, error)
+	GetAlertRule(alertID string) (*client.AlertRuleDetail, error)
+	CreateAlertRule(definition map[string]any) (*client.AlertRule, error)
+	UpdateAlertRule(alertID string, changes map[string]any) (*client.AlertRule, error)
+	DeleteAlertRule(alertID string) (*client.AlertRuleDeleteResult, error)
+	SetAlertRuleEnabled(alertID string, enabled bool) (*client.AlertRule, error)
+	AcknowledgeAlertTrigger(alertID string, triggerID string, notes string) (map[string]any, error)
+	SnoozeAlertTrigger(alertID string, triggerID string, durationMinutes int, notes string) (map[string]any, error)
+	GetEtcdMembers(ctx context.Context, provider string, clusterID string, nodeID string) (*client.NodeMaintenanceResult, error)
+	RemoveEtcdMember(ctx context.Context, provider string, clusterID string, nodeID string, memberID string) (*client.NodeMaintenanceResult, error)
+	GetOSPatchStatus(provider string, clusterID string) (map[string]any, error)
+	PlanOSPatches(ctx context.Context, provider string, clusterID string) (map[string]any, error)
+	RunOSPatches(ctx context.Context, provider string, clusterID string, request client.OSPatchRunRequest) (map[string]any, error)
+	SetOSPatchPolicy(ctx context.Context, provider string, clusterID string, update client.OSPatchPolicyUpdate) (map[string]any, error)
+	ApplyNodeOSPolicy(ctx context.Context, provider string, clusterID string, request client.NodeOSPolicyRequest) (*client.NodeMaintenanceResult, error)
+	GetBillingStanding() (*client.BillingStanding, error)
+	GetWallet() (*client.Wallet, error)
+	ApplyResource(clusterID string, request client.ApplyResourceRequest) (*client.ResourceMutationResponse, error)
+	ListAlertmanagerSilences(clusterID string, state string, location client.AlertmanagerLocation) (*client.AlertmanagerSilenceList, error)
+	CreateAlertmanagerSilence(clusterID string, request client.CreateAlertmanagerSilenceRequest) (*client.AlertmanagerSilenceCreated, error)
+	ExpireAlertmanagerSilence(clusterID string, silenceID string, location client.AlertmanagerLocation) (*client.AlertmanagerSilenceExpired, error)
+
 	ListAlertDestinations(options client.ListAlertDestinationsOptions) (*client.AlertDestinationList, error)
 	GetAlertDestination(destinationID string) (*client.AlertDestination, error)
 	CreateAlertDestination(request client.CreateAlertDestinationRequest) (*client.AlertDestination, error)
@@ -1045,6 +1079,8 @@ type APIClient interface {
 	RebindAlertIngestCredential(credentialID string, request client.RebindAlertIngestCredentialRequest) (*client.AlertIngestCredential, error)
 	GetAISpendCap() (*client.AISpendCap, error)
 	UpdateAISpendCap(update client.AISpendCapUpdate) (*client.AISpendCap, error)
+	ListAuditLogs(ctx context.Context, filters client.AuditLogFilters) (*client.AuditLogTrail, error)
+	ExportAuditLogs(ctx context.Context, filters client.AuditLogFilters, format string, destination io.Writer) (*client.AuditLogExportResult, error)
 	TestAlertDestination(destinationID string) (*client.AlertDestinationTestResult, error)
 	TestAlertDestinationURL(request client.TestAlertDestinationURLRequest) (*client.AlertDestinationTestResult, error)
 	ListSlackChannels() (*client.SlackChannelList, error)

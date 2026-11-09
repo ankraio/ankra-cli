@@ -3,9 +3,55 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
+
+	"ankra/internal/client"
 
 	"github.com/spf13/cobra"
 )
+
+// nodeGroupAutoscalingWaitTimeout is the default --timeout of
+// 'node-group autoscaling set'. A scale-down to a lowered max removes one node
+// at a time and each removal may wait up to fifteen minutes for the pipeline
+// steps on its node, so the shared ten-minute default would report a failure
+// for a scale-down that is still succeeding.
+const nodeGroupAutoscalingWaitTimeout = time.Hour
+
+// nodeGroupOperationPollInterval is how often --wait reads the operation.
+var nodeGroupOperationPollInterval = 10 * time.Second
+
+// waitForNodeGroupOperation reads the operation until it ends or ctx expires,
+// and answers it. An operation that ends in anything but success is an error
+// naming its status and recorded error; ctx expiring answers ctx's error, so
+// asyncWriteError tags it as a wait timeout.
+func waitForNodeGroupOperation(ctx context.Context, operationID string) (client.ExecutionSummary, error) {
+	for {
+		detail, readError := apiClient.GetExecution(operationID)
+		if readError != nil {
+			return client.ExecutionSummary{}, fmt.Errorf("reading operation %s: %w", operationID, readError)
+		}
+		status := strings.ToLower(strings.TrimSpace(detail.Execution.Status))
+		if isTerminalExecutionStatus(status) {
+			if status == "success" || status == "succeeded" {
+				return detail.Execution, nil
+			}
+			reason := "no error was recorded"
+			if detail.Execution.ErrorExcerpt != nil && *detail.Execution.ErrorExcerpt != "" {
+				reason = *detail.Execution.ErrorExcerpt
+			}
+			return detail.Execution, fmt.Errorf("operation %s ended %s: %s (see 'ankra cluster operations steps %s')",
+				operationID, status, reason, operationID)
+		}
+		pollTimer := time.NewTimer(nodeGroupOperationPollInterval)
+		select {
+		case <-ctx.Done():
+			pollTimer.Stop()
+			return detail.Execution, ctx.Err()
+		case <-pollTimer.C:
+		}
+	}
+}
 
 func nodeGroupAsyncContext(command *cobra.Command) (context.Context, context.CancelFunc, bool, error) {
 	wait, err := asyncWriteWaitFlag(command)
@@ -28,19 +74,51 @@ func failedNodeGroupWriteCommand(clusterID string) string {
 	return "ankra cluster operations list --failed --cluster " + clusterID
 }
 
+// nodeGroupWaitReach is what --wait waits for on one node-group write, so
+// the answer to a write submitted without it says what re-running with it
+// would show.
+type nodeGroupWaitReach int
+
+const (
+	// waitUntilRecorded: the platform answers once it has recorded or
+	// refused the change, and the nodes change afterwards (add, scale,
+	// upgrade, delete, labels, taints).
+	waitUntilRecorded nodeGroupWaitReach = iota
+	// waitUntilOperationEnds: the command also follows the operation the
+	// platform names for the change until it ends (autoscaling set).
+	waitUntilOperationEnds
+)
+
+// hint is what re-running with --wait shows, for the JSON answer.
+func (reach nodeGroupWaitReach) hint() string {
+	if reach == waitUntilOperationEnds {
+		return "re-running with --wait shows whether the platform recorded or refused the change, then follows the operation applying it until that operation ends"
+	}
+	return "re-running with --wait shows whether the platform recorded or refused the change, not when the nodes are ready"
+}
+
+// sentence is what re-running with --wait shows, for the human answer.
+func (reach nodeGroupWaitReach) sentence() string {
+	if reach == waitUntilOperationEnds {
+		return "Re-run the same command with --wait to see whether the platform recorded or refused the change; --wait then follows the operation applying it until that operation ends."
+	}
+	return "Re-run the same command with --wait to see whether the platform recorded or refused the change; --wait does not wait for the nodes themselves."
+}
+
 // newNodeGroupSubmittedResult is newAsyncSubmittedResult for a node-group
-// write: the hint also names where a late refusal is recorded.
-func newNodeGroupSubmittedResult(operationLabel, clusterID string) asyncSubmittedResult {
+// write: the hint also names where a late refusal is recorded, and says what
+// --wait waits for on this write.
+func newNodeGroupSubmittedResult(operationLabel, clusterID string, reach nodeGroupWaitReach) asyncSubmittedResult {
 	result := newAsyncSubmittedResult(operationLabel)
-	result.Hint = "follow the nodes with '" + followNodeGroupWorkCommand(clusterID) + "'; re-running with --wait shows whether the platform recorded or refused the change, not when the nodes are ready; if the platform refuses it after accepting it, '" + failedNodeGroupWriteCommand(clusterID) +
+	result.Hint = "follow the nodes with '" + followNodeGroupWorkCommand(clusterID) + "'; " + reach.hint() + "; if the platform refuses it after accepting it, '" + failedNodeGroupWriteCommand(clusterID) +
 		"' shows the failed node_group_write operation with the provider's reason once it is decided; an empty listing right away does not mean the change was applied"
 	return result
 }
 
-func printNodeGroupWriteSubmitted(operationLabel, clusterID string) {
+func printNodeGroupWriteSubmitted(operationLabel, clusterID string, reach nodeGroupWaitReach) {
 	fmt.Printf("%s submitted.\n", operationLabel)
 	fmt.Println("The platform records the change, then creates, removes or changes the nodes in the background.")
-	fmt.Println("Re-run the same command with --wait to see whether the platform recorded or refused the change; --wait does not wait for the nodes themselves.")
+	fmt.Println(reach.sentence())
 	fmt.Println("Avoid submitting the same change again while it may still be running (duplicate node groups can double cost).")
 	fmt.Printf("Follow the nodes with:\n  %s\n", followNodeGroupWorkCommand(clusterID))
 	fmt.Printf("If the platform refuses it after accepting it (for example the provider has no stock of the requested server type), the refusal is recorded as a failed node_group_write operation with the provider's reason:\n  %s\n", failedNodeGroupWriteCommand(clusterID))

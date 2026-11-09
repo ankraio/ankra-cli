@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -79,7 +81,7 @@ var clusterPlaygroundPlansCmd = &cobra.Command{
 var clusterPlaygroundResizeSize string
 
 var clusterPlaygroundResizeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "resize [cluster_id|name]",
+	Use:   "resize <cluster_id|name>",
 	Short: "Resize a paid playground to another size",
 	Long: "Change a paid playground to another paid size in place: only the namespace quota and " +
 		"the monthly price change (the month is billed pro-rata across the change), nothing you " +
@@ -124,8 +126,8 @@ func currencySymbol(currency string) string {
 	}
 }
 
-var clusterPlaygroundStatusCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "status [cluster_id|name]",
+var clusterPlaygroundStatusCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "status <cluster_id|name>",
 	Short: "Show the provisioning phase of a playground",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -153,13 +155,17 @@ var clusterPlaygroundStatusCmd = withClusterArgument(clusterSelectionAllowed, &c
 				fmt.Printf("Price:      %s%.2f/mo\n", currencySymbol(status.Plan.Currency),
 					float64(status.Plan.PriceMonthlyCents)/100)
 			}
-			// A paid order does not idle-expire; showing its expires_at would
-			// promise a teardown the platform never performs.
-			if status.Plan.OrderedAt == nil {
-				fmt.Printf("Expires at: %s\n", status.ExpiresAt)
+		}
+		// A paid order does not idle-expire; showing its expires_at would
+		// promise a teardown the platform never performs.
+		isPaidOrder := status.Plan != nil && status.Plan.OrderedAt != nil
+		if expiry := formatPlaygroundDeadline(status.ExpiresAt, time.Now()); expiry != "" && !isPaidOrder {
+			fmt.Printf("Expires at: %s\n", expiry)
+		}
+		if status.IsTrial && status.TrialExpiresAt != nil {
+			if trialEnd := formatPlaygroundDeadline(*status.TrialExpiresAt, time.Now()); trialEnd != "" {
+				fmt.Printf("Trial ends: %s\n", trialEnd)
 			}
-		} else {
-			fmt.Printf("Expires at: %s\n", status.ExpiresAt)
 		}
 		if status.StatusMessage != nil && *status.StatusMessage != "" {
 			fmt.Printf("Message:    %s\n", *status.StatusMessage)
@@ -168,8 +174,47 @@ var clusterPlaygroundStatusCmd = withClusterArgument(clusterSelectionAllowed, &c
 	},
 })
 
+// formatPlaygroundDeadline renders a playground deadline with the time left
+// on it, "" when the API sent none so the caller omits the line instead of
+// printing an empty label (an Ankra Cloud playground has no idle expiry).
+// An unparseable timestamp is printed as it arrived rather than swallowed.
+func formatPlaygroundDeadline(timestamp string, now time.Time) string {
+	timestamp = strings.TrimSpace(timestamp)
+	if timestamp == "" {
+		return ""
+	}
+	deadline, parseError := time.Parse(time.RFC3339, timestamp)
+	if parseError != nil {
+		return timestamp
+	}
+	remaining := deadline.Sub(now)
+	if remaining <= 0 {
+		return timestamp + " (expired)"
+	}
+	return timestamp + " (in " + formatRemaining(remaining) + ")"
+}
+
+// formatRemaining renders a positive duration to the two largest units a
+// reader plans around: days and hours, hours and minutes, or minutes.
+func formatRemaining(remaining time.Duration) string {
+	totalMinutes := int(remaining.Minutes())
+	days := totalMinutes / (24 * 60)
+	hours := (totalMinutes / 60) % 24
+	minutes := totalMinutes % 60
+	switch {
+	case days > 0:
+		return fmt.Sprintf("%dd %dh", days, hours)
+	case hours > 0:
+		return fmt.Sprintf("%dh %dm", hours, minutes)
+	case minutes > 0:
+		return fmt.Sprintf("%dm", minutes)
+	default:
+		return "under a minute"
+	}
+}
+
 var clusterPlaygroundDestroyCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "destroy [cluster_id|name]",
+	Use:   "destroy <cluster_id|name>",
 	Short: "Destroy your organisation's playground",
 	Long: "Tear the organisation's playground down. Everything deployed in it, including its " +
 		"storage, is deleted and cannot be recovered, so the command asks first; pass --yes to " +

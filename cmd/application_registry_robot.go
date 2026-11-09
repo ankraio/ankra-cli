@@ -144,7 +144,7 @@ and store it. Prefer 'rotate' when the application should keep working.`,
 			}
 			yes, _ := command.Flags().GetBool("yes")
 			if confirmError := confirmPrompt(
-				command.InOrStdin(), command.OutOrStdout(),
+				command.InOrStdin(), command.ErrOrStderr(),
 				fmt.Sprintf("Revoke the registry robot of application %q? "+
 					"Its builds cannot push until a new one is minted with 'ensure'. [y/N]: ",
 					strings.TrimSpace(arguments[0])),

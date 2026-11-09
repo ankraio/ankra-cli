@@ -181,7 +181,7 @@ with your name and the reason.`,
 
 var clusterOperationsHoldSetCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Annotations: map[string]string{annotationClusterIDOnly: staffClusterIDOnlyReason},
-	Use:         "set [cluster_id] --for <duration> --reason <text>",
+	Use:         "set <cluster_id> --for <duration> --reason <text>",
 	Short:       "Hold the cluster for a duration (1m to 24h), replacing any hold in force",
 	Long: `Hold the cluster for --for from now (1m to 24h). Running it again extends
 or shortens the hold to the new duration; both are audited.
@@ -220,9 +220,9 @@ Examples:
 	},
 })
 
-var clusterOperationsHoldGetCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
+var clusterOperationsHoldGetCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Annotations: map[string]string{annotationClusterIDOnly: staffClusterIDOnlyReason},
-	Use:         "get [cluster_id]",
+	Use:         "get <cluster_id>",
 	Short:       "Show the cluster's operations hold and any pending version record check",
 	Args:        cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -246,7 +246,7 @@ var clusterOperationsHoldGetCmd = withClusterArgument(clusterSelectionAllowed, &
 
 var clusterOperationsHoldLiftCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Annotations: map[string]string{annotationClusterIDOnly: staffClusterIDOnlyReason},
-	Use:         "lift [cluster_id] --reason <text>",
+	Use:         "lift <cluster_id> --reason <text>",
 	Short:       "Lift the cluster's operations hold so the platform acts on it again",
 	Long: `Lift the cluster's operations hold, whatever set it.
 
@@ -298,7 +298,7 @@ is recorded on the audit row; it asks for confirmation unless --yes is given.`,
 })
 
 var clusterUpgradeRollbackRecordCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "rollback-record [cluster_id] <version> --reason <text>",
+	Use:   "rollback-record <cluster_id> <version> --reason <text>",
 	Short: "Put the Kubernetes version record back after a manual rollback (Ankra staff only)",
 	Long: `Repair a cluster's Kubernetes version record after its nodes were rolled back
 by hand from a failed version hop.

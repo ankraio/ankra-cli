@@ -103,7 +103,7 @@ cluster). Use --dry-run to preview the target without making changes.`,
 		}
 
 		msg := fmt.Sprintf("This removes manifest %q (stack %q) and its resources from the cluster.\nContinue? [y/N]: ", manifestName, stack.Name)
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(), msg, yes); err != nil {
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), msg, yes); err != nil {
 			return err
 		}
 

@@ -25,7 +25,7 @@ const bastionAllowedIPsFlagUsage = "IPv4 addresses or CIDRs allowed to reach the
 // the public internet in the same way.
 func withBastionAllowedIPs(bastionCmd *cobra.Command, opsFn func() bastionOps) *cobra.Command {
 	allowedIPsCmd := withClusterArgument(clusterMustBeNamed, &cobra.Command{
-		Use:   "allowed-ips [cluster_id|name] [ip-or-cidr ...]",
+		Use:   "allowed-ips <cluster_id|name> [ip-or-cidr ...]",
 		Short: "Restrict which sources may SSH to the bastion/gateway",
 		Long: `Replace the bastion/gateway's SSH source allowlist. Only the listed IPv4
 addresses or CIDRs, the platform's own egress addresses and private network

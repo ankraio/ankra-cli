@@ -366,7 +366,7 @@ have made something billable.`,
 			prompt = fmt.Sprintf("Delete bucket %q AND destroy bucket %q on %s, including every object in it? [y/N]: ",
 				args[0], bucket.Bucket, bucket.Provider)
 		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(), prompt, yes); confirmError != nil {
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), prompt, yes); confirmError != nil {
 			return confirmError
 		}
 		if deleteError := apiClient.DeleteObjectStorageBucket(bucketID, destroyProviderResources); deleteError != nil {

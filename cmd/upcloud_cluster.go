@@ -116,7 +116,7 @@ var upcloudCreateCmd = &cobra.Command{
 }
 
 var upcloudDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "deprovision [cluster_id|name]",
+	Use:   "deprovision <cluster_id|name>",
 	Short: "Deprovision an UpCloud cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -136,7 +136,7 @@ var upcloudDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Comma
 		if force {
 			warning = "This deletes all its servers, networks, SSH keys and load balancers!"
 		}
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Deprovision UpCloud cluster %s? %s [y/N]: ", clusterTarget(args[0], clusterID), warning),
 			yes); err != nil {
 			return err
@@ -169,7 +169,7 @@ var upcloudDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Comma
 })
 
 var upcloudStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "stop [cluster_id|name]",
+	Use:   "stop <cluster_id|name>",
 	Short: "Stop an UpCloud cluster",
 	Long: "Stop an UpCloud cluster's compute while keeping its configuration so it can be started again later.\n\n" +
 		"--force also deletes the cluster's load balancers. The CSI storage volumes are kept, forced or not, and keep " +
@@ -207,7 +207,7 @@ var upcloudStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 })
 
 var upcloudStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "start [cluster_id|name]",
+	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped UpCloud cluster",
 	Long:  "Start (re-provision) a stopped UpCloud cluster. Use --scope control_plane to bring up only the control plane.",
 	Args:  cobra.ExactArgs(1),
@@ -221,7 +221,7 @@ var upcloudStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, err := apiClient.StartUpcloudCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd)})
+		result, err := apiClient.StartUpcloudCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd), RestoreSnapshotID: restoreSnapshotIDFlag(cmd), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(cmd)})
 		if err != nil {
 			return fmt.Errorf("starting cluster: %w", err)
 		}
@@ -237,8 +237,8 @@ var upcloudStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	},
 })
 
-var upcloudWorkersCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "workers [cluster_id|name]",
+var upcloudWorkersCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for an UpCloud cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -266,7 +266,7 @@ var upcloudWorkersCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Comm
 })
 
 var upcloudScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "scale [cluster_id|name] <worker_count>",
+	Use:   "scale <cluster_id|name> <worker_count>",
 	Short: "Scale workers for an UpCloud cluster",
 	Long:  "Scale the number of worker nodes up or down for an UpCloud cluster.",
 	Args:  cobra.ExactArgs(2),
@@ -304,8 +304,8 @@ var upcloudScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	},
 })
 
-var upcloudK8sVersionCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "k8s-version [cluster_id|name]",
+var upcloudK8sVersionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for an UpCloud cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -336,7 +336,7 @@ var upcloudK8sVersionCmd = withClusterArgument(clusterSelectionAllowed, &cobra.C
 })
 
 var upcloudUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:        "upgrade [cluster_id|name] <target_version>",
+	Use:        "upgrade <cluster_id|name> <target_version>",
 	Short:      "Upgrade Kubernetes version for an UpCloud cluster",
 	Long:       "Upgrade the Kubernetes version on all nodes in an UpCloud cluster. This deprecated form always runs the safe non-forced rollout; use `ankra cluster upgrade` for --force (PodDisruptionBudget override) and operation progress tracking.",
 	Deprecated: "use `ankra cluster upgrade <cluster_id> <target_version>` instead; the cloud provider is detected automatically.",
@@ -371,8 +371,8 @@ var upcloudUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	},
 })
 
-var upcloudZonesCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "zones [cluster_id|name]",
+var upcloudZonesCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "zones <cluster_id|name>",
 	Short: "Extend a multi-zone cluster's zone pool",
 	Long: `Extend the zone pool of an UpCloud cluster created with --network-mode wireguard_mesh
 (or with --zones). Pass the full desired pool, primary zone first: zones can only be
@@ -459,7 +459,7 @@ var upcloudNodeGroupListCmd = withClusterArgument(clusterSelectionAllowed, &cobr
 })
 
 var upcloudNodeGroupAddCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "add [cluster_id|name]",
+	Use:   "add <cluster_id|name>",
 	Short: "Add a node group",
 	Args:  nodeGroupAddArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -490,12 +490,12 @@ var upcloudNodeGroupAddCmd = withClusterArgument(clusterMustBeNamed, &cobra.Comm
 			return asyncWriteError("adding node group", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group add")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group add", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group add")
+			printNodeGroupWriteSubmitted("Node group add", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -509,7 +509,7 @@ var upcloudNodeGroupAddCmd = withClusterArgument(clusterMustBeNamed, &cobra.Comm
 })
 
 var upcloudNodeGroupScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "scale [cluster_id|name] <group_name> <count>",
+	Use:   "scale <cluster_id|name> <group_name> <count>",
 	Short: "Scale a node group",
 	Args:  nodeGroupArgs(3, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -534,12 +534,12 @@ var upcloudNodeGroupScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Co
 			return asyncWriteError("scaling node group", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group scale")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group scale", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group scale")
+			printNodeGroupWriteSubmitted("Node group scale", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -553,7 +553,7 @@ var upcloudNodeGroupScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Co
 })
 
 var upcloudNodeGroupUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "upgrade [cluster_id|name] <group_name> <plan>",
+	Use:   "upgrade <cluster_id|name> <group_name> <plan>",
 	Short: "Upgrade server plan for a node group",
 	Args:  nodeGroupArgs(3, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -575,12 +575,12 @@ var upcloudNodeGroupUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.
 			return asyncWriteError("upgrading node group", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group plan update")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group plan update", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group plan update")
+			printNodeGroupWriteSubmitted("Node group plan update", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -588,13 +588,13 @@ var upcloudNodeGroupUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' plan upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
+		printNodeGroupResized(result, clusterID, "plan")
 		return nil
 	},
 })
 
 var upcloudNodeGroupDeleteCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "delete [cluster_id|name] <group_name>",
+	Use:   "delete <cluster_id|name> <group_name>",
 	Short: "Delete a node group and all its nodes",
 	Args:  nodeGroupArgs(2, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -605,7 +605,7 @@ var upcloudNodeGroupDeleteCmd = withClusterArgument(clusterMustBeNamed, &cobra.C
 		groupName := args[1]
 		yes, _ := cmd.Flags().GetBool("yes")
 
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete node group %q from cluster %s? This deletes all its nodes! [y/N]: ", groupName, clusterTarget(args[0], clusterID)),
 			yes); err != nil {
 			return err
@@ -622,12 +622,12 @@ var upcloudNodeGroupDeleteCmd = withClusterArgument(clusterMustBeNamed, &cobra.C
 			return asyncWriteError("deleting node group", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group delete")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group delete", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group delete")
+			printNodeGroupWriteSubmitted("Node group delete", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -683,7 +683,7 @@ func init() {
 	_ = upcloudCreateCmd.MarkFlagRequired("zone")
 
 	upcloudStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(upcloudStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(upcloudStartCmd)
 
 	upcloudDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 	upcloudDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's load balancers, and tolerate unreachable infrastructure. The CSI storage volumes are deleted forced or not, and only with --accept-volume-data-loss or a yes at the prompt")
@@ -703,7 +703,7 @@ func init() {
 	_ = upcloudNodeGroupAddCmd.MarkFlagRequired("name")
 	registerNodeGroupWriteFlags(upcloudNodeGroupAddCmd)
 	registerNodeGroupWriteFlags(upcloudNodeGroupScaleCmd)
-	registerAsyncWriteFlags(upcloudNodeGroupUpgradeCmd)
+	registerNodeGroupWriteFlags(upcloudNodeGroupUpgradeCmd)
 	registerNodeGroupWriteFlags(upcloudNodeGroupDeleteCmd)
 
 	registerStructuredOutputFlags(

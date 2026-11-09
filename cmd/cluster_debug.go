@@ -259,7 +259,7 @@ not found.`,
 		if err != nil {
 			return err
 		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete debug pod %s in %s? [y/N]: ", args[0], namespace), yes); confirmError != nil {
 			return confirmError
 		}

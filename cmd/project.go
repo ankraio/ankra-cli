@@ -270,7 +270,7 @@ are pointed back at the default project; tokens pinned to it stop working.`,
 			return err
 		}
 		yes, _ := cmd.Flags().GetBool("yes")
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete project %s (%s)? Tokens pinned to it stop working. [y/N]: ", projectLabel(*project), project.ID), yes); confirmError != nil {
 			return confirmError
 		}

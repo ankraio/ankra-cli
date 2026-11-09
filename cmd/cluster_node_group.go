@@ -25,31 +25,42 @@ type (
 	nodeGroupTaintsFunc         func(ctx context.Context, clusterID, groupName string, taints []client.NodeTaint, wait bool) (*client.UpdateNodeGroupResult, bool, error)
 )
 
-// resolveNodeGroupClusterKind looks up the cluster and confirms it is a
+// resolveNodeGroupClusterKind is the kind of the cluster
+// resolveNodeGroupCluster confirms.
+func resolveNodeGroupClusterKind(typed, clusterID string) (string, error) {
+	cluster, resolveError := resolveNodeGroupCluster(typed, clusterID)
+	return cluster.Kind, resolveError
+}
+
+// resolveNodeGroupCluster looks up the cluster and confirms it is a
 // cloud-managed kind that supports node groups. A cluster of another kind is
 // a usage error (exit 2) naming its kind; typed is the cluster as the user
 // named it.
-func resolveNodeGroupClusterKind(typed, clusterID string) (string, error) {
+func resolveNodeGroupCluster(typed, clusterID string) (client.ClusterListItem, error) {
 	cluster, lookupError := apiClient.GetClusterByID(clusterID)
 	if lookupError != nil {
-		return "", fmt.Errorf("looking up cluster %q: %w", clusterID, lookupError)
+		return client.ClusterListItem{}, fmt.Errorf("looking up cluster %q: %w", clusterID, lookupError)
 	}
-	switch cluster.Kind {
-	case "hetzner", "ovh", "upcloud", "digitalocean", "scaleway", "ankracloud", "aws", "proxmox", "morpheus":
-		return cluster.Kind, nil
-	default:
-		return "", unsupportedClusterKindError(typed, cluster.Kind, "node groups")
+	if _, hasNodeGroups := nodeGroupKinds[cluster.Kind]; !hasNodeGroups {
+		return client.ClusterListItem{}, unsupportedClusterKindError(typed, cluster.Kind, "node groups")
 	}
+	return cluster, nil
 }
 
 // nodeGroupArgs is the Args check of a node-group command that takes count
-// arguments and names a group at groupIndex: the count, then the name.
-// cobra runs it before the credentials are read, so a name no group can
-// have is refused before the cluster is looked up, a prompt is shown or a
-// request is sent.
+// arguments and names a group at groupIndex: the count, the name, and the
+// -o value. cobra runs it before the credentials are read, so a name no
+// group can have, or an output format the command cannot write, is refused
+// before the cluster is looked up, a prompt is shown or a request is sent:
+// a write must not be sent when its answer cannot be printed. Every
+// node-group command that names a group uses it, the provider ones too.
 func nodeGroupArgs(count, groupIndex int) cobra.PositionalArgs {
-	return cobra.MatchAll(cobra.ExactArgs(count), func(_ *cobra.Command, args []string) error {
-		return validatePathArgument("node group name", args[groupIndex])
+	return cobra.MatchAll(cobra.ExactArgs(count), func(cmd *cobra.Command, args []string) error {
+		if err := validatePathArgument("node group name", args[groupIndex]); err != nil {
+			return err
+		}
+		_, formatError := structuredFormatFromFlags(cmd)
+		return formatError
 	})
 }
 
@@ -58,20 +69,23 @@ func nodeGroupArgs(count, groupIndex int) cobra.PositionalArgs {
 // for every other cluster-scoped read. Resolved by resolveOptionalClusterArg.
 var nodeGroupListArgs = cobra.MaximumNArgs(1)
 
-// nodeGroupAddArgs is the Args check of a node-group add: the cluster, and
-// the --name flag, which every later command puts in its request path, so a
-// group that could never be addressed there is not created. It runs where
-// nodeGroupArgs does, before the credentials are read. A --name left out is
-// cobra's required-flag error, reported after this.
+// nodeGroupAddArgs is the Args check of a node-group add: the cluster, the
+// --name flag, which every later command puts in its request path, so a
+// group that could never be addressed there is not created, and the -o
+// value. It runs where nodeGroupArgs does, before the credentials are read.
+// A --name left out is cobra's required-flag error, reported after this.
 func nodeGroupAddArgs(cmd *cobra.Command, args []string) error {
 	if err := cobra.ExactArgs(1)(cmd, args); err != nil {
 		return err
 	}
-	if !cmd.Flags().Changed("name") {
-		return nil
+	if cmd.Flags().Changed("name") {
+		name, _ := cmd.Flags().GetString("name")
+		if err := validatePathArgument("node group name", name); err != nil {
+			return err
+		}
 	}
-	name, _ := cmd.Flags().GetString("name")
-	return validatePathArgument("node group name", name)
+	_, formatError := structuredFormatFromFlags(cmd)
+	return formatError
 }
 
 // validatePathArgument refuses a name the CLI puts into a request path when
@@ -119,220 +133,163 @@ func unsupportedAutoscalingKindError(typed, kind string) error {
 		"%s does not support node-group autoscaling (its kind is %s)", typed, kind))
 }
 
-func nodeGroupListForKind(kind string) nodeGroupListFunc {
-	switch kind {
-	case "hetzner":
-		return apiClient.ListHetznerNodeGroups
-	case "ovh":
-		return apiClient.ListOvhNodeGroups
-	case "upcloud":
-		return apiClient.ListUpcloudNodeGroups
-	case "digitalocean":
-		return apiClient.ListDigitaloceanNodeGroups
-	case "scaleway":
-		return apiClient.ListScalewayNodeGroups
-	case "ankracloud":
-		return apiClient.ListAnkraCloudNodeGroups
-	case "aws":
-		return apiClient.ListAwsNodeGroups
-	case "proxmox":
-		return apiClient.ListProxmoxNodeGroups
-	case "morpheus":
-		return apiClient.ListMorpheusNodeGroups
-	}
-	return nil
+// nodeGroupCalls is what the node-group commands call for one cluster kind,
+// bound to the API client in use.
+type nodeGroupCalls struct {
+	list           nodeGroupListFunc
+	add            nodeGroupAddFunc
+	scale          nodeGroupScaleFunc
+	upgrade        nodeGroupUpgradeFunc
+	deleteGroup    nodeGroupDeleteFunc
+	autoscalingGet nodeGroupAutoscalingGetFunc
+	autoscalingSet nodeGroupAutoscalingSetFunc
+	labels         nodeGroupLabelsFunc
+	taints         nodeGroupTaintsFunc
+	// nodes is the kind's node listing, which remove-node looks a node up in.
+	nodes func() clusterNodesOps
 }
 
-func nodeGroupAddForKind(kind string) nodeGroupAddFunc {
-	switch kind {
-	case "hetzner":
-		return apiClient.AddHetznerNodeGroup
-	case "ovh":
-		return apiClient.AddOvhNodeGroup
-	case "upcloud":
-		return apiClient.AddUpcloudNodeGroup
-	case "digitalocean":
-		return apiClient.AddDigitaloceanNodeGroup
-	case "scaleway":
-		return apiClient.AddScalewayNodeGroup
-	case "ankracloud":
-		return apiClient.AddAnkraCloudNodeGroup
-	case "aws":
-		return apiClient.AddAwsNodeGroup
-	case "proxmox":
-		return apiClient.AddProxmoxNodeGroup
-	case "morpheus":
-		return apiClient.AddMorpheusNodeGroup
-	}
-	return nil
+// nodeGroupKinds is every cluster kind with node groups, and its calls. It is
+// the one list of those kinds: a node-group command accepts a cluster whose
+// kind is here and refuses any other (resolveNodeGroupCluster), and the
+// tests that cover every kind read it.
+var nodeGroupKinds = map[string]func(api APIClient) nodeGroupCalls{
+	"hetzner": func(api APIClient) nodeGroupCalls {
+		return nodeGroupCalls{
+			list:           api.ListHetznerNodeGroups,
+			add:            api.AddHetznerNodeGroup,
+			scale:          api.ScaleHetznerNodeGroup,
+			upgrade:        api.UpdateHetznerNodeGroupInstanceType,
+			deleteGroup:    api.DeleteHetznerNodeGroup,
+			autoscalingGet: api.GetHetznerNodeGroupAutoscaling,
+			autoscalingSet: api.UpdateHetznerNodeGroupAutoscaling,
+			labels:         api.UpdateHetznerNodeGroupLabels,
+			taints:         api.UpdateHetznerNodeGroupTaints,
+			nodes:          hetznerNodesOps,
+		}
+	},
+	"ovh": func(api APIClient) nodeGroupCalls {
+		return nodeGroupCalls{
+			list:           api.ListOvhNodeGroups,
+			add:            api.AddOvhNodeGroup,
+			scale:          api.ScaleOvhNodeGroup,
+			upgrade:        api.UpdateOvhNodeGroupInstanceType,
+			deleteGroup:    api.DeleteOvhNodeGroup,
+			autoscalingGet: api.GetOvhNodeGroupAutoscaling,
+			autoscalingSet: api.UpdateOvhNodeGroupAutoscaling,
+			labels:         api.UpdateOvhNodeGroupLabels,
+			taints:         api.UpdateOvhNodeGroupTaints,
+			nodes:          ovhNodesOps,
+		}
+	},
+	"upcloud": func(api APIClient) nodeGroupCalls {
+		return nodeGroupCalls{
+			list:           api.ListUpcloudNodeGroups,
+			add:            api.AddUpcloudNodeGroup,
+			scale:          api.ScaleUpcloudNodeGroup,
+			upgrade:        api.UpdateUpcloudNodeGroupInstanceType,
+			deleteGroup:    api.DeleteUpcloudNodeGroup,
+			autoscalingGet: api.GetUpcloudNodeGroupAutoscaling,
+			autoscalingSet: api.UpdateUpcloudNodeGroupAutoscaling,
+			labels:         api.UpdateUpcloudNodeGroupLabels,
+			taints:         api.UpdateUpcloudNodeGroupTaints,
+			nodes:          upcloudNodesOps,
+		}
+	},
+	"digitalocean": func(api APIClient) nodeGroupCalls {
+		return nodeGroupCalls{
+			list:           api.ListDigitaloceanNodeGroups,
+			add:            api.AddDigitaloceanNodeGroup,
+			scale:          api.ScaleDigitaloceanNodeGroup,
+			upgrade:        api.UpdateDigitaloceanNodeGroupInstanceType,
+			deleteGroup:    api.DeleteDigitaloceanNodeGroup,
+			autoscalingGet: api.GetDigitaloceanNodeGroupAutoscaling,
+			autoscalingSet: api.UpdateDigitaloceanNodeGroupAutoscaling,
+			labels:         api.UpdateDigitaloceanNodeGroupLabels,
+			taints:         api.UpdateDigitaloceanNodeGroupTaints,
+			nodes:          digitaloceanNodesOps,
+		}
+	},
+	"scaleway": func(api APIClient) nodeGroupCalls {
+		return nodeGroupCalls{
+			list:           api.ListScalewayNodeGroups,
+			add:            api.AddScalewayNodeGroup,
+			scale:          api.ScaleScalewayNodeGroup,
+			upgrade:        api.UpdateScalewayNodeGroupInstanceType,
+			deleteGroup:    api.DeleteScalewayNodeGroup,
+			autoscalingGet: api.GetScalewayNodeGroupAutoscaling,
+			autoscalingSet: api.UpdateScalewayNodeGroupAutoscaling,
+			labels:         api.UpdateScalewayNodeGroupLabels,
+			taints:         api.UpdateScalewayNodeGroupTaints,
+			nodes:          scalewayNodesOps,
+		}
+	},
+	"ankracloud": func(api APIClient) nodeGroupCalls {
+		return nodeGroupCalls{
+			list:           api.ListAnkraCloudNodeGroups,
+			add:            api.AddAnkraCloudNodeGroup,
+			scale:          api.ScaleAnkraCloudNodeGroup,
+			upgrade:        api.UpdateAnkraCloudNodeGroupInstanceType,
+			deleteGroup:    api.DeleteAnkraCloudNodeGroup,
+			autoscalingGet: api.GetAnkraCloudNodeGroupAutoscaling,
+			autoscalingSet: api.UpdateAnkraCloudNodeGroupAutoscaling,
+			labels:         api.UpdateAnkraCloudNodeGroupLabels,
+			taints:         api.UpdateAnkraCloudNodeGroupTaints,
+			nodes:          ankraCloudNodesOps,
+		}
+	},
+	"aws": func(api APIClient) nodeGroupCalls {
+		return nodeGroupCalls{
+			list:           api.ListAwsNodeGroups,
+			add:            api.AddAwsNodeGroup,
+			scale:          api.ScaleAwsNodeGroup,
+			upgrade:        api.UpdateAwsNodeGroupInstanceType,
+			deleteGroup:    api.DeleteAwsNodeGroup,
+			autoscalingGet: api.GetAwsNodeGroupAutoscaling,
+			autoscalingSet: api.UpdateAwsNodeGroupAutoscaling,
+			labels:         api.UpdateAwsNodeGroupLabels,
+			taints:         api.UpdateAwsNodeGroupTaints,
+			nodes:          awsNodesOps,
+		}
+	},
+	"proxmox": func(api APIClient) nodeGroupCalls {
+		return nodeGroupCalls{
+			list:           api.ListProxmoxNodeGroups,
+			add:            api.AddProxmoxNodeGroup,
+			scale:          api.ScaleProxmoxNodeGroup,
+			upgrade:        api.UpdateProxmoxNodeGroupInstanceType,
+			deleteGroup:    api.DeleteProxmoxNodeGroup,
+			autoscalingGet: api.GetProxmoxNodeGroupAutoscaling,
+			autoscalingSet: api.UpdateProxmoxNodeGroupAutoscaling,
+			labels:         api.UpdateProxmoxNodeGroupLabels,
+			taints:         api.UpdateProxmoxNodeGroupTaints,
+			nodes:          proxmoxNodesOps,
+		}
+	},
+	"morpheus": func(api APIClient) nodeGroupCalls {
+		return nodeGroupCalls{
+			list:           api.ListMorpheusNodeGroups,
+			add:            api.AddMorpheusNodeGroup,
+			scale:          api.ScaleMorpheusNodeGroup,
+			upgrade:        api.UpdateMorpheusNodeGroupInstanceType,
+			deleteGroup:    api.DeleteMorpheusNodeGroup,
+			autoscalingGet: api.GetMorpheusNodeGroupAutoscaling,
+			autoscalingSet: api.UpdateMorpheusNodeGroupAutoscaling,
+			labels:         api.UpdateMorpheusNodeGroupLabels,
+			taints:         api.UpdateMorpheusNodeGroupTaints,
+			nodes:          morpheusNodesOps,
+		}
+	},
 }
 
-func nodeGroupScaleForKind(kind string) nodeGroupScaleFunc {
-	switch kind {
-	case "hetzner":
-		return apiClient.ScaleHetznerNodeGroup
-	case "ovh":
-		return apiClient.ScaleOvhNodeGroup
-	case "upcloud":
-		return apiClient.ScaleUpcloudNodeGroup
-	case "digitalocean":
-		return apiClient.ScaleDigitaloceanNodeGroup
-	case "scaleway":
-		return apiClient.ScaleScalewayNodeGroup
-	case "ankracloud":
-		return apiClient.ScaleAnkraCloudNodeGroup
-	case "aws":
-		return apiClient.ScaleAwsNodeGroup
-	case "proxmox":
-		return apiClient.ScaleProxmoxNodeGroup
-	case "morpheus":
-		return apiClient.ScaleMorpheusNodeGroup
+// nodeGroupCallsFor is kind's node-group calls on the current API client.
+// Every call is nil for a kind without node groups.
+func nodeGroupCallsFor(kind string) nodeGroupCalls {
+	callsFor, hasNodeGroups := nodeGroupKinds[kind]
+	if !hasNodeGroups {
+		return nodeGroupCalls{}
 	}
-	return nil
-}
-
-func nodeGroupUpgradeForKind(kind string) nodeGroupUpgradeFunc {
-	switch kind {
-	case "hetzner":
-		return apiClient.UpdateHetznerNodeGroupInstanceType
-	case "ovh":
-		return apiClient.UpdateOvhNodeGroupInstanceType
-	case "upcloud":
-		return apiClient.UpdateUpcloudNodeGroupInstanceType
-	case "digitalocean":
-		return apiClient.UpdateDigitaloceanNodeGroupInstanceType
-	case "scaleway":
-		return apiClient.UpdateScalewayNodeGroupInstanceType
-	case "ankracloud":
-		return apiClient.UpdateAnkraCloudNodeGroupInstanceType
-	case "aws":
-		return apiClient.UpdateAwsNodeGroupInstanceType
-	case "proxmox":
-		return apiClient.UpdateProxmoxNodeGroupInstanceType
-	case "morpheus":
-		return apiClient.UpdateMorpheusNodeGroupInstanceType
-	}
-	return nil
-}
-
-func nodeGroupDeleteForKind(kind string) nodeGroupDeleteFunc {
-	switch kind {
-	case "hetzner":
-		return apiClient.DeleteHetznerNodeGroup
-	case "ovh":
-		return apiClient.DeleteOvhNodeGroup
-	case "upcloud":
-		return apiClient.DeleteUpcloudNodeGroup
-	case "digitalocean":
-		return apiClient.DeleteDigitaloceanNodeGroup
-	case "scaleway":
-		return apiClient.DeleteScalewayNodeGroup
-	case "ankracloud":
-		return apiClient.DeleteAnkraCloudNodeGroup
-	case "aws":
-		return apiClient.DeleteAwsNodeGroup
-	case "proxmox":
-		return apiClient.DeleteProxmoxNodeGroup
-	case "morpheus":
-		return apiClient.DeleteMorpheusNodeGroup
-	}
-	return nil
-}
-
-func nodeGroupAutoscalingGetForKind(kind string) nodeGroupAutoscalingGetFunc {
-	switch kind {
-	case "hetzner":
-		return apiClient.GetHetznerNodeGroupAutoscaling
-	case "ovh":
-		return apiClient.GetOvhNodeGroupAutoscaling
-	case "upcloud":
-		return apiClient.GetUpcloudNodeGroupAutoscaling
-	case "digitalocean":
-		return apiClient.GetDigitaloceanNodeGroupAutoscaling
-	case "scaleway":
-		return apiClient.GetScalewayNodeGroupAutoscaling
-	case "ankracloud":
-		return apiClient.GetAnkraCloudNodeGroupAutoscaling
-	case "aws":
-		return apiClient.GetAwsNodeGroupAutoscaling
-	case "proxmox":
-		return apiClient.GetProxmoxNodeGroupAutoscaling
-	case "morpheus":
-		return apiClient.GetMorpheusNodeGroupAutoscaling
-	}
-	return nil
-}
-
-func nodeGroupAutoscalingSetForKind(kind string) nodeGroupAutoscalingSetFunc {
-	switch kind {
-	case "hetzner":
-		return apiClient.UpdateHetznerNodeGroupAutoscaling
-	case "ovh":
-		return apiClient.UpdateOvhNodeGroupAutoscaling
-	case "upcloud":
-		return apiClient.UpdateUpcloudNodeGroupAutoscaling
-	case "digitalocean":
-		return apiClient.UpdateDigitaloceanNodeGroupAutoscaling
-	case "scaleway":
-		return apiClient.UpdateScalewayNodeGroupAutoscaling
-	case "ankracloud":
-		return apiClient.UpdateAnkraCloudNodeGroupAutoscaling
-	case "aws":
-		return apiClient.UpdateAwsNodeGroupAutoscaling
-	case "proxmox":
-		return apiClient.UpdateProxmoxNodeGroupAutoscaling
-	case "morpheus":
-		return apiClient.UpdateMorpheusNodeGroupAutoscaling
-	}
-	return nil
-}
-
-func nodeGroupLabelsForKind(kind string) nodeGroupLabelsFunc {
-	switch kind {
-	case "hetzner":
-		return apiClient.UpdateHetznerNodeGroupLabels
-	case "ovh":
-		return apiClient.UpdateOvhNodeGroupLabels
-	case "upcloud":
-		return apiClient.UpdateUpcloudNodeGroupLabels
-	case "digitalocean":
-		return apiClient.UpdateDigitaloceanNodeGroupLabels
-	case "scaleway":
-		return apiClient.UpdateScalewayNodeGroupLabels
-	case "ankracloud":
-		return apiClient.UpdateAnkraCloudNodeGroupLabels
-	case "aws":
-		return apiClient.UpdateAwsNodeGroupLabels
-	case "proxmox":
-		return apiClient.UpdateProxmoxNodeGroupLabels
-	case "morpheus":
-		return apiClient.UpdateMorpheusNodeGroupLabels
-	}
-	return nil
-}
-
-func nodeGroupTaintsForKind(kind string) nodeGroupTaintsFunc {
-	switch kind {
-	case "hetzner":
-		return apiClient.UpdateHetznerNodeGroupTaints
-	case "ovh":
-		return apiClient.UpdateOvhNodeGroupTaints
-	case "upcloud":
-		return apiClient.UpdateUpcloudNodeGroupTaints
-	case "digitalocean":
-		return apiClient.UpdateDigitaloceanNodeGroupTaints
-	case "scaleway":
-		return apiClient.UpdateScalewayNodeGroupTaints
-	case "ankracloud":
-		return apiClient.UpdateAnkraCloudNodeGroupTaints
-	case "aws":
-		return apiClient.UpdateAwsNodeGroupTaints
-	case "proxmox":
-		return apiClient.UpdateProxmoxNodeGroupTaints
-	case "morpheus":
-		return apiClient.UpdateMorpheusNodeGroupTaints
-	}
-	return nil
+	return callsFor(apiClient)
 }
 
 var clusterNodeGroupCmd = &cobra.Command{
@@ -360,7 +317,7 @@ var clusterNodeGroupListCmd = withClusterArgument(clusterSelectionAllowed, &cobr
 			return kindError
 		}
 
-		result, listError := nodeGroupListForKind(kind)(clusterID)
+		result, listError := nodeGroupCallsFor(kind).list(clusterID)
 		if listError != nil {
 			return fmt.Errorf("listing node groups: %w", listError)
 		}
@@ -477,7 +434,7 @@ func readNodeGroupUserDataFile(path string) (string, error) {
 }
 
 var clusterNodeGroupAddCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "add [cluster_id|name]",
+	Use:   "add <cluster_id|name>",
 	Short: "Add a node group",
 	Args:  nodeGroupAddArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -548,17 +505,17 @@ var clusterNodeGroupAddCmd = withClusterArgument(clusterMustBeNamed, &cobra.Comm
 		}
 		defer cancelRequestContext()
 
-		result, submitted, addError := nodeGroupAddForKind(kind)(requestContext, clusterID, req, wait)
+		result, submitted, addError := nodeGroupCallsFor(kind).add(requestContext, clusterID, req, wait)
 		if addError != nil {
 			return asyncWriteError("adding node group", wait, addError)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group add", clusterID)); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group add", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printNodeGroupWriteSubmitted("Node group add", clusterID)
+			printNodeGroupWriteSubmitted("Node group add", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -572,7 +529,7 @@ var clusterNodeGroupAddCmd = withClusterArgument(clusterMustBeNamed, &cobra.Comm
 })
 
 var clusterNodeGroupScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "scale [cluster_id|name] <group_name> <count>",
+	Use:   "scale <cluster_id|name> <group_name> <count>",
 	Short: "Scale a node group",
 	Long: `Scale a node group up or down to <count> nodes.
 
@@ -603,17 +560,17 @@ Examples:
 		}
 		defer cancelRequestContext()
 
-		result, submitted, scaleError := nodeGroupScaleForKind(kind)(requestContext, clusterID, groupName, count, drainOptionsFromFlags(cmd), wait)
+		result, submitted, scaleError := nodeGroupCallsFor(kind).scale(requestContext, clusterID, groupName, count, drainOptionsFromFlags(cmd), wait)
 		if scaleError != nil {
 			return asyncWriteError("scaling node group", wait, scaleError)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group scale", clusterID)); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group scale", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printNodeGroupWriteSubmitted("Node group scale", clusterID)
+			printNodeGroupWriteSubmitted("Node group scale", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -627,7 +584,7 @@ Examples:
 })
 
 var clusterNodeGroupUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "upgrade [cluster_id|name] <group_name> <instance_type>",
+	Use:   "upgrade <cluster_id|name> <group_name> <instance_type>",
 	Short: "Upgrade instance type for a node group (cannot be reversed)",
 	Long: `Change the instance type of every node in a node group. This cannot be reversed.
 
@@ -664,17 +621,17 @@ Examples:
 		}
 		defer cancelRequestContext()
 
-		result, submitted, upgradeError := nodeGroupUpgradeForKind(kind)(requestContext, clusterID, groupName, instanceType, drainOptionsFromFlags(cmd), wait)
+		result, submitted, upgradeError := nodeGroupCallsFor(kind).upgrade(requestContext, clusterID, groupName, instanceType, drainOptionsFromFlags(cmd), wait)
 		if upgradeError != nil {
 			return asyncWriteError("upgrading node group", wait, upgradeError)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group instance-type update", clusterID)); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group instance-type update", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printNodeGroupWriteSubmitted("Node group instance-type update", clusterID)
+			printNodeGroupWriteSubmitted("Node group instance-type update", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -682,16 +639,13 @@ Examples:
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' instance type upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
-		if result.Notice != "" {
-			fmt.Printf("Note: %s\n", result.Notice)
-		}
+		printNodeGroupResized(result, clusterID, "instance type")
 		return nil
 	},
 })
 
 var clusterNodeGroupDeleteCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "delete [cluster_id|name] <group_name>",
+	Use:   "delete <cluster_id|name> <group_name>",
 	Short: "Delete a node group and all its nodes",
 	Long: `Delete a node group and every node in it.
 
@@ -719,7 +673,7 @@ Examples:
 			consequence = "This deletes all its nodes, without honouring their PodDisruptionBudgets!"
 		}
 		if err := confirmPrompt(
-			cmd.InOrStdin(), cmd.OutOrStdout(),
+			cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete node group %q from cluster %s? %s [y/N]: ", groupName, clusterTarget(args[0], clusterID), consequence),
 			yes,
 		); err != nil {
@@ -732,17 +686,17 @@ Examples:
 		}
 		defer cancelRequestContext()
 
-		result, submitted, deleteError := nodeGroupDeleteForKind(kind)(requestContext, clusterID, groupName, drainOptions, wait)
+		result, submitted, deleteError := nodeGroupCallsFor(kind).deleteGroup(requestContext, clusterID, groupName, drainOptions, wait)
 		if deleteError != nil {
 			return asyncWriteError("deleting node group", wait, deleteError)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group delete", clusterID)); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group delete", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printNodeGroupWriteSubmitted("Node group delete", clusterID)
+			printNodeGroupWriteSubmitted("Node group delete", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -765,8 +719,8 @@ group's node count within [min, max] based on pod demand. Manual scaling
 stays allowed but is clamped into the same bounds.`,
 }
 
-var clusterNodeGroupAutoscalingGetCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "get [cluster_id|name] <group_name>",
+var clusterNodeGroupAutoscalingGetCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "get <cluster_id|name> <group_name>",
 	Short: "Show autoscaling settings for a node group",
 	Args:  nodeGroupArgs(2, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -780,7 +734,7 @@ var clusterNodeGroupAutoscalingGetCmd = withClusterArgument(clusterSelectionAllo
 			return kindError
 		}
 
-		autoscalingGet := nodeGroupAutoscalingGetForKind(kind)
+		autoscalingGet := nodeGroupCallsFor(kind).autoscalingGet
 		if autoscalingGet == nil {
 			return unsupportedAutoscalingKindError(args[0], kind)
 		}
@@ -806,16 +760,47 @@ var clusterNodeGroupAutoscalingGetCmd = withClusterArgument(clusterSelectionAllo
 })
 
 var clusterNodeGroupAutoscalingSetCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "set [cluster_id|name] <group_name>",
+	Use:   "set <cluster_id|name> <group_name>",
 	Short: "Enable or disable autoscaling for a node group",
 	Long: `Enable autoscaling with --enabled --min <n> --max <n>, or disable it with
---enabled=false. Only the bounds you pass are sent: a --min or --max left out
-takes the platform's default (min 1, max 100), and --enabled=false on its own
-disables without touching them. --min 0 (scale-to-zero) is accepted where the
-platform can size a node from the group's instance type and the cluster's
-ankra-agent serves the node template; the platform names what is missing
-otherwise. Enabling requires the cluster's ankra-agent to be recent enough to
-serve the autoscaler, and installs the Cluster Autoscaler on first enable.`,
+--enabled=false.
+
+A --min or --max you leave out is read from the group first. The platform
+saves both bounds on every write, so this is what keeps --enabled=false on
+its own, or a change to one bound, from resetting the other:
+
+- A disable keeps the bounds exactly as the group reads, so --enabled=false
+  on its own changes nothing but the switch. Given only --min on a group
+  with no bounds recorded, it sends max 5 rather than the 100 the group
+  reads as, so a later --enabled never keeps a max of 100 nobody typed.
+- An enable keeps the bound recorded for the group, or takes min 1 and
+  max 5 when the group has none recorded. A disabled group that recorded
+  exactly min 1 and max 100 reads the same as one with none, and gets the
+  same.
+
+An enable without --max changes nothing and exits 8 when the group has more
+nodes than the max it would keep or take, since enabling would scale it
+down; it names the --max that keeps the group's size. The command also
+changes nothing when the group's current bounds or node count cannot be
+read. On a stopped cluster the platform does not answer the bounds read, so
+pass both --min and --max there.
+
+--min 0 (scale-to-zero) is accepted where the platform can size a node from
+the group's instance type and the cluster's ankra-agent serves the node
+template; the platform names what is missing otherwise. Enabling requires
+the cluster's ankra-agent to be recent enough to serve the autoscaler, and
+installs the Cluster Autoscaler on first enable.
+
+Enabling with bounds the group is outside moves it inside them: a --max
+below the group's node count scales it down to --max, removing the least
+busy nodes first, each cordoned and drained once the pipeline steps running
+on it finish (up to 15 minutes per node), one node at a time; a --min above
+the node count scales it up to --min. The command says what will happen and
+names the operation doing it; --wait waits for that operation to finish.
+
+Examples:
+  ankra cluster node-group autoscaling set ankra-ci ci-large --enabled --min 1 --max 3
+  ankra cluster node-group autoscaling set ankra-ci ci-large --enabled --min 1 --max 3 --wait --timeout 1h`,
 	Args: nodeGroupArgs(2, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
@@ -824,17 +809,16 @@ serve the autoscaler, and installs the Cluster Autoscaler on first enable.`,
 		}
 		groupName := args[1]
 		enabled, _ := cmd.Flags().GetBool("enabled")
-		minCount, _ := cmd.Flags().GetInt("min")
-		maxCount, _ := cmd.Flags().GetInt("max")
 		kind, kindError := resolveNodeGroupClusterKind(args[0], clusterID)
 		if kindError != nil {
 			return kindError
 		}
 
-		// Only the bounds the user set are sent; the rest take the platform's
-		// defaults, which the flag defaults mirror for display.
-		req := client.NodeGroupAutoscalingRequest{Enabled: enabled, MinCount: minCount, MaxCount: maxCount,
-			OmitMinCount: !cmd.Flags().Changed("min"), OmitMaxCount: !cmd.Flags().Changed("max")}
+		calls := nodeGroupCallsFor(kind)
+		autoscalingSet := calls.autoscalingSet
+		if autoscalingSet == nil || calls.autoscalingGet == nil {
+			return unsupportedAutoscalingKindError(args[0], kind)
+		}
 
 		requestContext, cancelRequestContext, wait, err := nodeGroupAsyncContext(cmd)
 		if err != nil {
@@ -842,41 +826,74 @@ serve the autoscaler, and installs the Cluster Autoscaler on first enable.`,
 		}
 		defer cancelRequestContext()
 
-		autoscalingSet := nodeGroupAutoscalingSetForKind(kind)
-		if autoscalingSet == nil {
-			return unsupportedAutoscalingKindError(args[0], kind)
+		bounds, boundsError := resolveAutoscalingBounds(cmd, calls, clusterID, groupName, enabled)
+		if boundsError != nil {
+			return boundsError
 		}
+		for _, note := range bounds.notes {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), note)
+		}
+		req := bounds.request(enabled)
 
 		result, submitted, setError := autoscalingSet(requestContext, clusterID, groupName, req, wait)
 		if setError != nil {
 			return asyncWriteError("updating node group autoscaling", wait, setError)
 		}
-		if submitted {
-			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group autoscaling update", clusterID)); err != nil {
+		if submitted && result == nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group autoscaling update", clusterID, waitUntilOperationEnds)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printNodeGroupWriteSubmitted("Node group autoscaling update", clusterID)
+			printNodeGroupWriteSubmitted("Node group autoscaling update", clusterID, waitUntilOperationEnds)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
 			return err
 		} else if handled {
+			if wait && result.OperationID != nil {
+				if _, waitError := waitForNodeGroupOperation(requestContext, *result.OperationID); waitError != nil {
+					return asyncWriteError("waiting for the node group autoscaling operation", wait, waitError)
+				}
+			}
 			return nil
 		}
+		printNodeGroupAutoscalingResult(result, submitted)
+		if wait && result.OperationID != nil {
+			fmt.Printf("Waiting for operation %s to finish...\n", *result.OperationID)
+			operation, waitError := waitForNodeGroupOperation(requestContext, *result.OperationID)
+			if waitError != nil {
+				return asyncWriteError("waiting for the node group autoscaling operation", wait, waitError)
+			}
+			fmt.Printf("Operation %s finished: %s.\n", operation.ID, operation.Status)
+		}
+		return nil
+	},
+})
+
+// printNodeGroupAutoscalingResult prints an autoscaling write's outcome: the
+// bounds, what happens to the group's node count, and the operation doing it.
+// submitted is a write the platform accepted without waiting, whose answer
+// carried only what it does.
+func printNodeGroupAutoscalingResult(result *client.NodeGroupAutoscalingResult, submitted bool) {
+	if !submitted {
 		if result.Enabled {
 			fmt.Printf("Node group '%s' autoscaling enabled (min %d, max %d).\n",
 				result.GroupName, result.MinCount, result.MaxCount)
 		} else {
 			fmt.Printf("Node group '%s' autoscaling disabled.\n", result.GroupName)
 		}
-		return nil
-	},
-})
+	}
+	if result.Message != "" {
+		fmt.Println(result.Message)
+	}
+	if result.OperationID != nil {
+		fmt.Printf("Operation: %s (follow it with 'ankra cluster operations list %s')\n", *result.OperationID, *result.OperationID)
+	}
+}
 
 var clusterNodeGroupLabelsCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "labels [cluster_id|name] <group_name>",
+	Use:   "labels <cluster_id|name> <group_name>",
 	Short: "Set labels on all nodes in a node group",
 	Long:  "Replace the labels on every node in the group. Pass --labels as a comma-separated list of key=value pairs, or --clear to remove all labels. The cloud provider is detected automatically from the cluster.",
 	Args:  nodeGroupArgs(2, 1),
@@ -912,17 +929,17 @@ var clusterNodeGroupLabelsCmd = withClusterArgument(clusterMustBeNamed, &cobra.C
 		}
 		defer cancelRequestContext()
 
-		result, submitted, updateError := nodeGroupLabelsForKind(kind)(requestContext, clusterID, groupName, labels, wait)
+		result, submitted, updateError := nodeGroupCallsFor(kind).labels(requestContext, clusterID, groupName, labels, wait)
 		if updateError != nil {
 			return asyncWriteError("updating node group labels", wait, updateError)
 		}
 		if submitted {
-			if handled, renderError := renderStructured(cmd, newNodeGroupSubmittedResult("Node group labels update", clusterID)); renderError != nil {
+			if handled, renderError := renderStructured(cmd, newNodeGroupSubmittedResult("Node group labels update", clusterID, waitUntilRecorded)); renderError != nil {
 				return renderError
 			} else if handled {
 				return nil
 			}
-			printNodeGroupWriteSubmitted("Node group labels update", clusterID)
+			printNodeGroupWriteSubmitted("Node group labels update", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, renderError := renderStructured(cmd, result); renderError != nil {
@@ -936,7 +953,7 @@ var clusterNodeGroupLabelsCmd = withClusterArgument(clusterMustBeNamed, &cobra.C
 })
 
 var clusterNodeGroupTaintsCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "taints [cluster_id|name] <group_name>",
+	Use:   "taints <cluster_id|name> <group_name>",
 	Short: "Set taints on all nodes in a node group",
 	Long:  "Replace the taints on every node in the group. Pass --taints as a comma-separated list of key=value:Effect (value optional, effect defaults to NoSchedule), or --clear to remove all taints. The cloud provider is detected automatically from the cluster.",
 	Args:  nodeGroupArgs(2, 1),
@@ -972,17 +989,17 @@ var clusterNodeGroupTaintsCmd = withClusterArgument(clusterMustBeNamed, &cobra.C
 		}
 		defer cancelRequestContext()
 
-		result, submitted, updateError := nodeGroupTaintsForKind(kind)(requestContext, clusterID, groupName, taints, wait)
+		result, submitted, updateError := nodeGroupCallsFor(kind).taints(requestContext, clusterID, groupName, taints, wait)
 		if updateError != nil {
 			return asyncWriteError("updating node group taints", wait, updateError)
 		}
 		if submitted {
-			if handled, renderError := renderStructured(cmd, newNodeGroupSubmittedResult("Node group taints update", clusterID)); renderError != nil {
+			if handled, renderError := renderStructured(cmd, newNodeGroupSubmittedResult("Node group taints update", clusterID, waitUntilRecorded)); renderError != nil {
 				return renderError
 			} else if handled {
 				return nil
 			}
-			printNodeGroupWriteSubmitted("Node group taints update", clusterID)
+			printNodeGroupWriteSubmitted("Node group taints update", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, renderError := renderStructured(cmd, result); renderError != nil {
@@ -1015,8 +1032,8 @@ func init() {
 	_ = clusterNodeGroupAddCmd.MarkFlagRequired("instance-type")
 
 	clusterNodeGroupAutoscalingSetCmd.Flags().Bool("enabled", true, "Enable (true) or disable (false) autoscaling")
-	clusterNodeGroupAutoscalingSetCmd.Flags().Int("min", 1, "Minimum node count while autoscaling (0 allows scale-to-zero); sent only when set, otherwise the platform default applies")
-	clusterNodeGroupAutoscalingSetCmd.Flags().Int("max", 100, "Maximum node count while autoscaling (at most 100); sent only when set, otherwise the platform default applies")
+	clusterNodeGroupAutoscalingSetCmd.Flags().Int("min", 0, "Minimum node count while autoscaling (0 allows scale-to-zero). Left out, the group keeps its current min, or 1 when an enable finds none recorded")
+	clusterNodeGroupAutoscalingSetCmd.Flags().Int("max", 0, "Maximum node count while autoscaling (at most 100). Left out, the group keeps its current max, or 5 when it has none recorded and this is an enable or a disable given --min; an enable that would then scale the group down is refused (exit 8)")
 
 	clusterNodeGroupLabelsCmd.Flags().String("labels", "", "Comma-separated key=value pairs to set on the group")
 	clusterNodeGroupLabelsCmd.Flags().Bool("clear", false, "Remove all labels from the node group")
@@ -1025,17 +1042,21 @@ func init() {
 
 	registerNodeGroupWriteFlags(clusterNodeGroupAddCmd)
 	registerNodeGroupWriteFlags(clusterNodeGroupScaleCmd)
-	registerAsyncWriteFlags(clusterNodeGroupUpgradeCmd)
+	registerNodeGroupWriteFlags(clusterNodeGroupUpgradeCmd)
 	registerNodeGroupWriteFlags(clusterNodeGroupDeleteCmd)
-	registerAsyncWriteFlags(clusterNodeGroupAutoscalingSetCmd)
-	registerAsyncWriteFlags(clusterNodeGroupLabelsCmd)
-	registerAsyncWriteFlags(clusterNodeGroupTaintsCmd)
+	registerAsyncWriteFlags(clusterNodeGroupRemoveNodeCmd)
+	clusterNodeGroupRemoveNodeCmd.Flags().Lookup("wait").Usage = removeNodeWaitUsage
+	registerAsyncWriteFlagsWithTimeout(clusterNodeGroupAutoscalingSetCmd, nodeGroupAutoscalingWaitTimeout)
+	registerNodeGroupWriteFlags(clusterNodeGroupLabelsCmd)
+	registerNodeGroupWriteFlags(clusterNodeGroupTaintsCmd)
 
 	clusterNodeGroupDeleteCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	clusterNodeGroupRemoveNodeCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 
 	registerForceDrainFlag(clusterNodeGroupScaleCmd, forceDrainScaleUsage)
 	registerForceDrainFlag(clusterNodeGroupUpgradeCmd, forceDrainResizeUsage)
 	registerForceDrainFlag(clusterNodeGroupDeleteCmd, forceDrainDeleteUsage)
+	registerForceDrainFlag(clusterNodeGroupRemoveNodeCmd, forceDrainRemoveNodeUsage)
 
 	registerStructuredOutputFlags(
 		clusterNodeGroupListCmd,
@@ -1043,6 +1064,7 @@ func init() {
 		clusterNodeGroupScaleCmd,
 		clusterNodeGroupUpgradeCmd,
 		clusterNodeGroupDeleteCmd,
+		clusterNodeGroupRemoveNodeCmd,
 		clusterNodeGroupAutoscalingGetCmd,
 		clusterNodeGroupAutoscalingSetCmd,
 		clusterNodeGroupLabelsCmd,
@@ -1057,6 +1079,7 @@ func init() {
 	clusterNodeGroupCmd.AddCommand(clusterNodeGroupScaleCmd)
 	clusterNodeGroupCmd.AddCommand(clusterNodeGroupUpgradeCmd)
 	clusterNodeGroupCmd.AddCommand(clusterNodeGroupDeleteCmd)
+	clusterNodeGroupCmd.AddCommand(clusterNodeGroupRemoveNodeCmd)
 	clusterNodeGroupCmd.AddCommand(clusterNodeGroupAutoscalingCmd)
 	clusterNodeGroupCmd.AddCommand(clusterNodeGroupLabelsCmd)
 	clusterNodeGroupCmd.AddCommand(clusterNodeGroupTaintsCmd)

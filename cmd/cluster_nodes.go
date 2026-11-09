@@ -631,8 +631,8 @@ and bastion or gateway). Soft-deleted entries from a stopped cluster are
 included so the saved topology is visible before re-provisioning.`,
 	}
 
-	listCmd := withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-		Use:   "list [cluster_id|name]",
+	listCmd := withClusterArgument(clusterMustBeNamed, &cobra.Command{
+		Use:   "list <cluster_id|name>",
 		Short: "List all nodes for the cluster",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -644,8 +644,8 @@ included so the saved topology is visible before re-provisioning.`,
 		},
 	})
 
-	getCmd := withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-		Use:   "get [cluster_id|name] <node_id>",
+	getCmd := withClusterArgument(clusterMustBeNamed, &cobra.Command{
+		Use:   "get <cluster_id|name> <node_id>",
 		Short: "Show full spec and metadata for a single node",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -662,7 +662,7 @@ included so the saved topology is visible before re-provisioning.`,
 
 	if supportsRestart {
 		restartCmd := withClusterArgument(clusterMustBeNamed, &cobra.Command{
-			Use:   "restart [cluster_id|name] <node_id>",
+			Use:   "restart <cluster_id|name> <node_id>",
 			Short: "Restart a node (control plane, worker, or bastion/gateway)",
 			Long: `Schedule a native reboot (falling back to a power cycle) of the node as a
 tracked operation. The node must be in the 'up' state and have no restart
@@ -683,8 +683,8 @@ bastion/gateway.`,
 	}
 
 	if supportsNodeSSH {
-		cloudInitLogCmd := withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-			Use:   "cloud-init-log [cluster_id|name] <node_id>",
+		cloudInitLogCmd := withClusterArgument(clusterMustBeNamed, &cobra.Command{
+			Use:   "cloud-init-log <cluster_id|name> <node_id>",
 			Short: "Read the node's cloud-init status and output-log tail",
 			Long: `Fetch 'cloud-init status --long' and the tail of
 /var/log/cloud-init-output.log from the node over the platform's bastion SSH
@@ -705,8 +705,8 @@ an in-flight fetch instead of dispatching duplicates. Find node ids with
 		registerStructuredOutputFlags(cloudInitLogCmd)
 		cmd.AddCommand(cloudInitLogCmd)
 
-		diagnoseCmd := withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-			Use:   "diagnose [cluster_id|name] <node_id>",
+		diagnoseCmd := withClusterArgument(clusterMustBeNamed, &cobra.Command{
+			Use:   "diagnose <cluster_id|name> <node_id>",
 			Short: "Run a read-only SSH diagnosis of a node",
 			Long: `Dispatch the platform's read-only node diagnose job and wait for its report:
 over the bastion SSH lane it snapshots the node's OS-level state - the
@@ -736,8 +736,8 @@ clusters.operate permission on the cluster.`,
 	}
 
 	if supportsConsoleLog {
-		consoleLogCmd := withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-			Use:   "console-log [cluster_id|name] <node_id>",
+		consoleLogCmd := withClusterArgument(clusterMustBeNamed, &cobra.Command{
+			Use:   "console-log <cluster_id|name> <node_id>",
 			Short: "Read the newest lines of the node's VM serial console",
 			Long: `Read the newest lines of the node's serial console from the cloud
 provider's API, as a tracked read-only operation. It goes through neither the

@@ -128,7 +128,7 @@ application everywhere, use 'ankra application delete'.`,
 					"other deployments stay. [y/N]: ", applicationName, clusterReference, targetNamespace)
 			}
 			yes, _ := command.Flags().GetBool("yes")
-			if confirmError := confirmPrompt(command.InOrStdin(), command.OutOrStdout(), prompt, yes); confirmError != nil {
+			if confirmError := confirmPrompt(command.InOrStdin(), command.ErrOrStderr(), prompt, yes); confirmError != nil {
 				return confirmError
 			}
 			removed, removeError := apiClient.RemoveApplicationDeployment(command.Context(), applicationID, removeRequest)

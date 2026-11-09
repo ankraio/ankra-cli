@@ -12,10 +12,12 @@ import (
 // the cluster it acts on (ankra-v3qdto.19). Each inherits --cluster,
 // documented as the cluster the command acts on, so each must take the
 // cluster from --cluster when the argument is left out, refuse an argument
-// and a --cluster that name two different clusters, and, if it changes or
-// removes a cluster, refuse to act on the cluster `ankra cluster select`
-// saved. A command added later that takes a cluster argument without going
-// through withClusterArgument fails here.
+// and a --cluster that name different clusters, and act on the cluster
+// `ankra cluster select` saved only when it is one of the few reads (and
+// reconcile and update) listed in clusterSelectionFallbacks. A command added
+// later that takes a cluster argument without going through
+// withClusterArgument fails here, and so does one that falls back to the
+// selection without being listed.
 //
 // The literals mirror clusterArgumentAnnotation and its two
 // clusterArgumentAccess values; TestClusterArgumentCensusLiteralsMatch pins
@@ -34,23 +36,26 @@ var clusterArgumentCensusExempt = map[string]string{
 	"ankra cluster kubeconfig remove": "folds its argument into its own --cluster flag (applyKubeconfigPositionalCluster), which already refuses two different clusters",
 }
 
-// clusterChangingVerbs are command names that change or remove a cluster,
-// its machines or its membership. A command so named must refuse the
-// selected cluster unless it fell back to the selection before --cluster
-// could stand in for its argument (clusterKeepsSelectionFallback).
-var clusterChangingVerbs = map[string]bool{
-	"add": true, "allowed-ips": true, "delete": true, "deprovision": true, "destroy": true,
-	"join": true, "labels": true, "leave": true, "lift": true, "make-ready": true, "move": true,
-	"remove": true, "resize": true, "restart": true, "resync": true, "rollback-record": true,
-	"scale": true, "set": true, "set-count": true, "set-instance-type": true, "start": true,
-	"stop": true, "taints": true, "up": true, "update": true, "upgrade": true,
-}
-
-// clusterKeepsSelectionFallback are the cluster-changing commands that used
-// the selected cluster before this census and still do: none of them removes
-// a cluster or takes it out of the organisation.
-var clusterKeepsSelectionFallback = map[string]bool{
-	"ankra cluster update": true,
+// clusterSelectionFallbacks are the only commands whose cluster argument may
+// be left out, the command then acting on the cluster `ankra cluster select`
+// saved, and why each may. The selection is one file shared by every shell
+// and agent session on the machine, so a command that stops, starts,
+// deprovisions, deletes, moves, scales, upgrades or bills a cluster is never
+// one. Listing a command here is the reviewed decision to let it use the
+// selection; it is not keyed off the command's name.
+var clusterSelectionFallbacks = map[string]string{
+	"ankra cluster audit-logs":                   "reads the cluster's audit trail",
+	"ankra cluster domain":                       "reads the cluster's domain; it never creates a zone",
+	"ankra cluster gitops status":                "reads the cluster's GitOps wiring",
+	"ankra cluster gitops conflicts list":        "reads the open merge conflicts",
+	"ankra cluster gitops preserved list":        "reads the preserved paths",
+	"ankra cluster node-group list":              "reads the node groups",
+	"ankra cluster hetzner node-group list":      "reads the node groups",
+	"ankra cluster ovh node-group list":          "reads the node groups",
+	"ankra cluster upcloud node-group list":      "reads the node groups",
+	"ankra cluster digitalocean node-group list": "reads the node groups",
+	"ankra cluster reconcile":                    "re-applies the cluster's stored definition; it removes and bills nothing, and fell back to the selection before",
+	"ankra cluster update":                       "sets the environment label and reporting level; it removes and bills nothing, and fell back to the selection before",
 }
 
 var censusPlaceholder = regexp.MustCompile(`<[^<>]+>|\[[^\[\]]+\]`)
@@ -135,6 +140,7 @@ func TestEveryClusterArgumentCommandTakesTheClusterFlag(t *testing.T) {
 	if len(commands) < 150 {
 		t.Fatalf("the census found %d commands taking a cluster argument; the walk is broken", len(commands))
 	}
+	fallbacksSeen := map[string]bool{}
 	for _, command := range commands {
 		path := command.CommandPath()
 		position, others, variadic, _ := clusterArgumentUse(command.Use)
@@ -155,11 +161,25 @@ func TestEveryClusterArgumentCommandTakesTheClusterFlag(t *testing.T) {
 				t.Errorf("%s takes a cluster argument (%q) but is not registered with withClusterArgument, "+
 					"so --cluster cannot stand in for it", path, command.Use)
 			}
-			if clusterChangingVerbs[command.Name()] && !clusterKeepsSelectionFallback[path] && access != censusMustBeNamed {
-				t.Errorf("%s changes a cluster, so it must be registered with clusterMustBeNamed (got %q)", path, access)
+			reason, listed := clusterSelectionFallbacks[path]
+			switch {
+			case access == censusSelectionAllowed && !listed:
+				t.Errorf("%s is registered with clusterSelectionAllowed, so it acts on the cluster `ankra cluster select` "+
+					"saved when none is named; list it in clusterSelectionFallbacks with the reason it may, "+
+					"or register it with clusterMustBeNamed", path)
+			case access == censusMustBeNamed && listed:
+				t.Errorf("%s is listed in clusterSelectionFallbacks (%s) but registered with clusterMustBeNamed; drop the entry",
+					path, reason)
 			}
-			if !strings.Contains(command.Use, "[cluster") {
-				t.Errorf("%s: --cluster can replace the cluster argument, so the usage line shows it optional "+
+			if listed {
+				fallbacksSeen[path] = true
+			}
+			optional := strings.Contains(command.Use, "[cluster")
+			if access == censusMustBeNamed && optional && !variadic {
+				t.Errorf("%s must be named, so its usage line shows the cluster as required (<cluster_id|name>); got %q", path, command.Use)
+			}
+			if access == censusSelectionAllowed && !optional {
+				t.Errorf("%s falls back to the selected cluster, so its usage line shows the cluster as optional "+
 					"([cluster_id|name]); got %q", path, command.Use)
 			}
 
@@ -172,9 +192,9 @@ func TestEveryClusterArgumentCommandTakesTheClusterFlag(t *testing.T) {
 			}
 			if !variadic {
 				twice := censusArgs(t, command, otherClusterID, withCensusCluster(others, position, testClusterID))
-				if twice == nil || exitCodeFor(twice) != exitUsage || !strings.Contains(twice.Error(), "named twice") {
+				if twice == nil || exitCodeFor(twice) != exitUsage || !strings.Contains(twice.Error(), "name different clusters") {
 					t.Errorf("%s with the argument and --cluster naming two clusters: got %v (exit %d), "+
-						"want the named-twice usage error (exit 2)", path, twice, exitCodeFor(twice))
+						"want the different-clusters usage error (exit 2)", path, twice, exitCodeFor(twice))
 				}
 			}
 
@@ -187,10 +207,15 @@ func TestEveryClusterArgumentCommandTakesTheClusterFlag(t *testing.T) {
 				}
 			default:
 				if unnamed != nil {
-					t.Errorf("%s with no cluster named and one selected: %v; a read uses the selected cluster", path, unnamed)
+					t.Errorf("%s with no cluster named and one selected: %v; it falls back to the selected cluster", path, unnamed)
 				}
 			}
 		})
+	}
+	for path := range clusterSelectionFallbacks {
+		if !fallbacksSeen[path] {
+			t.Errorf("clusterSelectionFallbacks lists %s, which the census did not find; drop the entry", path)
+		}
 	}
 }
 

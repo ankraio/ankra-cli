@@ -107,7 +107,7 @@ var clusterMeshDeleteCmd = &cobra.Command{
 }
 
 var clusterMeshJoinCmd = withClusterArgumentAt(1, clusterMustBeNamed, &cobra.Command{
-	Use:   "join <mesh_id> [cluster_id|name]",
+	Use:   "join <mesh_id> <cluster_id|name>",
 	Short: "Add a cluster to a mesh",
 	Long: "Add a cluster to a mesh. The platform mints the mesh's shared certificate authority on the first join, " +
 		"hands it to the joining cluster, and re-renders every member's peer list.\n\n" +
@@ -127,7 +127,7 @@ var clusterMeshJoinCmd = withClusterArgumentAt(1, clusterMustBeNamed, &cobra.Com
 })
 
 var clusterMeshLeaveCmd = withClusterArgumentAt(1, clusterMustBeNamed, &cobra.Command{
-	Use:   "leave <mesh_id> [cluster_id|name]",
+	Use:   "leave <mesh_id> <cluster_id|name>",
 	Short: "Remove a cluster from a mesh",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -149,7 +149,7 @@ var (
 )
 
 var clusterMeshMakeReadyCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "make-ready [cluster_id|name]",
+	Use:   "make-ready <cluster_id|name>",
 	Short: "Turn an existing cluster mesh-capable without recreating it",
 	Long: "Turn an existing cluster mesh-capable, day-2: allocate its Cilium identity and overlay range, stamp the " +
 		"overlay onto its stored definitions, and set its resources converging so every node joins the platform " +
@@ -188,8 +188,8 @@ var clusterMeshMakeReadyCmd = withClusterArgument(clusterMustBeNamed, &cobra.Com
 	},
 })
 
-var clusterMeshReadinessCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "readiness [cluster_id|name...]",
+var clusterMeshReadinessCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "readiness <cluster_id|name> [cluster_id|name...]",
 	Short: "Check whether clusters can mesh together, and why not",
 	Long: "Check whether the given clusters could form one mesh. Each cluster is reported ready or not, with the " +
 		"failing checks spelled out.\n\nA missing Cilium identity and a node network no other cluster can reach are " +

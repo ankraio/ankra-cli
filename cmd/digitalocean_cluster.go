@@ -110,7 +110,7 @@ var digitaloceanCreateCmd = &cobra.Command{
 }
 
 var digitaloceanDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "deprovision [cluster_id|name]",
+	Use:   "deprovision <cluster_id|name>",
 	Short: "Deprovision an DigitalOcean cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -130,7 +130,7 @@ var digitaloceanDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.
 		if force {
 			warning = "This deletes all its servers, networks, SSH keys and load balancers!"
 		}
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Deprovision DigitalOcean cluster %s? %s [y/N]: ", clusterTarget(args[0], clusterID), warning),
 			yes); err != nil {
 			return err
@@ -163,7 +163,7 @@ var digitaloceanDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.
 })
 
 var digitaloceanStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "stop [cluster_id|name]",
+	Use:   "stop <cluster_id|name>",
 	Short: "Stop an DigitalOcean cluster",
 	Long:  "Stop an DigitalOcean cluster's compute while keeping its configuration so it can be started again later.",
 	Args:  cobra.ExactArgs(1),
@@ -199,7 +199,7 @@ var digitaloceanStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command
 })
 
 var digitaloceanStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "start [cluster_id|name]",
+	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped DigitalOcean cluster",
 	Long:  "Start (re-provision) a stopped DigitalOcean cluster. Use --scope control_plane to bring up only the control plane.",
 	Args:  cobra.ExactArgs(1),
@@ -213,7 +213,7 @@ var digitaloceanStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Comman
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, err := apiClient.StartDigitaloceanCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd)})
+		result, err := apiClient.StartDigitaloceanCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd), RestoreSnapshotID: restoreSnapshotIDFlag(cmd), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(cmd)})
 		if err != nil {
 			return fmt.Errorf("starting cluster: %w", err)
 		}
@@ -229,8 +229,8 @@ var digitaloceanStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Comman
 	},
 })
 
-var digitaloceanWorkersCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "workers [cluster_id|name]",
+var digitaloceanWorkersCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for an DigitalOcean cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -258,7 +258,7 @@ var digitaloceanWorkersCmd = withClusterArgument(clusterSelectionAllowed, &cobra
 })
 
 var digitaloceanScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "scale [cluster_id|name] <worker_count>",
+	Use:   "scale <cluster_id|name> <worker_count>",
 	Short: "Scale workers for an DigitalOcean cluster",
 	Long:  "Scale the number of worker nodes up or down for an DigitalOcean cluster.",
 	Args:  cobra.ExactArgs(2),
@@ -296,8 +296,8 @@ var digitaloceanScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Comman
 	},
 })
 
-var digitaloceanK8sVersionCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "k8s-version [cluster_id|name]",
+var digitaloceanK8sVersionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for an DigitalOcean cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -328,7 +328,7 @@ var digitaloceanK8sVersionCmd = withClusterArgument(clusterSelectionAllowed, &co
 })
 
 var digitaloceanUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:        "upgrade [cluster_id|name] <target_version>",
+	Use:        "upgrade <cluster_id|name> <target_version>",
 	Short:      "Upgrade Kubernetes version for an DigitalOcean cluster",
 	Long:       "Upgrade the Kubernetes version on all nodes in an DigitalOcean cluster. This deprecated form always runs the safe non-forced rollout; use `ankra cluster upgrade` for --force (PodDisruptionBudget override) and operation progress tracking.",
 	Deprecated: "use `ankra cluster upgrade <cluster_id> <target_version>` instead; the cloud provider is detected automatically.",
@@ -401,7 +401,7 @@ var digitaloceanNodeGroupListCmd = withClusterArgument(clusterSelectionAllowed, 
 })
 
 var digitaloceanNodeGroupAddCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "add [cluster_id|name]",
+	Use:   "add <cluster_id|name>",
 	Short: "Add a node group",
 	Args:  nodeGroupAddArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -430,12 +430,12 @@ var digitaloceanNodeGroupAddCmd = withClusterArgument(clusterMustBeNamed, &cobra
 			return asyncWriteError("adding node group", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group add")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group add", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group add")
+			printNodeGroupWriteSubmitted("Node group add", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -449,7 +449,7 @@ var digitaloceanNodeGroupAddCmd = withClusterArgument(clusterMustBeNamed, &cobra
 })
 
 var digitaloceanNodeGroupScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "scale [cluster_id|name] <group_name> <count>",
+	Use:   "scale <cluster_id|name> <group_name> <count>",
 	Short: "Scale a node group",
 	Args:  nodeGroupArgs(3, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -474,12 +474,12 @@ var digitaloceanNodeGroupScaleCmd = withClusterArgument(clusterMustBeNamed, &cob
 			return asyncWriteError("scaling node group", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group scale")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group scale", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group scale")
+			printNodeGroupWriteSubmitted("Node group scale", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -493,7 +493,7 @@ var digitaloceanNodeGroupScaleCmd = withClusterArgument(clusterMustBeNamed, &cob
 })
 
 var digitaloceanNodeGroupUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "upgrade [cluster_id|name] <group_name> <size>",
+	Use:   "upgrade <cluster_id|name> <group_name> <size>",
 	Short: "Upgrade server size for a node group",
 	Args:  nodeGroupArgs(3, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -515,12 +515,12 @@ var digitaloceanNodeGroupUpgradeCmd = withClusterArgument(clusterMustBeNamed, &c
 			return asyncWriteError("upgrading node group", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group size update")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group size update", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group size update")
+			printNodeGroupWriteSubmitted("Node group size update", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -528,13 +528,13 @@ var digitaloceanNodeGroupUpgradeCmd = withClusterArgument(clusterMustBeNamed, &c
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' size upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
+		printNodeGroupResized(result, clusterID, "size")
 		return nil
 	},
 })
 
 var digitaloceanNodeGroupDeleteCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "delete [cluster_id|name] <group_name>",
+	Use:   "delete <cluster_id|name> <group_name>",
 	Short: "Delete a node group and all its nodes",
 	Args:  nodeGroupArgs(2, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -545,7 +545,7 @@ var digitaloceanNodeGroupDeleteCmd = withClusterArgument(clusterMustBeNamed, &co
 		groupName := args[1]
 		yes, _ := cmd.Flags().GetBool("yes")
 
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete node group %q from cluster %s? This deletes all its nodes! [y/N]: ", groupName, clusterTarget(args[0], clusterID)),
 			yes); err != nil {
 			return err
@@ -562,12 +562,12 @@ var digitaloceanNodeGroupDeleteCmd = withClusterArgument(clusterMustBeNamed, &co
 			return asyncWriteError("deleting node group", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group delete")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group delete", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group delete")
+			printNodeGroupWriteSubmitted("Node group delete", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -676,7 +676,7 @@ func init() {
 	_ = digitaloceanCreateCmd.MarkFlagRequired("region")
 
 	digitaloceanStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(digitaloceanStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(digitaloceanStartCmd)
 
 	digitaloceanDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 	digitaloceanDeprovisionCmd.Flags().Bool("force", false, "Force teardown: also delete the cluster's load balancers, and tolerate unreachable infrastructure. The block storage volumes are deleted forced or not, and only with --accept-volume-data-loss or a yes at the prompt")
@@ -692,7 +692,7 @@ func init() {
 	_ = digitaloceanNodeGroupAddCmd.MarkFlagRequired("name")
 	registerNodeGroupWriteFlags(digitaloceanNodeGroupAddCmd)
 	registerNodeGroupWriteFlags(digitaloceanNodeGroupScaleCmd)
-	registerAsyncWriteFlags(digitaloceanNodeGroupUpgradeCmd)
+	registerNodeGroupWriteFlags(digitaloceanNodeGroupUpgradeCmd)
 	registerNodeGroupWriteFlags(digitaloceanNodeGroupDeleteCmd)
 
 	registerStructuredOutputFlags(

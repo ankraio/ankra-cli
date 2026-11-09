@@ -22,8 +22,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var ankraCloudQuotaCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "quota [cluster_id|name]",
+var ankraCloudQuotaCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "quota <cluster_id|name>",
 	Short: "Show the Ankra Cloud account quota an Ankra Cloud cluster draws on",
 	Long: "Show the limits of the Ankra Cloud account behind an Ankra Cloud cluster, what the account " +
 		"already holds, and what is left: servers, cores, memory, storage, floating IPs, private networks " +

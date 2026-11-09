@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
-	"net/http"
 
 	"ankra/internal/client"
 
@@ -44,7 +42,7 @@ func upgradeFunctionForKind(kind string) (k8sVersionUpgrade, bool) {
 var clusterUpgradeForce bool
 
 var clusterUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "upgrade [cluster_id|name] <target_version>",
+	Use:   "upgrade <cluster_id|name> <target_version>",
 	Short: "Upgrade the Kubernetes version of a cloud cluster",
 	Long: `Upgrade the Kubernetes version on all nodes in a cloud cluster.
 
@@ -139,9 +137,5 @@ func init() {
 // upgrade goes ahead after. The cluster was found just before, so a 404 here
 // is the route, not the cluster.
 func upgradePreflightRouteAbsent(preflightError error) bool {
-	var unexpected *client.UnexpectedResponseError
-	if !errors.As(preflightError, &unexpected) || unexpected.StatusCode != http.StatusNotFound {
-		return false
-	}
-	return unexpected.Detail == "" || unexpected.Detail == routeAbsentDetail
+	return isRouteAbsent(preflightError)
 }

@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -13,26 +12,30 @@ import (
 // positional argument used to demand the argument and never read the flag:
 // `ankra cluster ssh-keys get --cluster <id>` failed with "accepts 1 arg(s),
 // received 0", and an argument beside a different --cluster silently won
-// (ankra-v3qdto.19, measured on 121 command definitions). withClusterArgument
-// makes the argument and the flag two spellings of the same thing for every
-// such command, through one resolver:
+// (ankra-v3qdto.19, ankra-oznf7k.10). withClusterArgument makes the argument
+// and the flag two spellings of the same thing for every such command,
+// through one resolver:
 //
 //   - the cluster is the argument, else --cluster;
-//   - the argument and --cluster naming two different clusters is a usage
-//     error (exit 2); naming the same one twice is fine;
-//   - with --cluster set, the cluster argument is left out, so a command with
-//     further arguments takes one fewer (`node-group scale --cluster prod
-//     workers 3`). A command whose argument count is fixed also accepts the
-//     cluster in both places, which is never ambiguous;
-//   - named in neither place, a read uses the cluster `ankra cluster select`
-//     saved, and a command that changes or removes a cluster or its machines
-//     refuses (exit 2). The selection is one file per machine, shared by
-//     every shell and agent session on it, so it is never what a write acts
-//     on unless the write already fell back to it before (see
-//     clusterSelectionAllowed).
+//   - the argument and --cluster naming different clusters is a usage error
+//     (exit 2). The comparison is of the text, so a name beside the same
+//     cluster's id is refused too: the safe side, and nothing is looked up
+//     before the command runs;
+//   - with --cluster set, the cluster argument is left out, so a command
+//     with further arguments takes one fewer (`node-group scale --cluster
+//     prod workers 3`). Naming the cluster in both places, the same way, is
+//     accepted;
+//   - named in neither place, a command whose usage line shows the cluster
+//     as required (<cluster...>) refuses with exit 2, saying how to name it.
+//     It never acts on the cluster `ankra cluster select` saved: that is one
+//     file per machine, shared by every shell and agent session on it, so a
+//     selection made elsewhere could aim a deprovision at the wrong cluster.
+//     Only a command registered with clusterSelectionAllowed, whose usage
+//     shows the cluster as optional ([cluster...]), falls back to the
+//     selection, and the census names each one with its reason.
 //
-// The census in cluster_argument_test.go walks the command tree and fails a
-// command that takes a cluster argument without going through here.
+// The census in cluster_argument_census_test.go walks the command tree and
+// fails a command that takes a cluster argument without going through here.
 
 // clusterArgumentAnnotation marks a command registered by withClusterArgument,
 // with its clusterArgumentAccess as the value.
@@ -43,20 +46,19 @@ const clusterArgumentAnnotation = "ankra.cluster_argument"
 type clusterArgumentAccess string
 
 const (
-	// clusterSelectionAllowed: from the cluster `ankra cluster select` saved.
-	// Reads, and the writes that already fell back to the selection before
-	// --cluster could stand in for their argument (reconcile, provision,
-	// update, domain), which keep doing so.
-	clusterSelectionAllowed clusterArgumentAccess = "selection"
-	// clusterMustBeNamed: from nowhere. The command changes or removes the
-	// cluster or its machines, so the cluster has to be named on its own
-	// command line.
+	// clusterMustBeNamed: from nowhere. The cluster is named on the command
+	// line, as the argument or with --cluster. Every command whose usage
+	// line shows the cluster as required (<cluster_id|name>), which takes in
+	// every command that stops, starts, deprovisions, deletes, moves,
+	// scales, upgrades or bills a cluster.
 	clusterMustBeNamed clusterArgumentAccess = "explicit"
+	// clusterSelectionAllowed: the cluster argument may be left out
+	// ([cluster]), and the command then uses the cluster `ankra cluster
+	// select` saved, as it did before --cluster could stand in for the
+	// argument. Reads, and reconcile and update, which neither remove nor
+	// bill anything.
+	clusterSelectionAllowed clusterArgumentAccess = "selection"
 )
-
-// clusterArgumentPlaceholder stands in for a left-out cluster while a
-// command's own argument check is asked whether the rest would fit.
-const clusterArgumentPlaceholder = "cluster"
 
 // clusterArgumentSpec is what withClusterArgument knows about a command.
 type clusterArgumentSpec struct {
@@ -75,14 +77,14 @@ var clusterArgumentSpecs = map[*cobra.Command]clusterArgumentSpec{}
 // withClusterArgument registers a command whose first argument is the
 // cluster it acts on. command.Args stays the check of the whole argument
 // list (cluster first) and command.RunE keeps reading the cluster from
-// args[0]: both are wrapped so the cluster can come from --cluster (or, for
-// clusterSelectionAllowed, the selection) instead. Returns command.
+// args[0]: both are wrapped so the cluster can come from --cluster instead.
+// Returns command.
 func withClusterArgument(access clusterArgumentAccess, command *cobra.Command) *cobra.Command {
 	return withClusterArgumentAt(0, access, command)
 }
 
 // withClusterArgumentAt is withClusterArgument for a command whose cluster is
-// the argument at position (`mesh leave <mesh_id> [cluster_id|name]`).
+// the argument at position (`mesh leave <mesh_id> <cluster_id|name>`).
 func withClusterArgumentAt(position int, access clusterArgumentAccess, command *cobra.Command) *cobra.Command {
 	run := command.RunE
 	if run == nil {
@@ -101,15 +103,6 @@ func withClusterArgumentAt(position int, access clusterArgumentAccess, command *
 		resolution, resolveError := spec.resolve(cmd, args)
 		if resolveError != nil {
 			return resolveError
-		}
-		if resolution.alsoFlagged != "" {
-			argumentID, argumentError := resolveClusterArg(resolution.typed)
-			if argumentError != nil {
-				return argumentError
-			}
-			if differentError := refuseADifferentFlaggedCluster(resolution.typed, argumentID, resolution.alsoFlagged); differentError != nil {
-				return differentError
-			}
 		}
 		return run(cmd, resolution.args)
 	}
@@ -130,96 +123,81 @@ const (
 	// clusterFromFlag: --cluster, put in the argument list at the
 	// cluster's position.
 	clusterFromFlag
-	// clusterFromSelection: the selected cluster's id, put in the same way.
-	clusterFromSelection
-	// clusterLeftToCommand: the command's cluster argument is optional and
-	// was left out; the command reads --cluster or the selection itself.
+	// clusterLeftToCommand: an optional cluster argument was left out and
+	// --cluster is not set; the command uses the selected cluster itself
+	// (clusterSelectionAllowed only).
 	clusterLeftToCommand
 )
 
 // clusterArgumentResolution is the argument list a command's RunE gets.
 type clusterArgumentResolution struct {
 	args []string
-	// typed is the cluster as it was named (the argument, the --cluster
-	// value, or the selected cluster's id); "" for clusterLeftToCommand.
+	// typed is the cluster as it was named (the argument or the --cluster
+	// value); "" for clusterLeftToCommand.
 	typed  string
 	source clusterArgumentSource
-	// alsoFlagged is the --cluster value when the argument names the
-	// cluster too, spelled differently; RunE confirms they are one cluster
-	// before the command runs.
-	alsoFlagged string
 }
 
 // resolve works out the argument list a command's RunE gets. It reads only
-// the command line and the saved selection, never the platform, because it
-// runs as the command's Args check, before credentials are read. Whether the
-// cluster was left out is asked of the command's own check: the arguments
-// fit it with the cluster put in, and do not as given.
+// the command line, never the platform or the saved selection, because it
+// runs as the command's Args check, before credentials are read.
 func (spec clusterArgumentSpec) resolve(cmd *cobra.Command, args []string) (clusterArgumentResolution, error) {
 	fits := func(candidate []string) bool { return spec.validate(cmd, candidate) == nil }
 	position := spec.position
 	named := len(args) > position
-	if override := clusterFlagOverride(cmd); override != "" {
+	if flagged := clusterFlagOverride(cmd); flagged != "" {
+		// The same cluster as the argument and with --cluster: one cluster.
+		if named && strings.TrimSpace(args[position]) == flagged && fits(args) {
+			return clusterArgumentResolution{args: args, typed: flagged, source: clusterFromArgument}, nil
+		}
 		if len(args) < position {
-			if shortError := spec.validate(cmd, args); shortError != nil {
-				return clusterArgumentResolution{}, withExitCode(exitUsage, shortError)
-			}
-			return clusterArgumentResolution{args: args, source: clusterLeftToCommand}, nil
+			return clusterArgumentResolution{}, usageError(cmd, spec.validate(cmd, args),
+				"the arguments before the cluster are missing")
 		}
-		if named && args[position] == override && fits(args) {
-			return clusterArgumentResolution{args: args, typed: override, source: clusterFromArgument}, nil
-		}
-		if len(args) == position && fits(args) {
-			return clusterArgumentResolution{args: args, source: clusterLeftToCommand}, nil
-		}
-		withFlag := insertClusterArgument(args, position, override)
+		// --cluster stands in for the argument: the arguments given are the
+		// ones around it.
+		withFlag := insertClusterArgument(args, position, flagged)
 		flagError := spec.validate(cmd, withFlag)
 		if flagError == nil {
-			return clusterArgumentResolution{args: withFlag, typed: override, source: clusterFromFlag}, nil
+			return clusterArgumentResolution{args: withFlag, typed: flagged, source: clusterFromFlag}, nil
 		}
+		// The arguments fit only with a cluster among them, and it is
+		// another one than --cluster names.
 		if named && fits(args) {
-			argument := args[position]
-			if isLikelyClusterID(argument) && isLikelyClusterID(override) {
-				if strings.EqualFold(argument, override) {
-					return clusterArgumentResolution{args: args, typed: argument, source: clusterFromArgument}, nil
-				}
-				return clusterArgumentResolution{}, clusterNamedTwiceError(argument, override)
-			}
-			return clusterArgumentResolution{args: args, typed: argument, source: clusterFromArgument, alsoFlagged: override}, nil
-		}
-		var coded *codedError
-		if errors.As(flagError, &coded) {
-			return clusterArgumentResolution{}, flagError
+			return clusterArgumentResolution{}, differentClustersError(cmd, flagged, args[position])
 		}
 		return clusterArgumentResolution{}, withExitCode(exitUsage, fmt.Errorf(
-			"%d argument(s) beside --cluster %q do not fit `%s`: with --cluster, leave the cluster argument out",
-			len(args), override, cmd.UseLine()))
+			"%w, counting --cluster %q as the cluster argument; usage: %s", flagError, flagged, cmd.UseLine()))
 	}
 	ownError := spec.validate(cmd, args)
-	if ownError == nil {
-		if named {
-			return clusterArgumentResolution{args: args, typed: args[position], source: clusterFromArgument}, nil
-		}
-		if spec.access == clusterMustBeNamed {
-			return clusterArgumentResolution{}, clusterNotNamedError(cmd)
-		}
+	switch {
+	case ownError == nil && named:
+		return clusterArgumentResolution{args: args, typed: args[position], source: clusterFromArgument}, nil
+	case ownError == nil && spec.access == clusterSelectionAllowed:
 		return clusterArgumentResolution{args: args, source: clusterLeftToCommand}, nil
-	}
-	if len(args) < position || !fits(insertClusterArgument(args, position, clusterArgumentPlaceholder)) {
-		return clusterArgumentResolution{}, withExitCode(exitUsage, ownError)
-	}
-	if spec.access == clusterMustBeNamed {
+	case ownError == nil, len(args) <= position:
+		// What is missing is the cluster.
 		return clusterArgumentResolution{}, clusterNotNamedError(cmd)
 	}
-	_, selectedID, selectedError := selectedClusterArgument()
-	if selectedError != nil {
-		return clusterArgumentResolution{}, selectedError
+	usage := usageError(cmd, ownError, "")
+	// Arguments are read in order, so `scale prod` lacks its count, not a
+	// cluster. When the cluster may be what is missing instead (`upgrade
+	// v1.33.1`), the refusal also says how to name it.
+	if fits(insertClusterArgument(args, position, "cluster")) {
+		return clusterArgumentResolution{}, withExitCode(exitUsage, fmt.Errorf(
+			"%w; if the cluster is what is missing, name it as the argument or with --cluster <name|id>: "+
+				"the cluster selected with `ankra cluster select` is not used", usage))
 	}
-	return clusterArgumentResolution{
-		args:   insertClusterArgument(args, position, selectedID),
-		typed:  selectedID,
-		source: clusterFromSelection,
-	}, nil
+	return clusterArgumentResolution{}, usage
+}
+
+// usageError is a command's own argument check failing, with its usage
+// line, as exit 2. fallback is the message when the check itself passed.
+func usageError(cmd *cobra.Command, validateError error, fallback string) error {
+	if validateError == nil {
+		validateError = fmt.Errorf("%s", fallback)
+	}
+	return withExitCode(exitUsage, fmt.Errorf("%w; usage: %s", validateError, cmd.UseLine()))
 }
 
 // insertClusterArgument returns args with cluster put in at position, as a
@@ -231,50 +209,23 @@ func insertClusterArgument(args []string, position int, cluster string) []string
 	return append(withCluster, args[position:]...)
 }
 
-// clusterNamedTwiceError refuses an argument and a --cluster that name two
-// different clusters, rather than quietly acting on one of them.
-func clusterNamedTwiceError(argument, flagged string) error {
+// differentClustersError refuses a --cluster that names a different cluster
+// from the argument. resolveOptionalClusterArg answers with the same words,
+// so the refusal reads the same whichever check meets it first.
+func differentClustersError(command *cobra.Command, flagValue, argument string) error {
 	return withExitCode(exitUsage, fmt.Errorf(
-		"the cluster is named twice, %q as the argument and %q with --cluster; pass one", argument, flagged))
+		"--cluster %q and the argument %q name different clusters; pass one, usage: %s",
+		flagValue, argument, command.UseLine()))
 }
 
-// clusterNotNamedError refuses a command that changes or removes a cluster
-// when neither its argument nor --cluster names one.
+// clusterNotNamedError refuses a command whose cluster neither its argument
+// nor --cluster names. The selected cluster is not used: it is shared by
+// every session on the machine.
 func clusterNotNamedError(cmd *cobra.Command) error {
 	return withExitCode(exitUsage, fmt.Errorf(
-		"name the cluster `%s` acts on, as its argument or with --cluster <name|id>: a command that changes a cluster "+
-			"never falls back to the cluster selected with `ankra cluster select`", cmd.CommandPath()))
-}
-
-// refuseADifferentFlaggedCluster refuses a --cluster that names another
-// cluster than the argument did. argumentID is the argument, resolved.
-func refuseADifferentFlaggedCluster(argument, argumentID, flagged string) error {
-	if flagged == "" || flagged == argument {
-		return nil
-	}
-	flaggedID, flaggedError := resolveClusterArg(flagged)
-	if flaggedError != nil {
-		return flaggedError
-	}
-	if !strings.EqualFold(flaggedID, argumentID) {
-		return clusterNamedTwiceError(argument, flagged)
-	}
-	return nil
-}
-
-// selectedClusterArgument is the cluster `ankra cluster select` saved: its
-// name for messages (its id when the selection has no name) and its id. No
-// selection is a usage error naming --cluster.
-func selectedClusterArgument() (typed, clusterID string, err error) {
-	selected, selectedError := loadSelectedCluster()
-	if selectedError != nil || strings.TrimSpace(selected.ID) == "" {
-		return "", "", withExitCode(exitUsage, errNoClusterSelected{})
-	}
-	typed = selected.Name
-	if typed == "" {
-		typed = selected.ID
-	}
-	return typed, selected.ID, nil
+		"missing the cluster: name it as the argument or with --cluster <name|id>; `%s` does not use the cluster "+
+			"selected with `ankra cluster select`, which every session on this machine shares; usage: %s",
+		cmd.CommandPath(), cmd.UseLine()))
 }
 
 // resolveOptionalClusterArg resolves the cluster of a command whose
@@ -288,12 +239,15 @@ func selectedClusterArgument() (typed, clusterID string, err error) {
 func resolveOptionalClusterArg(cmd *cobra.Command, args []string) (typed, clusterID string, err error) {
 	override := clusterFlagOverride(cmd)
 	if len(args) > 0 {
+		// The same check and words as withClusterArgument, which runs
+		// first, so the refusal never depends on which check met it. A name
+		// beside the same cluster's id is refused there too.
+		if override != "" && strings.TrimSpace(args[0]) != override {
+			return "", "", differentClustersError(cmd, override, args[0])
+		}
 		clusterID, err = resolveClusterArg(args[0])
 		if err != nil {
 			return "", "", err
-		}
-		if differentError := refuseADifferentFlaggedCluster(args[0], clusterID, override); differentError != nil {
-			return "", "", differentError
 		}
 		return args[0], clusterID, nil
 	}
@@ -304,5 +258,13 @@ func resolveOptionalClusterArg(cmd *cobra.Command, args []string) (typed, cluste
 		}
 		return override, clusterID, nil
 	}
-	return selectedClusterArgument()
+	selected, selectedError := loadSelectedCluster()
+	if selectedError != nil || strings.TrimSpace(selected.ID) == "" {
+		return "", "", withExitCode(exitUsage, errNoClusterSelected{})
+	}
+	typed = selected.Name
+	if typed == "" {
+		typed = selected.ID
+	}
+	return typed, selected.ID, nil
 }

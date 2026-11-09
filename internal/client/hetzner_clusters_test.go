@@ -632,18 +632,18 @@ func TestHetznerRoleServerTypesSummarySkipsEmptyRoles(t *testing.T) {
 	}
 }
 
-// A bound the caller omits is left out of the body so the platform applies
-// its default (min 1, max 100); the zero value still sends both, as before.
-func TestNodeGroupAutoscalingRequestMarshalsOnlyTheBoundsKept(t *testing.T) {
+// Both bounds are always in the body, a min_count of 0 too: the platform
+// saves its default (1 or 100) for a bound the body leaves out, so a bound
+// dropped on the way would overwrite the one the caller means to keep.
+func TestNodeGroupAutoscalingRequestAlwaysSendsBothBounds(t *testing.T) {
 	for _, testCase := range []struct {
 		name    string
 		request NodeGroupAutoscalingRequest
 		want    string
 	}{
-		{name: "both bounds", request: NodeGroupAutoscalingRequest{Enabled: true, MinCount: 2, MaxCount: 6}, want: `{"enabled":true,"max_count":6,"min_count":2}`},
-		{name: "scale to zero", request: NodeGroupAutoscalingRequest{Enabled: true, MinCount: 0, MaxCount: 4}, want: `{"enabled":true,"max_count":4,"min_count":0}`},
-		{name: "min omitted", request: NodeGroupAutoscalingRequest{Enabled: true, MinCount: 1, MaxCount: 8, OmitMinCount: true}, want: `{"enabled":true,"max_count":8}`},
-		{name: "plain disable", request: NodeGroupAutoscalingRequest{MinCount: 1, MaxCount: 100, OmitMinCount: true, OmitMaxCount: true}, want: `{"enabled":false}`},
+		{name: "both bounds", request: NodeGroupAutoscalingRequest{Enabled: true, MinCount: 2, MaxCount: 6}, want: `{"enabled":true,"min_count":2,"max_count":6}`},
+		{name: "scale to zero", request: NodeGroupAutoscalingRequest{Enabled: true, MinCount: 0, MaxCount: 4}, want: `{"enabled":true,"min_count":0,"max_count":4}`},
+		{name: "disable", request: NodeGroupAutoscalingRequest{MinCount: 1, MaxCount: 7}, want: `{"enabled":false,"min_count":1,"max_count":7}`},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			body, marshalError := json.Marshal(testCase.request)
@@ -654,5 +654,38 @@ func TestNodeGroupAutoscalingRequestMarshalsOnlyTheBoundsKept(t *testing.T) {
 				t.Errorf("body = %s, want %s", body, testCase.want)
 			}
 		})
+	}
+}
+
+// The instance-type change answers the operation resizing the group's nodes
+// (the platform's UpdateNodeGroupInstanceTypeResult), and null when it
+// started none.
+func TestUpdateNodeGroupInstanceTypeDecodesTheOperation(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		body string
+		want *string
+	}{
+		{name: "operation started", body: `{"group_name":"workers","updated":3,"operation_id":"op-9"}`, want: strPtr("op-9")},
+		{name: "none started", body: `{"group_name":"workers","updated":3,"operation_id":null}`},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(testCase.body))
+			})
+			result, submitted, err := testClient.UpdateHetznerNodeGroupInstanceType(context.Background(), "cluster-1", "workers", "cx43", DrainOptions{}, true)
+			if err != nil || submitted || result == nil {
+				t.Fatalf("UpdateHetznerNodeGroupInstanceType = %+v, %v, %v", result, submitted, err)
+			}
+			if (result.OperationID == nil) != (testCase.want == nil) ||
+				(result.OperationID != nil && *result.OperationID != *testCase.want) {
+				t.Errorf("OperationID = %v, want %v", result.OperationID, testCase.want)
+			}
+		})
+	}
+	encoded, _ := json.Marshal(UpdateNodeGroupResult{GroupName: "workers", Updated: 2})
+	if strings.Contains(string(encoded), "operation_id") {
+		t.Errorf("a labels or taints answer must not print an operation_id: %s", encoded)
 	}
 }

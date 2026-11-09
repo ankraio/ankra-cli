@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"ankra/internal/client"
 )
@@ -531,5 +532,54 @@ func TestPlaygroundCommandsNameAnUnknownClusterInsteadOfA404(t *testing.T) {
 	}
 	if mock.statusRequested != "" {
 		t.Errorf("no request must be made for an unresolved name, got %q", mock.statusRequested)
+	}
+}
+
+// An Ankra Cloud playground has no idle expiry, so the API sends an empty
+// expires_at; the status must leave the line out rather than print a bare
+// "Expires at:" label (seen in the product film audit, 2026-11-07).
+func TestPlaygroundStatusOmitsAnEmptyExpiry(t *testing.T) {
+	trialEnd := time.Now().Add(50 * time.Hour).UTC().Format(time.RFC3339)
+	withPlaygroundMock(t, &playgroundMock{status: &client.PlaygroundStatus{
+		ClusterID:      playgroundTestClusterID,
+		Phase:          "ready",
+		IsTrial:        true,
+		TrialExpiresAt: &trialEnd,
+	}})
+	output := captureStdout(t, func() {
+		if err := clusterPlaygroundStatusCmd.RunE(clusterPlaygroundStatusCmd, []string{playgroundTestClusterID}); err != nil {
+			t.Fatalf("status failed: %v", err)
+		}
+	})
+	if strings.Contains(output, "Expires at:") {
+		t.Errorf("expected no Expires at line for an empty expiry, got: %s", output)
+	}
+	if !strings.Contains(output, "Trial ends: "+trialEnd+" (in 2d 1h)") &&
+		!strings.Contains(output, "Trial ends: "+trialEnd+" (in 2d 2h)") {
+		t.Errorf("expected the trial end with the time left, got: %s", output)
+	}
+}
+
+func TestFormatPlaygroundDeadline(t *testing.T) {
+	now := time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
+	testCases := []struct {
+		name      string
+		timestamp string
+		want      string
+	}{
+		{"absent", "", ""},
+		{"days ahead", "2026-11-09T15:30:00Z", "2026-11-09T15:30:00Z (in 2d 3h)"},
+		{"hours ahead", "2026-11-07T15:20:00Z", "2026-11-07T15:20:00Z (in 3h 20m)"},
+		{"minutes ahead", "2026-11-07T12:09:00Z", "2026-11-07T12:09:00Z (in 9m)"},
+		{"seconds ahead", "2026-11-07T12:00:30Z", "2026-11-07T12:00:30Z (in under a minute)"},
+		{"passed", "2026-11-07T11:00:00Z", "2026-11-07T11:00:00Z (expired)"},
+		{"unparseable is kept", "tomorrow", "tomorrow"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := formatPlaygroundDeadline(testCase.timestamp, now); got != testCase.want {
+				t.Errorf("formatPlaygroundDeadline(%q) = %q, want %q", testCase.timestamp, got, testCase.want)
+			}
+		})
 	}
 }

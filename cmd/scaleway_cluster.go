@@ -19,7 +19,7 @@ var scalewayCmd = &cobra.Command{
 }
 
 var scalewayStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "stop [cluster_id|name]",
+	Use:   "stop <cluster_id|name>",
 	Short: "Stop a Scaleway cluster",
 	Long:  "Stop a Scaleway cluster by terminating its compute while preserving its configuration so it can be re-provisioned later.",
 	Args:  cobra.ExactArgs(1),
@@ -55,7 +55,7 @@ var scalewayStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 })
 
 var scalewayStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "start [cluster_id|name]",
+	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped Scaleway cluster",
 	Long:  "Re-provision a stopped Scaleway cluster. Use --scope control_plane to bring up only the control plane.",
 	Args:  cobra.ExactArgs(1),
@@ -72,7 +72,7 @@ var scalewayStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, startError := apiClient.StartScalewayCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command)})
+		result, startError := apiClient.StartScalewayCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command), RestoreSnapshotID: restoreSnapshotIDFlag(command), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(command)})
 		if startError != nil {
 			return fmt.Errorf("starting Scaleway cluster: %w", startError)
 		}
@@ -90,7 +90,7 @@ var scalewayStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 
 func init() {
 	scalewayStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(scalewayStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(scalewayStartCmd)
 	scalewayStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's tagged load balancers even when retention_policy is retain. The cluster's volumes are kept: only a deprovision deletes them")
 	registerThreeStateFlag(scalewayStopCmd, "preserve-state", preserveStateFlagUsage)
 	scalewayStopCmd.Flags().String("mode", "", stopModeFlagUsage)
@@ -290,7 +290,7 @@ Takes the same flags as 'create'.`,
 }
 
 var scalewayDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "deprovision [cluster_id|name]",
+	Use:   "deprovision <cluster_id|name>",
 	Short: "Deprovision a Scaleway cluster and release its cloud resources",
 	Long: `Permanently delete a Scaleway cluster and the provider resources Ankra
 created for it. Volumes and load balancers follow the cluster's
@@ -316,7 +316,7 @@ accept that: answer the prompt on a terminal, or pass
 		if volumeError != nil {
 			return volumeError
 		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Deprovision Scaleway cluster %s? This permanently deletes its cloud resources and the cluster record! [y/N]: ",
 				clusterTarget(args[0], clusterID)),
 			scalewayDeprovisionYes); confirmError != nil {
@@ -344,8 +344,8 @@ accept that: answer the prompt on a terminal, or pass
 	},
 })
 
-var scalewayWorkersCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "workers [cluster_id|name]",
+var scalewayWorkersCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for a Scaleway cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -371,8 +371,8 @@ var scalewayWorkersCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Com
 	},
 })
 
-var scalewayK8sVersionCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "k8s-version [cluster_id|name]",
+var scalewayK8sVersionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for a Scaleway cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

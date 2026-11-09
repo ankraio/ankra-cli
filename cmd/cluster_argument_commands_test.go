@@ -125,10 +125,10 @@ func TestClusterCommandsTakeTheClusterFromTheFlag(t *testing.T) {
 		{[]string{"cluster", "hetzner", "node-group", "scale", "pool-a", "3", "--cluster", otherClusterID},
 			"node-group scale " + otherClusterID + " pool-a 3"},
 		{[]string{"cluster", "mesh", "leave", "mesh-1", "--cluster", otherClusterID}, "mesh leave mesh-1 " + otherClusterID},
-		// The same cluster in both places is one cluster, named twice.
+		// The same cluster in both places, spelled the same way.
 		{[]string{"cluster", "node-group", "scale", otherClusterID, "pool-a", "3", "--cluster", otherClusterID},
 			"node-group scale " + otherClusterID + " pool-a 3"},
-		{[]string{"cluster", "ssh-keys", "get", "demo", "--cluster", testClusterID}, "ssh-keys get " + testClusterID},
+		{[]string{"cluster", "ssh-keys", "get", otherClusterID, "--cluster", otherClusterID}, "ssh-keys get " + otherClusterID},
 	} {
 		t.Run(strings.Join(testCase.args, " "), func(t *testing.T) {
 			mock := &clusterFlagCommandMock{}
@@ -142,33 +142,16 @@ func TestClusterCommandsTakeTheClusterFromTheFlag(t *testing.T) {
 	}
 }
 
-// A read with no cluster named uses the cluster `ankra cluster select` saved.
-func TestClusterReadsFallBackToTheSelectedCluster(t *testing.T) {
-	for _, testCase := range []struct {
-		args []string
-		want string
-	}{
-		{[]string{"cluster", "ssh-keys", "get"}, "ssh-keys get " + testClusterID},
-		{[]string{"cluster", "hetzner", "workers"}, "workers " + testClusterID},
-	} {
-		t.Run(strings.Join(testCase.args, " "), func(t *testing.T) {
-			mock := &clusterFlagCommandMock{}
-			if runError := runClusterFlagCommand(t, mock, testCase.args...); runError != nil {
-				t.Fatalf("run: %v", runError)
-			}
-			if len(mock.calls) != 1 || mock.calls[0] != testCase.want {
-				t.Fatalf("calls %v, want [%s]", mock.calls, testCase.want)
-			}
-		})
-	}
-}
-
-// A command that changes or removes a cluster never acts on the selection:
-// the selection is one file per machine, shared by every shell and agent
-// session on it. With no cluster named it is a usage error naming
-// --cluster, and nothing is looked up or sent.
-func TestClusterWritesRefuseTheSelectedCluster(t *testing.T) {
+// A command whose usage shows the cluster as required never acts on the
+// cluster `ankra cluster select` saved, whether it reads or writes: the
+// selection is one file per machine, shared by every shell and agent
+// session on it, so a selection made elsewhere could aim a stop or a
+// deprovision at the wrong cluster. With no cluster named it is a usage
+// error naming --cluster, and nothing is looked up or sent.
+func TestClusterCommandsRefuseTheSelectedCluster(t *testing.T) {
 	for _, args := range [][]string{
+		{"cluster", "ssh-keys", "get"},
+		{"cluster", "hetzner", "workers"},
 		{"cluster", "ssh-keys", "set", "--ssh-key-credential-ids", "key-1"},
 		{"cluster", "ssh-keys", "resync"},
 		{"cluster", "node-group", "scale", "pool-a", "3"},
@@ -176,9 +159,12 @@ func TestClusterWritesRefuseTheSelectedCluster(t *testing.T) {
 		{"cluster", "hetzner", "stop"},
 		{"cluster", "upgrade", "v1.33.1"},
 		{"cluster", "mesh", "leave", "mesh-1"},
-		// It fell back to the selection before; deprovisioning is the last
-		// thing to do to a cluster nobody named.
-		{"cluster", "deprovision"},
+		// These three fell back to the selection before; deprovisioning,
+		// moving and provisioning are the last things to do to a cluster
+		// nobody named.
+		{"cluster", "deprovision", "--yes"},
+		{"cluster", "move", "--organisation", "acme-prod", "--yes"},
+		{"cluster", "provision"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			mock := &clusterFlagCommandMock{}
@@ -195,19 +181,21 @@ func TestClusterWritesRefuseTheSelectedCluster(t *testing.T) {
 
 // The argument and --cluster naming two different clusters is refused
 // rather than the argument silently winning, whether both are ids or one is
-// a name.
+// a name. The comparison is of the text, so a name beside the same
+// cluster's id is refused too (ankra-oznf7k.10): the safe side.
 func TestClusterCommandsRefuseTwoDifferentClusters(t *testing.T) {
 	for _, args := range [][]string{
 		{"cluster", "ssh-keys", "get", testClusterID, "--cluster", otherClusterID},
 		{"cluster", "ssh-keys", "get", "demo", "--cluster", otherClusterID},
+		{"cluster", "ssh-keys", "get", "demo", "--cluster", testClusterID},
 		{"cluster", "node-group", "scale", testClusterID, "pool-a", "3", "--cluster", otherClusterID},
 		{"cluster", "mesh", "leave", "mesh-1", testClusterID, "--cluster", otherClusterID},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			mock := &clusterFlagCommandMock{}
 			runError := runClusterFlagCommand(t, mock, args...)
-			if runError == nil || exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "named twice") {
-				t.Fatalf("error = %v (exit %d), want the named-twice usage error (exit 2)", runError, exitCodeFor(runError))
+			if runError == nil || exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "name different clusters") {
+				t.Fatalf("error = %v (exit %d), want the different-clusters usage error (exit 2)", runError, exitCodeFor(runError))
 			}
 			if len(mock.calls) != 0 {
 				t.Fatalf("calls %v, want none", mock.calls)

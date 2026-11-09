@@ -36,8 +36,8 @@ Withdrawing a zone removes the controller Ankra rendered; the zone's records
 are yours and are left untouched.`,
 }
 
-var clusterCustomDNSListCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "list [cluster]",
+var clusterCustomDNSListCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "list <cluster>",
 	Short: "List the zones declared on a cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -86,7 +86,7 @@ var (
 )
 
 var clusterCustomDNSAddCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "add [cluster]",
+	Use:   "add <cluster>",
 	Short: "Declare a zone the cluster also serves",
 	Long: `Declare a zone the cluster also serves, with the DNS credential that can
 publish into it. Ankra renders an external-dns for the zone on the next
@@ -141,7 +141,7 @@ own external-dns publishes.`,
 })
 
 var clusterCustomDNSRemoveCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "remove [cluster]",
+	Use:   "remove <cluster>",
 	Short: "Withdraw a declared zone",
 	Long: `Withdraw a declared zone. Ankra removes the controller it rendered on the
 next reconciler pass. The zone's records are yours and are left untouched.`,

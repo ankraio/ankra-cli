@@ -61,16 +61,18 @@ exits 3 saying so and everything else works as before.
 | AI review of pull requests | `ankra org ai-review repos\|related-repos ...` | `ankra-ai-gateway` |
 | Managed services, image registry | `ankra services ...`, `ankra registry projects\|robots\|storage ...` | `ankra-app-integrations`, `ankra-applications` |
 | Reusable parameterised stacks | `ankra stack-profiles ...` | `ankra-stack-profiles` |
-| Cloud clusters Ankra provisions | `ankra cluster hetzner\|ovh\|upcloud\|digitalocean\|scaleway\|ankracloud\|aws\|proxmox\|morpheus ...`, `ankra cluster scale\|upgrade\|node-group\|power-schedules\|mesh ...` | `ankra-cloud-clusters` |
+| Cloud clusters Ankra provisions | `ankra cluster hetzner\|ovh\|upcloud\|digitalocean\|scaleway\|ankracloud\|aws\|proxmox\|morpheus ...` (incl. `etcd members\|remove`, `os-patches status\|plan\|run\|policy\|node-policy`), `ankra cluster scale\|upgrade\|node-group\|power-schedules\|mesh ...` | `ankra-cloud-clusters` |
 | Provider-managed Kubernetes | `ankra cluster managed ...` | `ankra-managed-kubernetes` |
 | A playground cluster to try things | `ankra cluster playground create\|status\|destroy` | `ankra-getting-started` |
 | Domains and DNS | `ankra cluster domain`, `ankra org domain\|dns\|custom-dns-zones\|cloudflare ...`, `ankra cluster custom-dns-zones` | `ankra-domains-dns` |
 | Helm chart sources | `ankra helm registries\|credentials ...`, `ankra charts` | `ankra-helm-registries` |
 | Secrets in Git | `ankra cluster encrypt\|decrypt\|sops-config` | `ankra-sops-secrets` |
 | Organisation secrets referenced by sentinel (values never in Git, argv or a model) | `ankra secrets list\|create\|set\|rotate\|delete` | `ankra-sops-secrets`, `ankra-security` |
-| Alerts and routing | `ankra alerts destinations\|routes\|ingest-credentials ...` | `ankra-alerts-webhooks` |
+| Alerts and routing | `ankra alerts rules\|triggers\|destinations\|routes\|ingest-credentials ...` | `ankra-alerts-webhooks` |
+| Silencing alerts on a cluster's own Alertmanager | `ankra cluster alertmanager silences list\|create\|expire` | `ankra-alerts-webhooks`, `ankra-observability` |
 | Metrics and logs | `ankra cluster metrics\|top\|logs\|events\|logs-ship` | `ankra-observability`, `ankra-troubleshooting` |
 | Debugging inside a cluster | `ankra cluster exec\|terminal\|debug ...` | `ankra-troubleshooting` |
+| Storage classes and volumes | `ankra cluster storage-classes create\|delete`, `ankra cluster persistent-volumes delete` (refuses a Bound volume without `--force`) | `ankra-troubleshooting` |
 | AI provider, your own AI keys, tools, runs, board, memories | `ankra ai ...`, `ankra ai keys ...`, `ankra org mcp-servers ...`, `ankra agents ...`, `ankra tickets ...`, `ankra chat` | `ankra-ai-agents` |
 | Tokens, roles, cluster access | `ankra tokens create\|list\|rotate\|revoke\|delete` (`--service` for service accounts, `--project` to pin one to a project), `ankra org members\|roles\|invite`, `ankra cluster access grant\|list\|revoke\|elevate`, `ankra org access-policy get`, `ankra org oidc-trust` | `ankra-security` |
 | Projects (scope beneath the organisation) | `ankra project list\|current\|switch\|create\|get\|rename\|delete\|members\|move`, global `--project`, `ankra cost ... --all-projects`, `ankra cost object project`, `ankra org usage --group-by project` | `ankra-security`, `ankra-platform-principles` |
@@ -80,7 +82,7 @@ exits 3 saying so and everything else works as before.
 | Protecting and restoring a stack's data | `ankra cluster stacks protect\|unprotect\|restore-points\|data ...`, `ankra backup restore-points ...`, `ankra runs ...` | `ankra-backups` |
 | Migrating existing deployments | `ankra migrate ...` | `ankra-migrate` |
 | Host deploy targets (machines, not clusters) | `ankra targets ...`, `ankra deployments ...` | `ankra-applications` |
-| Cloud cost and Ankra usage | `ankra cost ...`, `ankra org usage\|limits` | below |
+| Cloud cost and Ankra usage | `ankra cost ...`, `ankra org usage\|limits\|billing standing\|billing wallet` | below |
 | Heavy local commands in a workspace pod | `ankra exec`, `ankra workspace up\|status\|down`, `ankra dev install\|mode\|status` | below |
 | Sharing a page at a public URL | `ankra canvas publish\|list\|unpublish` | below |
 | Agent skills for assistants | `ankra skills install\|list\|clients\|uninstall` | below |
@@ -393,7 +395,10 @@ ankra tokens rotate <token-id>              # renew before expiry; the old value
   you want the variable to win.
 - **Exit codes are a contract**: `0` success, `1` API/runtime, `2` usage, `3` not found,
   `4` confirmation declined, `5` `--wait`/`--timeout` expiry, `6` auth, `7` RBAC permission denied
-  (the role lacks the permission; re-logging in will not help).
+  (the role lacks the permission; re-logging in will not help), `8` a preflight blocked the change
+  (nothing was changed; for example `cluster upgrade`, `application promote`), `9` waiting: not a
+  failure, the work is unfinished and waits on a pause or a person's step (for example `ankra chat`,
+  `application ship`). Treat `9` as "check back later", not as an error to retry.
 - **Destructive commands confirm first** (`delete`, `uninstall`, `deprovision`); declining exits 4.
   In automation, decide deliberately whether to pass the command's non-interactive flag.
 

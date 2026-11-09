@@ -61,7 +61,6 @@ func TestClusterArgumentResolution(t *testing.T) {
 		args     []string
 		want     []string
 		source   clusterArgumentSource
-		also     string
 		// failure is a substring of the expected usage error; "" expects none.
 		failure string
 	}{
@@ -71,36 +70,43 @@ func TestClusterArgumentResolution(t *testing.T) {
 			want: []string{"prod", "workers", "3"}, source: clusterFromFlag},
 		{name: "same cluster twice", validate: exact(3), flagged: "prod", args: []string{"prod", "workers", "3"},
 			want: []string{"prod", "workers", "3"}, source: clusterFromArgument},
-		{name: "two spellings, confirmed by RunE", validate: exact(1), flagged: testClusterID, args: []string{"prod"},
-			want: []string{"prod"}, source: clusterFromArgument, also: testClusterID},
-		{name: "two ids", validate: exact(1), flagged: otherClusterID, args: []string{testClusterID}, failure: "named twice"},
-		{name: "one id in two cases", validate: exact(1), flagged: strings.ToUpper(testClusterID), args: []string{testClusterID},
-			want: []string{testClusterID}, source: clusterFromArgument},
+		{name: "two clusters", validate: exact(1), flagged: "staging", args: []string{"prod"}, failure: "name different clusters"},
+		{name: "a name and an id", validate: exact(1), flagged: testClusterID, args: []string{"prod"},
+			failure: "name different clusters"},
 		{name: "too many beside the flag", validate: exact(3), flagged: "prod", args: []string{"a", "b", "c", "d"},
-			failure: "with --cluster, leave the cluster argument out"},
-		{name: "selection for a read", validate: exact(2), args: []string{"node-1"},
-			want: []string{testClusterID, "node-1"}, source: clusterFromSelection},
-		{name: "a write ignores the selection", access: clusterMustBeNamed, validate: exact(2), args: []string{"node-1"},
-			failure: "never falls back to the cluster selected"},
-		{name: "cluster second", position: 1, access: clusterMustBeNamed, validate: exact(2), flagged: "prod",
+			failure: "counting --cluster"},
+		{name: "nothing named", validate: exact(1), failure: "missing the cluster"},
+		{name: "nothing named, with other arguments", validate: exact(2), args: []string{"node-1"},
+			failure: "--cluster <name|id>"},
+		{name: "a read never uses the selection", validate: exact(1), failure: "not use the cluster selected"},
+		{name: "the count missing, not the cluster", validate: exact(3), args: []string{"prod", "workers"},
+			failure: "accepts 3 arg(s), received 2"},
+		{name: "cluster second", position: 1, validate: exact(2), flagged: "prod",
 			args: []string{"mesh-1"}, want: []string{"mesh-1", "prod"}, source: clusterFromFlag},
-		{name: "cluster second, nothing before it", position: 1, access: clusterMustBeNamed, validate: exact(2),
+		{name: "cluster second, nothing named", position: 1, validate: exact(2), args: []string{"mesh-1"},
+			failure: "missing the cluster"},
+		{name: "cluster second, nothing before it", position: 1, validate: exact(2),
 			flagged: "prod", failure: "accepts 2 arg(s), received 0"},
+		// `mesh up <mesh> <cluster> [cluster...]`: the flag is the first
+		// cluster, not left for the command to find (ankra AI review, #760).
+		{name: "list after the cluster, flag only", position: 1, validate: cobra.MinimumNArgs(2), flagged: "prod",
+			args: []string{"mesh-1"}, want: []string{"mesh-1", "prod"}, source: clusterFromFlag},
+		{name: "list after the cluster, flag and more", position: 1, validate: cobra.MinimumNArgs(2), flagged: "prod",
+			args: []string{"mesh-1", "staging"}, want: []string{"mesh-1", "prod", "staging"}, source: clusterFromFlag},
 		{name: "list: the flag adds the first", validate: cobra.MinimumNArgs(1), flagged: "prod", args: []string{"10.0.0.1"},
 			want: []string{"prod", "10.0.0.1"}, source: clusterFromFlag},
 		{name: "list: the flag repeating the first", validate: cobra.MinimumNArgs(1), flagged: "prod",
 			args: []string{"prod", "10.0.0.1"}, want: []string{"prod", "10.0.0.1"}, source: clusterFromArgument},
-		{name: "optional: the command reads the flag", validate: cobra.MaximumNArgs(1), flagged: "prod",
+		{name: "optional: the flag becomes the argument", access: clusterSelectionAllowed, validate: cobra.MaximumNArgs(1),
+			flagged: "prod", want: []string{"prod"}, source: clusterFromFlag},
+		{name: "optional: the command reads the selection", access: clusterSelectionAllowed, validate: cobra.MaximumNArgs(1),
 			want: []string{}, source: clusterLeftToCommand},
-		{name: "optional: the command reads the selection", validate: cobra.MaximumNArgs(1),
-			want: []string{}, source: clusterLeftToCommand},
-		{name: "optional write named nowhere", access: clusterMustBeNamed, validate: cobra.MaximumNArgs(1),
-			failure: "never falls back to the cluster selected"},
+		{name: "optional, but must be named", validate: cobra.MaximumNArgs(1), failure: "missing the cluster"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			access := testCase.access
 			if access == "" {
-				access = clusterSelectionAllowed
+				access = clusterMustBeNamed
 			}
 			command := clusterArgumentTestCommand(t, testCase.position, access, testCase.validate)
 			resolution, resolveError := resolveTestClusterArguments(t, command, testCase.flagged, testCase.args...)
@@ -116,8 +122,8 @@ func TestClusterArgumentResolution(t *testing.T) {
 			if !slices.Equal(resolution.args, testCase.want) {
 				t.Errorf("args = %q, want %q", resolution.args, testCase.want)
 			}
-			if resolution.source != testCase.source || resolution.alsoFlagged != testCase.also {
-				t.Errorf("source %d, also %q; want %d, %q", resolution.source, resolution.alsoFlagged, testCase.source, testCase.also)
+			if resolution.source != testCase.source {
+				t.Errorf("source %d, want %d", resolution.source, testCase.source)
 			}
 		})
 	}

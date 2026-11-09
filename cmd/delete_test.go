@@ -222,11 +222,12 @@ func (m *deprovisionGuardMock) DeprovisionHetznerCluster(clusterID string, optio
 	return &client.DeprovisionHetznerClusterResponse{}, nil
 }
 
-// TestDeprovisionFailsClosedWhenTheClusterKindCannotBeRead pins the second
-// half of ankra-kpq4ae: a cluster deprovision did not get as its argument
-// (the selected cluster then, --cluster now) came back with no kind when its
-// lookup failed, so a cloud cluster went down the generic lane with its
-// volume check and record warning skipped.
+// TestDeprovisionFailsClosedWhenTheClusterKindCannotBeRead pins ankra-kpq4ae
+// for a cluster named with --cluster: a cluster whose kind lookup failed
+// used to come back with no kind, so a cloud cluster went down the generic
+// lane with its volume check and record warning skipped. The selected
+// cluster, where that second half of ankra-kpq4ae was found, is no longer
+// one deprovision acts on (ankra-v3qdto.19).
 func TestDeprovisionFailsClosedWhenTheClusterKindCannotBeRead(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		lookupError error

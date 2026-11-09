@@ -16,9 +16,16 @@ import (
 // execution that records the write's outcome
 // (ankra cluster operations list <id>); a route that records none, or an
 // older platform, leaves it empty.
+//
+// Message, NodeCount and TargetCount are answered by a node-group
+// autoscaling write that finished inside the platform's verdict window: what
+// it does to the group's node count.
 type AsyncWriteAcceptedResponse struct {
 	Status      string `json:"status"`
 	OperationID string `json:"operation_id,omitempty"`
+	Message     string `json:"message,omitempty"`
+	NodeCount   *int   `json:"node_count,omitempty"`
+	TargetCount *int   `json:"target_count,omitempty"`
 }
 
 // parseAsyncWriteAccepted reads a 202 body. The body is informational: a
@@ -95,6 +102,9 @@ func parseAsyncWriteResponse(
 	if refusal := memberRemovalUnconfirmedFromBody(response.StatusCode, responseBody); refusal != nil {
 		return nil, refusal
 	}
+	if refusal := detailedWriteRefusal(response.StatusCode, responseBody); refusal != nil {
+		return nil, refusal
+	}
 	if wait {
 		if response.StatusCode < 200 || response.StatusCode >= 300 {
 			return nil, newUnexpectedResponseErrorWithMessage(response.StatusCode, fmt.Sprintf("request failed: status %d: %s", response.StatusCode, redactedBodyForError(responseBody, 500)))
@@ -105,12 +115,43 @@ func parseAsyncWriteResponse(
 		if err := decodeJSON(responseBody, target); err != nil {
 			return nil, err
 		}
+		if keeper, keeps := target.(rawDocumentKeeper); keeps {
+			keeper.keepRawJSON(responseBody)
+		}
 		return nil, nil
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, newUnexpectedResponseErrorWithMessage(response.StatusCode, fmt.Sprintf("request failed: status %d: %s", response.StatusCode, redactedBodyForError(responseBody, 500)))
 	}
 	return nil, newUnexpectedResponseErrorWithMessage(response.StatusCode, fmt.Sprintf("unexpected status %d for async submit", response.StatusCode))
+}
+
+// RouterNotFoundDetail is the detail the platform's router answers for a
+// path it does not serve, as opposed to a handler's own not-found sentence.
+const RouterNotFoundDetail = "Not Found"
+
+// detailedWriteRefusal is the platform's own answer that a write cannot go
+// ahead: a 409 refusal, or a 404 for something the write names that does not
+// exist, with the reason as a string detail. The error's message is the
+// reason and Detail records it, so a caller can tell the platform's 404 from
+// a platform that does not serve the route at all: its router answers
+// RouterNotFoundDetail, and anything in front of it a body with no detail.
+// The router's detail keeps the status in the message, since alone it says
+// nothing. nil for any other answer, which keeps its existing handling.
+func detailedWriteRefusal(statusCode int, responseBody []byte) *UnexpectedResponseError {
+	if statusCode != http.StatusNotFound && statusCode != http.StatusConflict {
+		return nil
+	}
+	detail := detailFromBody(responseBody)
+	switch {
+	case detail == "":
+		return nil
+	case statusCode == http.StatusNotFound && detail == RouterNotFoundDetail:
+		return &UnexpectedResponseError{StatusCode: statusCode,
+			message: fmt.Sprintf("request failed: status %d: %s", statusCode, detail), Detail: detail}
+	default:
+		return newBackendDetailError(statusCode, detail)
+	}
 }
 
 func decodeJSON(responseBody []byte, target interface{}) error {
@@ -143,6 +184,23 @@ func (c *Client) doJSONWriteRequestAccepted(
 	wait bool,
 	target interface{},
 ) (accepted *AsyncWriteAcceptedResponse, err error) {
+	return c.doJSONWriteRequestAcceptedWithMembers(ctx, method, endpoint, payload, wait, target, nil)
+}
+
+// doJSONWriteRequestAcceptedWithMembers is doJSONWriteRequestAccepted for a
+// route whose 202 carries more than its status and operation: when the
+// platform accepted the write without waiting, acceptedMembers (when not nil)
+// is decoded from the 202 body as well. That body is informational, so one
+// that does not decode is not an error.
+func (c *Client) doJSONWriteRequestAcceptedWithMembers(
+	ctx context.Context,
+	method string,
+	endpoint string,
+	payload []byte,
+	wait bool,
+	target interface{},
+	acceptedMembers interface{},
+) (accepted *AsyncWriteAcceptedResponse, err error) {
 	requestURL := appendWaitQuery(endpoint, wait)
 	var bodyReader io.Reader
 	if payload != nil {
@@ -168,5 +226,9 @@ func (c *Client) doJSONWriteRequestAccepted(
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
-	return parseAsyncWriteResponse(response, responseBody, wait, target)
+	accepted, err = parseAsyncWriteResponse(response, responseBody, wait, target)
+	if accepted != nil && acceptedMembers != nil {
+		_ = decodeKeepingRawDocument(responseBody, acceptedMembers)
+	}
+	return accepted, err
 }

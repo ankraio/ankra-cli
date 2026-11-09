@@ -131,7 +131,7 @@ var proxmoxCreateCmd = &cobra.Command{
 }
 
 var proxmoxStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "stop [cluster_id|name]",
+	Use:   "stop <cluster_id|name>",
 	Short: "Stop a Proxmox VE cluster",
 	Long:  "Stop a Proxmox VE cluster's virtual machines while keeping its configuration so it can be started again later.",
 	Args:  cobra.ExactArgs(1),
@@ -167,7 +167,7 @@ var proxmoxStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 })
 
 var proxmoxStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "start [cluster_id|name]",
+	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped Proxmox VE cluster",
 	Long:  "Start (re-provision) a stopped Proxmox VE cluster. Use --scope control_plane to bring up only the control plane.",
 	Args:  cobra.ExactArgs(1),
@@ -181,7 +181,7 @@ var proxmoxStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, startError := apiClient.StartProxmoxCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd)})
+		result, startError := apiClient.StartProxmoxCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd), RestoreSnapshotID: restoreSnapshotIDFlag(cmd), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(cmd)})
 		if startError != nil {
 			return fmt.Errorf("starting cluster: %w", startError)
 		}
@@ -197,8 +197,8 @@ var proxmoxStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	},
 })
 
-var proxmoxWorkersCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "workers [cluster_id|name]",
+var proxmoxWorkersCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for a Proxmox VE cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -225,8 +225,8 @@ var proxmoxWorkersCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Comm
 	},
 })
 
-var proxmoxK8sVersionCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "k8s-version [cluster_id|name]",
+var proxmoxK8sVersionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for a Proxmox VE cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -425,7 +425,7 @@ func init() {
 	_ = proxmoxCreateCmd.MarkFlagRequired("bridge")
 
 	proxmoxStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(proxmoxStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(proxmoxStartCmd)
 
 	proxmoxHostsCmd.Flags().String("credential-id", "", "Proxmox VE API credential ID (required)")
 	_ = proxmoxHostsCmd.MarkFlagRequired("credential-id")

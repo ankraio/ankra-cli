@@ -116,8 +116,8 @@ The cloud provider (Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, Ankra Cloud, 
 HPE Morpheus) is detected automatically from the cluster.`,
 }
 
-var clusterSSHKeysGetCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
-	Use:   "get [cluster_id|name]",
+var clusterSSHKeysGetCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "get <cluster_id|name>",
 	Short: "Show SSH keys attached to a cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -179,7 +179,7 @@ func printClusterSSHKeys(result *client.ClusterSSHKeysResult) {
 }
 
 var clusterSSHKeysSetCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "set [cluster_id|name]",
+	Use:   "set <cluster_id|name>",
 	Short: "Set the SSH keys attached to a cluster",
 	Long: `Replace the SSH key credentials attached to a cluster. Changes take effect on
 the next reconciliation and are applied to running nodes.
@@ -230,7 +230,7 @@ Pass --clear to remove all user SSH keys (the Ankra-managed key always remains).
 })
 
 var clusterSSHKeysResyncCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
-	Use:   "resync [cluster_id|name]",
+	Use:   "resync <cluster_id|name>",
 	Short: "Re-sync a cluster's SSH keys with the cloud provider",
 	Long: `Re-sync the cluster's SSH key with the cloud provider. Use this to repair a
 stale provider-side SSH key reference (for example when the key was deleted and

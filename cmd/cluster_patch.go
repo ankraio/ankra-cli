@@ -100,7 +100,7 @@ Examples:
 
 		if !dryRun {
 			prompt := patchResourcesPrompt(resolvedKind, names, namespace, cluster.Name, patchType)
-			if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(), prompt, yes); err != nil {
+			if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), prompt, yes); err != nil {
 				return err
 			}
 		}

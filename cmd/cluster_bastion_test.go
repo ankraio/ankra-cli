@@ -544,3 +544,43 @@ func TestClusterBastionResizeRefusesANonNumericMorpheusPlan(t *testing.T) {
 		t.Fatalf("resize calls = %v, want none", mock.calls)
 	}
 }
+
+// Only digits name a Morpheus plan: a sign passed ParseInt, so "-5" and
+// "+5" reached the platform as plan ids. Other providers take any name.
+func TestValidateBastionInstanceTypeTakesOnlyDigitsForMorpheus(t *testing.T) {
+	for _, refused := range []string{"-5", "+5", "", "4.2", "0x2a", "small-plan"} {
+		if validationError := validateBastionInstanceType("morpheus", refused); exitCodeFor(validationError) != exitUsage {
+			t.Errorf("morpheus plan %q: error = %v, want a usage error", refused, validationError)
+		}
+	}
+	for _, accepted := range []string{"42", "0042"} {
+		if validationError := validateBastionInstanceType("morpheus", accepted); validationError != nil {
+			t.Errorf("morpheus plan %q refused: %v", accepted, validationError)
+		}
+	}
+	if validationError := validateBastionInstanceType("aws", "-5"); validationError != nil {
+		t.Errorf("aws instance types are not checked here, got %v", validationError)
+	}
+}
+
+// A blank instance type is refused before anything is sent, on every
+// provider: the argument is trimmed, and the platform would answer an empty
+// instance_type with a 422 the user saw as exit 1.
+func TestBastionResizeRefusesABlankInstanceTypeOnEveryProvider(t *testing.T) {
+	for _, provider := range []string{"hetzner", "ovh", "upcloud", "digitalocean", "ankracloud", "scaleway", "aws", "proxmox", "morpheus"} {
+		validationError := validateBastionInstanceType(provider, "")
+		if exitCodeFor(validationError) != exitUsage || !strings.Contains(validationError.Error(), "blank") {
+			t.Errorf("%s: blank instance type: error = %v, want a usage error saying it is blank", provider, validationError)
+		}
+	}
+	writeSelectedClusterJSON(t)
+	mock := &bastionResizeByProviderMock{}
+	setMockClient(t, mock)
+	_, runError := executeCommand("cluster", "scaleway", "bastion", "resize", testClusterID, "   ", "--wait=true")
+	if exitCodeFor(runError) != exitUsage {
+		t.Fatalf("a blank argument must exit 2, got %v (exit %d)", runError, exitCodeFor(runError))
+	}
+	if len(mock.calls) != 0 {
+		t.Fatalf("resize calls = %v, want none", mock.calls)
+	}
+}

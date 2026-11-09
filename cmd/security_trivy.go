@@ -186,20 +186,15 @@ schedule but pauses sending. Asks for confirmation unless --yes.`,
 			return withExitCode(exitUsage, errors.New("at least one --recipient is required while the schedule is enabled; pass --disabled to store a paused schedule"))
 		}
 		yes, _ := cmd.Flags().GetBool("yes")
-		structured, err := structuredFormatFromFlags(cmd)
-		if err != nil {
-			return err
-		}
-		narration := cmd.OutOrStdout()
-		if structured != outputDefault {
-			narration = cmd.ErrOrStderr()
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
 		}
 		state := "enabled"
 		if !enabled {
 			state = "paused"
 		}
 		prompt := fmt.Sprintf("Store a %s security report schedule (%s) for %d recipient(s)? [y/N]: ", frequency, state, len(recipients))
-		if confirmError := confirmPrompt(cmd.InOrStdin(), narration, prompt, yes); confirmError != nil {
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), prompt, yes); confirmError != nil {
 			return confirmError
 		}
 		status, err := apiClient.SetSecurityReportSchedule(clusterID, client.SecurityReportScheduleRequest{
@@ -256,15 +251,10 @@ schedule's recipients. Asks for confirmation unless --yes.`,
 			return err
 		}
 		yes, _ := cmd.Flags().GetBool("yes")
-		structured, err := structuredFormatFromFlags(cmd)
-		if err != nil {
-			return err
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
 		}
-		narration := cmd.OutOrStdout()
-		if structured != outputDefault {
-			narration = cmd.ErrOrStderr()
-		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), narration, "Send the security report to the schedule's recipients now? [y/N]: ", yes); confirmError != nil {
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), "Send the security report to the schedule's recipients now? [y/N]: ", yes); confirmError != nil {
 			return confirmError
 		}
 		result, err := apiClient.SendSecurityReportNow(clusterID)
