@@ -292,6 +292,8 @@ type APIClient interface {
 	DeleteStack(ctx context.Context, clusterID, stackName string) (*client.DeleteStackResult, error)
 	RenameStack(ctx context.Context, clusterID, stackName, newName string) (*client.RenameStackResult, error)
 	RedeployStack(ctx context.Context, clusterID, stackName string, force bool) (*client.RedeployStackResult, error)
+	UninstallStack(ctx context.Context, clusterID, stackName string) (*client.StackInstallationResult, error)
+	InstallStack(ctx context.Context, clusterID, stackName string) (*client.StackInstallationResult, error)
 	GetStackHistory(clusterID, stackName string) (*client.GetStackHistoryResponse, error)
 	GetStackAddonResourceID(clusterID, stackName, addonName string) (string, error)
 	CloneStackToCluster(ctx context.Context, targetClusterID string, cloneReq client.CloneStackToClusterRequest) (*client.CloneStackToClusterResult, error)

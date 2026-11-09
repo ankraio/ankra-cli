@@ -1283,6 +1283,14 @@ func (m baseMock) RedeployStack(ctx context.Context, clusterID, stackName string
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) UninstallStack(ctx context.Context, clusterID, stackName string) (*client.StackInstallationResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) InstallStack(ctx context.Context, clusterID, stackName string) (*client.StackInstallationResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetStackHistory(clusterID, stackName string) (*client.GetStackHistoryResponse, error) {
 	return nil, errors.New("not implemented")
 }

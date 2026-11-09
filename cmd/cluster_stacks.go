@@ -17,7 +17,7 @@ import (
 var clusterStacksCmd = &cobra.Command{
 	Use:   "stacks",
 	Short: "Manage stacks for clusters",
-	Long:  "Commands to list, create, delete, rename, and view history of stacks.",
+	Long:  "Commands to list, create, delete, rename, redeploy, uninstall and install stacks, and view their history.",
 }
 
 var clusterStacksListCmd = &cobra.Command{
@@ -68,6 +68,10 @@ var clusterStacksListCmd = &cobra.Command{
 			fmt.Printf("  Name:         %s\n", found.Name)
 			fmt.Printf("  Description:  %s\n", found.Description)
 			fmt.Printf("  State:        %s\n", found.State)
+			if found.Uninstalled {
+				fmt.Printf("  Uninstalled:  yes, its members are off the cluster or being taken off; "+
+					"'ankra cluster stacks install %s' deploys it again\n", found.Name)
+			}
 			fmt.Printf("  Deploy wave:  %s\n", formatDeployWave(found.DeployWave))
 			fmt.Printf("  Manifests:    %d\n", len(found.Manifests))
 			fmt.Printf("  Addons:       %d\n", len(found.Addons))
@@ -174,11 +178,15 @@ var clusterStacksListCmd = &cobra.Command{
 				description = "-"
 			}
 
+			// An uninstalled stack's own state still reads up while its
+			// members are off the cluster, so it must not list as running.
 			state := stack.State
-			switch strings.ToLower(state) {
-			case "up":
+			switch {
+			case stack.Uninstalled:
+				state = text.FgYellow.Sprint("○ uninstalled")
+			case strings.EqualFold(state, "up"):
 				state = text.FgGreen.Sprint("✓ " + state)
-			case "failed":
+			case strings.EqualFold(state, "failed"):
 				state = text.FgRed.Sprint("✗ " + state)
 			default:
 				state = text.FgYellow.Sprint("⟳ " + state)
