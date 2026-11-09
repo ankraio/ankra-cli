@@ -1,11 +1,28 @@
 package cmd
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 )
+
+// leadingClusterPositional matches a Use line whose first argument is the
+// cluster: submatch 1 is "<" for a required one and "[" for an optional one.
+// The audit reads the usage line itself rather than trusting the
+// registration it audits.
+var leadingClusterPositional = regexp.MustCompile(`^\S+\s+([<\[])cluster[^>\]\s]*[>\]]`)
+
+// clusterPositionalKind answers "<" or "[" for a command that takes the cluster
+// as its first argument, and "" for any other.
+func clusterPositionalKind(command *cobra.Command) string {
+	match := leadingClusterPositional.FindStringSubmatch(command.Use)
+	if match == nil {
+		return ""
+	}
+	return match[1]
+}
 
 // walkClusterPositionalCommands visits every command under `ankra cluster` that
 // takes the cluster as its first argument.
@@ -18,20 +35,6 @@ func walkClusterPositionalCommands(command *cobra.Command, visit func(*cobra.Com
 	}
 }
 
-func withWrappedClusterPositionals(t *testing.T) {
-	t.Helper()
-	originals := map[*cobra.Command]cobra.PositionalArgs{}
-	walkClusterPositionalCommands(clusterCmd, func(command *cobra.Command) {
-		originals[command] = command.Args
-	})
-	wrapClusterPositionalArgs(clusterCmd)
-	t.Cleanup(func() {
-		for command, validate := range originals {
-			command.Args = validate
-		}
-	})
-}
-
 func setClusterFlag(t *testing.T, command *cobra.Command, value string) {
 	t.Helper()
 	if parseError := command.ParseFlags([]string{"--cluster", value}); parseError != nil {
@@ -40,11 +43,13 @@ func setClusterFlag(t *testing.T, command *cobra.Command, value string) {
 	t.Cleanup(func() { _ = command.Flags().Set(activeClusterFlagName, "") })
 }
 
-// The audit: every command with a leading cluster positional, found from the
-// tree rather than a hand list, names the right form when given only the flag,
-// and never takes a required cluster from it or from the selection.
+// The audit: every command with a leading required cluster positional, found
+// from the tree rather than a hand list, names the right form when given no
+// cluster, takes the cluster from --cluster alone (ankra-v3qdto.19), and
+// never takes it from the selection, which is there and must not be used.
 func TestEveryClusterPositionalCommandNamesItsForm(t *testing.T) {
-	withWrappedClusterPositionals(t)
+	withTempHome(t)
+	writeSelectedClusterJSON(t)
 	required := 0
 	walkClusterPositionalCommands(clusterCmd, func(command *cobra.Command) {
 		if clusterPositionalKind(command) != "<" {
@@ -53,18 +58,20 @@ func TestEveryClusterPositionalCommandNamesItsForm(t *testing.T) {
 		required++
 		t.Run(command.CommandPath(), func(t *testing.T) {
 			noFlag := command.Args(command, nil)
-			if noFlag == nil || !strings.Contains(noFlag.Error(), command.UseLine()) {
-				t.Errorf("with no argument: got %v, want the usage form", noFlag)
+			if noFlag == nil || !strings.Contains(noFlag.Error(), command.UseLine()) ||
+				!strings.Contains(noFlag.Error(), "--cluster") {
+				t.Errorf("with no argument and a cluster selected: got %v, want the usage form naming --cluster", noFlag)
 			}
 			if exitCodeFor(noFlag) != exitUsage {
 				t.Errorf("with no argument: exit %d, want %d", exitCodeFor(noFlag), exitUsage)
 			}
 
-			setClusterFlag(t, command, "prod")
-			withFlag := command.Args(command, nil)
-			if withFlag == nil || !strings.Contains(withFlag.Error(), "first argument, not --cluster") ||
-				!strings.Contains(withFlag.Error(), command.UseLine()) {
-				t.Errorf("with only --cluster: got %v, want the right form named", withFlag)
+			// --cluster stands in for the cluster; the command's other
+			// arguments are still its own.
+			_, others, _, _ := clusterArgumentUse(command.Use)
+			setClusterFlag(t, command, otherClusterID)
+			if withFlag := command.Args(command, others); withFlag != nil {
+				t.Errorf("with --cluster in place of the cluster argument %v: got %v, want it accepted", others, withFlag)
 			}
 		})
 	})
@@ -74,7 +81,6 @@ func TestEveryClusterPositionalCommandNamesItsForm(t *testing.T) {
 }
 
 func TestClusterPositionalArgsOnNodeGroupAdd(t *testing.T) {
-	withWrappedClusterPositionals(t)
 	command := clusterNodeGroupAddCmd
 
 	if err := command.Args(command, []string{"prod"}); err != nil {
@@ -84,6 +90,9 @@ func TestClusterPositionalArgsOnNodeGroupAdd(t *testing.T) {
 	setClusterFlag(t, command, "prod")
 	if err := command.Args(command, []string{"prod"}); err != nil {
 		t.Errorf("a flag agreeing with the positional must pass: %v", err)
+	}
+	if err := command.Args(command, nil); err != nil {
+		t.Errorf("the flag alone must pass: %v", err)
 	}
 
 	err := command.Args(command, []string{"staging"})
@@ -95,40 +104,75 @@ func TestClusterPositionalArgsOnNodeGroupAdd(t *testing.T) {
 	}
 }
 
-func TestClusterPositionalArgsKeepsAnOptionalPositionalOptional(t *testing.T) {
-	validate := clusterPositionalArgs(cobra.MaximumNArgs(1), false)
-	command := &cobra.Command{Use: "domain [cluster]"}
+// positionalTestCommand is a command registered with withClusterArgument,
+// carrying --cluster itself, and dropped from the registry after the test.
+func positionalTestCommand(t *testing.T, access clusterArgumentAccess, use string, validate cobra.PositionalArgs) *cobra.Command {
+	t.Helper()
+	command := withClusterArgument(access, &cobra.Command{
+		Use:  use,
+		Args: validate,
+		RunE: func(*cobra.Command, []string) error { return nil },
+	})
 	command.Flags().String(activeClusterFlagName, "", "")
+	t.Cleanup(func() { delete(clusterArgumentSpecs, command) })
+	return command
+}
 
-	if err := validate(command, nil); err != nil {
+func TestClusterPositionalArgsKeepsAnOptionalPositionalOptional(t *testing.T) {
+	command := positionalTestCommand(t, clusterSelectionAllowed, "domain [cluster]", cobra.MaximumNArgs(1))
+
+	if err := command.Args(command, nil); err != nil {
 		t.Errorf("no argument and no flag must pass: %v", err)
 	}
 	setClusterFlag(t, command, "prod")
-	if err := validate(command, nil); err != nil {
+	if err := command.Args(command, nil); err != nil {
 		t.Errorf("the flag alone must pass on an optional positional: %v", err)
 	}
-	if err := validate(command, []string{"staging"}); err == nil {
+	if err := command.Args(command, []string{"staging"}); err == nil {
 		t.Error("a flag that disagrees with the positional must be refused")
 	}
 }
 
-func TestClusterPositionalArgsKeepsTheValidatorsOwnError(t *testing.T) {
-	validate := clusterPositionalArgs(cobra.ExactArgs(2), true)
-	command := &cobra.Command{Use: "scale <cluster_id|name> <count>"}
-	command.Flags().String(activeClusterFlagName, "", "")
+// A command that must name its cluster refuses to be left without one even
+// when its own argument check would let the cluster go.
+func TestClusterPositionalArgsNeverLetsAnExplicitClusterGo(t *testing.T) {
+	command := positionalTestCommand(t, clusterMustBeNamed, "deprovision [cluster]", cobra.MaximumNArgs(1))
 
-	err := validate(command, []string{"prod"})
+	err := command.Args(command, nil)
+	if err == nil || exitCodeFor(err) != exitUsage || !strings.Contains(err.Error(), "--cluster") {
+		t.Errorf("got %v (exit %d), want a usage error naming --cluster", err, exitCodeFor(err))
+	}
+}
+
+func TestClusterPositionalArgsKeepsTheValidatorsOwnError(t *testing.T) {
+	command := positionalTestCommand(t, clusterMustBeNamed, "scale <cluster_id|name> <count>", cobra.ExactArgs(2))
+
+	err := command.Args(command, []string{"prod"})
 	if err == nil || !strings.Contains(err.Error(), "accepts 2 arg(s)") || !strings.Contains(err.Error(), "scale <cluster_id|name> <count>") {
 		t.Errorf("got %v, want cobra's count error and the form", err)
 	}
 
 	setClusterFlag(t, command, "prod")
-	err = validate(command, []string{"5"})
-	if err == nil || !strings.Contains(err.Error(), "first argument, not --cluster") {
-		t.Errorf("--cluster prod with only the count: got %v, want the right form named", err)
+	if err = command.Args(command, []string{"5"}); err != nil {
+		t.Errorf("--cluster prod with only the count: got %v, want it accepted", err)
 	}
 
-	err = validate(command, []string{"prod"})
+	err = command.Args(command, []string{"5", "6", "7"})
+	if err == nil || !strings.Contains(err.Error(), "accepts 2 arg(s)") || !strings.Contains(err.Error(), "counting --cluster") {
+		t.Errorf("--cluster prod with three more arguments: got %v, want cobra's count error counting the flag", err)
+	}
+
+	// Two arguments fit the command with the cluster among them, so the
+	// first is a cluster, and not the one --cluster names.
+	err = command.Args(command, []string{"staging", "5"})
+	if err == nil || !strings.Contains(err.Error(), "name different clusters") {
+		t.Errorf("--cluster prod beside staging 5: got %v, want the different-clusters refusal", err)
+	}
+
+	// #744's own assertion, kept: the same cluster as the argument and with
+	// --cluster is the argument as given, so the count is missing. The
+	// flag is not put in a second time to make up the count.
+	err = command.Args(command, []string{"prod"})
 	if err == nil || !strings.Contains(err.Error(), "accepts 2 arg(s)") || strings.Contains(err.Error(), "not --cluster") {
 		t.Errorf("--cluster prod agreeing with the positional but no count: got %v, want cobra's count error", err)
 	}
@@ -142,7 +186,7 @@ func TestClusterPositionalKindIgnoresOtherFirstArguments(t *testing.T) {
 		"lift <cluster_id> --reason <text>": "<",
 		"taints <cluster_id|name> <group>":  "<",
 		"domain [cluster]":                  "[",
-		"deprovision [cluster_name]":        "[",
+		"reconcile [cluster_name]":          "[",
 		"get <group_name>":                  "",
 		"cluster":                           "",
 		"logs <pod>":                        "",

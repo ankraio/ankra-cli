@@ -47,7 +47,7 @@ join. Both run over the platform's bastion SSH lane as tracked operations and
 need clusters.operate on the cluster. Find node ids with 'nodes list'.`,
 	}
 
-	members := &cobra.Command{
+	members := withClusterArgument(clusterMustBeNamed, &cobra.Command{
 		Use:   "members <cluster_id|name> <node_id>",
 		Short: "List etcd members, their health and the quorum margin",
 		Long: `Run 'etcdctl member list' and the endpoint health check on the control-plane
@@ -71,9 +71,9 @@ Run it on a healthy control-plane node when another one is dead.`,
 			}
 			return renderNodeMaintenanceResult(cmd, "etcd member inspection", result)
 		},
-	}
+	})
 
-	remove := &cobra.Command{
+	remove := withClusterArgument(clusterMustBeNamed, &cobra.Command{
 		Use:   "remove <cluster_id|name> <node_id> <member_id>",
 		Short: "Remove one stale etcd member through a healthy control-plane node",
 		Long: `Remove one etcd member, named by the hex or decimal id 'etcd members'
@@ -110,7 +110,7 @@ skips, declining exits 4).
 			}
 			return renderNodeMaintenanceResult(cmd, "etcd member removal", result)
 		},
-	}
+	})
 	remove.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
 
 	for _, subcommand := range []*cobra.Command{members, remove} {
@@ -150,7 +150,7 @@ host at a time, drained and returned to service before the next.
 }
 
 func newOSPatchesStatusCommand(provider string) *cobra.Command {
-	command := &cobra.Command{
+	command := withClusterArgument(clusterMustBeNamed, &cobra.Command{
 		Use:   "status <cluster_id|name>",
 		Short: "Show the OS patch policy, the newest run and the security-lag verdict",
 		Args:  cobra.ExactArgs(1),
@@ -168,13 +168,13 @@ func newOSPatchesStatusCommand(provider string) *cobra.Command {
 			}
 			return writeDocument(cmd.OutOrStdout(), "OS patch status", status)
 		},
-	}
+	})
 	registerStructuredOutputFlags(command)
 	return command
 }
 
 func newOSPatchesPlanCommand(provider string) *cobra.Command {
-	command := &cobra.Command{
+	command := withClusterArgument(clusterMustBeNamed, &cobra.Command{
 		Use:   "plan <cluster_id|name>",
 		Short: "Dry-run the OS patches on every host; nothing is installed",
 		Long: `Run the dry run on every host and report what each would install, which
@@ -202,14 +202,14 @@ Needs clusters.operate.`,
 			}
 			return writeDocument(cmd.OutOrStdout(), "OS patch plan", plan)
 		},
-	}
+	})
 	command.Flags().Duration("timeout", defaultNodeMaintenanceTimeout, "Maximum time to wait for the plan")
 	registerStructuredOutputFlags(command)
 	return command
 }
 
 func newOSPatchesRunCommand(provider string) *cobra.Command {
-	command := &cobra.Command{
+	command := withClusterArgument(clusterMustBeNamed, &cobra.Command{
 		Use:   "run <cluster_id|name>",
 		Short: "Start the rolling OS patch run, one host at a time",
 		Long: `Start the rolling patch: each host is drained, patched, rebooted when the
@@ -258,7 +258,7 @@ bastion is patched last unless --exclude-bastion. Follow the run with
 			}
 			return writeDocument(cmd.OutOrStdout(), "OS patch run started", run)
 		},
-	}
+	})
 	command.Flags().Bool("outside-window", false, "Start now even though the maintenance window is closed")
 	command.Flags().Bool("include-stateful-nodes", false, "Patch nodes running stateful workloads, whatever the policy says")
 	command.Flags().Bool("exclude-stateful-nodes", false, "Leave nodes running stateful workloads out, whatever the policy says")
@@ -276,7 +276,7 @@ func newOSPatchesPolicyCommand(provider string) *cobra.Command {
 		Short: "Show or change the cluster's OS patch policy",
 	}
 
-	get := &cobra.Command{
+	get := withClusterArgument(clusterMustBeNamed, &cobra.Command{
 		Use:   "get <cluster_id|name>",
 		Short: "Show the OS patch policy and its maintenance window",
 		Args:  cobra.ExactArgs(1),
@@ -295,9 +295,9 @@ func newOSPatchesPolicyCommand(provider string) *cobra.Command {
 			}
 			return writeDocument(cmd.OutOrStdout(), "OS patch policy", policy)
 		},
-	}
+	})
 
-	set := &cobra.Command{
+	set := withClusterArgument(clusterMustBeNamed, &cobra.Command{
 		Use:   "set <cluster_id|name>",
 		Short: "Change the OS patch policy; a setting not named is kept",
 		Long: `Change the cluster's OS patch policy. Only the flags passed are changed.
@@ -331,7 +331,7 @@ Needs clusters.write.
 			}
 			return writeDocument(cmd.OutOrStdout(), "OS patch policy updated", policy)
 		},
-	}
+	})
 	set.Flags().Bool("enable", false, "Turn the rolling OS patch policy on")
 	set.Flags().Bool("disable", false, "Turn the rolling OS patch policy off")
 	set.Flags().StringSlice("window-days", nil, "Days the maintenance window opens (mon,tue,...)")
@@ -351,7 +351,7 @@ Needs clusters.write.
 }
 
 func newOSPatchesNodePolicyCommand(provider string) *cobra.Command {
-	command := &cobra.Command{
+	command := withClusterArgument(clusterMustBeNamed, &cobra.Command{
 		Use:   "node-policy <cluster_id|name>",
 		Short: "Write, or with --revert remove, the node OS update hold",
 		Long: `Write the node OS update hold - the apt policy that keeps unattended
@@ -397,7 +397,7 @@ clusters.operate.`,
 			}
 			return renderNodeMaintenanceResult(cmd, "node OS update policy", result)
 		},
-	}
+	})
 	command.Flags().StringSlice("node", nil, "Node id to apply the policy to (repeatable)")
 	command.Flags().Bool("all-nodes", false, "Apply the policy to every node")
 	command.Flags().Bool("include-bastion", false, "Apply the policy to the bastion too")

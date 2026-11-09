@@ -25,7 +25,7 @@ For Ankra Cloud Kubernetes, where the Ankra team runs the control plane, use
 same Ankra Cloud credential ('ankra credentials ankracloud create').`,
 }
 
-var ankraCloudStopCmd = &cobra.Command{
+var ankraCloudStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "stop <cluster_id|name>",
 	Short: "Stop an Ankra Cloud cluster",
 	Long:  "Stop an Ankra Cloud cluster. A plain stop powers the servers off and keeps them with their disks; only a forced stop or a deprovision deletes servers.",
@@ -59,9 +59,9 @@ var ankraCloudStopCmd = &cobra.Command{
 		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
 		return nil
 	},
-}
+})
 
-var ankraCloudStartCmd = &cobra.Command{
+var ankraCloudStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped Ankra Cloud cluster",
 	Long:  "Start a stopped Ankra Cloud cluster. Use --scope control_plane to bring up only the control plane.",
@@ -93,7 +93,7 @@ var ankraCloudStartCmd = &cobra.Command{
 		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
 		return nil
 	},
-}
+})
 
 func init() {
 	ankraCloudStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
@@ -382,7 +382,7 @@ Takes the same flags as 'create'.`,
 	},
 }
 
-var ankraCloudDeprovisionCmd = &cobra.Command{
+var ankraCloudDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "deprovision <cluster_id|name>",
 	Short: "Deprovision an Ankra Cloud cluster and release its servers",
 	Long: `Permanently delete an Ankra Cloud cluster and the servers, network, router
@@ -433,9 +433,9 @@ pass --accept-volume-data-loss (--yes does not imply it).`,
 		}
 		return nil
 	},
-}
+})
 
-var ankraCloudWorkersCmd = &cobra.Command{
+var ankraCloudWorkersCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for an Ankra Cloud cluster",
 	Args:  cobra.ExactArgs(1),
@@ -460,9 +460,9 @@ var ankraCloudWorkersCmd = &cobra.Command{
 		fmt.Printf("  Max: %d\n", result.Max)
 		return nil
 	},
-}
+})
 
-var ankraCloudK8sVersionCmd = &cobra.Command{
+var ankraCloudK8sVersionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for an Ankra Cloud cluster",
 	Args:  cobra.ExactArgs(1),
@@ -490,7 +490,7 @@ var ankraCloudK8sVersionCmd = &cobra.Command{
 		fmt.Printf("  Distribution: %s\n", result.Distribution)
 		return nil
 	},
-}
+})
 
 func newAnkraCloudTable() table.Writer {
 	catalogTable := table.NewWriter()

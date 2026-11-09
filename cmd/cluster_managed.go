@@ -115,7 +115,7 @@ var managedCreateCmd = &cobra.Command{
 	},
 }
 
-var managedDeleteCmd = &cobra.Command{
+var managedDeleteCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "delete <cluster_id|name>",
 	Short: "Delete a managed Kubernetes cluster",
 	Args:  cobra.ExactArgs(1),
@@ -174,14 +174,14 @@ var managedDeleteCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
 var managedNodePoolCmd = &cobra.Command{
 	Use:   "node-pool",
 	Short: "Manage managed cluster node pools",
 }
 
-var managedNodePoolAddCmd = &cobra.Command{
+var managedNodePoolAddCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "add <cluster_id|name>",
 	Short: "Add a node pool to a managed cluster",
 	Args:  cobra.ExactArgs(1),
@@ -228,9 +228,9 @@ var managedNodePoolAddCmd = &cobra.Command{
 		fmt.Printf("Node pool %q added to cluster %s (count: %d)\n", result.NodePoolName, result.ClusterID, result.Count)
 		return nil
 	},
-}
+})
 
-var managedNodePoolScaleCmd = &cobra.Command{
+var managedNodePoolScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "scale <cluster_id|name> <node_pool_name>",
 	Short: "Scale a managed cluster node pool",
 	Args:  cobra.ExactArgs(2),
@@ -261,9 +261,9 @@ var managedNodePoolScaleCmd = &cobra.Command{
 		fmt.Printf("Node pool %q scaled to %d nodes on cluster %s\n", result.NodePoolName, result.Count, result.ClusterID)
 		return nil
 	},
-}
+})
 
-var managedNodePoolDeleteCmd = &cobra.Command{
+var managedNodePoolDeleteCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "delete <cluster_id|name> <node_pool_name>",
 	Short: "Delete a managed cluster node pool",
 	Args:  cobra.ExactArgs(2),
@@ -300,9 +300,9 @@ var managedNodePoolDeleteCmd = &cobra.Command{
 		fmt.Printf("Node pool %q deleted from cluster %s\n", result.NodePoolName, result.ClusterID)
 		return nil
 	},
-}
+})
 
-var managedNodePoolUpdateCmd = &cobra.Command{
+var managedNodePoolUpdateCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "update <cluster_id|name> <node_pool_name>",
 	Short: "Update a managed cluster node pool",
 	Long: `Update the node count or autoscaling settings of a managed cluster node
@@ -389,9 +389,9 @@ it is set, Ankra refuses to scale, update, replace or delete the pool;
 		}
 		return nil
 	},
-}
+})
 
-var managedStopCmd = &cobra.Command{
+var managedStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "stop <cluster_id|name>",
 	Short: "Stop a managed cluster's compute",
 	Long: `Stop a managed Kubernetes cluster's compute while keeping its configuration
@@ -427,9 +427,9 @@ starting managed clusters.`,
 		}
 		return nil
 	},
-}
+})
 
-var managedStartCmd = &cobra.Command{
+var managedStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped managed cluster",
 	Long: `Start a stopped managed Kubernetes cluster. Currently only AKS supports
@@ -464,9 +464,9 @@ stopping and starting managed clusters.`,
 		}
 		return nil
 	},
-}
+})
 
-var managedUpgradeCmd = &cobra.Command{
+var managedUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "upgrade <cluster_id|name>",
 	Short: "Upgrade a managed cluster Kubernetes version",
 	Args:  cobra.ExactArgs(1),
@@ -503,7 +503,7 @@ var managedUpgradeCmd = &cobra.Command{
 		fmt.Printf("Managed cluster %s upgraded to Kubernetes %s\n", result.ClusterID, result.Version)
 		return nil
 	},
-}
+})
 
 const managedProviderFlagHelp = "Managed Kubernetes provider (doks, uks, gke, ovh_mks, aks, eks, kapsule, ankracloud_k8s)"
 

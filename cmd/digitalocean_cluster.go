@@ -109,7 +109,7 @@ var digitaloceanCreateCmd = &cobra.Command{
 	},
 }
 
-var digitaloceanDeprovisionCmd = &cobra.Command{
+var digitaloceanDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "deprovision <cluster_id|name>",
 	Short: "Deprovision an DigitalOcean cluster",
 	Args:  cobra.ExactArgs(1),
@@ -160,9 +160,9 @@ var digitaloceanDeprovisionCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
-var digitaloceanStopCmd = &cobra.Command{
+var digitaloceanStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "stop <cluster_id|name>",
 	Short: "Stop an DigitalOcean cluster",
 	Long:  "Stop an DigitalOcean cluster's compute while keeping its configuration so it can be started again later.",
@@ -196,9 +196,9 @@ var digitaloceanStopCmd = &cobra.Command{
 		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
 		return nil
 	},
-}
+})
 
-var digitaloceanStartCmd = &cobra.Command{
+var digitaloceanStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped DigitalOcean cluster",
 	Long:  "Start (re-provision) a stopped DigitalOcean cluster. Use --scope control_plane to bring up only the control plane.",
@@ -227,9 +227,9 @@ var digitaloceanStartCmd = &cobra.Command{
 		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
 		return nil
 	},
-}
+})
 
-var digitaloceanWorkersCmd = &cobra.Command{
+var digitaloceanWorkersCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for an DigitalOcean cluster",
 	Args:  cobra.ExactArgs(1),
@@ -255,9 +255,9 @@ var digitaloceanWorkersCmd = &cobra.Command{
 		fmt.Printf("  Max: %d\n", result.Max)
 		return nil
 	},
-}
+})
 
-var digitaloceanScaleCmd = &cobra.Command{
+var digitaloceanScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "scale <cluster_id|name> <worker_count>",
 	Short: "Scale workers for an DigitalOcean cluster",
 	Long:  "Scale the number of worker nodes up or down for an DigitalOcean cluster.",
@@ -294,9 +294,9 @@ var digitaloceanScaleCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
-var digitaloceanK8sVersionCmd = &cobra.Command{
+var digitaloceanK8sVersionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for an DigitalOcean cluster",
 	Args:  cobra.ExactArgs(1),
@@ -325,9 +325,9 @@ var digitaloceanK8sVersionCmd = &cobra.Command{
 		fmt.Printf("  Distribution: %s\n", result.Distribution)
 		return nil
 	},
-}
+})
 
-var digitaloceanUpgradeCmd = &cobra.Command{
+var digitaloceanUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:        "upgrade <cluster_id|name> <target_version>",
 	Short:      "Upgrade Kubernetes version for an DigitalOcean cluster",
 	Long:       "Upgrade the Kubernetes version on all nodes in an DigitalOcean cluster. This deprecated form always runs the safe non-forced rollout; use `ankra cluster upgrade` for --force (PodDisruptionBudget override) and operation progress tracking.",
@@ -361,7 +361,7 @@ var digitaloceanUpgradeCmd = &cobra.Command{
 		fmt.Printf("  Nodes affected:   %d\n", result.NodesAffected)
 		return nil
 	},
-}
+})
 
 var digitaloceanNodeGroupCmd = &cobra.Command{
 	Use:   "node-group",
@@ -369,7 +369,7 @@ var digitaloceanNodeGroupCmd = &cobra.Command{
 	Long:  "List, add, scale, upgrade, and delete node groups.",
 }
 
-var digitaloceanNodeGroupListCmd = &cobra.Command{
+var digitaloceanNodeGroupListCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
 	Use:   "list [cluster_id|name]",
 	Short: "List node groups",
 	Args:  nodeGroupListArgs,
@@ -398,9 +398,9 @@ var digitaloceanNodeGroupListCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
-var digitaloceanNodeGroupAddCmd = &cobra.Command{
+var digitaloceanNodeGroupAddCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "add <cluster_id|name>",
 	Short: "Add a node group",
 	Args:  nodeGroupAddArgs,
@@ -446,9 +446,9 @@ var digitaloceanNodeGroupAddCmd = &cobra.Command{
 		printNodeGroupAdded(result, clusterID)
 		return nil
 	},
-}
+})
 
-var digitaloceanNodeGroupScaleCmd = &cobra.Command{
+var digitaloceanNodeGroupScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "scale <cluster_id|name> <group_name> <count>",
 	Short: "Scale a node group",
 	Args:  nodeGroupArgs(3, 1),
@@ -490,9 +490,9 @@ var digitaloceanNodeGroupScaleCmd = &cobra.Command{
 		printNodeGroupScaled(result, clusterID)
 		return nil
 	},
-}
+})
 
-var digitaloceanNodeGroupUpgradeCmd = &cobra.Command{
+var digitaloceanNodeGroupUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "upgrade <cluster_id|name> <group_name> <size>",
 	Short: "Upgrade server size for a node group",
 	Args:  nodeGroupArgs(3, 1),
@@ -531,9 +531,9 @@ var digitaloceanNodeGroupUpgradeCmd = &cobra.Command{
 		printNodeGroupResized(result, clusterID, "size")
 		return nil
 	},
-}
+})
 
-var digitaloceanNodeGroupDeleteCmd = &cobra.Command{
+var digitaloceanNodeGroupDeleteCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "delete <cluster_id|name> <group_name>",
 	Short: "Delete a node group and all its nodes",
 	Args:  nodeGroupArgs(2, 1),
@@ -578,7 +578,7 @@ var digitaloceanNodeGroupDeleteCmd = &cobra.Command{
 		printNodeGroupDeleted(result, clusterID)
 		return nil
 	},
-}
+})
 
 var digitaloceanRegionsCmd = &cobra.Command{
 	Use:   "regions",

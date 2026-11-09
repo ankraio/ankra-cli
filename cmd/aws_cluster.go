@@ -24,7 +24,7 @@ internet gateway, route tables, NAT) and removes it with the cluster; pass
 plane use 'ankra cluster managed'.`,
 }
 
-var awsStopCmd = &cobra.Command{
+var awsStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "stop <cluster_id|name>",
 	Short: "Stop an AWS cluster",
 	Long:  "Stop an AWS cluster by terminating its EC2 instances while preserving its configuration so it can be re-provisioned later.",
@@ -61,9 +61,9 @@ var awsStopCmd = &cobra.Command{
 		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
 		return nil
 	},
-}
+})
 
-var awsStartCmd = &cobra.Command{
+var awsStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped AWS cluster",
 	Long:  "Re-provision a stopped AWS cluster. Use --scope control_plane to bring up only the control plane.",
@@ -98,7 +98,7 @@ var awsStartCmd = &cobra.Command{
 		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
 		return nil
 	},
-}
+})
 
 func init() {
 	awsStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
@@ -525,7 +525,7 @@ Takes the same flags as 'create'.`,
 	},
 }
 
-var awsDeprovisionCmd = &cobra.Command{
+var awsDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "deprovision <cluster_id|name>",
 	Short: "Deprovision an AWS cluster and release its EC2 resources",
 	Long: `Permanently delete an AWS cluster and the provider resources Ankra created
@@ -575,9 +575,9 @@ terminal, or pass --accept-volume-data-loss (--yes does not imply it).`,
 		}
 		return nil
 	},
-}
+})
 
-var awsWorkersCmd = &cobra.Command{
+var awsWorkersCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for an AWS cluster",
 	Args:  cobra.ExactArgs(1),
@@ -602,9 +602,9 @@ var awsWorkersCmd = &cobra.Command{
 		fmt.Printf("  Max: %d\n", result.Max)
 		return nil
 	},
-}
+})
 
-var awsK8sVersionCmd = &cobra.Command{
+var awsK8sVersionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for an AWS cluster",
 	Args:  cobra.ExactArgs(1),
@@ -632,9 +632,9 @@ var awsK8sVersionCmd = &cobra.Command{
 		fmt.Printf("  Distribution: %s\n", result.Distribution)
 		return nil
 	},
-}
+})
 
-var awsAccessInfoCmd = &cobra.Command{
+var awsAccessInfoCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "access-info <cluster_id|name>",
 	Short: "Show SSH access details for an AWS cluster",
 	Long:  "Show the bastion and control plane IPs plus ready-to-use SSH jump and Kubernetes API port-forward commands.",
@@ -699,7 +699,7 @@ var awsAccessInfoCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
 func awsCatalogArgs(cmd *cobra.Command) (credentialID, region, vpcID string) {
 	credentialID, _ = cmd.Flags().GetString("credential-id")

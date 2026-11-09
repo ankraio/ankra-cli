@@ -179,7 +179,7 @@ with your name and the reason.`,
 	Annotations: map[string]string{annotationRequiresAuth: "false"},
 }
 
-var clusterOperationsHoldSetCmd = &cobra.Command{
+var clusterOperationsHoldSetCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Annotations: map[string]string{annotationClusterIDOnly: staffClusterIDOnlyReason},
 	Use:         "set <cluster_id> --for <duration> --reason <text>",
 	Short:       "Hold the cluster for a duration (1m to 24h), replacing any hold in force",
@@ -218,9 +218,9 @@ Examples:
 		printOperationsHold(cmd.OutOrStdout(), hold)
 		return nil
 	},
-}
+})
 
-var clusterOperationsHoldGetCmd = &cobra.Command{
+var clusterOperationsHoldGetCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Annotations: map[string]string{annotationClusterIDOnly: staffClusterIDOnlyReason},
 	Use:         "get <cluster_id>",
 	Short:       "Show the cluster's operations hold and any pending version record check",
@@ -242,9 +242,9 @@ var clusterOperationsHoldGetCmd = &cobra.Command{
 		printOperationsHold(cmd.OutOrStdout(), hold)
 		return nil
 	},
-}
+})
 
-var clusterOperationsHoldLiftCmd = &cobra.Command{
+var clusterOperationsHoldLiftCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Annotations: map[string]string{annotationClusterIDOnly: staffClusterIDOnlyReason},
 	Use:         "lift <cluster_id> --reason <text>",
 	Short:       "Lift the cluster's operations hold so the platform acts on it again",
@@ -295,9 +295,9 @@ is recorded on the audit row; it asks for confirmation unless --yes is given.`,
 		}
 		return nil
 	},
-}
+})
 
-var clusterUpgradeRollbackRecordCmd = &cobra.Command{
+var clusterUpgradeRollbackRecordCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "rollback-record <cluster_id> <version> --reason <text>",
 	Short: "Put the Kubernetes version record back after a manual rollback (Ankra staff only)",
 	Long: `Repair a cluster's Kubernetes version record after its nodes were rolled back
@@ -367,7 +367,7 @@ Examples:
 			formatInstant(repair.BlockedUntil), repair.ClusterID)
 		return nil
 	},
-}
+})
 
 func init() {
 	clusterOperationsHoldSetCmd.Flags().Duration("for", 0, "how long to hold the cluster from now (1m to 24h, e.g. 4h)")

@@ -631,7 +631,7 @@ and bastion or gateway). Soft-deleted entries from a stopped cluster are
 included so the saved topology is visible before re-provisioning.`,
 	}
 
-	listCmd := &cobra.Command{
+	listCmd := withClusterArgument(clusterMustBeNamed, &cobra.Command{
 		Use:   "list <cluster_id|name>",
 		Short: "List all nodes for the cluster",
 		Args:  cobra.ExactArgs(1),
@@ -642,9 +642,9 @@ included so the saved topology is visible before re-provisioning.`,
 			}
 			return runNodesList(cmd, opsFn, clusterID)
 		},
-	}
+	})
 
-	getCmd := &cobra.Command{
+	getCmd := withClusterArgument(clusterMustBeNamed, &cobra.Command{
 		Use:   "get <cluster_id|name> <node_id>",
 		Short: "Show full spec and metadata for a single node",
 		Args:  cobra.ExactArgs(2),
@@ -655,13 +655,13 @@ included so the saved topology is visible before re-provisioning.`,
 			}
 			return runNodesGet(cmd, opsFn, clusterID, args[1])
 		},
-	}
+	})
 
 	registerStructuredOutputFlags(listCmd, getCmd)
 	cmd.AddCommand(listCmd, getCmd)
 
 	if supportsRestart {
-		restartCmd := &cobra.Command{
+		restartCmd := withClusterArgument(clusterMustBeNamed, &cobra.Command{
 			Use:   "restart <cluster_id|name> <node_id>",
 			Short: "Restart a node (control plane, worker, or bastion/gateway)",
 			Long: `Schedule a native reboot (falling back to a power cycle) of the node as a
@@ -677,13 +677,13 @@ bastion/gateway.`,
 				}
 				return runNodesRestart(cmd, opsFn, clusterID, args[1])
 			},
-		}
+		})
 		registerStructuredOutputFlags(restartCmd)
 		cmd.AddCommand(restartCmd)
 	}
 
 	if supportsNodeSSH {
-		cloudInitLogCmd := &cobra.Command{
+		cloudInitLogCmd := withClusterArgument(clusterMustBeNamed, &cobra.Command{
 			Use:   "cloud-init-log <cluster_id|name> <node_id>",
 			Short: "Read the node's cloud-init status and output-log tail",
 			Long: `Fetch 'cloud-init status --long' and the tail of
@@ -701,11 +701,11 @@ an in-flight fetch instead of dispatching duplicates. Find node ids with
 				}
 				return runNodesCloudInitLog(cmd, opsFn, clusterID, args[1])
 			},
-		}
+		})
 		registerStructuredOutputFlags(cloudInitLogCmd)
 		cmd.AddCommand(cloudInitLogCmd)
 
-		diagnoseCmd := &cobra.Command{
+		diagnoseCmd := withClusterArgument(clusterMustBeNamed, &cobra.Command{
 			Use:   "diagnose <cluster_id|name> <node_id>",
 			Short: "Run a read-only SSH diagnosis of a node",
 			Long: `Dispatch the platform's read-only node diagnose job and wait for its report:
@@ -728,7 +728,7 @@ clusters.operate permission on the cluster.`,
 				}
 				return runNodesDiagnose(cmd, opsFn, clusterID, args[1])
 			},
-		}
+		})
 		diagnoseCmd.Flags().Duration("timeout", defaultNodeDiagnoseTimeout,
 			"Maximum time to wait for the diagnosis report")
 		registerStructuredOutputFlags(diagnoseCmd)
@@ -736,7 +736,7 @@ clusters.operate permission on the cluster.`,
 	}
 
 	if supportsConsoleLog {
-		consoleLogCmd := &cobra.Command{
+		consoleLogCmd := withClusterArgument(clusterMustBeNamed, &cobra.Command{
 			Use:   "console-log <cluster_id|name> <node_id>",
 			Short: "Read the newest lines of the node's VM serial console",
 			Long: `Read the newest lines of the node's serial console from the cloud
@@ -759,7 +759,7 @@ clusters.operate permission on the cluster.`,
 				}
 				return runNodesConsoleLog(cmd, opsFn, clusterID, args[1])
 			},
-		}
+		})
 		consoleLogCmd.Flags().Int("lines", 0, "Show only the newest N lines (0 shows every line the platform returned)")
 		consoleLogCmd.Flags().Duration("timeout", defaultNodeConsoleLogTimeout,
 			"Maximum time to wait for the console read")

@@ -154,16 +154,18 @@ func TestNodeGroupListRefusesAmbiguousOrMissingCluster(t *testing.T) {
 	}
 }
 
-// The binary wraps every leading-cluster command in clusterPositionalArgs
-// (Execute), which executeCommand does not. Under that wrapper the five lists
-// stay optional-cluster commands: --cluster alone reaches the resolver, and a
-// different --cluster is refused with the same words the resolver uses.
-func TestNodeGroupListUnderTheClusterPositionalWrapper(t *testing.T) {
-	withWrappedClusterPositionals(t)
+// The five lists go through withClusterArgument as optional-cluster
+// commands that may use the selection: --cluster alone reaches the resolver,
+// and a different --cluster is refused with the same words the resolver
+// uses.
+func TestNodeGroupListUnderTheClusterArgumentResolver(t *testing.T) {
 	for _, testCase := range nodeGroupListCommands {
 		t.Run(testCase.name, func(t *testing.T) {
 			if kind := clusterPositionalKind(testCase.command); kind != "[" {
 				t.Fatalf("Use %q: cluster positional kind %q, want an optional one", testCase.command.Use, kind)
+			}
+			if access := testCase.command.Annotations[clusterArgumentAnnotation]; access != string(clusterSelectionAllowed) {
+				t.Fatalf("registered as %q, want %q", access, clusterSelectionAllowed)
 			}
 			mock, runError := runNodeGroupList(t, testCase.command, true,
 				append(append([]string{}, testCase.path...), "--cluster", otherClusterID)...)

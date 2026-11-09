@@ -106,7 +106,7 @@ var morpheusCreateCmd = &cobra.Command{
 	},
 }
 
-var morpheusStopCmd = &cobra.Command{
+var morpheusStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "stop <cluster_id|name>",
 	Short: "Stop an HPE Morpheus cluster",
 	Long:  "Stop an HPE Morpheus cluster's instances while keeping its configuration so it can be started again later.",
@@ -140,9 +140,9 @@ var morpheusStopCmd = &cobra.Command{
 		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
 		return nil
 	},
-}
+})
 
-var morpheusStartCmd = &cobra.Command{
+var morpheusStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped HPE Morpheus cluster",
 	Long:  "Start (re-provision) a stopped HPE Morpheus cluster. Use --scope control_plane to bring up only the control plane.",
@@ -171,9 +171,9 @@ var morpheusStartCmd = &cobra.Command{
 		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
 		return nil
 	},
-}
+})
 
-var morpheusWorkersCmd = &cobra.Command{
+var morpheusWorkersCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for an HPE Morpheus cluster",
 	Args:  cobra.ExactArgs(1),
@@ -199,9 +199,9 @@ var morpheusWorkersCmd = &cobra.Command{
 		fmt.Printf("  Max: %d\n", result.Max)
 		return nil
 	},
-}
+})
 
-var morpheusK8sVersionCmd = &cobra.Command{
+var morpheusK8sVersionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for an HPE Morpheus cluster",
 	Args:  cobra.ExactArgs(1),
@@ -230,7 +230,7 @@ var morpheusK8sVersionCmd = &cobra.Command{
 		fmt.Printf("  Distribution: %s\n", result.Distribution)
 		return nil
 	},
-}
+})
 
 var morpheusGroupsCmd = &cobra.Command{
 	Use:   "groups",

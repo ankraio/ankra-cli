@@ -41,7 +41,7 @@ func upgradeFunctionForKind(kind string) (k8sVersionUpgrade, bool) {
 
 var clusterUpgradeForce bool
 
-var clusterUpgradeCmd = &cobra.Command{
+var clusterUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "upgrade <cluster_id|name> <target_version>",
 	Short: "Upgrade the Kubernetes version of a cloud cluster",
 	Long: `Upgrade the Kubernetes version on all nodes in a cloud cluster.
@@ -124,7 +124,7 @@ Examples:
 		}
 		return nil
 	},
-}
+})
 
 func init() {
 	clusterUpgradeCmd.Flags().BoolVar(&clusterUpgradeForce, "force", false,

@@ -412,7 +412,7 @@ func newBastionCmd(opsFn func() bastionOps, provider string, supportsResize, sup
 		Long:  bastionGroupLong(supportsResize, supportsDiagnose),
 	}
 
-	statusCmd := &cobra.Command{
+	statusCmd := withClusterArgument(clusterMustBeNamed, &cobra.Command{
 		Use:   "status <cluster_id|name>",
 		Short: "Show the recorded bastion/gateway health verdict",
 		Long:  bastionStatusLong(supportsDiagnose),
@@ -424,12 +424,12 @@ func newBastionCmd(opsFn func() bastionOps, provider string, supportsResize, sup
 			}
 			return runBastionStatus(cmd, opsFn, clusterID)
 		},
-	}
+	})
 	registerStructuredOutputFlags(statusCmd)
 	cmd.AddCommand(statusCmd)
 
 	if supportsResize {
-		resizeCmd := &cobra.Command{
+		resizeCmd := withClusterArgument(clusterMustBeNamed, &cobra.Command{
 			Use:   "resize <cluster_id|name> <instance_type>",
 			Short: "Change the bastion/gateway instance type",
 			Long:  bastionResizeLong(provider),
@@ -441,14 +441,14 @@ func newBastionCmd(opsFn func() bastionOps, provider string, supportsResize, sup
 				}
 				return runBastionResize(cmd, opsFn, clusterID, args[1])
 			},
-		}
+		})
 		registerAsyncWriteFlags(resizeCmd)
 		registerStructuredOutputFlags(resizeCmd)
 		cmd.AddCommand(resizeCmd)
 	}
 
 	if supportsDiagnose {
-		diagnoseCmd := &cobra.Command{
+		diagnoseCmd := withClusterArgument(clusterMustBeNamed, &cobra.Command{
 			Use:   "diagnose <cluster_id|name>",
 			Short: "Run a read-only SSH diagnosis of the bastion/gateway",
 			Long: `Dispatch the provider's read-only bastion diagnose job and wait for its
@@ -464,7 +464,7 @@ back the operation id to poll with 'cluster operations list'.`,
 				}
 				return runBastionDiagnose(cmd, opsFn, clusterID)
 			},
-		}
+		})
 		diagnoseCmd.Flags().Duration("timeout", defaultBastionDiagnoseTimeout,
 			"Maximum time to wait for the diagnosis report")
 		registerStructuredOutputFlags(diagnoseCmd)

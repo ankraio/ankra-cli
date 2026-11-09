@@ -101,7 +101,7 @@ stderr.
 	},
 }
 
-var clusterAuditLogsCmd = &cobra.Command{
+var clusterAuditLogsCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
 	Use:   "audit-logs [cluster]",
 	Short: "Show the newest audit log entries for one cluster",
 	Long: `Show the newest audit log entries for one cluster: the organisation's trail
@@ -128,7 +128,7 @@ ankra org audit-logs export --cluster <cluster>.
 		}
 		return runAuditLogList(cmd, clusterID)
 	},
-}
+})
 
 // runAuditLogList reads the trail, keeps the newest --limit rows and prints
 // them. clusterID, when set, overrides any --cluster flag.

@@ -23,7 +23,7 @@ const removeNodeWaitUsage = "Wait until the platform has checked the removal, ma
 	"operation that drains it and deletes its server (default: submit and return immediately). It does not wait " +
 	"for the drain or the delete: follow the operation the command prints for those"
 
-var clusterNodeGroupRemoveNodeCmd = &cobra.Command{
+var clusterNodeGroupRemoveNodeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "remove-node <cluster_id|name> <group_name> <node>",
 	Short: "Remove one chosen node from a node group",
 	Long: `Remove one named worker from its node group and delete its server. The
@@ -98,7 +98,7 @@ Examples:
 		return validateNodeReference(args[2])
 	}),
 	RunE: runRemoveNodeGroupNode,
-}
+})
 
 func runRemoveNodeGroupNode(cmd *cobra.Command, args []string) error {
 	clusterID, resolveError := resolveClusterArg(args[0])

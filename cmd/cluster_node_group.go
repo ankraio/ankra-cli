@@ -69,47 +69,6 @@ func nodeGroupArgs(count, groupIndex int) cobra.PositionalArgs {
 // for every other cluster-scoped read. Resolved by resolveOptionalClusterArg.
 var nodeGroupListArgs = cobra.MaximumNArgs(1)
 
-// resolveOptionalClusterArg resolves the cluster of a command whose
-// <cluster_id|name> argument may be left out: the argument when given, else
-// --cluster, else the cluster `ankra cluster select` saved. typed is what the
-// user named it by, for messages. node-group list used to demand the
-// argument and never read --cluster, so `node-group list --cluster <id>`
-// failed with "accepts 1 arg(s), received 0" and an argument beside a
-// different --cluster silently won (ankra-v3qdto.6). Both given and naming
-// different clusters is refused rather than one quietly ignored.
-func resolveOptionalClusterArg(cmd *cobra.Command, args []string) (typed, clusterID string, err error) {
-	override := clusterFlagOverride(cmd)
-	if len(args) > 0 {
-		// The same check and words as clusterPositionalArgs, which runs
-		// first in the binary, so the refusal never depends on which check
-		// met it. A name beside the same cluster's id is refused there too.
-		if override != "" && strings.TrimSpace(args[0]) != override {
-			return "", "", differentClustersError(cmd, override, args[0])
-		}
-		clusterID, err = resolveClusterArg(args[0])
-		if err != nil {
-			return "", "", err
-		}
-		return args[0], clusterID, nil
-	}
-	if override != "" {
-		clusterID, err = resolveClusterArg(override)
-		if err != nil {
-			return "", "", err
-		}
-		return override, clusterID, nil
-	}
-	selected, selectedError := loadSelectedCluster()
-	if selectedError != nil || strings.TrimSpace(selected.ID) == "" {
-		return "", "", withExitCode(exitUsage, errNoClusterSelected{})
-	}
-	typed = selected.Name
-	if typed == "" {
-		typed = selected.ID
-	}
-	return typed, selected.ID, nil
-}
-
 // nodeGroupAddArgs is the Args check of a node-group add: the cluster, the
 // --name flag, which every later command puts in its request path, so a
 // group that could never be addressed there is not created, and the -o
@@ -342,7 +301,7 @@ The cloud provider (Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, Ankra Cloud, 
 HPE Morpheus) is detected automatically from the cluster.`,
 }
 
-var clusterNodeGroupListCmd = &cobra.Command{
+var clusterNodeGroupListCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
 	Use:   "list [cluster_id|name]",
 	Short: "List node groups",
 	Long: `List the node groups of a cloud cluster. The cluster is the argument, else
@@ -380,7 +339,7 @@ var clusterNodeGroupListCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
 // nodeGroupJoinedSuffix renders how many of a group's recorded workers are
 // Kubernetes nodes when that differs from the count, or "" when they agree,
@@ -474,7 +433,7 @@ func readNodeGroupUserDataFile(path string) (string, error) {
 	return string(content), nil
 }
 
-var clusterNodeGroupAddCmd = &cobra.Command{
+var clusterNodeGroupAddCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "add <cluster_id|name>",
 	Short: "Add a node group",
 	Args:  nodeGroupAddArgs,
@@ -567,9 +526,9 @@ var clusterNodeGroupAddCmd = &cobra.Command{
 		printNodeGroupAdded(result, clusterID)
 		return nil
 	},
-}
+})
 
-var clusterNodeGroupScaleCmd = &cobra.Command{
+var clusterNodeGroupScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "scale <cluster_id|name> <group_name> <count>",
 	Short: "Scale a node group",
 	Long: `Scale a node group up or down to <count> nodes.
@@ -622,9 +581,9 @@ Examples:
 		printNodeGroupScaled(result, clusterID)
 		return nil
 	},
-}
+})
 
-var clusterNodeGroupUpgradeCmd = &cobra.Command{
+var clusterNodeGroupUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "upgrade <cluster_id|name> <group_name> <instance_type>",
 	Short: "Upgrade instance type for a node group (cannot be reversed)",
 	Long: `Change the instance type of every node in a node group. This cannot be reversed.
@@ -683,9 +642,9 @@ Examples:
 		printNodeGroupResized(result, clusterID, "instance type")
 		return nil
 	},
-}
+})
 
-var clusterNodeGroupDeleteCmd = &cobra.Command{
+var clusterNodeGroupDeleteCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "delete <cluster_id|name> <group_name>",
 	Short: "Delete a node group and all its nodes",
 	Long: `Delete a node group and every node in it.
@@ -748,7 +707,7 @@ Examples:
 		printNodeGroupDeleted(result, clusterID)
 		return nil
 	},
-}
+})
 
 var clusterNodeGroupAutoscalingCmd = &cobra.Command{
 	Use:   "autoscaling",
@@ -760,7 +719,7 @@ group's node count within [min, max] based on pod demand. Manual scaling
 stays allowed but is clamped into the same bounds.`,
 }
 
-var clusterNodeGroupAutoscalingGetCmd = &cobra.Command{
+var clusterNodeGroupAutoscalingGetCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "get <cluster_id|name> <group_name>",
 	Short: "Show autoscaling settings for a node group",
 	Args:  nodeGroupArgs(2, 1),
@@ -798,9 +757,9 @@ var clusterNodeGroupAutoscalingGetCmd = &cobra.Command{
 		fmt.Printf("  Max: %d\n", result.MaxCount)
 		return nil
 	},
-}
+})
 
-var clusterNodeGroupAutoscalingSetCmd = &cobra.Command{
+var clusterNodeGroupAutoscalingSetCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "set <cluster_id|name> <group_name>",
 	Short: "Enable or disable autoscaling for a node group",
 	Long: `Enable autoscaling with --enabled --min <n> --max <n>, or disable it with
@@ -910,7 +869,7 @@ Examples:
 		}
 		return nil
 	},
-}
+})
 
 // printNodeGroupAutoscalingResult prints an autoscaling write's outcome: the
 // bounds, what happens to the group's node count, and the operation doing it.
@@ -933,7 +892,7 @@ func printNodeGroupAutoscalingResult(result *client.NodeGroupAutoscalingResult, 
 	}
 }
 
-var clusterNodeGroupLabelsCmd = &cobra.Command{
+var clusterNodeGroupLabelsCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "labels <cluster_id|name> <group_name>",
 	Short: "Set labels on all nodes in a node group",
 	Long:  "Replace the labels on every node in the group. Pass --labels as a comma-separated list of key=value pairs, or --clear to remove all labels. The cloud provider is detected automatically from the cluster.",
@@ -991,9 +950,9 @@ var clusterNodeGroupLabelsCmd = &cobra.Command{
 		fmt.Printf("Node group '%s' labels updated. %d node(s) affected.\n", result.GroupName, result.Updated)
 		return nil
 	},
-}
+})
 
-var clusterNodeGroupTaintsCmd = &cobra.Command{
+var clusterNodeGroupTaintsCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "taints <cluster_id|name> <group_name>",
 	Short: "Set taints on all nodes in a node group",
 	Long:  "Replace the taints on every node in the group. Pass --taints as a comma-separated list of key=value:Effect (value optional, effect defaults to NoSchedule), or --clear to remove all taints. The cloud provider is detected automatically from the cluster.",
@@ -1051,7 +1010,7 @@ var clusterNodeGroupTaintsCmd = &cobra.Command{
 		fmt.Printf("Node group '%s' taints updated. %d node(s) affected.\n", result.GroupName, result.Updated)
 		return nil
 	},
-}
+})
 
 func init() {
 	clusterNodeGroupAddCmd.Flags().String("name", "", "Node group name (required)")

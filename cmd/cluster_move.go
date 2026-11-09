@@ -11,8 +11,8 @@ import (
 	"ankra/internal/client"
 )
 
-var clusterMoveCmd = &cobra.Command{
-	Use:   "move [cluster_name]",
+var clusterMoveCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "move <cluster_name>",
 	Short: "Move a cluster to another organisation you administer",
 	Long: `Move a cluster into another existing organisation.
 
@@ -34,10 +34,15 @@ and sandbox clusters, and when the destination already has a cluster with the
 same name.
 
 The destination is resolved among your organisations by id, slug or name.
-If no cluster name is provided, the currently selected cluster is moved.`,
+Name the cluster as the argument or with --cluster. A move never falls back
+to the cluster selected with 'ankra cluster select': that selection is shared
+by every shell and agent session on the machine.`,
 	Example: `  ankra cluster move edge-01 --organisation acme-prod
-  ankra cluster move --organisation 6f1c... --yes
+  ankra cluster move --cluster edge-01 --organisation 6f1c... --yes
   ankra cluster move edge-01 --organisation "Acme Prod" -o json`,
+	// The cluster argument may be left out for --cluster, which the run
+	// reads itself, by name or id, as it always has; named nowhere, the
+	// resolver refuses before the run (clusterMustBeNamed).
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		destinationReference, _ := cmd.Flags().GetString("organisation")
@@ -90,7 +95,7 @@ If no cluster name is provided, the currently selected cluster is moved.`,
 		printClusterMoveResult(cmd, result)
 		return nil
 	},
-}
+})
 
 func organisationDisplayName(organisation client.OrganisationSummary) string {
 	if organisation.Name != nil && *organisation.Name != "" {

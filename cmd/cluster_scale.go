@@ -40,7 +40,7 @@ func scaleFunctionForKind(kind string) (workerScaleFunc, bool) {
 	}
 }
 
-var clusterScaleCmd = &cobra.Command{
+var clusterScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "scale <cluster_id|name> <worker_count>",
 	Short: "Scale the default worker pool of a cloud cluster",
 	Long: `Scale the number of default-pool worker nodes up or down for a cloud cluster.
@@ -99,7 +99,7 @@ Examples:
 		}
 		return nil
 	},
-}
+})
 
 func init() {
 	registerStructuredOutputFlags(clusterScaleCmd)

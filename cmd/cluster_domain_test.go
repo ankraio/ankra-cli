@@ -306,3 +306,70 @@ func TestRunClusterDomain_WithoutAnArgumentOrSelectionSaysHowToSelect(t *testing
 		t.Errorf("nothing may be read without a resolved cluster: %v", mock.readCalls)
 	}
 }
+
+// clusterDomainLookupMock is clusterDomainMock with the cluster lookups
+// --cluster goes through (lookupClusterByNameOrID).
+type clusterDomainLookupMock struct {
+	clusterDomainMock
+}
+
+func (m *clusterDomainLookupMock) GetClusterByID(clusterID string) (client.ClusterListItem, error) {
+	return client.ClusterListItem{ID: clusterID, Name: "production"}, nil
+}
+
+func runClusterDomainWithSelection(t *testing.T, mock APIClient, arguments ...string) (string, error) {
+	t.Helper()
+	withTempHome(t)
+	writeSelectedClusterJSON(t)
+	setMockClient(t, mock)
+	resetClusterDomainFlags(t)
+	resetTreeFlags(t, clusterDomainCmd)
+	t.Cleanup(func() {
+		resetTreeFlags(t, clusterDomainCmd)
+		clusterDomainEnable = false
+		clusterDomainRemove = false
+	})
+	output := new(bytes.Buffer)
+	rootCmd.SetOut(output)
+	rootCmd.SetErr(output)
+	rootCmd.SetArgs(append([]string{"cluster", "domain"}, arguments...))
+	executeError := rootCmd.Execute()
+	return output.String(), executeError
+}
+
+// --enable creates a zone and --remove tears one down without a prompt, so
+// neither acts on the cluster `ankra cluster select` saved, which every
+// session on the machine shares (ankra-cli#760 review): exit 2 naming
+// --cluster, and nothing is sent. The plain read still falls back to it.
+func TestRunClusterDomain_EnableAndRemoveRefuseTheSelectedCluster(t *testing.T) {
+	for _, flag := range []string{"--enable", "--remove"} {
+		t.Run(flag, func(t *testing.T) {
+			mock := &clusterDomainLookupMock{}
+			output, executeError := runClusterDomainWithSelection(t, mock, flag)
+			if executeError == nil || exitCodeFor(executeError) != exitUsage || !strings.Contains(executeError.Error(), "--cluster") {
+				t.Fatalf("error = %v (exit %d), want a usage error (exit 2) naming --cluster\noutput: %s",
+					executeError, exitCodeFor(executeError), output)
+			}
+			if len(mock.enableCalls)+len(mock.disableCalls)+len(mock.readCalls) != 0 {
+				t.Fatalf("sent enable=%v disable=%v read=%v, want nothing", mock.enableCalls, mock.disableCalls, mock.readCalls)
+			}
+		})
+	}
+}
+
+// With --cluster the command names the cluster it resolved on stderr, as it
+// did before --cluster could stand in for the argument, and --enable acts on
+// that cluster, not the selected one.
+func TestRunClusterDomain_ClusterFlagNamesTheCluster(t *testing.T) {
+	mock := &clusterDomainLookupMock{}
+	output, executeError := runClusterDomainWithSelection(t, mock, "--cluster", domainTestClusterID, "--enable")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if len(mock.enableCalls) != 1 || mock.enableCalls[0] != domainTestClusterID {
+		t.Fatalf("enable calls = %v, want the --cluster cluster %s", mock.enableCalls, domainTestClusterID)
+	}
+	if !strings.Contains(output, "Cluster: production") {
+		t.Errorf("the resolved cluster must be named on stderr:\n%s", output)
+	}
+}

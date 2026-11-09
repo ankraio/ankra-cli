@@ -99,7 +99,7 @@ a decision that the next sync runs:
                   edit made there. --keep cluster means the same.`,
 }
 
-var clusterGitopsPreservedListCmd = &cobra.Command{
+var clusterGitopsPreservedListCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
 	Use:   "list [cluster_name]",
 	Short: "List the preserved GitOps paths of a cluster",
 	Long: `List the files Git and Ankra are divided on: each file's path, when it was
@@ -117,7 +117,7 @@ each file's two versions where the platform lists them.`,
 	RunE: func(command *cobra.Command, arguments []string) error {
 		return runClusterGitopsPreservedList(command, arguments)
 	},
-}
+})
 
 var clusterGitopsPreservedShowCmd = &cobra.Command{
 	Use:   "show <path>",

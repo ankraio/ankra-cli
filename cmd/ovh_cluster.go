@@ -118,7 +118,7 @@ var ovhCreateCmd = &cobra.Command{
 	},
 }
 
-var ovhDeprovisionCmd = &cobra.Command{
+var ovhDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "deprovision <cluster_id|name>",
 	Short: "Deprovision an OVH cluster",
 	Args:  cobra.ExactArgs(1),
@@ -169,9 +169,9 @@ var ovhDeprovisionCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
-var ovhWorkersCmd = &cobra.Command{
+var ovhWorkersCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for an OVH cluster",
 	Args:  cobra.ExactArgs(1),
@@ -197,9 +197,9 @@ var ovhWorkersCmd = &cobra.Command{
 		fmt.Printf("  Max: %d\n", result.Max)
 		return nil
 	},
-}
+})
 
-var ovhScaleCmd = &cobra.Command{
+var ovhScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "scale <cluster_id|name> <worker_count>",
 	Short: "Scale workers for an OVH cluster",
 	Long:  "Scale the number of worker nodes up or down for an OVH cluster.",
@@ -236,9 +236,9 @@ var ovhScaleCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
-var ovhK8sVersionCmd = &cobra.Command{
+var ovhK8sVersionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for an OVH cluster",
 	Args:  cobra.ExactArgs(1),
@@ -267,9 +267,9 @@ var ovhK8sVersionCmd = &cobra.Command{
 		fmt.Printf("  Distribution: %s\n", result.Distribution)
 		return nil
 	},
-}
+})
 
-var ovhUpgradeCmd = &cobra.Command{
+var ovhUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:        "upgrade <cluster_id|name> <target_version>",
 	Short:      "Upgrade Kubernetes version for an OVH cluster",
 	Long:       "Upgrade the Kubernetes version on all nodes in an OVH cluster. This deprecated form always runs the safe non-forced rollout; use `ankra cluster upgrade` for --force (PodDisruptionBudget override) and operation progress tracking.",
@@ -303,7 +303,7 @@ var ovhUpgradeCmd = &cobra.Command{
 		fmt.Printf("  Nodes affected:   %d\n", result.NodesAffected)
 		return nil
 	},
-}
+})
 
 var ovhRegionsCmd = &cobra.Command{
 	Use:   "regions",
@@ -351,7 +351,7 @@ var ovhRegionsCmd = &cobra.Command{
 	},
 }
 
-var ovhStopCmd = &cobra.Command{
+var ovhStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "stop <cluster_id|name>",
 	Short: "Stop an OVH cluster",
 	Long:  "Stop an OVH cluster's compute while keeping its configuration so it can be started again later.",
@@ -391,9 +391,9 @@ var ovhStopCmd = &cobra.Command{
 		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
 		return nil
 	},
-}
+})
 
-var ovhStartCmd = &cobra.Command{
+var ovhStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped OVH cluster",
 	Long:  "Start (re-provision) a stopped OVH cluster. Use --scope control_plane to bring up only the control plane.",
@@ -428,9 +428,9 @@ var ovhStartCmd = &cobra.Command{
 		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
 		return nil
 	},
-}
+})
 
-var ovhAccessInfoCmd = &cobra.Command{
+var ovhAccessInfoCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "access-info <cluster_id|name>",
 	Short: "Show SSH access details for an OVH cluster",
 	Long:  "Show the gateway (bastion) and control plane IPs plus ready-to-use SSH jump and Kubernetes API port-forward commands.",
@@ -483,7 +483,7 @@ var ovhAccessInfoCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
 var ovhSSHKeysCmd = &cobra.Command{
 	Use:     "ssh-keys",
@@ -492,7 +492,7 @@ var ovhSSHKeysCmd = &cobra.Command{
 	Long:    "Get and set the SSH key credentials authorised to access an OVH cluster's nodes.",
 }
 
-var ovhSSHKeysGetCmd = &cobra.Command{
+var ovhSSHKeysGetCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "get <cluster_id|name>",
 	Short: "Show SSH keys attached to an OVH cluster",
 	Args:  cobra.ExactArgs(1),
@@ -516,9 +516,9 @@ var ovhSSHKeysGetCmd = &cobra.Command{
 		printClusterSSHKeys(result)
 		return nil
 	},
-}
+})
 
-var ovhSSHKeysSetCmd = &cobra.Command{
+var ovhSSHKeysSetCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "set <cluster_id|name>",
 	Short: "Set the SSH keys attached to an OVH cluster",
 	Long:  "Replace the SSH key credentials attached to an OVH cluster. Changes take effect on the next reconciliation.",
@@ -551,7 +551,7 @@ var ovhSSHKeysSetCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
 var ovhNodeGroupCmd = &cobra.Command{
 	Use:   "node-group",
@@ -559,7 +559,7 @@ var ovhNodeGroupCmd = &cobra.Command{
 	Long:  "List, add, scale, upgrade, label, taint, and delete node groups.",
 }
 
-var ovhNodeGroupLabelsCmd = &cobra.Command{
+var ovhNodeGroupLabelsCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "labels <cluster_id|name> <group_name>",
 	Short: "Set labels on all nodes in a node group",
 	Long:  "Replace the labels on every node in the group. Pass --labels as a comma-separated list of key=value pairs, or --clear to remove all labels.",
@@ -613,9 +613,9 @@ var ovhNodeGroupLabelsCmd = &cobra.Command{
 		fmt.Printf("Node group '%s' labels updated. %d node(s) affected.\n", result.GroupName, result.Updated)
 		return nil
 	},
-}
+})
 
-var ovhNodeGroupTaintsCmd = &cobra.Command{
+var ovhNodeGroupTaintsCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "taints <cluster_id|name> <group_name>",
 	Short: "Set taints on all nodes in a node group",
 	Long:  "Replace the taints on every node in the group. Pass --taints as a comma-separated list of key=value:Effect (value optional, effect defaults to NoSchedule), or --clear to remove all taints.",
@@ -669,9 +669,9 @@ var ovhNodeGroupTaintsCmd = &cobra.Command{
 		fmt.Printf("Node group '%s' taints updated. %d node(s) affected.\n", result.GroupName, result.Updated)
 		return nil
 	},
-}
+})
 
-var ovhNodeGroupListCmd = &cobra.Command{
+var ovhNodeGroupListCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
 	Use:   "list [cluster_id|name]",
 	Short: "List node groups",
 	Args:  nodeGroupListArgs,
@@ -701,9 +701,9 @@ var ovhNodeGroupListCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
-var ovhNodeGroupAddCmd = &cobra.Command{
+var ovhNodeGroupAddCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "add <cluster_id|name>",
 	Short: "Add a node group",
 	Args:  nodeGroupAddArgs,
@@ -764,9 +764,9 @@ var ovhNodeGroupAddCmd = &cobra.Command{
 		printNodeGroupAdded(result, clusterID)
 		return nil
 	},
-}
+})
 
-var ovhNodeGroupScaleCmd = &cobra.Command{
+var ovhNodeGroupScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "scale <cluster_id|name> <group_name> <count>",
 	Short: "Scale a node group",
 	Args:  nodeGroupArgs(3, 1),
@@ -808,9 +808,9 @@ var ovhNodeGroupScaleCmd = &cobra.Command{
 		printNodeGroupScaled(result, clusterID)
 		return nil
 	},
-}
+})
 
-var ovhNodeGroupUpgradeCmd = &cobra.Command{
+var ovhNodeGroupUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "upgrade <cluster_id|name> <group_name> <instance_type>",
 	Short: "Upgrade instance type for a node group (cannot be reversed)",
 	Args:  nodeGroupArgs(3, 1),
@@ -849,9 +849,9 @@ var ovhNodeGroupUpgradeCmd = &cobra.Command{
 		printNodeGroupResized(result, clusterID, "instance type")
 		return nil
 	},
-}
+})
 
-var ovhNodeGroupDeleteCmd = &cobra.Command{
+var ovhNodeGroupDeleteCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "delete <cluster_id|name> <group_name>",
 	Short: "Delete a node group and all its nodes",
 	Args:  nodeGroupArgs(2, 1),
@@ -896,7 +896,7 @@ var ovhNodeGroupDeleteCmd = &cobra.Command{
 		printNodeGroupDeleted(result, clusterID)
 		return nil
 	},
-}
+})
 
 func parseLabelsFlag(raw string) (map[string]string, error) {
 	labels := map[string]string{}

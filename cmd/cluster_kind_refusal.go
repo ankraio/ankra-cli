@@ -117,6 +117,14 @@ func takesClusterFirst(command *cobra.Command) bool {
 // named it: its first argument, else --cluster, else the selected cluster's
 // id for a command whose cluster argument is optional. "" when none.
 func typedClusterOf(cmd *cobra.Command, args []string) string {
+	// A command registered by withClusterArgument names its cluster the way
+	// its RunE got it: with --cluster, args holds only the arguments after
+	// the cluster, so args[0] would be a node-group name or a count.
+	if spec, registered := clusterArgumentSpecs[cmd]; registered {
+		if resolution, resolveError := spec.resolve(cmd, args); resolveError == nil && resolution.typed != "" {
+			return resolution.typed
+		}
+	}
 	if len(args) > 0 {
 		return args[0]
 	}

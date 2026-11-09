@@ -80,7 +80,7 @@ var clusterPlaygroundPlansCmd = &cobra.Command{
 
 var clusterPlaygroundResizeSize string
 
-var clusterPlaygroundResizeCmd = &cobra.Command{
+var clusterPlaygroundResizeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "resize <cluster_id|name>",
 	Short: "Resize a paid playground to another size",
 	Long: "Change a paid playground to another paid size in place: only the namespace quota and " +
@@ -110,7 +110,7 @@ var clusterPlaygroundResizeCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
 // currencySymbol renders the catalog's currency for terminal output.
 func currencySymbol(currency string) string {
@@ -126,7 +126,7 @@ func currencySymbol(currency string) string {
 	}
 }
 
-var clusterPlaygroundStatusCmd = &cobra.Command{
+var clusterPlaygroundStatusCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "status <cluster_id|name>",
 	Short: "Show the provisioning phase of a playground",
 	Args:  cobra.ExactArgs(1),
@@ -172,7 +172,7 @@ var clusterPlaygroundStatusCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
 // formatPlaygroundDeadline renders a playground deadline with the time left
 // on it, "" when the API sent none so the caller omits the line instead of
@@ -213,7 +213,7 @@ func formatRemaining(remaining time.Duration) string {
 	}
 }
 
-var clusterPlaygroundDestroyCmd = &cobra.Command{
+var clusterPlaygroundDestroyCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "destroy <cluster_id|name>",
 	Short: "Destroy your organisation's playground",
 	Long: "Tear the organisation's playground down. Everything deployed in it, including its " +
@@ -255,7 +255,7 @@ var clusterPlaygroundDestroyCmd = &cobra.Command{
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Phase:      %s\n", result.Phase)
 		return nil
 	},
-}
+})
 
 func init() {
 	clusterPlaygroundCreateCmd.Flags().StringVar(&clusterPlaygroundCreateSize, "size", "",

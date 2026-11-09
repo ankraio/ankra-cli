@@ -14,7 +14,7 @@ resolve" or "there is no certificate" comes down to a hostname outside that zone
 | Thing | What it is | Set with |
 |-------|-----------|----------|
 | **Organisation root domain** | The root every Ankra-generated hostname nests under. `ankra.cc` by default. | `ankra org domain set` |
-| **Cluster generated domain** | `<cluster_short_id>.<root>` - one subzone per cluster, served by the external-dns Ankra installs on it. | `ankra cluster domain --enable` |
+| **Cluster generated domain** | `<cluster_short_id>.<root>` - one subzone per cluster, served by the external-dns Ankra installs on it. | `ankra cluster domain <cluster> --enable` |
 | **Custom DNS zone** | A zone you hold in **your own** DNS account, served by an extra external-dns using **your** credential. | `ankra org custom-dns-zones add` / `ankra cluster custom-dns-zones add` |
 | **Preview domain** | Where PR demos and on-demand previews publish. Changes nothing else. | `ankra org ai-environment set --demo-base-domain` |
 
@@ -225,7 +225,7 @@ failures are usually DNS failures one step earlier:
 | Preview URLs on the wrong domain | `ankra org ai-environment set --demo-base-domain`, not `ankra org domain`. |
 | Demo reports ready, its URL does not load | Your preview domain has no wildcard pointing at the staging cluster's ingress. Ankra publishes nothing there. |
 | Preview stays on plain HTTP | The staging cluster carries no ACME HTTP-01 issuer; `ankra org ai-environment get` reports it. |
-| Cluster reports domain `opted out` | Someone ran `ankra cluster domain --remove`; the removal is held until `--enable`. |
+| Cluster reports domain `opted out` | Someone ran `ankra cluster domain <cluster> --remove`; the removal is held until `--enable`. |
 | Nothing has a domain | The cluster was created with `--include-dns=false`. |
 
 ## Rules

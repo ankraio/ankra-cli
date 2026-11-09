@@ -90,7 +90,6 @@ func SetVersion(v string) {
 func Execute() {
 	rootCmd.Version = version
 	client.SetVersion(version)
-	wrapClusterPositionalArgs(clusterCmd)
 	wrapArgsValidators(rootCmd)
 	wrapProviderKindRefusals(rootCmd)
 	if handled, exitCode := dispatchExternalPlugin(os.Args[1:]); handled {
