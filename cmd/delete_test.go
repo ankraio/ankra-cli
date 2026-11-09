@@ -235,9 +235,12 @@ func TestDeprovisionFailsClosedWhenTheClusterKindCannotBeRead(t *testing.T) {
 	}{
 		"a platform error":     {lookupError: client.NewUnexpectedResponseError(503, "unexpected status: 503 Service Unavailable"), wantExit: exitError},
 		"rejected credentials": {lookupError: client.ErrUnauthorized, wantExit: exitAuth},
+		// --cluster reaches deprovision as its argument, and an argument
+		// that names no cluster exits 1, as `deprovision <name>` does on
+		// master; only the selection path, gone from deprovision, said 3.
 		"a cluster that no longer exists": {
 			lookupError: fmt.Errorf("no cluster found for name %q: %w", "test-cluster", client.ErrClusterNotFound),
-			wantExit:    exitNotFound,
+			wantExit:    exitError,
 		},
 	} {
 		mock := &deprovisionGuardMock{lookupError: testCase.lookupError}
