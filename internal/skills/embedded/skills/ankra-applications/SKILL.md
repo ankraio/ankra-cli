@@ -202,8 +202,11 @@ every environment that follows pushes. With it off, a push still builds and wait
 and switch is `ankra application environments set` (the portal's **Settings → Deploys**): a rule
 (`--follow develop,release/*`) turns pushes on for that environment, `--disable` turns them off,
 `--none` returns it to the tracked branch. The golden path: development
-follows pushes, production does not, and a person promotes the tag development proved with
-`ankra application deploy <application-id> --cluster <prod> --set image_tag=sha-<7>` (`ankra-ship` §7).
+follows pushes, production does not, and a person promotes the build development proved with
+`ankra application promote <application> --from development --to production` (CLI v0.71.0; add
+`--dry-run` to see what would change, exit 8 names the blockers), or before the environment exists
+with `ankra application deploy <application-id> --cluster <prod> --set image_tag=sha-<7>`
+(`ankra-ship` §7).
 
 **If `pipeline list` stays empty after a merge**, the pipeline is not failing — it has nowhere to
 run. Ankra Pipelines execute on the cluster agent's own step scheduler, whose `ci_worker_count`
@@ -271,6 +274,8 @@ posture review.
 ## 7. Preview a branch before it merges
 
 ```bash
+ankra application previews <application>           # does every pull request get a preview?
+ankra application previews enable <application>    # set this repository's rule (`disable`, or `follow` the connection default)
 ankra application demo build <application-id> --branch <branch>   # is there a demo-ready image
 ankra application demo deploy <application-id> --branch <branch> --ttl-hours 8
 ankra application demo deploy <application-id> --pr-number 42
@@ -284,7 +289,8 @@ ankra application demo config <application-id>                    # saved demo d
 ```
 
 Demos are ephemeral workspaces on the organisation's AI/staging cluster with their own TTL, and
-they are reaped automatically. They are the reviewable artefact for a pull request — a public
+they are reaped automatically. `previews enable|disable|follow` (CLI v0.71.0) sets only whether
+pull requests get one, and changes no other setting. They are the reviewable artefact for a pull request — a public
 preview URL, not a port-forward. Configure the staging cluster in **AI → Settings → Workspaces**
 (`ankra-ai-gateway`).
 

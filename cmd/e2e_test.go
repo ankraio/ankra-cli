@@ -1283,6 +1283,14 @@ func (m baseMock) RedeployStack(ctx context.Context, clusterID, stackName string
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) UninstallStack(ctx context.Context, clusterID, stackName string) (*client.StackInstallationResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) InstallStack(ctx context.Context, clusterID, stackName string) (*client.StackInstallationResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetStackHistory(clusterID, stackName string) (*client.GetStackHistoryResponse, error) {
 	return nil, errors.New("not implemented")
 }
@@ -3677,6 +3685,13 @@ func (m baseMock) GetPipelineRun(ctx context.Context, selector client.PipelineSe
 // every mock-driven `pipeline get` prints what it printed before the read.
 func (m baseMock) GetPipelineRunTimeSaved(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRunTimeSaved, error) {
 	return nil, client.ErrPipelineTimeSavedUnavailable
+}
+
+// GetPipelineRunTestEnvironments answers as a platform older than the route
+// does, so every mock-driven `pipeline get` and `pipeline tests` prints what
+// it printed before the read.
+func (m baseMock) GetPipelineRunTestEnvironments(ctx context.Context, selector client.PipelineSelector, runID string) (*client.PipelineRunTestEnvironments, error) {
+	return nil, client.ErrPipelineTestEnvironmentsUnavailable
 }
 
 func (m baseMock) GetPipelineTimeSavedSummary(ctx context.Context, selector client.PipelineSelector, window string) (*client.PipelineTimeSavedSummary, error) {
