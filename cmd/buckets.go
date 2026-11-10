@@ -23,7 +23,7 @@ var bucketCmd = &cobra.Command{
 	Aliases: []string{"buckets"},
 	Short:   "Manage object storage buckets Ankra creates on your provider credentials",
 	Long: "Create, list, inspect and delete object storage buckets on the organisation's " +
-		"Hetzner, Scaleway, DigitalOcean or UpCloud credentials. Ankra creates the bucket, " +
+		"Hetzner, Scaleway, DigitalOcean, UpCloud or Ankra Cloud credentials. Ankra creates the bucket, " +
 		"verifies it and keeps its access keys; the keys are never printed.",
 }
 
@@ -177,7 +177,7 @@ func selectBucketCredential(reference string) (client.Credential, error) {
 		return candidates[0], nil
 	case 0:
 		return client.Credential{}, errors.New(
-			"this organisation has no Hetzner, Scaleway, DigitalOcean or UpCloud credential to create a bucket with; " +
+			"this organisation has no Hetzner, Scaleway, DigitalOcean, UpCloud or Ankra Cloud credential to create a bucket with; " +
 				"add one with 'ankra credentials'")
 	}
 	described := make([]string, 0, len(candidates))
@@ -217,13 +217,21 @@ var bucketCreateCmd = &cobra.Command{
 	Use:   "create <name>",
 	Short: "Create an object storage bucket on a provider credential",
 	Long: `Create an object storage bucket on one of the organisation's provider
-credentials (Hetzner, Scaleway, DigitalOcean or UpCloud). Ankra creates the
-bucket, verifies it and keeps its access keys; the bucket shows "provisioning"
-until that finishes.
+credentials (Hetzner, Scaleway, DigitalOcean, UpCloud or Ankra Cloud). Ankra
+creates the bucket, verifies it and keeps its access keys; the bucket shows
+"provisioning" until that finishes.
 
 The credential defaults to the only one Ankra can create buckets with, the
-region to that provider's usual one (fsn1, fr-par, fra1, europe-1) and the
-provider-side bucket name to a unique one derived from <name>.
+region to that provider's usual one (fsn1, fr-par, fra1, europe-1, se-sto1) and
+the provider-side bucket name to a unique one derived from <name>.
+
+On Ankra Cloud the region is a zone (se-sto1, fr-lil1, nl-ams1; list them with
+'ankra cluster ankracloud zones'). Ankra enables object storage in that zone
+with the credential and uses the zone's endpoint. On a single-node zone the
+bucket name gets the account's bucket prefix in front, so 'ankra bucket get'
+shows the name the bucket really has. Deleting with
+--destroy-provider-resources deletes the bucket only, never the account's
+object storage.
 
 Hetzner's Cloud API cannot mint Object Storage keys. Store the key pair on the
 Hetzner credential once and every bucket after that needs nothing more, or
@@ -233,7 +241,8 @@ a value passed that way is recorded wherever the command line is.
 
 Examples:
   ankra bucket create registry-storage --credential hetzner-main --region fsn1 --wait
-  ankra bucket create custody --credential upcloud-main --region europe-1 --bucket acme-custody`,
+  ankra bucket create custody --credential upcloud-main --region europe-1 --bucket acme-custody
+  ankra bucket create artifacts --credential ankracloud-main --region se-sto1 --wait`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		credentialReference, _ := cmd.Flags().GetString("credential")
@@ -248,7 +257,7 @@ Examples:
 		}
 		if !provisionableBackupVaultProviders[credential.Provider] {
 			return fmt.Errorf("credential %q is a %s credential; Ankra can create buckets with hetzner, scaleway, "+
-				"digitalocean and upcloud credentials", credential.Name, credential.Provider)
+				"digitalocean, upcloud and ankracloud credentials", credential.Name, credential.Provider)
 		}
 		if region == "" {
 			region = backupVaultDefaultRegions[credential.Provider]
@@ -385,7 +394,7 @@ func init() {
 	bucketCreateCmd.Flags().String("credential", "",
 		"Provider credential (name or id) the bucket is created with (default: the only one Ankra can use)")
 	bucketCreateCmd.Flags().String("region", "",
-		"Provider region (default: that provider's usual one - fsn1, fr-par, fra1, europe-1)")
+		"Provider region; the zone for Ankra Cloud (default: that provider's usual one - fsn1, fr-par, fra1, europe-1, se-sto1)")
 	bucketCreateCmd.Flags().String("bucket", "", "Provider-side bucket name (default: a unique name derived from <name>)")
 	bucketCreateCmd.Flags().String("access-key-id", "",
 		"Hetzner Object Storage access key (Hetzner only; omit to use the pair stored on the credential)")

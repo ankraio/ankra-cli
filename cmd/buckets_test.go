@@ -307,3 +307,70 @@ func TestBucketGetShowsTheErrorAndTheWayOut(t *testing.T) {
 		t.Errorf("get must never print key material:\n%s", output)
 	}
 }
+
+// An Ankra Cloud credential creates a bucket in a zone: the default region is
+// se-sto1, an explicit zone wins, and no keys are sent because the platform
+// mints them by enabling object storage in the zone.
+func TestBucketCreateOnAnAnkraCloudCredentialUsesAZone(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		args   []string
+		region string
+	}{
+		{"default zone", nil, "se-sto1"},
+		{"explicit zone", []string{"--region", "fr-lil1"}, "fr-lil1"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			mock := &bucketsMock{
+				credentials: []client.Credential{
+					{ID: "cred-ac", Name: "ankracloud-main", Provider: "ankracloud"},
+					{ID: "cred-gh", Name: "github-main", Provider: "github"},
+				},
+				createdBucket: &client.ObjectStorageBucket{ID: bucketTestID, Name: "artifacts", Provider: "ankracloud",
+					Region: testCase.region, Status: "provisioning"},
+			}
+			setMockClient(t, mock)
+			resetBucketFlags(t)
+
+			var executeError error
+			output := captureStdout(t, func() {
+				_, executeError = executeCommand(append([]string{"bucket", "create", "artifacts"}, testCase.args...)...)
+			})
+			if executeError != nil {
+				t.Fatal(executeError)
+			}
+			if mock.created == nil || mock.created.CredentialID != "cred-ac" || mock.created.Region != testCase.region ||
+				mock.created.AccessKeyID != "" || mock.created.SecretAccessKey != "" {
+				t.Fatalf("request = %+v", mock.created)
+			}
+			if !strings.Contains(output, "(ankracloud) in "+testCase.region) {
+				t.Fatalf("output must name the credential and zone:\n%s", output)
+			}
+		})
+	}
+}
+
+func TestBucketCreateRefusesKeysForAnAnkraCloudCredential(t *testing.T) {
+	mock := &bucketsMock{credentials: []client.Credential{{ID: "cred-ac", Name: "ankracloud-main", Provider: "ankracloud"}}}
+	setMockClient(t, mock)
+	resetBucketFlags(t)
+
+	_, executeError := executeCommand("bucket", "create", "artifacts", "--access-key-id", "k", "--secret-access-key", "s")
+	if executeError == nil || !strings.Contains(executeError.Error(), "ankracloud keys are minted") {
+		t.Fatalf("expected the keys to be refused, got %v", executeError)
+	}
+	if mock.created != nil {
+		t.Fatal("nothing may be sent after a refusal")
+	}
+}
+
+func TestBucketCreateExplainsAnOrganisationWithNoUsableCredential(t *testing.T) {
+	mock := &bucketsMock{credentials: []client.Credential{{ID: "cred-gh", Name: "github-main", Provider: "github"}}}
+	setMockClient(t, mock)
+	resetBucketFlags(t)
+
+	_, executeError := executeCommand("bucket", "create", "artifacts")
+	if executeError == nil || !strings.Contains(executeError.Error(), "UpCloud or Ankra Cloud credential") {
+		t.Fatalf("expected the no-credential explanation to name Ankra Cloud, got %v", executeError)
+	}
+}

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **Buckets and backup vaults on Ankra Cloud object storage.** `ankra bucket create` and `ankra backup vaults provision` now accept an Ankra Cloud credential (`ankra credentials ankracloud`). The region is the Ankra Cloud zone, `se-sto1` by default (`fr-lil1`, `nl-ams1`; list them with `ankra cluster ankracloud zones`): Ankra enables object storage in that zone with the credential and uses the zone's endpoint. On a single-node zone the bucket name gets the account's bucket prefix in front, and `ankra bucket get` shows the name the bucket really has. `ankra bucket delete --destroy-provider-resources` deletes the bucket only, never the account's object storage. Standalone buckets need a platform that admits the provider (ankraio/cluster#6288); an older one answers that Ankra cannot create buckets with ankracloud credentials yet.
+
 ## v0.73.0 - 2026-11-09
 
 This release reads and exports the organisation's audit trail, manages alert definitions and
