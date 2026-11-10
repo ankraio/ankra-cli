@@ -33,6 +33,9 @@ type managedClusterMock struct {
 
 	startCalls []string
 	startError error
+
+	upgradeVersions []string
+	upgradeResponse *client.UpgradeManagedK8sVersionResponse
 }
 
 func (m *managedClusterMock) CreateManagedCluster(provider client.ManagedK8sProvider, request client.CreateManagedClusterRequest) (*client.CreateManagedClusterResponse, error) {
@@ -396,6 +399,68 @@ func TestManagedNodePoolUpdate_APIErrorPassesThrough(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "updating node pool") {
 		t.Errorf("expected wrapped error, got: %v", err)
+	}
+}
+
+func (m *managedClusterMock) UpgradeManagedK8sVersion(provider client.ManagedK8sProvider, clusterID, version string) (*client.UpgradeManagedK8sVersionResponse, error) {
+	m.upgradeVersions = append(m.upgradeVersions, version)
+	return m.upgradeResponse, nil
+}
+
+// A managed upgrade's answer names the operation that runs it, the way the
+// other day-2 writes do: the platform starts a managed_k8s_upgrade operation
+// with no cluster id, so a cluster-filtered operations listing never shows it
+// and the answer is the only place to read it from (ankra-fe12p0). The answer
+// says the upgrade started, not that it is done: the provider runs it after
+// the platform answers.
+func TestManagedUpgrade_PrintsTheOperationItStarted(t *testing.T) {
+	const operationID = "0d7e7c1e-5d55-4c39-8f43-2a9b7c4f1e20"
+	mock := &managedClusterMock{upgradeResponse: &client.UpgradeManagedK8sVersionResponse{
+		ClusterID: testClusterID, Version: "1.33.1-do.0", OperationID: operationID,
+	}}
+	resetConfirmFlag(t, managedUpgradeCmd)
+	out := captureStdout(t, func() {
+		_, err := runWithInput(t, mock, "",
+			"cluster", "managed", "upgrade", testClusterID, "--provider", "doks", "--version", "1.33.1-do.0", "--yes")
+		if err != nil {
+			t.Fatalf("execute failed: %v", err)
+		}
+	})
+	if len(mock.upgradeVersions) != 1 || mock.upgradeVersions[0] != "1.33.1-do.0" {
+		t.Fatalf("upgrade calls = %v, want [1.33.1-do.0]", mock.upgradeVersions)
+	}
+	for _, want := range []string{
+		"Managed cluster " + testClusterID + " upgrade to Kubernetes 1.33.1-do.0 started.",
+		"Operation: " + operationID + " (follow it with 'ankra cluster operations list " + operationID + "')",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "upgraded to") {
+		t.Errorf("the answer claims the upgrade is done before the provider ran it:\n%s", out)
+	}
+}
+
+// An answer without an operation (a platform older than the field) says so
+// rather than leaving the operator looking for something to follow.
+func TestManagedUpgrade_SaysWhenTheAnswerNamesNoOperation(t *testing.T) {
+	mock := &managedClusterMock{upgradeResponse: &client.UpgradeManagedK8sVersionResponse{
+		ClusterID: testClusterID, Version: "1.33.1-do.0",
+	}}
+	resetConfirmFlag(t, managedUpgradeCmd)
+	out := captureStdout(t, func() {
+		_, err := runWithInput(t, mock, "",
+			"cluster", "managed", "upgrade", testClusterID, "--provider", "doks", "--version", "1.33.1-do.0", "--yes")
+		if err != nil {
+			t.Fatalf("execute failed: %v", err)
+		}
+	})
+	if !strings.Contains(out, "The platform's answer named no operation to follow.") {
+		t.Errorf("output does not say the answer named no operation:\n%s", out)
+	}
+	if strings.Contains(out, "Operation:") {
+		t.Errorf("output prints an operation line without an operation:\n%s", out)
 	}
 }
 
