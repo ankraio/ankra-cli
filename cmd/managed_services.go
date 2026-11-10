@@ -88,6 +88,7 @@ Credential values are never shown; they stay in the cluster.`,
 	servicesCommand.AddCommand(newServicesConsumersCommand())
 	servicesCommand.AddCommand(newServicesReviewsCommand())
 	servicesCommand.AddCommand(newServicesRetirementsCommand())
+	servicesCommand.AddCommand(newServicesCredentialsCommand())
 	return servicesCommand
 }
 

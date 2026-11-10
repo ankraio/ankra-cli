@@ -77,6 +77,25 @@ ankra helm registries sync-jobs private-hub      # why a chart is missing from t
 ankra helm registries delete private-hub         # deployed add-ons keep running
 ```
 
+The add-on catalog groups charts under **add-on definitions**: what an add-on is and which charts it
+matches (by chart name, keyword or home URL prefix). Ankra's global definitions are read-only; an
+organisation adds its own:
+
+```bash
+ankra helm addon-catalog list --search postgres  # one entry per add-on with its charts; --category, --page, -o json
+ankra helm addon-catalog get cert-manager        # its charts and the clusters that run it
+ankra helm addon-definitions list
+ankra helm addon-definitions get internal-gateway                 # with its manual chart links
+ankra helm addon-definitions create internal-gateway --display-name "Internal gateway" --match-chart-name internal-gateway
+ankra helm addon-definitions update internal-gateway --category ingress   # only the flags passed change
+ankra helm addon-definitions link-chart internal-gateway --chart edge --registry-url https://charts.example.com
+ankra helm addon-definitions unlink-chart internal-gateway --chart edge --registry-url https://charts.example.com
+ankra helm addon-definitions delete internal-gateway --yes        # the charts and installed add-ons stay
+```
+
+`link-chart --type exclude` keeps a chart the rules match out of the add-on; the default `include`
+adds one they miss.
+
 A spec file nests the registry under exactly one of `helm_oci_registry` or `helm_http_registry`
 (a flat `{name, url}` file is accepted and nested automatically).
 

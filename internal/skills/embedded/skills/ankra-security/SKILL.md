@@ -313,7 +313,19 @@ ankra security history --cluster <c> --days 30   # daily snapshots: how the post
 ankra security report-schedule --cluster <c>     # the emailed security report: frequency, recipients, last sent
 ankra security report-schedule set --cluster <c> --frequency weekly --recipient sec@example.com
 ankra security report-schedule send --cluster <c> # queue one report now
+ankra security evidence destinations list        # where evidence goes: a Vanta document, a Wazuh relay, a signed webhook
+ankra security evidence destinations create --name siem --kind webhook --url https://siem.example.com/ankra --secret-stdin
+ankra security evidence destinations revoke <destination-id> --yes   # deletes its credential; cannot be undone
+ankra security evidence deliveries send --destination <destination-id> --framework iso27001 --month 2026-10
+ankra security evidence deliveries list --destination <destination-id>
+ankra security evidence deliveries submit <delivery-id>              # Vanta only: an uploaded draft is not submitted
 ```
+
+An evidence destination's credential (a webhook signing secret, a Wazuh bearer token, a Vanta
+client secret) is never an argument: pipe it with `--secret-stdin` or let the command prompt for
+it. The platform stores it and never returns it. `delivered` means the destination accepted the
+transport, not that it indexed the evidence, and a Vanta delivery stays `uploaded` until it is
+submitted.
 
 This is the portal's Security Center from the terminal - one logical finding per CVE and
 package, deduplicated across clusters and workloads, each carrying its exploitation
