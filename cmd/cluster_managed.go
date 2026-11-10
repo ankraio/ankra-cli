@@ -500,7 +500,13 @@ var managedUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 			return nil
 		}
 
-		fmt.Printf("Managed cluster %s upgraded to Kubernetes %s\n", result.ClusterID, result.Version)
+		// The platform answers once it has accepted the target and started
+		// the upgrade, not once the provider finished it, so the answer says
+		// it started and names the operation to follow.
+		fmt.Printf("Managed cluster %s upgrade to Kubernetes %s started.\n", result.ClusterID, result.Version)
+		if result.OperationID != "" {
+			fmt.Printf("Operation: %s (follow it with 'ankra cluster operations list %s')\n", result.OperationID, result.OperationID)
+		}
 		return nil
 	},
 })

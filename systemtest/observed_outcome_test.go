@@ -64,13 +64,13 @@ case "$*" in
   "cluster operations list"*) ;;
   "cluster operations steps "*) cat "$FAKE_DIR/steps.json" 2>/dev/null ;;
   "cluster upgrade "*) cat "$FAKE_DIR/upgrade-answer" ;;
-  "cluster managed upgrade "*)
-    cat "$FAKE_DIR/managed-upgrade-answer"
-    if [ -f "$FAKE_DIR/operations-after-write.json" ]; then
-      cp "$FAKE_DIR/operations-after-write.json" "$FAKE_DIR/operations.json"
+  "cluster managed upgrade "*) cat "$FAKE_DIR/managed-upgrade-answer" ;;
+  "cluster node-group upgrade "*"--wait"*)
+    cat "$FAKE_DIR/resize-answer-wait"
+    if [ -f "$FAKE_DIR/nodes-after-write.json" ]; then
+      cp "$FAKE_DIR/nodes-after-write.json" "$FAKE_DIR/nodes.json"
     fi
     ;;
-  "cluster node-group upgrade "*"--wait"*) cat "$FAKE_DIR/resize-answer-wait" ;;
   "cluster node-group upgrade "*) cat "$FAKE_DIR/resize-answer" ;;
   "cluster node-group list "*) cat "$FAKE_DIR/node-group-list" ;;
   "cluster get nodes "*"-o json"*) cat "$FAKE_DIR/nodes.json" ;;
@@ -117,6 +117,9 @@ func clusterList(name, version string) string {
 type fakeNode struct {
 	name, kubelet, instanceType, group string
 	controlPlane, notReady             bool
+	// cpu and memory are the node's status.capacity, as the kubelet reports
+	// the machine it runs on ("4", "8139996Ki"); none when empty.
+	cpu, memory string
 }
 
 // nodesJSON is `ankra cluster get nodes -o json`: the Kubernetes Node objects
@@ -140,12 +143,16 @@ func nodesJSON(t *testing.T, nodes ...fakeNode) string {
 		if node.notReady {
 			ready = "False"
 		}
+		status := map[string]any{
+			"conditions": []map[string]string{{"type": "Ready", "status": ready}},
+			"nodeInfo":   map[string]string{"kubeletVersion": node.kubelet},
+		}
+		if node.cpu != "" || node.memory != "" {
+			status["capacity"] = map[string]string{"cpu": node.cpu, "memory": node.memory}
+		}
 		items = append(items, map[string]any{
 			"metadata": map[string]any{"name": node.name, "labels": labels},
-			"status": map[string]any{
-				"conditions": []map[string]string{{"type": "Ready", "status": ready}},
-				"nodeInfo":   map[string]string{"kubeletVersion": node.kubelet},
-			},
+			"status":   status,
 		})
 	}
 	document, err := json.Marshal(map[string]any{"resource_responses": []map[string]any{{"items": items, "total_count": len(items)}}})
@@ -162,6 +169,10 @@ func hetznerNodes(t *testing.T, kubelet, workerType string) string {
 	)
 }
 
+// operationCreated is when the operations operationJSON describes were
+// created; a reconcile that retries one is created after it.
+const operationCreated = "2026-11-09T22:44:13.998432Z"
+
 // operationJSON is `ankra cluster operations list <id> -o json` for an
 // operation that ended with the given status.
 func operationJSON(id, status, excerpt string) string {
@@ -170,7 +181,7 @@ func operationJSON(id, status, excerpt string) string {
 		errorExcerpt = jsonString(excerpt)
 	}
 	return `{"execution":{"id":"` + id + `","name":"reconcile","display_name":"Reconcile 2 resources","status":"` + status +
-		`","error_excerpt":` + errorExcerpt + `},"steps":[]}`
+		`","created_at":"` + operationCreated + `","error_excerpt":` + errorExcerpt + `},"steps":[]}`
 }
 
 func testdataFile(t *testing.T, name string) string {
@@ -376,13 +387,17 @@ func TestParkedUpgradeAndResizeFailTheirSteps(t *testing.T) {
 // TestParkedAwsUpgradeFailsItsStep replays the AWS lane's step 6b: the
 // upgrade be3b5487 ended failed after 7 minutes while `cluster list` showed
 // the target at once. It must FAIL with the operation's error; on master it
-// PASSed "(cp+worker Ready)" one second after the submit.
+// PASSed "(cp+worker Ready)" one second after the submit. The operations
+// listing is the cluster's after the run, where reconciles created after the
+// failure (b93bbd7e onwards) succeeded: a later success alone is not the
+// platform's retry landing the upgrade while the kubelets stay behind.
 func TestParkedAwsUpgradeFailsItsStep(t *testing.T) {
 	step := laneStep(t, "  # 6b. Kubernetes upgrade", "  # 6c. Node-group autoscaling")
 	files := map[string]string{
 		"cluster-list":   clusterList(awsClusterName, upgradeTarget),
 		"upgrade-answer": upgradeAnswer("aws", awsClusterID, awsUpgradeOperation),
 		"operation-" + awsUpgradeOperation + ".json": testdataFile(t, "operation-be3b5487-aws-upgrade.json"),
+		"operations.json": testdataFile(t, "operations-aws-after-run.json"),
 		"nodes.json": nodesJSON(t,
 			fakeNode{name: "ip-10-0-13-201.eu-north-1.compute.internal", kubelet: createdVersion, instanceType: "t3.medium", controlPlane: true},
 			fakeNode{name: "ip-10-0-9-52.eu-north-1.compute.internal", kubelet: createdVersion, instanceType: "t3.medium", group: "default"}),
@@ -399,7 +414,8 @@ func TestParkedAwsUpgradeFailsItsStep(t *testing.T) {
 replay
 `)
 	run.wantResult(t, "aws/k3s k8s upgrade", "FAIL",
-		awsUpgradeOperation, "ended failed", "ip-10-0-9-52.eu-north-1.compute.internal is blocked by a PodDisruptionBudget")
+		awsUpgradeOperation, "ended failed", "ip-10-0-9-52.eu-north-1.compute.internal is blocked by a PodDisruptionBudget",
+		"nothing landed it by the timeout", "="+createdVersion)
 }
 
 // TestUpgradeAndResizePassOnlyOnWhatTheNodesShow: an operation that ended in
@@ -429,7 +445,7 @@ func TestUpgradeAndResizePassOnlyOnWhatTheNodesShow(t *testing.T) {
 			name:           "operations succeeded, kubelets and type still old",
 			nodes:          hetznerNodes(t, createdVersion, "cpx22"),
 			upgradeOutcome: "FAIL", upgradeWant: []string{"succeeded, but the kubelets did not all reach it", "=" + createdVersion},
-			resizeOutcome: "FAIL", resizeWant: []string{"succeeded, but the default nodes are not all cpx32", "default-0=cpx22"},
+			resizeOutcome: "FAIL", resizeWant: []string{"succeeded, but the default nodes do not show it", "default-0=cpx22"},
 		},
 		{
 			name: "a node NotReady after the upgrade",
@@ -461,34 +477,50 @@ func TestUpgradeAndResizePassOnlyOnWhatTheNodesShow(t *testing.T) {
 	}
 }
 
-// TestManagedUpgradePassesOnlyOnItsOperation: the managed upgrade's answer
-// names no operation, and `cluster list` shows the requested version at
-// once. The step finds the managed_k8s_upgrade operation that appeared after
-// the write and passes only when it ended in success; on master a failed one
-// PASSed on the listing.
+// managedUpgradeAnswer is cmd/cluster_managed.go's answer to a managed
+// upgrade, naming the managed_k8s_upgrade operation the platform started
+// (none when operation is empty).
+func managedUpgradeAnswer(target, operation string) string {
+	answer := "Managed cluster " + managedClusterID + " upgrade to Kubernetes " + target + " started.\n"
+	if operation != "" {
+		answer += "Operation: " + operation + " (follow it with 'ankra cluster operations list " + operation + "')\n"
+	}
+	return answer
+}
+
+// TestManagedUpgradePassesOnlyOnItsOperation: `cluster list` shows the
+// requested version at once, so the step follows the managed_k8s_upgrade
+// operation the answer names and passes only when it ended in success. That
+// operation is platform-scoped - it carries no cluster id - so the cluster's
+// own operations listing never shows it (as here: reconciles only), and the
+// step reads it by id (ankra-fe12p0). An answer that names none leaves the
+// outcome unknown. On master a failed upgrade PASSed on the listing.
 func TestManagedUpgradePassesOnlyOnItsOperation(t *testing.T) {
 	step := laneStep(t, "  # 5. K8s upgrade (explicit target only", "  # 6. Delete")
 	const target = "1.33.1-do.0"
 	refusal := "doks API 422: kubernetes version 1.33.1-do.0 is not an available upgrade for this cluster"
 	cases := []struct {
 		name      string
+		answer    string
 		operation string
 		outcome   string
 		want      []string
 	}{
-		{"operation failed", operationJSON(managedUpgradeOperation, "failed", refusal), "FAIL",
+		{"operation failed", managedUpgradeAnswer(target, managedUpgradeOperation),
+			operationJSON(managedUpgradeOperation, "failed", refusal), "FAIL",
 			[]string{managedUpgradeOperation, "ended failed", "is not an available upgrade"}},
-		{"operation succeeded", operationJSON(managedUpgradeOperation, "success", ""), "PASS",
+		{"operation succeeded", managedUpgradeAnswer(target, managedUpgradeOperation),
+			operationJSON(managedUpgradeOperation, "success", ""), "PASS",
 			[]string{"operation " + managedUpgradeOperation + " succeeded"}},
+		{"the answer names no operation", managedUpgradeAnswer(target, ""), "", "UNASSERTED",
+			[]string{"named no operation to follow"}},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			files := map[string]string{
 				"cluster-list":           clusterList(managedClusterName, target),
 				"operations.json":        `[{"id":"11111111-2222-4333-8444-555555555555","name":"reconcile","display_name":"Reconcile 3 resources","status":"success"}]`,
-				"managed-upgrade-answer": "Managed cluster " + managedClusterID + " upgraded to Kubernetes " + target + "\n",
-				"operations-after-write.json": `[{"id":"` + managedUpgradeOperation + `","name":"managed_k8s_upgrade","display_name":"Upgrade managed Kubernetes","status":"running"},` +
-					`{"id":"11111111-2222-4333-8444-555555555555","name":"reconcile","display_name":"Reconcile 3 resources","status":"success"}]`,
+				"managed-upgrade-answer": testCase.answer,
 				"operation-" + managedUpgradeOperation + ".json": testCase.operation,
 				"nodes.json": nodesJSON(t, fakeNode{name: "workers-abc", kubelet: "v1.32.5"}),
 			}
@@ -499,6 +531,129 @@ func TestManagedUpgradePassesOnlyOnItsOperation(t *testing.T) {
 replay
 `)
 			run.wantResult(t, "managed/doks k8s upgrade", testCase.outcome, testCase.want...)
+			if strings.Contains(run.calls, "operations list --cluster") {
+				t.Errorf("the step looked for the platform-scoped operation in the cluster's listing, which never shows it; calls:\n%s", run.calls)
+			}
+		})
+	}
+}
+
+// resizeStep is a lane's step 7 (the instance resize) for one provider.
+func resizeStep(t *testing.T, provider, name, id string) string {
+	step := laneStep(t, "  # 7. Instance resize", "  # 7b. Node-group autoscaling")
+	return `replay() {
+  local provider=` + provider + ` distribution=k3s name=` + name + ` label=` + provider + `/k3s id=` + id + ` target="" plan="" out=""
+` + step + `
+}
+replay
+`
+}
+
+// TestResizeIsReadFromTheCapacityWhereTheLabelStays: DigitalOcean and OVH
+// resize the server in place and leave node.kubernetes.io/instance-type on
+// the type the node joined with - only Hetzner and UpCloud re-stamp it after
+// a resize - so a healthy s-2vcpu-4gb -> s-4vcpu-8gb resize still reads
+// s-2vcpu-4gb, and reading the label FAILed it after the full timeout. There
+// the step reads the resize from the node's capacity, which the kubelet
+// re-reads when the resize restarts the server: more CPUs, or clearly more
+// memory, than the group had before the write.
+func TestResizeIsReadFromTheCapacityWhereTheLabelStays(t *testing.T) {
+	const (
+		clusterName = "systest-digitalocean-k3s-261110081500"
+		clusterID   = "3d0b6f4e-8a1c-4f2e-9b7d-5c6a4e3f2d10"
+	)
+	worker := func(instanceType, cpu, memory string, notReady bool) fakeNode {
+		return fakeNode{name: "default-0", kubelet: createdVersion, instanceType: instanceType, group: "default",
+			cpu: cpu, memory: memory, notReady: notReady}
+	}
+	controlPlane := fakeNode{name: "cp-0", kubelet: createdVersion, instanceType: "s-4vcpu-8gb", controlPlane: true,
+		cpu: "4", memory: "8139996Ki"}
+	cases := []struct {
+		name, provider string
+		before, after  fakeNode
+		outcome        string
+		want           []string
+	}{
+		{"digitalocean: resized, the label kept", "digitalocean",
+			worker("s-2vcpu-4gb", "2", "4025452Ki", false), worker("s-2vcpu-4gb", "4", "8139996Ki", false), "PASS",
+			[]string{"operation " + hetznerResizeOperation + " succeeded", "bigger than before the resize (cpu 2, memory 3.8Gi)",
+				"default-0 cpu 4, memory 7.8Gi, instance-type label s-2vcpu-4gb"}},
+		{"ovh: resized, the label kept", "ovh",
+			worker("b2-15", "4", "15359068Ki", false), worker("b2-15", "8", "30709148Ki", false), "PASS",
+			[]string{"bigger than before the resize (cpu 4, memory 14.6Gi)", "default-0 cpu 8, memory 29.3Gi"}},
+		{"digitalocean: the operation succeeded, the node did not change", "digitalocean",
+			worker("s-2vcpu-4gb", "2", "4025452Ki", false), worker("s-2vcpu-4gb", "2", "4025452Ki", false), "FAIL",
+			[]string{"succeeded, but the default nodes do not show it", "default-0=cpu 2, memory 3.8Gi", "before the resize: cpu 2, memory 3.8Gi"}},
+		{"digitalocean: a reboot moved the memory by a few KiB, which is not a resize", "digitalocean",
+			worker("s-2vcpu-4gb", "2", "4025452Ki", false), worker("s-2vcpu-4gb", "2", "4025460Ki", false), "FAIL",
+			[]string{"do not show it"}},
+		{"digitalocean: bigger but NotReady", "digitalocean",
+			worker("s-2vcpu-4gb", "2", "4025452Ki", false), worker("s-2vcpu-4gb", "4", "8139996Ki", true), "FAIL",
+			[]string{"default-0=cpu 4, memory 7.8Gi NotReady"}},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			files := map[string]string{
+				"cluster-list":       clusterList(clusterName, createdVersion),
+				"node-group-list":    "default  count=1\n",
+				"resize-answer-wait": resizeAnswerWait(hetznerResizeOperation),
+				"operation-" + hetznerResizeOperation + ".json": operationJSON(hetznerResizeOperation, "success", ""),
+				"nodes.json":             nodesJSON(t, controlPlane, testCase.before),
+				"nodes-after-write.json": nodesJSON(t, controlPlane, testCase.after),
+			}
+			run := runLane(t, files, nil, resizeStep(t, testCase.provider, clusterName, clusterID))
+			run.wantResult(t, testCase.provider+"/k3s instance resize default", testCase.outcome, testCase.want...)
+		})
+	}
+}
+
+// TestAFailureThePlatformsRetryLandsIsNotAFail: the platform retries a
+// transient failure in a new execution, so the operation a step followed can
+// fail while the change still lands. When, by the step's timeout, the nodes
+// show it (every kubelet at the target and Ready, the group on the new type)
+// AND a reconcile created since the failure succeeded, the step passes and
+// names both; a red schedule for a transient would be a false FAIL. The
+// nodes landing with no successful reconcile since the failure, or a later
+// success while the nodes stay behind, is still a FAIL in the operation's
+// words.
+func TestAFailureThePlatformsRetryLandsIsNotAFail(t *testing.T) {
+	const retry = "5e1f0a2b-7c3d-4e9f-8a1b-2c3d4e5f6a7b"
+	transient := "hetzner API 503: service unavailable"
+	failedOperation := func(id string) string {
+		return `{"id":"` + id + `","name":"reconcile","display_name":"Reconcile 2 resources","status":"failed","created_at":"` + operationCreated + `"}`
+	}
+	earlierSuccess := `{"id":"e9508430-0000-4000-8000-000000000001","name":"reconcile","display_name":"Reconcile 1 resource","status":"success","created_at":"2026-11-09T22:30:34.812299Z"}`
+	laterSuccess := `{"id":"` + retry + `","name":"reconcile","display_name":"Reconcile 2 resources","status":"success","created_at":"2026-11-09T22:46:37.203584Z"}`
+	cases := []struct {
+		name       string
+		operations string
+		nodes      string
+		outcome    string
+		want       []string
+	}{
+		{"the retry landed both",
+			"[" + laterSuccess + "," + failedOperation(hetznerResizeOperation) + "," + failedOperation(hetznerUpgradeOperation) + "," + earlierSuccess + "]",
+			hetznerNodes(t, upgradeTarget, "cpx32"), "PASS",
+			[]string{"ended failed, but the platform's retry landed it", "reconcile " + retry + " succeeded"}},
+		{"the nodes show it, but no reconcile since the failure succeeded",
+			"[" + failedOperation(hetznerResizeOperation) + "," + failedOperation(hetznerUpgradeOperation) + "," + earlierSuccess + "]",
+			hetznerNodes(t, upgradeTarget, "cpx32"), "FAIL",
+			[]string{"ended failed: " + transient, "nothing landed it by the timeout"}},
+		{"a reconcile since the failure succeeded, but the nodes stayed",
+			"[" + laterSuccess + "," + failedOperation(hetznerResizeOperation) + "," + failedOperation(hetznerUpgradeOperation) + "," + earlierSuccess + "]",
+			hetznerNodes(t, createdVersion, "cpx22"), "FAIL",
+			[]string{"ended failed: " + transient, "nothing landed it by the timeout"}},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			files := hetznerFiles(t,
+				operationJSON(hetznerUpgradeOperation, "failed", transient),
+				operationJSON(hetznerResizeOperation, "failed", transient),
+				testCase.nodes)
+			files["operations.json"] = testCase.operations
+			run := runLane(t, files, nil, hetznerUpgradeAndResize(t))
+			run.wantResult(t, "hetzner/k3s k8s upgrade", testCase.outcome, append([]string{hetznerUpgradeOperation}, testCase.want...)...)
+			run.wantResult(t, "hetzner/k3s instance resize", testCase.outcome, append([]string{hetznerResizeOperation}, testCase.want...)...)
 		})
 	}
 }
@@ -571,33 +726,47 @@ func TestRefusedTeardownReconcileDoesNotEndTheWait(t *testing.T) {
 	}
 }
 
-// TestOperationIDIsReadFromTheWritesAnswer: the answers the step follows,
-// as the CLI prints them. The "Follow progress" hint alone names the
-// operation after "operations list", which is not an operation line.
+// TestOperationIDIsReadFromTheWritesAnswer: the answers the steps follow, as
+// the CLI prints them. The id is read only from the line each command prints
+// it on: a notice before the answer that names another operation, a "Follow
+// it with" hint, or another command's line never lends it one.
 func TestOperationIDIsReadFromTheWritesAnswer(t *testing.T) {
+	const other = "9f8e7d6c-5b4a-4f3e-8d2c-1b0a9f8e7d6c"
+	notice := "Note: operation " + other + " is still running on this cluster; this write queues behind it.\n"
 	cases := []struct {
-		name, answer, want string
+		name, command, answer, want string
 	}{
-		{"cluster upgrade", upgradeAnswer("aws", awsClusterID, awsUpgradeOperation), awsUpgradeOperation},
-		{"node-group upgrade --wait", resizeAnswerWait(hetznerResizeOperation), hetznerResizeOperation},
-		{"stop", "AWS cluster stop initiated.\n  Cluster ID: " + awsClusterID + "\n  Operation ID: " + strings.ToUpper(awsUpgradeOperation) + "\n", awsUpgradeOperation},
-		{"node-group upgrade without --wait", resizeAnswerSubmitted, ""},
-		{"managed upgrade", "Managed cluster " + managedClusterID + " upgraded to Kubernetes 1.33.1-do.0\n", ""},
-		{"a hint is not an operation line", "Follow it with:\n  ankra cluster operations list " + awsUpgradeOperation + "\n", ""},
+		{"cluster upgrade", "upgrade", upgradeAnswer("aws", awsClusterID, awsUpgradeOperation), awsUpgradeOperation},
+		{"cluster upgrade after a notice naming another operation", "upgrade",
+			notice + upgradeAnswer("aws", awsClusterID, awsUpgradeOperation), awsUpgradeOperation},
+		{"cluster upgrade in upper case", "upgrade",
+			upgradeAnswer("aws", awsClusterID, strings.ToUpper(awsUpgradeOperation)), awsUpgradeOperation},
+		{"node-group upgrade --wait", "resize", resizeAnswerWait(hetznerResizeOperation), hetznerResizeOperation},
+		{"node-group upgrade --wait after a notice naming another operation", "resize",
+			notice + resizeAnswerWait(hetznerResizeOperation), hetznerResizeOperation},
+		{"node-group upgrade without --wait", "resize", resizeAnswerSubmitted, ""},
+		{"managed upgrade", "managed-upgrade", managedUpgradeAnswer("1.33.1-do.0", managedUpgradeOperation), managedUpgradeOperation},
+		{"managed upgrade after a notice naming another operation", "managed-upgrade",
+			notice + managedUpgradeAnswer("1.33.1-do.0", managedUpgradeOperation), managedUpgradeOperation},
+		{"a managed answer that names none", "managed-upgrade", managedUpgradeAnswer("1.33.1-do.0", ""), ""},
+		{"a notice alone is not an answer", "upgrade", notice, ""},
+		{"a hint is not an operation line", "resize", "Follow it with:\n  ankra cluster operations list " + hetznerResizeOperation + "\n", ""},
+		{"another command's operation line does not count", "resize", upgradeAnswer("aws", awsClusterID, awsUpgradeOperation), ""},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			bash := requireBashAndJq(t)
 			dir := t.TempDir()
 			script := sourceableScript(t, dir)
-			command := exec.Command(bash, "-c", `. "$1"; trap - EXIT INT TERM; printf 'id=%s\n' "$(operation_id_in "$2")"`, "lane", script, testCase.answer)
+			command := exec.Command(bash, "-c", `. "$1"; trap - EXIT INT TERM; printf 'id=%s\n' "$(operation_id_in "$2" "$3")"`,
+				"lane", script, testCase.command, testCase.answer)
 			command.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "ANKRA_BIN=/nonexistent"}
 			out, err := command.CombinedOutput()
 			if err != nil {
 				t.Fatalf("operation_id_in: %v\n%s", err, out)
 			}
 			if got := strings.TrimSpace(string(out)); got != "id="+testCase.want {
-				t.Fatalf("operation_id_in(%q) = %q, want id=%s", testCase.answer, got, testCase.want)
+				t.Fatalf("operation_id_in %s (%q) = %q, want id=%s", testCase.command, testCase.answer, got, testCase.want)
 			}
 		})
 	}

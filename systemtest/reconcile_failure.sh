@@ -24,13 +24,27 @@
 RECONCILE_RETRYABLE_4XX="${RECONCILE_RETRYABLE_4XX:-408 409 423 425 429}"
 
 # classify_step_error <error text>
-# Prints "terminal" when the text is a refusal a retry repeats unchanged - a
-# provider/API 4xx outside RECONCILE_RETRYABLE_4XX, or a validation refusal -
-# and "transient" otherwise. Timeouts and 5xx win over everything else, so an
-# ambiguous excerpt keeps the retry.
+# Prints "parked" when the text is a node drain the platform parked on a
+# PodDisruptionBudget; "terminal" when it is a refusal a retry repeats
+# unchanged - a provider/API 4xx outside RECONCILE_RETRYABLE_4XX, or a
+# validation refusal - and "transient" otherwise. Timeouts and 5xx win over
+# everything but a parked drain, so an ambiguous excerpt keeps the retry.
+#
+# A parked drain is its own verdict. The platform parks it instead of
+# retrying it on a timer ("... is blocked by a PodDisruptionBudget, so its
+# upgrade is parked instead of retried on a timer"), and a nudged reconcile
+# only runs the same blocked drain again: one more failed production
+# execution per poll. Yet it is not a refusal that ends the wait at once: the
+# platform clears a parked drain itself once the budget allows it (the
+# 2026-11-09 upgrade and resize read attention_state "resolved" by a later
+# execution), so failing the wait on it would trade a nudge for a false FAIL.
 classify_step_error() {
   local lower code
   lower="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  local parked_re='poddisruptionbudget|disruption budget|drain'
+  if [[ $lower == *parked* ]] && [[ $lower =~ $parked_re ]]; then
+    echo parked; return 0
+  fi
   # A status in the forms the platform's errors carry it: "uks API 422: ...",
   # "HTTP 403", "status 404", "status code 400", "status_code=401",
   # "\"status\":422". Bash ERE has no \b, so the trailing boundary is spelled out.
@@ -96,6 +110,11 @@ RECONCILE_STEPS_JQ='
 #   terminal<TAB><step><TAB><error>
 #                                the newest reconcile failed on a refusal a
 #                                retry repeats (nothing newer has started)
+#   parked<TAB><step><TAB><error>
+#                                the newest reconcile parked a node drain on
+#                                a PodDisruptionBudget: a retry repeats the
+#                                blocked drain, and the platform clears it
+#                                itself once the budget allows
 #
 # A superseded failure is "none", not a reason to nudge: a reconcile has
 # started since it (or the platform resolved it), so the platform is already
@@ -128,13 +147,21 @@ reconcile_failure_verdict() {
   # same way.
   steps="$(ank_out cluster operations steps "$execution_id" -o json \
     | jq -r "$RECONCILE_STEPS_JQ" 2>/dev/null)" || { echo transient; return 0; }
+  local parked=""
   while IFS=$'\t' read -r step error; do
     [ -z "$error" ] && continue
-    if [ "$(classify_step_error "$error")" = terminal ]; then
-      printf 'terminal\t%s\t%s\n' "$step" "$error"
-      return 0
-    fi
+    case "$(classify_step_error "$error")" in
+      terminal)
+        printf 'terminal\t%s\t%s\n' "$step" "$error"
+        return 0
+        ;;
+      parked) [ -n "$parked" ] || parked="parked"$'\t'"$step"$'\t'"$error" ;;
+    esac
   done <<<"$steps"
+  if [ -n "$parked" ]; then
+    printf '%s\n' "$parked"
+    return 0
+  fi
   echo transient
 }
 
@@ -158,9 +185,12 @@ reconcile_refused() {
 # Called from the wait loops on every poll. Nudges a new reconcile when the
 # newest one failed transiently and returns 0 (keep waiting). Returns 1 without
 # nudging when the newest reconcile failed on a terminal refusal, so the
-# caller fails the step now instead of re-running it until its timeout.
+# caller fails the step now instead of re-running it until its timeout. A
+# drain parked on a PodDisruptionBudget is neither: no nudge (it would rerun
+# the blocked drain) and no early end (the platform clears it itself), so the
+# wait goes on to its own timeout, the parking logged once.
 retry_failed_reconcile() {
-  local name="$1" retry_text="$2" verdict
+  local name="$1" retry_text="$2" verdict step error
   if [ -z "${RECONCILE_JQ_NOTED:-}" ] && ! command -v jq >/dev/null 2>&1; then
     RECONCILE_JQ_NOTED=1
     log "  note: jq is not installed, so a failed reconcile cannot be classified and every failure is retried"
@@ -169,6 +199,16 @@ retry_failed_reconcile() {
   if reconcile_refused "$name" "$verdict"; then
     return 1
   fi
+  case "$verdict" in
+    parked*)
+      if [ "${RECONCILE_PARKED_LOGGED:-}" != "$name $verdict" ]; then
+        RECONCILE_PARKED_LOGGED="$name $verdict"
+        IFS=$'\t' read -r _ step error <<<"$verdict"
+        log "  $name reconcile parked at step $step: $error -> not nudging (a retry repeats the blocked drain); waiting for the platform"
+      fi
+      return 0
+      ;;
+  esac
   if [ "$verdict" = transient ]; then
     log "  $name $retry_text -> retrying"
     nudge_reconcile "$name"
@@ -192,7 +232,7 @@ watch_teardown_reconcile() {
   local name="$1" verdict step error
   verdict="$(reconcile_failure_verdict "$name")"
   case "$verdict" in
-    terminal*)
+    terminal*|parked*)
       if [ "${TEARDOWN_REFUSAL_LOGGED:-}" != "$name $verdict" ]; then
         TEARDOWN_REFUSAL_LOGGED="$name $verdict"
         IFS=$'\t' read -r _ step error <<<"$verdict"

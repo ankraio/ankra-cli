@@ -27,17 +27,29 @@ cluster families the platform supports:
 Steps 6 and 7 pass on what the cluster did, never on what was asked for: the
 version `ankra cluster list` shows and the `type=` `ankra cluster node-group
 list` shows are the requested values from the moment the platform accepts the
-write. Each step follows the operation its write names
-(`ankra cluster operations list <id> -o json`; the resize is submitted with
-`--wait` so its answer names one) until it ends, and a parked or failed
-operation fails the step with the operation's own error. Then it reads the
-nodes (`ankra cluster get nodes -o json`): the upgrade passes only when every
-node is Ready with a kubelet at the target version, the resize only when every
-node of the group is Ready and carries the new type in its
-`node.kubernetes.io/instance-type` label (a group whose nodes carry no such
-label at all is recorded `UNASSERTED`, never `PASS`). On 2026-11-09 both
-upgrades and the Hetzner resize passed within a second of being submitted and
-then failed, parked on PodDisruptionBudgets (ankra-ubycim).
+write. On 2026-11-09 both upgrades and the Hetzner resize passed within a
+second of being submitted and then failed, parked on PodDisruptionBudgets
+(ankra-ubycim). So:
+
+- Each step follows the operation its write names, read from the exact line
+  the command prints it on (`Operation: <id>`; the resize is submitted with
+  `--wait`, whose answer ends "the resize rolls out in operation <id>."), with
+  `ankra cluster operations list <id> -o json` until it ends.
+- Then it reads the nodes (`ankra cluster get nodes -o json`). The upgrade
+  passes only when every node is Ready with a kubelet at the target version.
+  The resize passes only when every node of the group is Ready and shows the
+  new type: in its `node.kubernetes.io/instance-type` label on Hetzner and
+  UpCloud, where the platform re-stamps that label after a resize, and in its
+  capacity on DigitalOcean and OVH, which resize the server in place and leave
+  the label on the type the node joined with (more CPUs, or more than 10% more
+  memory, than the group had before the write). A type that cannot be read -
+  no label at all, or no capacity from before the write - is recorded
+  `UNASSERTED`, never `PASS`.
+- An operation that fails is not the end of it: the platform retries a
+  transient failure in a new execution. The step waits out its timeout, and
+  passes when the nodes show the change and a reconcile created since the
+  failure succeeded. A parked or failed operation that nothing lands by then
+  fails the step with the operation's own error.
 
 Between 7 and 8 the opt-in **node-group autoscaling** step runs when
 `ANKRA_SYSTEMTEST_AUTOSCALING=1` (see below); otherwise it is recorded as a
@@ -183,10 +195,12 @@ or registered for the run with `ankra credentials aws create-role` from
 5. **Kubernetes upgrade** — only when `MANAGED_UPGRADE_K8S_VERSION_<PROVIDER>`
    is set (the CLI has no managed version listing, so the target is explicit);
    otherwise the step is recorded as `SKIP`. It passes only when the
-   `managed_k8s_upgrade` operation that appeared after the write ended in
-   success and the cluster's version then reads the target (the control plane
-   is the provider's and its own version is not readable through the CLI; the
-   pool's kubelets are logged, not asserted)
+   `managed_k8s_upgrade` operation the answer names (`Operation: <id>`) ended
+   in success and the cluster's version then reads the target. That operation
+   carries no cluster id, so no cluster's operations listing shows it; the step
+   reads it by id, and an answer that names none is `UNASSERTED`. The control
+   plane is the provider's and its own version is not readable through the
+   CLI, so the pool's kubelets are logged, not asserted
 6. **delete** and confirm the cluster record is removed
 
 It is deliberately a thin wrapper over the exact CLI commands a customer runs, so
@@ -205,7 +219,11 @@ it is "as real as possible". It tolerates the real behaviours of the platform:
   after a deprovision or managed delete never starts one at all, and a
   refused teardown reconcile does not end it either (a provider 404 on a
   resource already gone is one): it waits for the cluster to leave the list,
-  and a teardown that stalls goes to the bounded force fallback
+  and a teardown that stalls goes to the bounded force fallback. A node drain
+  the platform parked on a PodDisruptionBudget is never nudged either (a retry
+  only runs the blocked drain again) and does not end a wait early (the
+  platform clears it itself once the budget allows): the wait runs to its own
+  timeout
 - the platform serialises writes (HTTP 409 while a reconcile runs, or a managed
   cluster reporting "not in a state that allows ...") → it waits and retries the
   day-2 operation

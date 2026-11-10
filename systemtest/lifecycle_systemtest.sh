@@ -837,27 +837,42 @@ pick_upgrade_target() {
 # and the hetzner/k3s resize passed within a second of being submitted, and
 # all three operations failed minutes later, parked on PodDisruptionBudgets;
 # the run read 24 passed, 0 failed (ankra-ubycim). So the steps follow the
-# operation the write names to its end - a parked or failed one fails the
-# step with the operation's own error - and then read the nodes: every
-# kubelet at the target version, every node of the resized group carrying
-# the new instance type. All of it reads -o json with jq, which the workflow
-# installs and the preflight requires.
+# operation the write names to its end, then read the nodes: every kubelet at
+# the target version, every node of the resized group on the new type. An
+# operation that failed is not the end of it: the platform retries a
+# transient failure in a new execution, so the step waits out its timeout for
+# that retry to land the change (the nodes as above, and a reconcile since
+# the failure that succeeded) before it fails with the operation's own error.
+# All of it reads -o json with jq, which the workflow installs and the
+# preflight requires.
 
 UUID_RE='[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
 
-# operation_id_in <write output>
-# The operation a write's answer names: "Operation: <id>" (cluster upgrade),
-# "Operation ID: <id>" (stop/start) or "... rolls out in operation <id>."
-# (node-group upgrade --wait); empty when it names none.
+# operation_id_in <command> <write output>
+# The operation a write's answer names, read only from the line the command
+# prints it on, so no other line can lend it an id - a preflight note, a
+# warning that names an operation already running, a "Follow it with" hint:
+#   upgrade          "  Operation:        <id>"          (cmd/cluster_upgrade.go)
+#   managed-upgrade  "Operation: <id> (follow it ...)"   (cmd/cluster_managed.go)
+#   resize           "Node group '<group>' <change> change recorded for <n>
+#                    node(s); the resize rolls out in operation <id>."
+#                                                        (cmd/node_group_write_output.go, --wait)
+# Empty when the answer names none.
 operation_id_in() {
-  printf '%s\n' "$1" | grep -oE "[Oo]peration( ID)?:?[[:space:]]+$UUID_RE" | head -1 \
-    | grep -oE "$UUID_RE" | tr '[:upper:]' '[:lower:]'
+  local line_re
+  case "$1" in
+    upgrade) line_re="^  Operation:[[:space:]]+$UUID_RE\$" ;;
+    managed-upgrade) line_re="^Operation: $UUID_RE( \\(.*\\))?\$" ;;
+    resize) line_re="^Node group '[^']+' [a-z ]+ change recorded for [0-9]+ node\\(s\\); the resize rolls out in operation $UUID_RE\\.\$" ;;
+    *) return 0 ;;
+  esac
+  printf '%s\n' "$2" | grep -E "$line_re" | head -1 | grep -oE "$UUID_RE" | head -1 | tr '[:upper:]' '[:lower:]'
 }
 
 # jq: one operation (`cluster operations list <id> -o json`) as
-# "<status><TAB><error excerpt>", the status lower case.
+# "<status><TAB><created_at><TAB><error excerpt>", the status lower case.
 # shellcheck disable=SC2016 # a jq program
-OPERATION_OUTCOME_JQ='(.execution // {}) | "\((.status // "") | ascii_downcase)\t\((.error_excerpt // "") | gsub("[\t\r\n]+"; " "))"'
+OPERATION_OUTCOME_JQ='(.execution // {}) | "\((.status // "") | ascii_downcase)\t\(.created_at // "")\t\((.error_excerpt // "") | gsub("[\t\r\n]+"; " "))"'
 
 # operation_outcome <operation id>: one read, empty when it could not be read.
 operation_outcome() {
@@ -868,17 +883,24 @@ operation_outcome() {
 # Follows the operation until it ends. Succeeds when it ended in success;
 # otherwise fails with OPERATION_VERDICT saying how it ended, with the error
 # the platform recorded for it, or that it had not ended by the timeout.
+# OPERATION_ENDED is the status it ended with (empty when it had not ended)
+# and OPERATION_CREATED when it was created.
 wait_for_operation() {
-  local op="$1" timeout="$2" deadline outcome status excerpt last=""
+  local op="$1" timeout="$2" deadline outcome status rest excerpt last=""
   OPERATION_VERDICT=""
+  OPERATION_ENDED=""
+  OPERATION_CREATED=""
   deadline=$(( $(date +%s) + timeout ))
   while :; do
     outcome="$(operation_outcome "$op")"
     status="${outcome%%$'\t'*}"
-    excerpt="${outcome#*$'\t'}"
+    rest="${outcome#*$'\t'}"
+    OPERATION_CREATED="${rest%%$'\t'*}"
+    excerpt="${rest#*$'\t'}"
     case "$status" in
       success|succeeded) log "  operation $op ended success"; return 0 ;;
       failed|critical|error|cancelled|canceled|timeout)
+        OPERATION_ENDED="$status"
         OPERATION_VERDICT="operation $op ended $status: ${excerpt:-no error was recorded}"
         log "  $OPERATION_VERDICT"
         return 1
@@ -896,26 +918,50 @@ wait_for_operation() {
   return 1
 }
 
-# jq: the newest operation whose name or display name matches $re, or empty.
+# jq: from `cluster operations list --cluster <id> --include-internal -o json`
+# (newest first), the newest reconcile other than $failed that ended in
+# success and was created no earlier than $since (the failed operation's
+# created_at); empty when there is none.
 # shellcheck disable=SC2016 # a jq program
-NEWEST_OPERATION_JQ='[ .[]? | select(((.name // "") + " " + (.display_name // "")) | test($re; "i")) ] | first | .id // empty'
+LATER_RECONCILE_JQ='
+  def epoch: tostring | sub("\\.[0-9]+"; "") | sub("(Z|[+-]00:?00)$"; "") | . + "Z" | fromdateiso8601;
+  ($since | epoch) as $from
+  | [ .[]? | select(.id != $failed)
+      | select(((.name // "") + " " + (.display_name // "")) | test("reconcile"; "i"))
+      | select((.status // "") | ascii_downcase | test("^succe"))
+      | select(try ((.created_at | epoch) >= $from) catch false) ]
+  | first | .id // empty'
 
-newest_operation_id() {
+later_reconcile() {
   ank_out cluster operations list --cluster "$1" --include-internal -o json \
-    | jq -r --arg re "$2" "$NEWEST_OPERATION_JQ" 2>/dev/null
+    | jq -r --arg failed "$2" --arg since "$3" "$LATER_RECONCILE_JQ" 2>/dev/null
 }
 
-# wait_for_new_operation <cluster id> <name regex> <newest id before the write> <timeout>
-# For a write whose answer names no operation: prints the newest matching
-# operation that was not the newest before the write, once one appears.
-wait_for_new_operation() {
-  local id="$1" re="$2" before="$3" timeout="$4" deadline op
-  deadline=$(( $(date +%s) + timeout ))
+# await_platform_retry <cluster id> <failed operation> <its created_at> <deadline> <read> [<arg>...]
+# After the operation a step followed ended in failure. The platform retries
+# a transient failure in a new execution, and a run whose retry lands the
+# change is not a failure (a red schedule for a transient is a false FAIL).
+# Waits until the deadline for both: the read (nodes_at_version or
+# group_resized, run with its arguments) answering ok, and a reconcile created
+# since the failed operation having succeeded. A parked or terminal failure
+# that nothing lands stays a failure. Sets NODES_VERDICT to the read's last
+# answer and RETRY_RECONCILE to the reconcile.
+await_platform_retry() {
+  local id="$1" failed="$2" since="$3" deadline="$4" last=""
+  shift 4
+  RETRY_RECONCILE=""
+  log "  waiting out the step's timeout for the platform's own retry to land the change"
   while :; do
-    op="$(newest_operation_id "$id" "$re")"
-    if [ -n "$op" ] && [ "$op" != "$before" ]; then
-      printf '%s\n' "$op"
-      return 0
+    NODES_VERDICT="$("$@")"
+    case "$NODES_VERDICT" in
+      ok*)
+        RETRY_RECONCILE="$(later_reconcile "$id" "$failed" "$since")"
+        [ -n "$RETRY_RECONCILE" ] && return 0
+        ;;
+    esac
+    if [ "$NODES_VERDICT" != "$last" ]; then
+      log "  since the failure: ${NODES_VERDICT:-nodes unreadable}"
+      last="$NODES_VERDICT"
     fi
     [ "$(date +%s)" -lt "$deadline" ] || return 1
     sleep "$POLL_INTERVAL"
@@ -967,51 +1013,115 @@ wait_for_kubelets() {
   done
 }
 
-# jq: the nodes of node group $g - by the ankra.cloud/node-group label every
-# Ankra worker carries, or every node without a control-plane role when no
-# node carries it - and their instance type, read from the GA
-# node.kubernetes.io/instance-type label (the beta spelling when only it is
-# set; the cloud controller sets the pair, and the platform restamps both
-# after a resize):
-#   ok <n>                      every one Ready and of type $want
-#   off <node>=<type>, ...      the ones that are not (NotReady marked)
-#   unlabelled <n>              none carries either label: no type to read
-#   unreadable                  no node of the group in the answer
+# Where a resize can be read from the instance-type label. The cloud
+# controller stamps node.kubernetes.io/instance-type (and its beta spelling)
+# when a node joins, and an in-place resize keeps the Node, so the label moves
+# only where the platform re-stamps it after the resize: Hetzner (both
+# spellings, hetznerjobs/instancetypelabels.go, PLA-906) and UpCloud (its
+# server sync, upcloudjobs/labels.go). DigitalOcean and OVH resize the server
+# in place and leave the label on the type the node joined with, so a healthy
+# s-2vcpu-4gb -> s-4vcpu-8gb resize still reads s-2vcpu-4gb. There the step
+# reads the resize from the node's capacity instead: the resize restarts the
+# server, the kubelet re-reads the machine, and the node reports the bigger
+# plan's CPUs and memory.
+RESIZE_RELABELLING_PROVIDERS="hetzner upcloud"
+
+# resize_reading <provider>: "label" or "capacity".
+resize_reading() {
+  case " $RESIZE_RELABELLING_PROVIDERS " in
+    *" $1 "*) echo label ;;
+    *) echo capacity ;;
+  esac
+}
+
+# jq definitions shared by the group reads below: the nodes of node group $g
+# - by the ankra.cloud/node-group label every Ankra worker carries, or every
+# node without a control-plane role when no node carries it - with their
+# readiness, instance-type label (GA spelling, else beta) and capacity.
 # shellcheck disable=SC2016 # a jq program
-GROUP_TYPE_JQ='
+GROUP_NODES_JQ_DEFS='
   def ready: [.status.conditions[]? | select(.type == "Ready") | .status] | first == "True";
   def control_plane: (.metadata.labels // {}) | has("node-role.kubernetes.io/control-plane") or has("node-role.kubernetes.io/master");
   def kind: (.metadata.labels // {}) | (.["node.kubernetes.io/instance-type"] // .["beta.kubernetes.io/instance-type"] // "");
-  [ .resource_responses[0].items[]? ] as $all
-  | ([ $all[] | select(.metadata.labels["ankra.cloud/node-group"] != null) ] | length > 0) as $labelled
-  | [ $all[]
-      | select(if $labelled then .metadata.labels["ankra.cloud/node-group"] == $g else (control_plane | not) end)
-      | {name: .metadata.name, type: kind, ready: ready} ] as $nodes
-  | [ $nodes[] | select(.type != $want or (.ready | not)) ] as $off
-  | if ($nodes | length) == 0 then "unreadable"
-    elif ([ $nodes[] | select(.type != "") ] | length) == 0 then "unlabelled \($nodes | length)"
-    elif ($off | length) > 0 then
-      "off " + ([ $off[] | "\(.name)=\(if .type == "" then "no instance-type label" else .type end)\(if .ready then "" else " NotReady" end)" ] | join(", "))
-    else "ok \($nodes | length)" end'
+  def quantity: tostring | (capture("^(?<n>[0-9.]+)(?<u>[A-Za-z]*)$") // {n: "0", u: ""})
+    | (.n | tonumber) * ({"": 1, "m": 0.001, "k": 1e3, "K": 1e3, "M": 1e6, "G": 1e9, "T": 1e12,
+        "Ki": 1024, "Mi": 1048576, "Gi": 1073741824, "Ti": 1099511627776}[.u] // 0);
+  def cores: if . == floor then tostring else "\(. * 1000 | round)m" end;
+  def gib: "\(. / 1073741824 * 10 | round / 10)Gi";
+  def group_nodes($g):
+    [ .resource_responses[0].items[]? ] as $all
+    | ([ $all[] | select(.metadata.labels["ankra.cloud/node-group"] != null) ] | length > 0) as $labelled
+    | [ $all[]
+        | select(if $labelled then .metadata.labels["ankra.cloud/node-group"] == $g else (control_plane | not) end)
+        | {name: .metadata.name, type: kind, ready: ready,
+           cpu: ((.status.capacity.cpu // 0) | quantity), memory: ((.status.capacity.memory // 0) | quantity)} ];'
 
-group_instance_types() {
-  ank_out cluster get nodes --cluster "$1" -o json \
-    | jq -r --arg g "$2" --arg want "$3" "$GROUP_TYPE_JQ" 2>/dev/null
+# jq: the largest CPU and memory capacity among group $g's nodes, as
+# {"cpu":..,"memory":..}; empty when the group has no node in the answer.
+# shellcheck disable=SC2016 # a jq program
+GROUP_CAPACITY_JQ="$GROUP_NODES_JQ_DEFS"'
+  group_nodes($g) | if length == 0 then empty
+    else {cpu: (map(.cpu) | max), memory: (map(.memory) | max)} end'
+
+group_capacity() {
+  ank_out cluster get nodes --cluster "$1" -o json | jq -c --arg g "$2" "$GROUP_CAPACITY_JQ" 2>/dev/null
 }
 
-# wait_for_group_type <cluster id> <group> <instance type> <timeout>
-# Waits until group_instance_types answers ok; NODES_VERDICT keeps the last
-# read. A group with no instance-type label at all stops the wait at once:
-# no amount of waiting makes it readable.
-wait_for_group_type() {
-  local id="$1" group="$2" want="$3" timeout="$4" deadline
+# jq: whether group $g's nodes show the resize to $want, read as $reading
+# says (resize_reading):
+#   label:    every node Ready and labelled $want
+#   capacity: every node Ready and bigger than $before (the group's capacity
+#             before the write): more CPUs, or more than 10% more memory, so
+#             the few KiB a reboot moves the memory by is not a resize
+# answering
+#   ok <what the nodes show>      yes
+#   off <node>=<what it shows>... the nodes that do not (NotReady marked)
+#   unlabelled <n>                label: no node carries an instance-type label
+#   uncompared <n>                capacity: no capacity from before the write
+#   unreadable                    no node of the group in the answer
+# shellcheck disable=SC2016 # a jq program
+GROUP_RESIZED_JQ="$GROUP_NODES_JQ_DEFS"'
+  def notready: if .ready then "" else " NotReady" end;
+  def label_shown: if .type == "" then "no instance-type label" else .type end;
+  def grown: (.cpu > $before.cpu) or (.memory > $before.memory * 1.1);
+  group_nodes($g) as $nodes
+  | if ($nodes | length) == 0 then "unreadable"
+    elif $reading == "label" then
+      [ $nodes[] | select(.type != $want or (.ready | not)) ] as $off
+      | if ([ $nodes[] | select(.type != "") ] | length) == 0 then "unlabelled \($nodes | length)"
+        elif ($off | length) > 0 then "off " + ([ $off[] | "\(.name)=\(label_shown)\(notready)" ] | join(", "))
+        else "ok every \($g) node is \($want) and Ready" end
+    elif $before == null then "uncompared \($nodes | length)"
+    else
+      [ $nodes[] | select((.ready | not) or (grown | not)) ] as $off
+      | ($before | "cpu \(.cpu | cores), memory \(.memory | gib)") as $was
+      | if ($off | length) > 0 then
+          "off " + ([ $off[] | "\(.name)=cpu \(.cpu | cores), memory \(.memory | gib)\(notready)" ] | join(", "))
+          + " (before the resize: \($was))"
+        else
+          "ok every \($g) node is Ready and bigger than before the resize (\($was)): "
+          + ([ $nodes[] | "\(.name) cpu \(.cpu | cores), memory \(.memory | gib), instance-type label \(label_shown)" ] | join("; "))
+        end
+    end'
+
+# group_resized <cluster id> <group> <instance type> <reading> <capacity before, JSON or null>
+group_resized() {
+  ank_out cluster get nodes --cluster "$1" -o json \
+    | jq -r --arg g "$2" --arg want "$3" --arg reading "$4" --argjson before "$5" "$GROUP_RESIZED_JQ" 2>/dev/null
+}
+
+# wait_for_group_resized <cluster id> <group> <instance type> <reading> <before> <timeout>
+# Waits until group_resized answers ok; NODES_VERDICT keeps the last read. An
+# answer no amount of waiting changes (unlabelled, uncompared) ends it at once.
+wait_for_group_resized() {
+  local id="$1" group="$2" want="$3" reading="$4" before="$5" timeout="$6" deadline
   deadline=$(( $(date +%s) + timeout ))
   while :; do
-    NODES_VERDICT="$(group_instance_types "$id" "$group" "$want")"
-    log "  $group nodes: ${NODES_VERDICT:-unreadable} (want $want, Ready)"
+    NODES_VERDICT="$(group_resized "$id" "$group" "$want" "$reading" "$before")"
+    log "  $group nodes: ${NODES_VERDICT:-unreadable} (want $want, Ready, read from the $reading)"
     case "$NODES_VERDICT" in
       ok*) return 0 ;;
-      unlabelled*) return 1 ;;
+      unlabelled*|uncompared*) return 1 ;;
     esac
     [ "$(date +%s)" -lt "$deadline" ] || return 1
     sleep "$POLL_INTERVAL"
@@ -1019,25 +1129,30 @@ wait_for_group_type() {
 }
 
 # assert_k8s_upgrade <label> <cluster name> <cluster id> <target> <node count>
-# Self-managed upgrade (k3s or kubeadm). PASS only when the operation the
-# write names ended in success AND every one of the cluster's nodes runs a
-# kubelet at the target and is Ready. An answer that names no operation is
-# judged by the kubelets alone, which are what the upgrade is for.
+# Self-managed upgrade (k3s or kubeadm). PASS when the operation the write
+# names ended in success AND every one of the cluster's nodes runs a kubelet
+# at the target and is Ready - or, when it ended in failure, when the
+# platform's own retry landed it by the timeout (await_platform_retry). An
+# answer that names no operation is judged by the kubelets alone, which are
+# what the upgrade is for.
 assert_k8s_upgrade() {
-  local label="$1" name="$2" id="$3" target="$4" count="$5" op
+  local label="$1" name="$2" id="$3" target="$4" count="$5" op deadline
   if ! daytwo "k8s upgrade" "$name" upgrade "$id" "$target"; then
     fail "$label k8s upgrade (submit)"
     return
   fi
-  op="$(operation_id_in "$DAYTWO_OUT")"
-  if [ -n "$op" ]; then
-    if ! wait_for_operation "$op" "$DAYTWO_TIMEOUT"; then
-      fail "$label k8s upgrade -> $target: $OPERATION_VERDICT"
-      return
+  deadline=$(( $(date +%s) + DAYTWO_TIMEOUT ))
+  op="$(operation_id_in upgrade "$DAYTWO_OUT")"
+  if [ -n "$op" ] && ! wait_for_operation "$op" "$DAYTWO_TIMEOUT"; then
+    if [ -n "$OPERATION_ENDED" ] \
+       && await_platform_retry "$id" "$op" "$OPERATION_CREATED" "$deadline" nodes_at_version "$id" "$target" "$count"; then
+      pass "$label k8s upgrade -> $target (operation $op ended $OPERATION_ENDED, but the platform's retry landed it: reconcile $RETRY_RECONCILE succeeded; $count kubelets at $(short_version "$target"), all Ready)"
+    else
+      fail "$label k8s upgrade -> $target: $OPERATION_VERDICT${OPERATION_ENDED:+; nothing landed it by the timeout (kubelets: ${NODES_VERDICT:-unreadable})}"
     fi
-  else
-    log "  the upgrade's answer named no operation; judging it by the kubelets alone"
+    return
   fi
+  [ -n "$op" ] || log "  the upgrade's answer named no operation; judging it by the kubelets alone"
   if wait_for_kubelets "$id" "$target" "$count" "$DAYTWO_TIMEOUT"; then
     pass "$label k8s upgrade -> $target (${op:+operation $op succeeded; }$count kubelets at $(short_version "$target"), all Ready)"
   else
@@ -1045,71 +1160,84 @@ assert_k8s_upgrade() {
   fi
 }
 
-# assert_resize <label> <cluster name> <cluster id> <group> <instance type>
-# PASS only when the operation the write names ended in success AND every
-# node of the group is Ready and carries the new instance type. The write
-# runs with --wait: the platform then answers once it has recorded (or
-# refused) the change, naming the operation that resizes the nodes. An
-# answer that names none (the platform applies the change with later work) is
-# judged by the nodes alone. Nodes that carry no instance-type label at all
-# leave the type unread: UNASSERTED, never PASS.
+# assert_resize <label> <cluster name> <cluster id> <group> <instance type> <provider>
+# PASS when the operation the write names ended in success AND every node of
+# the group is Ready and shows the new type - its label where the platform
+# re-stamps it, its capacity elsewhere (resize_reading) - or, when the
+# operation ended in failure, when the platform's own retry landed it by the
+# timeout. The write runs with --wait: the platform then answers once it has
+# recorded (or refused) the change, naming the operation that resizes the
+# nodes. An answer that names none is judged by the nodes alone. Nodes that
+# leave the type unreadable (no label at all, or no capacity from before the
+# write) are UNASSERTED, never PASS.
 assert_resize() {
-  local label="$1" name="$2" id="$3" group="$4" plan="$5" op
+  local label="$1" name="$2" id="$3" group="$4" plan="$5" provider="$6"
+  local reading before="null" op deadline
+  reading="$(resize_reading "$provider")"
+  if [ "$reading" = capacity ]; then
+    before="$(group_capacity "$id" "$group")"
+    log "  $group capacity before the resize: ${before:-unreadable} ($provider does not re-stamp the instance-type label, so the resize is read from the capacity)"
+    [ -n "$before" ] || before="null"
+  fi
   if ! daytwo "resize" "$name" node-group upgrade "$id" "$group" "$plan" --wait; then
     fail "$label instance resize $group -> $plan (submit)"
     dump_node_group_state "$name" "$id" "$group"
     return
   fi
-  op="$(operation_id_in "$DAYTWO_OUT")"
-  if [ -n "$op" ]; then
-    if ! wait_for_operation "$op" "$DAYTWO_TIMEOUT"; then
-      fail "$label instance resize $group -> $plan: $OPERATION_VERDICT"
+  deadline=$(( $(date +%s) + DAYTWO_TIMEOUT ))
+  op="$(operation_id_in resize "$DAYTWO_OUT")"
+  if [ -n "$op" ] && ! wait_for_operation "$op" "$DAYTWO_TIMEOUT"; then
+    if [ -n "$OPERATION_ENDED" ] \
+       && await_platform_retry "$id" "$op" "$OPERATION_CREATED" "$deadline" group_resized "$id" "$group" "$plan" "$reading" "$before"; then
+      pass "$label instance resize $group -> $plan (operation $op ended $OPERATION_ENDED, but the platform's retry landed it: reconcile $RETRY_RECONCILE succeeded; ${NODES_VERDICT#ok })"
+    else
+      fail "$label instance resize $group -> $plan: $OPERATION_VERDICT${OPERATION_ENDED:+; nothing landed it by the timeout ($group nodes: ${NODES_VERDICT:-unreadable})}"
       dump_node_group_state "$name" "$id" "$group"
-      return
     fi
-  else
-    log "  the resize's answer named no operation; judging it by the nodes alone"
+    return
   fi
-  if wait_for_group_type "$id" "$group" "$plan" "$DAYTWO_TIMEOUT"; then
-    pass "$label instance resize $group -> $plan (${op:+operation $op succeeded; }every $group node is $plan and Ready)"
+  [ -n "$op" ] || log "  the resize's answer named no operation; judging it by the nodes alone"
+  if wait_for_group_resized "$id" "$group" "$plan" "$reading" "$before" "$DAYTWO_TIMEOUT"; then
+    pass "$label instance resize $group -> $plan (${op:+operation $op succeeded; }${NODES_VERDICT#ok })"
     return
   fi
   case "$NODES_VERDICT" in
     unlabelled*)
       unasserted "$label instance resize $group -> $plan: ${op:+operation $op succeeded, but }no $group node carries a node.kubernetes.io/instance-type label to read its type from"
       ;;
+    uncompared*)
+      unasserted "$label instance resize $group -> $plan: ${op:+operation $op succeeded, but }the $group nodes' capacity before the resize could not be read, so there is nothing to compare them with"
+      ;;
     *)
-      fail "$label instance resize $group -> $plan: ${op:+operation $op succeeded, but }the $group nodes are not all $plan (${NODES_VERDICT:-nodes unreadable})"
+      fail "$label instance resize $group -> $plan: ${op:+operation $op succeeded, but }the $group nodes do not show it (${NODES_VERDICT:-nodes unreadable})"
       dump_node_group_state "$name" "$id" "$group"
       ;;
   esac
 }
-
-# The managed upgrade's operation, by its name (managed_k8s_upgrade) or
-# display name ("Upgrade managed Kubernetes").
-MANAGED_UPGRADE_OPERATION_RE='managed_k8s_upgrade|upgrade managed kubernetes'
 
 # jq: every node as <name>=<kubelet version>, for a log line.
 # shellcheck disable=SC2016 # a jq program
 NODE_KUBELETS_JQ='[ .resource_responses[0].items[]? | "\(.metadata.name)=\(.status.nodeInfo.kubeletVersion // "unknown")" ] | join(", ")'
 
 # assert_managed_upgrade <label> <cluster name> <cluster id> <provider> <target>
-# A managed upgrade is the provider's control-plane upgrade. Its answer names
-# no operation, so the step finds the managed_k8s_upgrade operation that
-# appeared after the write. PASS only when that operation ended in success
-# and the version the platform finalises after it is the target. The control
-# plane's own version cannot be read through the CLI, and node pools follow it
-# on the provider's schedule, so the kubelets are logged, not asserted.
+# A managed upgrade is the provider's control-plane upgrade, run by a
+# managed_k8s_upgrade operation the platform starts. That operation is
+# platform-scoped - it carries no cluster id - so no cluster-filtered listing
+# shows it; the write's answer names it ("Operation: <id>") and the step reads
+# it by id. PASS only when it ended in success and the version the platform
+# finalises after it is the target. An answer that names no operation leaves
+# the outcome unknown: UNASSERTED. The control plane's own version cannot be
+# read through the CLI, and node pools follow it on the provider's schedule,
+# so the kubelets are logged, not asserted.
 assert_managed_upgrade() {
-  local label="$1" name="$2" id="$3" provider="$4" target="$5" before op
-  before="$(newest_operation_id "$id" "$MANAGED_UPGRADE_OPERATION_RE")"
+  local label="$1" name="$2" id="$3" provider="$4" target="$5" op
   if ! daytwo "k8s upgrade" "$name" managed upgrade "$id" --provider "$provider" --version "$target" --yes; then
     fail "$label k8s upgrade (submit)"
     return
   fi
-  op="$(operation_id_in "$DAYTWO_OUT")"
-  if [ -z "$op" ] && ! op="$(wait_for_new_operation "$id" "$MANAGED_UPGRADE_OPERATION_RE" "$before" "$IDLE_TIMEOUT")"; then
-    fail "$label k8s upgrade -> $target: no managed_k8s_upgrade operation appeared after the write"
+  op="$(operation_id_in managed-upgrade "$DAYTWO_OUT")"
+  if [ -z "$op" ]; then
+    unasserted "$label k8s upgrade -> $target: the upgrade's answer named no operation to follow, so its outcome is unknown"
     return
   fi
   if ! wait_for_operation "$op" "$DAYTWO_TIMEOUT"; then
@@ -2343,16 +2471,19 @@ run_provider() {
     assert_k8s_upgrade "$label" "$name" "$id" "$target" 2
   fi
 
-  # 7. Instance resize. Passes on the resize operation's success and every
-  # default-group node carrying the new instance type; a genuine refusal,
-  # a parked or failed operation, or nodes left on the old type stay a FAIL.
+  # 7. Instance resize. Passes on the resize operation's success (or the
+  # platform's retry landing it) and every default-group node showing the new
+  # type: its instance-type label on Hetzner and UpCloud, which re-stamp it,
+  # its capacity on DigitalOcean and OVH, which resize in place and keep the
+  # label the node joined with (resize_reading). A genuine refusal, a parked
+  # or failed operation nothing lands, or nodes left as they were stay a FAIL.
   plan="$(bigger_plan "$provider")"
   local reason=""
   if [ "$provider" = hetzner ] && reason="$(hetzner_resize_stock_gap "$plan" "$HETZNER_LOCATION")"; then
     # Stock left the location since create: a provider gap, not the platform's.
     skip "$label instance resize default -> $plan (${reason}; a provider stock gap, not a platform failure)"
   else
-    assert_resize "$label" "$name" "$id" default "$plan"
+    assert_resize "$label" "$name" "$id" default "$plan" "$provider"
   fi
 
   # 7b. Node-group autoscaling end to end (opt-in: ANKRA_SYSTEMTEST_AUTOSCALING=1;
@@ -2440,7 +2571,8 @@ run_managed_provider() {
 
   # 5. K8s upgrade (explicit target only -- the CLI has no managed version
   # listing to pick one from, so without a target the step is a SKIP).
-  # Passes on the managed_k8s_upgrade operation's success, then the version.
+  # Passes on the success of the managed_k8s_upgrade operation the answer
+  # names, then the version.
   target="$(managed_env MANAGED_UPGRADE_K8S_VERSION "$provider")"
   if [ -n "$target" ]; then
     assert_managed_upgrade "$label" "$name" "$id" "$provider" "$target"

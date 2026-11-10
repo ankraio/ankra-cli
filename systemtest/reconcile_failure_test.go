@@ -54,6 +54,12 @@ func TestClassifyStepError(t *testing.T) {
 		{"no status at all", "kubeadm init exited 1", "transient"},
 		{"empty", "", "transient"},
 		{"a 4xx-looking number that is not a status", "uploaded 422 manifests", "transient"},
+		// The 2026-11-09 parked upgrade and resize (ankra-ubycim): a drain
+		// blocked by a PodDisruptionBudget, which a nudge only reruns.
+		{"parked upgrade drain", parkedUpgradeDrain, "parked"},
+		{"parked resize drain", parkedResizeDrain, "parked"},
+		{"parked wins over a timeout word", "draining node w-0 timed out: blocked by a PodDisruptionBudget, so its upgrade is parked", "parked"},
+		{"parked without a drain is not a parked drain", "the cluster is parked by its power schedule", "transient"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -90,6 +96,17 @@ ank_out() { "$ANKRA_BIN" "$@" 2>/dev/null; }
 retry_failed_reconcile systest-uks-261002091036 "has a failed reconcile (likely transient)"
 echo "rc=$?"
 `
+
+// The excerpts of the 2026-11-09 Hetzner upgrade (1efa093c) and resize
+// (a2caca6b), as the platform recorded them.
+const (
+	parkedUpgradeDrain = "draining node systest-hetzner-k3s-261109223029-4c8360f0-default-0 is blocked by a PodDisruptionBudget, " +
+		"so its upgrade is parked instead of retried on a timer: pod(s) cert-manager/cert-manager-65f99c7c8c-s4fsb " +
+		"(PodDisruptionBudget cert-manager) cannot be evicted without violating their budget."
+	parkedResizeDrain = "The resize of systest-hetzner-k3s-261109223029-4c8360f0-default-0 from cpx22 to cpx32 is parked: " +
+		"draining the node is blocked by a PodDisruptionBudget (pod(s) traefik/traefik-669c7fbc7b-tht75 cannot be evicted), " +
+		"and every retry would cordon the node and evict its other pods only to be blocked again."
+)
 
 func TestRetryFailedReconcile(t *testing.T) {
 	bash := bashOrSkip(t)
@@ -167,6 +184,18 @@ func TestRetryFailedReconcile(t *testing.T) {
 			steps:         stepsFailedWith("uks API 503: Service Unavailable"),
 			wantRC:        "rc=0",
 			wantReconcile: 1,
+		},
+		{
+			// A nudge reruns the blocked drain ("every retry would cordon the
+			// node and evict its other pods only to be blocked again"), and
+			// the platform clears a parked drain itself, so the wait neither
+			// nudges nor ends early: it goes on to its own timeout.
+			name:          "the newest reconcile parked a drain on a PodDisruptionBudget: no retry, keep waiting",
+			list:          `[{"id":"exec-new","name":"reconcile","display_name":"Reconcile","status":"failed","attention_state":"open"}]`,
+			steps:         stepsFailedWith(parkedResizeDrain),
+			wantRC:        "rc=0",
+			wantReconcile: 0,
+			wantLog:       []string{"reconcile parked at step uks_create_managed_k8s", "not nudging"},
 		},
 		{
 			name:          "no failed reconcile: nothing to do",
