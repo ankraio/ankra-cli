@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -212,9 +213,7 @@ func fetchLiveMetrics(clusterID string, kind string, resource string, namespace 
 	// diagnosed as "metrics-server is not installed" and exit zero. The
 	// platform reports the agent's message here.
 	if responseItem.Status != "" && responseItem.Status != "success" {
-		return nil, fmt.Errorf(
-			"the cluster could not answer the metrics read (status %q): check that metrics-server is healthy and that the agent can reach the aggregated API",
-			responseItem.Status)
+		return nil, metricsReadError(clusterID, responseItem)
 	}
 	// Deliberately the pointer, not CacheMetadata.ServedFromCache: the
 	// platform attaches cache metadata on three paths, and the sandbox one
@@ -245,6 +244,91 @@ func fetchLiveMetrics(clusterID string, kind string, resource string, namespace 
 		measurements = append(measurements, measurement)
 	}
 	return measurements, nil
+}
+
+// metricsAPIServiceName is the APIService metrics-server registers. Its
+// absence is what distinguishes "metrics-server is not installed" from a
+// metrics-server that is installed but not answering.
+const metricsAPIServiceName = metricsAPIVersion + "." + metricsAPIGroup
+
+// metricsServerNotInstalledMessage is the error for a cluster with no
+// metrics API registered at all.
+const metricsServerNotInstalledMessage = "metrics-server is not installed on this cluster, so there is no metrics API to read " +
+	"(APIService " + metricsAPIServiceName + " is not registered). Add it as an add-on from the Ankra-published " +
+	"stack profile: 'ankra stack-profiles apply metrics-server --cluster <cluster>' (a draft to review; add --deploy to install now). " +
+	"k3s clusters bundle metrics-server; kubeadm clusters need it added"
+
+// metricsAPIRegistration is what a read of the metrics APIService found.
+type metricsAPIRegistration int
+
+const (
+	// metricsAPIRegistrationUnknown: the APIService could not be read, so
+	// nothing is known about whether metrics-server is installed.
+	metricsAPIRegistrationUnknown metricsAPIRegistration = iota
+	// metricsAPIRegistered: the APIService exists; metrics-server is
+	// installed but did not answer.
+	metricsAPIRegistered
+	// metricsAPINotRegistered: the apiserver answered 404 for the
+	// APIService; metrics-server is not installed.
+	metricsAPINotRegistered
+)
+
+// metricsReadError explains a failed metrics read. It reads the APIService
+// metrics-server registers to tell a missing metrics-server from an
+// unhealthy one, and carries the agent's own error text either way.
+func metricsReadError(clusterID string, failedItem client.ResourceResponseItem) error {
+	agentDetail := ""
+	if failedItem.ErrorResponse != nil && *failedItem.ErrorResponse != "" {
+		agentDetail = fmt.Sprintf(" (the agent reported: %s)", *failedItem.ErrorResponse)
+	}
+	switch probeMetricsAPIRegistration(clusterID) {
+	case metricsAPINotRegistered:
+		return errors.New(metricsServerNotInstalledMessage)
+	case metricsAPIRegistered:
+		return fmt.Errorf(
+			"metrics-server is installed (APIService %s is registered) but the metrics read failed%s: "+
+				"check that the metrics-server pods are running and Ready (ankra cluster get pods -n kube-system --name metrics-server) "+
+				"and that the APIService is Available",
+			metricsAPIServiceName, agentDetail)
+	default:
+		return fmt.Errorf(
+			"the cluster could not answer the metrics read (status %q)%s: check that metrics-server is installed and healthy "+
+				"and that the agent can reach the aggregated API",
+			failedItem.Status, agentDetail)
+	}
+}
+
+// probeMetricsAPIRegistration reads the metrics APIService by name, live.
+// Only the apiserver's 404 (not_found) or a successful empty answer counts as
+// "not registered"; any other failure is unknown, never a "no".
+func probeMetricsAPIRegistration(clusterID string) metricsAPIRegistration {
+	response, requestError := apiClient.GetResources(clusterID, client.GetResourcesRequest{
+		ResourceRequests: []client.ResourceRequestItem{{
+			Kind:     "APIService",
+			Group:    "apiregistration.k8s.io",
+			Version:  "v1",
+			Resource: "apiservices",
+			Name:     metricsAPIServiceName,
+		}},
+		SkipCache: true,
+	})
+	if requestError != nil || response == nil || len(response.ResourceResponses) == 0 {
+		return metricsAPIRegistrationUnknown
+	}
+	probeItem := response.ResourceResponses[0]
+	if probeItem.CacheMetadata != nil {
+		return metricsAPIRegistrationUnknown
+	}
+	if probeItem.NotFound {
+		return metricsAPINotRegistered
+	}
+	if probeItem.Status != "" && probeItem.Status != "success" {
+		return metricsAPIRegistrationUnknown
+	}
+	if len(probeItem.Items) == 0 {
+		return metricsAPINotRegistered
+	}
+	return metricsAPIRegistered
 }
 
 // hasUsageMeasurement distinguishes a metrics object from a plain Pod or
