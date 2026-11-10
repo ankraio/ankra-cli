@@ -1969,6 +1969,78 @@ func (m baseMock) SetControlPlaneHeal(context.Context, string, bool) (*client.Co
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetWorkerSelfHeal(context.Context, string) (*client.WorkerSelfHeal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetWorkerSelfHeal(context.Context, string, bool) (*client.WorkerSelfHeal, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetClusterBaseline(context.Context, string) (*client.ClusterBaseline, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) TakeHeldPlatformUpdate(context.Context, string, string, string) (*client.HeldPlatformUpdateTake, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetClusterMetricsSource(context.Context, string) (*client.ClusterMetricsSource, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetClusterDNSTokenRotation(context.Context, string) (*client.ClusterDNSTokenRotation, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RotateClusterDNSToken(string) (*client.ClusterDNSTokenRotation, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RevokePreviousClusterDNSToken(string) (*client.ClusterDNSTokenRotation, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetK3sDisabledComponents(context.Context, string, string) (*client.K3sDisabledComponents, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetK3sDisabledComponents(context.Context, string, string, []string) (*client.K3sDisabledComponents, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListUpcloudGatewayPlans(context.Context, string) (*client.UpcloudGatewayPlans, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetUpcloudGatewayPlan(context.Context, string, string) (*client.UpcloudGatewayPlanChange, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListUpcloudLoadBalancerPlans(context.Context, string) ([]client.UpcloudLoadBalancerPlan, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetUpcloudClusterLoadBalancerPlan(context.Context, string) (*client.UpcloudClusterLoadBalancerPlan, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetUpcloudClusterLoadBalancerPlan(context.Context, string, string) (*client.UpcloudLoadBalancerPlanChange, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListUpcloudZones(context.Context, string) ([]client.UpcloudZone, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetOvhGatewayModel(context.Context, string, string) (*client.OvhGatewayModelChange, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ConvergeHetznerExternalCloudProvider(context.Context, string) (*client.HetznerExternalCloudProviderConvergence, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetStateSnapshotRetention(context.Context, string) (*client.StateSnapshotRetention, error) {
 	return nil, errors.New("not implemented")
 }

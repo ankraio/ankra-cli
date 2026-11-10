@@ -256,6 +256,40 @@ planes are Ready and etcd keeps quorum without it. The switch is per cluster and
 ```bash
 ankra cluster control-plane-heal get                    # switch + latest NotReady episode (shadow = recorded only)
 ankra cluster control-plane-heal set --enabled=false    # stop the automatic restart (needs clusters.write)
+ankra cluster worker-heal get                           # the same switch for NotReady worker nodes
+ankra cluster worker-heal set --enabled=false           # leave a NotReady worker for you to handle
+```
+
+More per-cluster reads and switches (the cluster is `--cluster` or the selected one):
+
+```bash
+ankra cluster baseline                                  # Ankra Baseline score: each check pass, fail or unknown with its evidence
+ankra cluster export -f cluster.yaml                    # the cluster's whole ImportCluster YAML, as 'cluster apply -f' takes it
+ankra cluster metrics source                            # registered metrics source, its health and credential (never a secret)
+ankra cluster held-updates take <notification-id> --fingerprint <fingerprint>   # take the platform add-on updates one held card names
+ankra cluster dns-token status                          # where the rotation of the cluster's DNS write token stands
+ankra cluster dns-token rotate                          # mint a replacement; the replaced token stays valid
+ankra cluster dns-token revoke-previous --yes           # only after external-dns restarted onto the new token
+```
+
+An unscored cluster has no Baseline score, which is not a score of zero, and an unknown check is
+never a pass. `held-updates take` needs the card's id and `data.fingerprint` as they were read: a
+card that changed since is refused, so nothing is taken unseen. Confirm with the user before
+`dns-token revoke-previous --yes`: a cluster whose external-dns still uses the replaced token
+stops publishing DNS records.
+
+Provider settings on clusters Ankra provisions name the cluster as the argument or with `--cluster`:
+
+```bash
+ankra cluster k3s-disabled-components get <cluster>                          # k3s packaged components kept disabled
+ankra cluster k3s-disabled-components set <cluster> --components traefik     # the complete list; entries can be added, never dropped
+ankra cluster upcloud gateway-plans --credential-id <id>                     # NAT gateway plans, the default, the change notice
+ankra cluster upcloud gateway-plan <cluster> --plan <plan>                   # interrupts outbound internet for minutes; asks first
+ankra cluster upcloud load-balancer-plans --credential-id <id>
+ankra cluster upcloud load-balancer-plan get|set <cluster> [--plan <plan>]   # ingress load balancer plan, recorded and live
+ankra cluster upcloud available-zones --credential-id <id>
+ankra cluster ovh gateway-model <cluster> --model s|m|l|xl|2xl|3xl
+ankra cluster hetzner external-cloud-provider converge <cluster>             # store the flag where nodes already run that way; restarts nothing
 ```
 
 Ankra backs up each running cluster's etcd state every six hours and keeps the 4 newest backups plus
