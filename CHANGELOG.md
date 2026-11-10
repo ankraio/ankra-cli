@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- **Define, hire and control the organisation's AI agents from the terminal.** `ankra agents` reads the runs agents produce; the agents themselves could only be managed in the portal. `ankra ai tasks list|get|create|update|delete` manage agent tasks (a goal, a trigger, a tool profile, an autonomy level and a budget), `ankra ai tasks templates list|hire` hires one from a built-in role, `ankra ai tasks run|pause|resume|stop` control one (stop also cancels its live run, and confirms first), `ankra ai tasks runs` lists its recent runs and `ankra ai tasks reapply-template` brings a hired agent up to its role's current envelope (`--force` replaces a customised one). A task is named by its id or its exact name. `create` and `update` take flags or the platform's body with `-f` (YAML or JSON, `-` reads stdin), and an update changes only what you name. Reading needs ai.use; every change needs ai.manage and an organisation admin.
+- **Read what the AI ticket lane has learned, and decide on its playbooks.** `ankra ai conditions list` shows the recurring problems AI tickets are filed against (`--chronic` keeps the ones closed without action three times in a row) and `ankra ai conditions get <id>` one condition's evidence timeline. `ankra ai playbooks list|adopt|retire` lists the playbooks remediation runs and the platform templates, approves one for use or retires one; both writes confirm first and need an organisation admin. `ankra ai handoffs list` shows the platform-level conditions handed to your engineering tracker, and `ankra ai handoffs acknowledge <id> --tracker-reference <ref>` records the issue once it exists there.
+
 ## v0.73.0 - 2026-11-09
 
 This release reads and exports the organisation's audit trail, manages alert definitions and
