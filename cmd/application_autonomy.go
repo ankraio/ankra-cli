@@ -411,9 +411,12 @@ func printApplicationSwitch(label string) func(out io.Writer, document json.RawM
 		if decodeError := decodeDocument(document, &setting); decodeError != nil {
 			return decodeError
 		}
-		state := "follows the organisation"
-		if setting.Enabled != nil {
+		state := "could not be read"
+		switch {
+		case setting.Enabled != nil:
 			state = map[bool]string{true: "on", false: "off"}[*setting.Enabled]
+		case setting.OrganisationEnabled != nil:
+			state = "follows the organisation"
 		}
 		_, _ = fmt.Fprintf(out, "%s: %s\n", label, state)
 		if setting.OrganisationEnabled != nil && setting.Effective != nil {
@@ -638,6 +641,9 @@ func printApplicationCostEstimate(out io.Writer, document json.RawMessage) error
 		return decodeError
 	}
 	currency := strings.ToUpper(estimate.Currency)
+	if currency == "" {
+		currency = "(currency not named)"
+	}
 	if !estimate.Priced || estimate.MonthlyDeltaCents == nil {
 		_, _ = fmt.Fprintf(out, "This change could not be priced: %s\n", valueOrDash(estimate.UnpricedReason))
 		return nil
