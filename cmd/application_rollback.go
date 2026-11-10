@@ -281,7 +281,7 @@ func printRollbackTargets(out io.Writer, targets rollbackTargets, applicationNam
 	_, _ = fmt.Fprintln(out)
 	if len(targets.Targets) == 0 {
 		_, _ = fmt.Fprintf(out, "No rollback targets: %s\n",
-			rollbackTextOr(targets.TargetsReason, "the registry holds no earlier build of this application"))
+			rollbackTextOr(targets.TargetsReason, "the platform listed none and gave no reason"))
 	} else {
 		targetTable := table.NewWriter()
 		targetTable.SetOutputMirror(out)

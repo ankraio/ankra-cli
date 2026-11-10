@@ -204,3 +204,19 @@ func TestApplicationRollbacksListsHistoryAndSaysWhenThereIsNone(t *testing.T) {
 		t.Fatalf("error = %v, output:\n%s", executeError, output)
 	}
 }
+
+func TestApplicationRollbackWithNoTargetsDoesNotInventAReason(t *testing.T) {
+	silent := &applicationRollbackMock{targets: `{"target_kind":"stack","current_image_tag":"sha-3333333","targets":[],"targets_reason":null}`}
+	output, executeError := runRollback(t, silent, "", "rollback", testApplicationID, "--cluster", testClusterID)
+	if executeError != nil || !strings.Contains(output, "No rollback targets: the platform listed none and gave no reason") {
+		t.Fatalf("error = %v, output:\n%s", executeError, output)
+	}
+	if strings.Contains(output, "--to <image-tag>") {
+		t.Errorf("no target means no rollback hint:\n%s", output)
+	}
+	stated := &applicationRollbackMock{targets: `{"target_kind":"stack","targets":[],"targets_reason":"The registry could not be read."}`}
+	output, executeError = runRollback(t, stated, "", "rollback", testApplicationID, "--cluster", testClusterID)
+	if executeError != nil || !strings.Contains(output, "No rollback targets: The registry could not be read.") {
+		t.Fatalf("error = %v, output:\n%s", executeError, output)
+	}
+}
