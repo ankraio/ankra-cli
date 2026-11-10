@@ -422,3 +422,47 @@ func TestDeprovisionManagedCluster_DeletesProviderClusterExplicitly(t *testing.T
 		})
 	}
 }
+
+// The platform answers a managed upgrade with the managed_k8s_upgrade
+// operation it started. That operation carries no cluster id, so a
+// cluster-filtered operations listing never shows it and the id in this
+// answer is the only way to follow it (ankra-fe12p0): it must survive the
+// decode and stay in the -o json rendering.
+func TestUpgradeManagedK8sVersion_DecodesOperationID(t *testing.T) {
+	const operationID = "0d7e7c1e-5d55-4c39-8f43-2a9b7c4f1e20"
+	var receivedBody map[string]any
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		wantPath := "/api/v1/clusters/managed/doks/cluster-1/upgrade"
+		if r.URL.Path != wantPath {
+			t.Errorf("path = %s, want %s", r.URL.Path, wantPath)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"cluster_id":"cluster-1","version":"1.33.1-do.0","operation_id":"` + operationID + `"}`))
+	}
+	testClient := newTestClient(t, handler)
+
+	result, err := testClient.UpgradeManagedK8sVersion(ManagedK8sProviderDoks, "cluster-1", "1.33.1-do.0")
+	if err != nil {
+		t.Fatalf("UpgradeManagedK8sVersion: %v", err)
+	}
+	if receivedBody["version"] != "1.33.1-do.0" {
+		t.Errorf("request body = %v, want version 1.33.1-do.0", receivedBody)
+	}
+	if result.OperationID != operationID {
+		t.Fatalf("OperationID = %q, want %q", result.OperationID, operationID)
+	}
+	rendered, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(rendered), `"operation_id":"`+operationID+`"`) {
+		t.Errorf("the JSON rendering lost the operation: %s", rendered)
+	}
+}

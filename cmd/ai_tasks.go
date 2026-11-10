@@ -219,12 +219,19 @@ func aiTaskDefinitionFromFlags(command *cobra.Command) (map[string]any, error) {
 	if command.Flags().Changed("enabled") {
 		definition["enabled"], _ = command.Flags().GetBool("enabled")
 	}
-	if clusterReference, _ := command.Flags().GetString("cluster"); strings.TrimSpace(clusterReference) != "" {
-		clusterID, clusterError := resolveClusterID(strings.TrimSpace(clusterReference))
-		if clusterError != nil {
-			return nil, clusterError
+	if command.Flags().Lookup("cluster") != nil {
+		if clusterReference, _ := command.Flags().GetString("cluster"); strings.TrimSpace(clusterReference) != "" {
+			clusterID, clusterError := resolveClusterID(strings.TrimSpace(clusterReference))
+			if clusterError != nil {
+				return nil, clusterError
+			}
+			definition["cluster_id"] = clusterID
 		}
-		definition["cluster_id"] = clusterID
+	}
+	for _, member := range []string{"name", "goal_prompt"} {
+		if value, isText := definition[member].(string); isText {
+			definition[member] = strings.TrimSpace(value)
+		}
 	}
 	trigger, _ := definition["trigger"].(map[string]any)
 	if trigger == nil {
@@ -269,7 +276,8 @@ through -f, which takes the platform's body as YAML or JSON (- reads stdin).`,
 		writeCommand.Long = `Change an agent task's definition. Only the members you name change: as
 flags, or as members of the -f document (YAML or JSON, - reads stdin); a flag
 wins over the document. A trigger is written whole, so --cron, --timezone and
---alert need --trigger beside them.`
+--alert need --trigger beside them. The cluster an agent is scoped to is set
+when it is created or hired and cannot be changed afterwards.`
 		writeCommand.Example = `  ankra ai tasks update "Nightly cost review" --autonomy-level propose
   ankra ai tasks update 0b8f6c2e-0000-4000-8000-000000000001 --enabled=false`
 		writeCommand.Args = cobra.ExactArgs(1)
@@ -296,11 +304,15 @@ wins over the document. A trigger is written whole, so --cron, --timezone and
 			verb = "Updated"
 			document, writeError = apiClient.UpdateAITask(command.Context(), taskID, definition)
 		} else {
-			for _, member := range []string{"name", "goal_prompt", "trigger"} {
-				if value, isSet := definition[member]; !isSet || value == "" {
+			for _, member := range []string{"name", "goal_prompt"} {
+				if value, _ := definition[member].(string); value == "" {
 					return withExitCode(exitUsage, fmt.Errorf(
-						"%s is required: pass --name, --goal and --trigger, or name them in -f", member))
+						"%s is required as text: pass --name, --goal and --trigger, or name them in -f", member))
 				}
+			}
+			if _, isObject := definition["trigger"].(map[string]any); !isObject {
+				return withExitCode(exitUsage, errors.New(
+					"trigger is required as an object with its kind: pass --trigger, or name it in -f"))
 			}
 			document, writeError = apiClient.CreateAITask(command.Context(), definition)
 		}
@@ -322,7 +334,9 @@ wins over the document. A trigger is written whole, so --cron, --timezone and
 	writeCommand.Flags().String("tool-profile", "", "Tools the agent may use: read_only, standard or admin")
 	writeCommand.Flags().String("autonomy-level", "", "How far the agent acts alone: read_only, propose or auto")
 	writeCommand.Flags().String("model-mode", "", "Model mode the agent runs on")
-	writeCommand.Flags().String("cluster", "", "Cluster name or id the agent is scoped to")
+	if !isUpdate {
+		writeCommand.Flags().String("cluster", "", "Cluster name or id the agent is scoped to")
+	}
 	writeCommand.Flags().Bool("enabled", true, "Whether the agent is scheduled")
 	registerStructuredOutputFlags(writeCommand)
 	return writeCommand

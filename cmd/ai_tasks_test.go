@@ -74,6 +74,7 @@ func TestAITasksCreateRefusesAnIncompleteDefinitionBeforeSending(t *testing.T) {
 	for _, arguments := range [][]string{
 		{"create", "--name", "x", "--trigger", "manual"},
 		{"create", "--name", "x", "--goal", "y", "--cron", "0 6 * * *"},
+		{"create", "--name", "  ", "--goal", "y", "--trigger", "manual"},
 		{"update", aiTaskTestID},
 	} {
 		_, _, runError := runDocumentCommand(t, server, newAITasksCommand(), "", arguments...)
