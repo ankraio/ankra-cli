@@ -47,6 +47,9 @@ func TestApplicationTimelinePrintsEventsAndNamesWhatItCouldNotRead(t *testing.T)
 			t.Errorf("output must contain %q:\n%s", want, output)
 		}
 	}
+	if !strings.Contains(notes, "capped this read") {
+		t.Errorf("stderr must say the read was capped: %q", notes)
+	}
 	if !strings.Contains(notes, "demos") || !strings.Contains(notes, "--before cursor-2") {
 		t.Errorf("stderr must name the unread source and the next page: %q", notes)
 	}
@@ -54,6 +57,12 @@ func TestApplicationTimelinePrintsEventsAndNamesWhatItCouldNotRead(t *testing.T)
 	_, _, limitError := runApplicationRead(t, mock, "", "timeline", testApplicationID, "--limit", "101")
 	if exitCodeFor(limitError) != exitUsage {
 		t.Fatalf("error = %v, want a usage error for an out-of-range limit", limitError)
+	}
+	namespaceOnly := &applicationTimelineMock{timeline: `{"events":[{"kind":"deploy","status":"succeeded",
+		"occurred_at":"2026-11-10T09:00:00Z","namespace":"shop"}],"capped":false,"unavailable_sources":[]}`}
+	output, notes, executeError = runApplicationRead(t, namespaceOnly, "", "timeline", testApplicationID)
+	if executeError != nil || !strings.Contains(output, "shop") || strings.Contains(notes, "capped") {
+		t.Fatalf("error = %v, stderr = %q, output:\n%s", executeError, notes, output)
 	}
 	empty := &applicationTimelineMock{timeline: `{"events":[],"capped":false,"unavailable_sources":[]}`}
 	output, _, executeError = runApplicationRead(t, empty, "", "timeline", testApplicationID)

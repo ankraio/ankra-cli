@@ -92,7 +92,8 @@ func canvasLibraryRun(action string, run func(ctx context.Context, command *cobr
 
 // canvasLibraryError says what a canvas library refusal means for the caller:
 // a canvas, revision or comment that is not there exits 3, one that belongs
-// to someone else exits 7, and a rejected request exits 2.
+// to someone else exits 7, a rejected request exits 2, and an organisation at
+// its canvas limit exits 8 with nothing saved.
 func canvasLibraryError(action string, runError error) error {
 	var refusal *client.CanvasPagesError
 	if runError == nil || !errors.As(runError, &refusal) {
@@ -113,7 +114,8 @@ func canvasLibraryError(action string, runError error) error {
 	case "comment_forbidden":
 		return withExitCode(exitForbidden, fmt.Errorf("%s: you may not do that to this comment", action))
 	case "canvas_limit_reached":
-		return fmt.Errorf("%s: the organisation has reached its limit of canvases; delete one with 'ankra canvas delete <canvas-id>'", action)
+		return withExitCode(exitBlocked, fmt.Errorf(
+			"%s: the organisation has reached its limit of canvases; delete one with 'ankra canvas delete <canvas-id>'", action))
 	}
 	wrapped := fmt.Errorf("%s: %w", action, runError)
 	switch refusal.StatusCode {

@@ -151,6 +151,7 @@ func TestCanvasLibraryRefusalsCarryTheirExitCodes(t *testing.T) {
 		"not found":        {&client.CanvasPagesError{StatusCode: http.StatusNotFound, Code: "canvas_not_found"}, exitNotFound},
 		"another member's": {&client.CanvasPagesError{StatusCode: http.StatusForbidden, Code: "canvas_owned_by_another_member"}, exitForbidden},
 		"rejected":         {&client.CanvasPagesError{StatusCode: http.StatusBadRequest, Code: "invalid_request"}, exitUsage},
+		"at the limit":     {&client.CanvasPagesError{StatusCode: http.StatusConflict, Code: "canvas_limit_reached"}, exitBlocked},
 		"unauthorised":     {client.ErrUnauthorized, exitAuth},
 		"no permission":    {&client.PermissionDeniedError{}, exitForbidden},
 	} {

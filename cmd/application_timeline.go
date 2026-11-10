@@ -48,8 +48,9 @@ func newApplicationTimelineCommand() *cobra.Command {
 rollbacks, demos, AI reviews, what Ankra did on its own and lifecycle events.
 
 A source the platform could not read is named on stderr: it is unknown, not a
-source with no events. When older events remain, the command prints the
---before value that reads the next page.`,
+source with no events. A read the platform capped says so on stderr too. When
+older events remain, the command prints the --before value that reads the
+next page.`,
 		Example: `  ankra application timeline shop
   ankra application timeline shop --limit 20
   ankra application timeline shop --before <cursor> -o json`,
@@ -92,6 +93,9 @@ source with no events. When older events remain, the command prints the
 				_, _ = fmt.Fprintf(notes, "Could not read: %s. Their events are unknown, not absent.\n",
 					strings.Join(timeline.UnavailableSources, ", "))
 			}
+			if timeline.IsCapped {
+				_, _ = fmt.Fprintln(notes, "The platform capped this read: events inside its window may be missing.")
+			}
 			if next := applicationTimelineText(timeline.NextBefore); next != "" {
 				_, _ = fmt.Fprintf(notes, "Older events remain: re-run with --before %s\n", next)
 			}
@@ -130,8 +134,11 @@ func printApplicationTimeline(out io.Writer, timeline applicationTimeline) {
 	eventTable.AppendHeader(table.Row{"WHEN", "KIND", "STATUS", "WHERE", "BUILD", "BY", "DETAIL"})
 	for _, event := range timeline.Events {
 		where := applicationTimelineText(event.ClusterName)
-		if namespace := applicationTimelineText(event.Namespace); namespace != "" && where != "" {
-			where += "/" + namespace
+		if namespace := applicationTimelineText(event.Namespace); namespace != "" {
+			if where != "" {
+				where += "/"
+			}
+			where += namespace
 		}
 		build := applicationTimelineText(event.ImageTag)
 		if build == "" {
