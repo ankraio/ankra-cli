@@ -326,9 +326,11 @@ func TestDatasourceCredentialCreateTakesTheSecretFromStdinOnly(t *testing.T) {
 	if runError == nil || exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "--secret-stdin") || len(recorder.seen()) != 0 {
 		t.Fatalf("without a terminal the stdin flag is required and nothing is sent, got %v", runError)
 	}
-	_, _, runError = runOrganisationParityCommand(t, "\n", "credentials", "datasource", "create", "--name", "grafana-cloud", "--secret-stdin")
-	if runError == nil || exitCodeFor(runError) != exitUsage || len(recorder.seen()) != 0 {
-		t.Fatalf("an empty stdin must be a usage error that sends nothing, got %v", runError)
+	for _, unusable := range []string{"\n", "  \t\n", strings.Repeat("x", secretStdinLimit+1)} {
+		_, _, runError = runOrganisationParityCommand(t, unusable, "credentials", "datasource", "create", "--name", "grafana-cloud", "--secret-stdin")
+		if runError == nil || exitCodeFor(runError) != exitUsage || len(recorder.seen()) != 0 {
+			t.Fatalf("an empty, blank or over-long stdin must be a usage error that sends nothing, got %v", runError)
+		}
 	}
 
 	stdout, stderr, runError := runOrganisationParityCommand(t, organisationParitySecret+"\n", "credentials", "datasource", "create",

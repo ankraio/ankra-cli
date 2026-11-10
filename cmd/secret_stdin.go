@@ -22,7 +22,7 @@ var maskedSecretPrompt = func(label string) (string, error) {
 		Label: label,
 		Mask:  '*',
 		Validate: func(input string) error {
-			if input == "" {
+			if strings.TrimSpace(input) == "" {
 				return errors.New("it cannot be empty")
 			}
 			return nil
@@ -43,17 +43,22 @@ var maskedSecretPrompt = func(label string) (string, error) {
 // that carries the secret itself: an argument lands in shell history and in
 // the process list. Without a terminal to prompt on, the stdin flag is
 // required. Only the trailing newline a pipe or heredoc adds is dropped,
-// since a secret may legitimately carry other whitespace. The secret is
-// never printed back.
+// since a secret may legitimately carry other whitespace; a secret that is
+// nothing but whitespace, or larger than secretStdinLimit, is refused rather
+// than stored empty or cut short. The secret is never printed back.
 func readSecretFromStdinOrPrompt(command *cobra.Command, stdinFlagName string, label string) (string, error) {
 	fromStdin, _ := command.Flags().GetBool(stdinFlagName)
 	if fromStdin {
-		raw, readError := io.ReadAll(io.LimitReader(command.InOrStdin(), secretStdinLimit))
+		raw, readError := io.ReadAll(io.LimitReader(command.InOrStdin(), secretStdinLimit+1))
 		if readError != nil {
 			return "", fmt.Errorf("read the %s from stdin: %w", label, readError)
 		}
+		if len(raw) > secretStdinLimit {
+			return "", withExitCode(exitUsage, fmt.Errorf(
+				"the %s on stdin is larger than %d bytes, so it was not sent: it would have been cut short", label, secretStdinLimit))
+		}
 		secret := strings.TrimRight(string(raw), "\r\n")
-		if secret == "" {
+		if strings.TrimSpace(secret) == "" {
 			return "", withExitCode(exitUsage, fmt.Errorf("no %s was read from stdin", label))
 		}
 		return secret, nil
