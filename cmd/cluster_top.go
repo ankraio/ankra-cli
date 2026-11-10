@@ -275,7 +275,9 @@ const (
 
 // metricsReadError explains a failed metrics read. It reads the APIService
 // metrics-server registers to tell a missing metrics-server from an
-// unhealthy one, and carries the agent's own error text either way.
+// unhealthy one. When metrics-server is absent that is the whole answer (the
+// agent only reports "Resource not found"); otherwise the agent's own error
+// text is carried, because it is the clue to why the read failed.
 func metricsReadError(clusterID string, failedItem client.ResourceResponseItem) error {
 	agentDetail := ""
 	if failedItem.ErrorResponse != nil && *failedItem.ErrorResponse != "" {
