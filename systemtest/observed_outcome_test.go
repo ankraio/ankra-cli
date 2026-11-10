@@ -75,7 +75,15 @@ case "$*" in
     ;;
   "cluster node-group upgrade "*) cat "$FAKE_DIR/resize-answer" ;;
   "cluster node-group list "*) cat "$FAKE_DIR/node-group-list" ;;
-  "cluster get nodes "*"-o json"*) cat "$FAKE_DIR/nodes.json" ;;
+  "cluster get nodes "*"-o json"*)
+    reads=$(cat "$FAKE_DIR/node-reads" 2>/dev/null || echo 0)
+    reads=$((reads + 1))
+    echo "$reads" > "$FAKE_DIR/node-reads"
+    if [ -f "$FAKE_DIR/nodes-unreadable-for" ] && [ "$reads" -le "$(cat "$FAKE_DIR/nodes-unreadable-for")" ]; then
+      exit 1
+    fi
+    cat "$FAKE_DIR/nodes.json"
+    ;;
   "cluster get nodes"*) cat "$FAKE_DIR/nodes-table" 2>/dev/null ;;
   "cluster hetzner server-types "*) printf 'cpx22 2 4 80 x86 0.0100 yes\ncpx32 4 8 160 x86 0.0200 yes\n' ;;
   "cluster reconcile"*) echo reconcile >> "$FAKE_DIR/reconciles" ;;
@@ -378,9 +386,9 @@ func TestParkedUpgradeAndResizeFailTheirSteps(t *testing.T) {
 		hetznerNodes(t, createdVersion, "cpx22"))
 	run := runLane(t, files, nil, hetznerUpgradeAndResize(t))
 	run.wantResult(t, "hetzner/k3s k8s upgrade", "FAIL",
-		hetznerUpgradeOperation, "ended failed", "blocked by a PodDisruptionBudget", "a parked drain, which the platform does not retry")
+		hetznerUpgradeOperation, "ended failed", "blocked by a PodDisruptionBudget", "the platform parked it, and it does not retry a parked step")
 	run.wantResult(t, "hetzner/k3s instance resize", "FAIL",
-		hetznerResizeOperation, "ended failed", "from cpx22 to cpx32 is parked", "a parked drain, which the platform does not retry")
+		hetznerResizeOperation, "ended failed", "from cpx22 to cpx32 is parked", "the platform parked it, and it does not retry a parked step")
 	// The platform marks a parked drain permanent and does not retry it, so
 	// there is no retry to wait the step's timeout out for.
 	if strings.Contains(run.output, "waiting out the step's timeout") {
@@ -418,7 +426,7 @@ replay
 `)
 	run.wantResult(t, "aws/k3s k8s upgrade", "FAIL",
 		awsUpgradeOperation, "ended failed", "ip-10-0-9-52.eu-north-1.compute.internal is blocked by a PodDisruptionBudget",
-		"a parked drain, which the platform does not retry")
+		"the platform parked it, and it does not retry a parked step")
 }
 
 // TestUpgradeAndResizePassOnlyOnWhatTheNodesShow: an operation that ended in
@@ -516,7 +524,7 @@ func TestManagedUpgradePassesOnlyOnItsOperation(t *testing.T) {
 			[]string{managedUpgradeOperation, "ended failed", "is not an available upgrade"}},
 		{"operation succeeded", managedUpgradeAnswer(target, managedUpgradeOperation),
 			operationJSON(managedUpgradeOperation, "success", ""), "PASS",
-			[]string{"operation " + managedUpgradeOperation + " succeeded"}},
+			[]string{"k8s upgrade -> " + target + " accepted", "operation " + managedUpgradeOperation + " succeeded: the provider accepted the upgrade"}},
 		{"the answer names no operation", managedUpgradeAnswer(target, ""), "", "UNASSERTED",
 			[]string{"named no operation to follow"}},
 	}
@@ -612,6 +620,60 @@ func TestResizeIsReadFromTheCapacityWhereTheLabelStays(t *testing.T) {
 	}
 }
 
+// TestAnUnreadableCapacityIsReadAgainAndEndsTheSameEitherWay: on
+// DigitalOcean and OVH the resize is judged against the group's capacity
+// read before the write. One failed read there left a healthy resize with
+// nothing to compare against - UNASSERTED, which fails the run - so the read
+// is retried (RESIZE_CAPACITY_READS). When no read answers, the step is
+// UNASSERTED whether the operation succeeded or failed: a failed operation
+// used to wait out the timeout and FAIL on the same missing value.
+func TestAnUnreadableCapacityIsReadAgainAndEndsTheSameEitherWay(t *testing.T) {
+	const (
+		clusterName = "systest-digitalocean-k3s-261110081500"
+		clusterID   = "3d0b6f4e-8a1c-4f2e-9b7d-5c6a4e3f2d10"
+		transient   = "digitalocean API 503: service unavailable"
+	)
+	worker := func(cpu, memory string) fakeNode {
+		return fakeNode{name: "default-0", kubelet: createdVersion, instanceType: "s-2vcpu-4gb", group: "default",
+			cpu: cpu, memory: memory}
+	}
+	controlPlane := fakeNode{name: "cp-0", kubelet: createdVersion, instanceType: "s-4vcpu-8gb", controlPlane: true,
+		cpu: "4", memory: "8139996Ki"}
+	cases := []struct {
+		name, status, failure, unreadableFor string
+		outcome                              string
+		want                                 []string
+	}{
+		{"one failed read before the write is read again", "success", "", "1", "PASS",
+			[]string{"operation " + hetznerResizeOperation + " succeeded", "bigger than before the resize (cpu 2, memory 3.8Gi)"}},
+		{"no read before the write answers, the operation succeeded", "success", "", "3", "UNASSERTED",
+			[]string{"operation " + hetznerResizeOperation + " succeeded, but the default nodes' capacity before the resize could not be read"}},
+		{"no read before the write answers, the operation failed", "failed", transient, "3", "UNASSERTED",
+			[]string{"ended failed: " + transient, "whether the change landed anyway cannot be read",
+				"the default nodes' capacity before the resize could not be read"}},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			files := map[string]string{
+				"cluster-list":       clusterList(clusterName, createdVersion),
+				"node-group-list":    "default  count=1\n",
+				"resize-answer-wait": resizeAnswerWait(hetznerResizeOperation),
+				"operation-" + hetznerResizeOperation + ".json": operationJSON(hetznerResizeOperation, testCase.status, testCase.failure),
+				"operations.json":        "[]",
+				"nodes.json":             nodesJSON(t, controlPlane, worker("2", "4025452Ki")),
+				"nodes-after-write.json": nodesJSON(t, controlPlane, worker("4", "8139996Ki")),
+				"nodes-unreadable-for":   testCase.unreadableFor,
+			}
+			run := runLane(t, files, map[string]string{"RESIZE_CAPACITY_READS": "3"},
+				resizeStep(t, "digitalocean", clusterName, clusterID))
+			run.wantResult(t, "digitalocean/k3s instance resize default", testCase.outcome, testCase.want...)
+			if testCase.unreadableFor == "1" && !strings.Contains(run.output, "default capacity unreadable (read 1 of 3)") {
+				t.Errorf("the failed read was not logged as read 1 of 3:\n%s", run.output)
+			}
+		})
+	}
+}
+
 // TestAFailureThePlatformsRetryLandsIsNotAFail: the platform retries a
 // transient failure in a new execution, so the operation a step followed can
 // fail while the change still lands. When, by the step's timeout, the nodes
@@ -639,7 +701,7 @@ func TestAFailureThePlatformsRetryLandsIsNotAFail(t *testing.T) {
 		{"the retry landed both",
 			"[" + laterSuccess + "," + failedOperation(hetznerResizeOperation) + "," + failedOperation(hetznerUpgradeOperation) + "," + earlierSuccess + "]",
 			hetznerNodes(t, upgradeTarget, "cpx32"), "PASS",
-			[]string{"ended failed, but the platform's retry landed it", "reconcile " + retry + " succeeded"}},
+			[]string{"ended failed, yet the nodes show the", "reconcile " + retry + ", created since the failure, succeeded"}},
 		{"the nodes show it, but no reconcile since the failure succeeded",
 			"[" + failedOperation(hetznerResizeOperation) + "," + failedOperation(hetznerUpgradeOperation) + "," + earlierSuccess + "]",
 			hetznerNodes(t, upgradeTarget, "cpx32"), "FAIL",
@@ -661,6 +723,31 @@ func TestAFailureThePlatformsRetryLandsIsNotAFail(t *testing.T) {
 			run.wantResult(t, "hetzner/k3s instance resize", testCase.outcome, append([]string{hetznerResizeOperation}, testCase.want...)...)
 		})
 	}
+}
+
+// TestARetriedDrainFailureIsNotAPark: the platform's ordinary resize failure
+// names the budgets and the park to come - "draining worker X failed, so the
+// resize was not started (PodDisruptionBudgets are honoured; ...) (attempt 1
+// of 3; the resize is parked after attempt 3)" - and the platform retries it.
+// Read as a park, it failed the step at once with a wrong reason; it is waited
+// out like any retried failure, and passes when the nodes show the resize.
+func TestARetriedDrainFailureIsNotAPark(t *testing.T) {
+	const retry = "5e1f0a2b-7c3d-4e9f-8a1b-2c3d4e5f6a7b"
+	failed := `{"id":"` + hetznerResizeOperation + `","name":"reconcile","display_name":"Reconcile 1 resource","status":"failed","created_at":"` + operationCreated + `"}`
+	laterSuccess := `{"id":"` + retry + `","name":"reconcile","display_name":"Reconcile 1 resource","status":"success","created_at":"2026-11-09T22:52:41.117204Z"}`
+	files := map[string]string{
+		"cluster-list":       clusterList(hetznerClusterName, createdVersion),
+		"node-group-list":    "default  type=cpx32  count=1\n",
+		"resize-answer-wait": resizeAnswerWait(hetznerResizeOperation),
+		"operation-" + hetznerResizeOperation + ".json": operationJSON(hetznerResizeOperation, "failed", attemptOneDrainFailure),
+		"operations.json":        "[" + laterSuccess + "," + failed + "]",
+		"nodes.json":             hetznerNodes(t, createdVersion, "cpx22"),
+		"nodes-after-write.json": hetznerNodes(t, createdVersion, "cpx32"),
+	}
+	run := runLane(t, files, nil, resizeStep(t, "hetzner", hetznerClusterName, hetznerClusterID))
+	run.wantResult(t, "hetzner/k3s instance resize default", "PASS",
+		"operation "+hetznerResizeOperation+" ended failed, yet the nodes show the resize",
+		"reconcile "+retry+", created since the failure, succeeded")
 }
 
 // TestDeprovisionWaitNeverNudgesAReconcile replays the AWS lane's

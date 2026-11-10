@@ -42,16 +42,26 @@ second of being submitted and then failed, parked on PodDisruptionBudgets
   UpCloud, where the platform re-stamps that label after a resize, and in its
   capacity on DigitalOcean and OVH, which resize the server in place and leave
   the label on the type the node joined with (more CPUs, or more than 10% more
-  memory, than the group had before the write). A type that cannot be read -
-  no label at all, or no capacity from before the write - is recorded
-  `UNASSERTED`, never `PASS`.
+  memory, than the group had before the write; that capacity is read up to
+  five times, `RESIZE_CAPACITY_READS`). A type that cannot be read - no label
+  at all, or no capacity from before the write - is recorded `UNASSERTED`,
+  never `PASS`, whether the operation succeeded or failed.
 - An operation that fails is not the end of it: the platform retries a
   transient failure in a new execution. The step waits out its timeout, and
-  passes when the nodes show the change and a reconcile created since the
-  failure succeeded. A failed operation that nothing lands by then fails the
-  step with the operation's own error. A node drain parked on a
-  PodDisruptionBudget fails it at once: the platform marks the park permanent
-  and does not retry it.
+  passes when the nodes show the change anyway, provided a reconcile created
+  since the failure succeeded. The evidence is the nodes: the operation rows
+  name no resources, so the step does not say which retry landed it. A failed
+  operation that nothing lands by then fails the step with the operation's
+  own error. An operation the platform parked fails it at once: the platform
+  marks a park permanent and does not retry it. Only the platform's own park
+  sentences count ("... so its upgrade is parked instead of retried ...",
+  "The resize of X from A to B is parked: ..." or "... is parked after N
+  failed attempts ..."); a retried attempt that merely says it will be
+  parked after attempt 3 is a transient.
+- A managed upgrade passes when the `managed_k8s_upgrade` operation its
+  answer names ended in success, which means the provider accepted the
+  upgrade: the operation does not wait for the provider to finish, and the
+  control plane's version cannot be read through the CLI.
 
 Between 7 and 8 the opt-in **node-group autoscaling** step runs when
 `ANKRA_SYSTEMTEST_AUTOSCALING=1` (see below); otherwise it is recorded as a
@@ -221,10 +231,11 @@ it is "as real as possible". It tolerates the real behaviours of the platform:
   after a deprovision or managed delete never starts one at all, and a
   refused teardown reconcile does not end it either (a provider 404 on a
   resource already gone is one): it waits for the cluster to leave the list,
-  and a teardown that stalls goes to the bounded force fallback. A node drain
-  the platform parked on a PodDisruptionBudget fails a wait at once, like a
-  refused step: a retry only runs the blocked drain again, and the platform
-  does not retry it until the definition changes
+  and a teardown that stalls goes to the bounded force fallback. A reconcile
+  the platform parked (a drain blocked by a PodDisruptionBudget, in the
+  platform's own park sentence) fails a wait at once, like a refused step: a
+  retry only runs the blocked drain again, and the platform does not retry it
+  until the definition changes
 - the platform serialises writes (HTTP 409 while a reconcile runs, or a managed
   cluster reporting "not in a state that allows ...") → it waits and retries the
   day-2 operation
@@ -296,6 +307,7 @@ Common optional (defaults in parentheses):
 | `OVH_GATEWAY_FLAVOR` (NAT gateway instance; `b2-7` is unavailable in some regions e.g. `EU-WEST-PAR`, set a `b3-*` there) | `b2-7` |
 | `UPCLOUD_CP_PLAN` / `UPCLOUD_WORKER_PLAN` / `UPCLOUD_BIGGER_PLAN` | `2xCPU-4GB` / `2xCPU-4GB` / `4xCPU-8GB` |
 | `DIGITALOCEAN_BASTION_SIZE` / `DIGITALOCEAN_CP_SIZE` / `DIGITALOCEAN_WORKER_SIZE` / `DIGITALOCEAN_BIGGER_SIZE` | `s-1vcpu-1gb` / `s-2vcpu-4gb` / `s-2vcpu-4gb` / `s-4vcpu-8gb` |
+| `RESIZE_CAPACITY_READS` (reads of the resized group's capacity before the write, DigitalOcean and OVH) | `5` |
 | `AWS_CP_TYPE` / `AWS_WORKER_TYPE` / `AWS_BASTION_TYPE` | `t3.medium` / `t3.medium` / `t3.small` |
 | `AWS_BASTION_ALLOWED_IPS` (comma-separated CIDRs) / `AWS_CREDENTIAL_SCOPE` / `AWS_LEAK_TIMEOUT` | runner public IP `/32` / `self_managed` / `900` |
 | `AWS_EGRESS_MODE` (created network: `bastion_nat` or `nat_gateway`; adopted VPC: `existing` or `bastion_nat`) | `bastion_nat` for a created network / resolved by preflight for an adopted VPC |
@@ -312,6 +324,14 @@ Common optional (defaults in parentheses):
 | `AUTOSCALING_CA_READY_TIMEOUT` / `AUTOSCALING_IDENTITY_GRACE` / `AUTOSCALING_SCALE_UP_TIMEOUT` / `AUTOSCALING_SCALE_DOWN_TIMEOUT` | `900` / `300` / `1200` / `1800` (seconds) |
 | `AUTOSCALING_LOAD_CPU_MILLICORES` | unset: 90% of the worker's unrequested CPU per load pod |
 | `DEPROVISION_FORCE_TIMEOUT` | `600` (bounded force-deprovision fallback if a graceful deprovision stalls) |
+
+Each `*_BIGGER_*` plan (`HETZNER_BIGGER_TYPE`, `OVH_BIGGER_FLAVOR`,
+`UPCLOUD_BIGGER_PLAN`, `DIGITALOCEAN_BIGGER_SIZE`) must be larger than the
+lane's `*_WORKER_*` plan, the plan the resized `default` group is created on,
+in CPU or memory: more cores, or more than 10% more memory. DigitalOcean and
+OVH keep the instance-type label the node joined with, so their resize passes
+only on grown capacity; a bigger plan with the same CPU and memory fails the
+resize step even when the platform resized the servers.
 
 Discover valid values with the CLI:
 

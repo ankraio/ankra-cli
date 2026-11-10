@@ -201,7 +201,11 @@ HETZNER_LOCATION_CANDIDATES="${HETZNER_LOCATION_CANDIDATES:-fsn1 nbg1 hel1}"
 OVH_REGION="${OVH_REGION:-GRA9}"
 UPCLOUD_ZONE="${UPCLOUD_ZONE:-de-fra1}"
 
-# Instance plans (create) and the bigger plan used by the resize step.
+# Instance plans (create) and the bigger plan used by the resize step. Each
+# *_BIGGER_* plan must be larger than its *_WORKER_* plan (the default node
+# group's) in CPU or memory - more cores, or over 10% more memory: on
+# DigitalOcean and OVH the resize is read from the nodes' capacity, so a
+# bigger plan with the same CPU and memory never shows as resized.
 HETZNER_CP_TYPE="${HETZNER_CP_TYPE:-cpx32}"
 HETZNER_WORKER_TYPE="${HETZNER_WORKER_TYPE:-cpx22}"
 HETZNER_BASTION_TYPE="${HETZNER_BASTION_TYPE:-cpx22}"
@@ -841,10 +845,10 @@ pick_upgrade_target() {
 # the target version, every node of the resized group on the new type. An
 # operation that failed is not the end of it: the platform retries a
 # transient failure in a new execution, so the step waits out its timeout for
-# that retry to land the change (the nodes as above, and a reconcile since
-# the failure that succeeded) before it fails with the operation's own error.
-# A drain parked on a PodDisruptionBudget fails at once: the platform does not
-# retry it (classify_step_error).
+# the nodes to show the change anyway (as above, with a reconcile since the
+# failure that succeeded) before it fails with the operation's own error.
+# An operation the platform parked fails at once: the platform does not retry
+# a park (classify_step_error reads the park's own sentence).
 # All of it reads -o json with jq, which the workflow installs and the
 # preflight requires.
 
@@ -941,18 +945,22 @@ later_reconcile() {
 
 # await_platform_retry <cluster id> <failed operation> <its created_at> <deadline> <read> [<arg>...]
 # After the operation a step followed ended in failure. The platform retries
-# a transient failure in a new execution, and a run whose retry lands the
-# change is not a failure (a red schedule for a transient is a false FAIL).
-# Waits until the deadline for both: the read (nodes_at_version or
-# group_resized, run with its arguments) answering ok, and a reconcile created
-# since the failed operation having succeeded. A failure that nothing lands
-# stays a failure. Sets NODES_VERDICT to the read's last answer and
-# RETRY_RECONCILE to the reconcile.
+# a transient failure in a new execution, and a run in which the change lands
+# anyway is not a failure (a red schedule for a transient is a false FAIL).
+# The evidence is the nodes: the wait runs until the deadline for the read
+# (nodes_at_version or group_resized, run with its arguments) to answer ok.
+# A reconcile created since the failure that succeeded is required as well,
+# so the platform has run again since; the operation rows name no resources,
+# so which retry landed it is not read, and any such reconcile counts. A read
+# that cannot show the type (unlabelled, uncompared) ends the wait at once,
+# as no amount of waiting changes it. A failure nothing lands stays a
+# failure. Sets NODES_VERDICT to the read's last answer and RETRY_RECONCILE to
+# the reconcile.
 await_platform_retry() {
   local id="$1" failed="$2" since="$3" deadline="$4" last=""
   shift 4
   RETRY_RECONCILE=""
-  log "  waiting out the step's timeout for the platform's own retry to land the change"
+  log "  waiting out the step's timeout for the change to land anyway (the platform retries a transient failure)"
   while :; do
     NODES_VERDICT="$("$@")"
     case "$NODES_VERDICT" in
@@ -960,6 +968,7 @@ await_platform_retry() {
         RETRY_RECONCILE="$(later_reconcile "$id" "$failed" "$since")"
         [ -n "$RETRY_RECONCILE" ] && return 0
         ;;
+      unlabelled*|uncompared*) return 1 ;;
     esac
     if [ "$NODES_VERDICT" != "$last" ]; then
       log "  since the failure: ${NODES_VERDICT:-nodes unreadable}"
@@ -972,9 +981,9 @@ await_platform_retry() {
 
 # retry_hopeless: whether the operation wait_for_operation followed ended so
 # that no retry of the platform's can land it - it had not ended by the
-# timeout, or it parked a node drain on a PodDisruptionBudget, which the
-# platform marks permanent and does not retry until the definition changes
-# (classify_step_error) - and the step fails without waiting for one.
+# timeout, or the platform parked it, which it marks permanent and does not
+# retry until the definition changes (classify_step_error reads the park's
+# own sentence) - and the step fails without waiting for one.
 # RETRY_HOPELESS says why, for the FAIL line.
 retry_hopeless() {
   RETRY_HOPELESS=""
@@ -982,7 +991,7 @@ retry_hopeless() {
     return 0
   fi
   if [ "$(classify_step_error "$OPERATION_VERDICT")" = parked ]; then
-    RETRY_HOPELESS="; a parked drain, which the platform does not retry"
+    RETRY_HOPELESS="; the platform parked it, and it does not retry a parked step"
     return 0
   fi
   return 1
@@ -1087,6 +1096,35 @@ group_capacity() {
   ank_out cluster get nodes --cluster "$1" -o json | jq -c --arg g "$2" "$GROUP_CAPACITY_JQ" 2>/dev/null
 }
 
+# group_capacity_before <cluster id> <group>: group_capacity, read up to
+# RESIZE_CAPACITY_READS times, so one failed read of the nodes does not leave
+# a healthy resize with nothing to compare against (UNASSERTED, which fails
+# the run). Empty when no read answered; it logs to stderr, as its caller
+# captures its stdout.
+RESIZE_CAPACITY_READS="${RESIZE_CAPACITY_READS:-5}"
+group_capacity_before() {
+  local attempt capacity
+  for attempt in $(seq 1 "$RESIZE_CAPACITY_READS"); do
+    capacity="$(group_capacity "$1" "$2")"
+    if [ -n "$capacity" ]; then
+      printf '%s\n' "$capacity"
+      return 0
+    fi
+    log "  $2 capacity unreadable (read $attempt of $RESIZE_CAPACITY_READS)" >&2
+    [ "$attempt" -lt "$RESIZE_CAPACITY_READS" ] && sleep "$POLL_INTERVAL"
+  done
+  return 1
+}
+
+# type_unreadable_reason <group>: why NODES_VERDICT (unlabelled or
+# uncompared) leaves the group's type unread, for an UNASSERTED line.
+type_unreadable_reason() {
+  case "$NODES_VERDICT" in
+    unlabelled*) echo "no $1 node carries a node.kubernetes.io/instance-type label to read its type from" ;;
+    *) echo "the $1 nodes' capacity before the resize could not be read, so there is nothing to compare them with" ;;
+  esac
+}
+
 # jq: whether group $g's nodes show the resize to $want, read as $reading
 # says (resize_reading):
 #   label:    every node Ready and labelled $want
@@ -1152,9 +1190,9 @@ wait_for_group_resized() {
 # Self-managed upgrade (k3s or kubeadm). PASS when the operation the write
 # names ended in success AND every one of the cluster's nodes runs a kubelet
 # at the target and is Ready - or, when it ended in a failure the platform
-# retries, when that retry landed it by the timeout (await_platform_retry). An
-# answer that names no operation is judged by the kubelets alone, which are
-# what the upgrade is for.
+# retries, when the kubelets show it by the timeout anyway
+# (await_platform_retry). An answer that names no operation is judged by the
+# kubelets alone, which are what the upgrade is for.
 assert_k8s_upgrade() {
   local label="$1" name="$2" id="$3" target="$4" count="$5" op deadline
   if ! daytwo "k8s upgrade" "$name" upgrade "$id" "$target"; then
@@ -1167,7 +1205,7 @@ assert_k8s_upgrade() {
     if retry_hopeless; then
       fail "$label k8s upgrade -> $target: $OPERATION_VERDICT$RETRY_HOPELESS"
     elif await_platform_retry "$id" "$op" "$OPERATION_CREATED" "$deadline" nodes_at_version "$id" "$target" "$count"; then
-      pass "$label k8s upgrade -> $target (operation $op ended $OPERATION_ENDED, but the platform's retry landed it: reconcile $RETRY_RECONCILE succeeded; $count kubelets at $(short_version "$target"), all Ready)"
+      pass "$label k8s upgrade -> $target (operation $op ended $OPERATION_ENDED, yet the nodes show the upgrade by the timeout: $count kubelets at $(short_version "$target"), all Ready, and reconcile $RETRY_RECONCILE, created since the failure, succeeded)"
     else
       fail "$label k8s upgrade -> $target: $OPERATION_VERDICT; nothing landed it by the timeout (kubelets: ${NODES_VERDICT:-unreadable})"
     fi
@@ -1185,18 +1223,19 @@ assert_k8s_upgrade() {
 # PASS when the operation the write names ended in success AND every node of
 # the group is Ready and shows the new type - its label where the platform
 # re-stamps it, its capacity elsewhere (resize_reading) - or, when the
-# operation ended in a failure the platform retries, when that retry landed it
-# by the timeout. The write runs with --wait: the platform then answers once it has
-# recorded (or refused) the change, naming the operation that resizes the
-# nodes. An answer that names none is judged by the nodes alone. Nodes that
-# leave the type unreadable (no label at all, or no capacity from before the
-# write) are UNASSERTED, never PASS.
+# operation ended in a failure the platform retries, when the nodes show it by
+# the timeout anyway. The write runs with --wait: the platform then answers
+# once it has recorded (or refused) the change, naming the operation that
+# resizes the nodes. An answer that names none is judged by the nodes alone.
+# Nodes that leave the type unreadable (no label at all, or no capacity from
+# before the write, which is read up to RESIZE_CAPACITY_READS times) are
+# UNASSERTED, never PASS, whether the operation succeeded or failed.
 assert_resize() {
   local label="$1" name="$2" id="$3" group="$4" plan="$5" provider="$6"
   local reading before="null" op deadline
   reading="$(resize_reading "$provider")"
   if [ "$reading" = capacity ]; then
-    before="$(group_capacity "$id" "$group")"
+    before="$(group_capacity_before "$id" "$group")"
     log "  $group capacity before the resize: ${before:-unreadable} ($provider does not re-stamp the instance-type label, so the resize is read from the capacity)"
     [ -n "$before" ] || before="null"
   fi
@@ -1212,10 +1251,17 @@ assert_resize() {
       fail "$label instance resize $group -> $plan: $OPERATION_VERDICT$RETRY_HOPELESS"
       dump_node_group_state "$name" "$id" "$group"
     elif await_platform_retry "$id" "$op" "$OPERATION_CREATED" "$deadline" group_resized "$id" "$group" "$plan" "$reading" "$before"; then
-      pass "$label instance resize $group -> $plan (operation $op ended $OPERATION_ENDED, but the platform's retry landed it: reconcile $RETRY_RECONCILE succeeded; ${NODES_VERDICT#ok })"
+      pass "$label instance resize $group -> $plan (operation $op ended $OPERATION_ENDED, yet the nodes show the resize by the timeout: ${NODES_VERDICT#ok }; reconcile $RETRY_RECONCILE, created since the failure, succeeded)"
     else
-      fail "$label instance resize $group -> $plan: $OPERATION_VERDICT; nothing landed it by the timeout ($group nodes: ${NODES_VERDICT:-unreadable})"
-      dump_node_group_state "$name" "$id" "$group"
+      case "$NODES_VERDICT" in
+        unlabelled*|uncompared*)
+          unasserted "$label instance resize $group -> $plan: $OPERATION_VERDICT; whether the change landed anyway cannot be read: $(type_unreadable_reason "$group")"
+          ;;
+        *)
+          fail "$label instance resize $group -> $plan: $OPERATION_VERDICT; nothing landed it by the timeout ($group nodes: ${NODES_VERDICT:-unreadable})"
+          dump_node_group_state "$name" "$id" "$group"
+          ;;
+      esac
     fi
     return
   fi
@@ -1225,11 +1271,8 @@ assert_resize() {
     return
   fi
   case "$NODES_VERDICT" in
-    unlabelled*)
-      unasserted "$label instance resize $group -> $plan: ${op:+operation $op succeeded, but }no $group node carries a node.kubernetes.io/instance-type label to read its type from"
-      ;;
-    uncompared*)
-      unasserted "$label instance resize $group -> $plan: ${op:+operation $op succeeded, but }the $group nodes' capacity before the resize could not be read, so there is nothing to compare them with"
+    unlabelled*|uncompared*)
+      unasserted "$label instance resize $group -> $plan: ${op:+operation $op succeeded, but }$(type_unreadable_reason "$group")"
       ;;
     *)
       fail "$label instance resize $group -> $plan: ${op:+operation $op succeeded, but }the $group nodes do not show it (${NODES_VERDICT:-nodes unreadable})"
@@ -1248,8 +1291,11 @@ NODE_KUBELETS_JQ='[ .resource_responses[0].items[]? | "\(.metadata.name)=\(.stat
 # platform-scoped - it carries no cluster id - so no cluster-filtered listing
 # shows it; the write's answer names it ("Operation: <id>") and the step reads
 # it by id. PASS only when it ended in success and the version the platform
-# finalises after it is the target. An answer that names no operation leaves
-# the outcome unknown: UNASSERTED. The control plane's own version cannot be
+# finalises after it is the target. That operation requests the upgrade at
+# the provider and records the version; it does not wait for the provider to
+# finish (cluster repo managedk8sjobs/upgrade.go), so a PASS says the upgrade
+# was accepted, not that the control plane runs it. An answer that names no
+# operation leaves the outcome unknown: UNASSERTED. The control plane's own version cannot be
 # read through the CLI, and node pools follow it on the provider's schedule,
 # so the kubelets are logged, not asserted.
 assert_managed_upgrade() {
@@ -1269,7 +1315,7 @@ assert_managed_upgrade() {
   fi
   log "  kubelets (not asserted): $(ank_out cluster get nodes --cluster "$id" -o json | jq -r "$NODE_KUBELETS_JQ" 2>/dev/null)"
   if wait_until_version "$name" "$(short_version "$target")" "$DAYTWO_TIMEOUT"; then
-    pass "$label k8s upgrade -> $target (operation $op succeeded)"
+    pass "$label k8s upgrade -> $target accepted (operation $op succeeded: the provider accepted the upgrade and the platform recorded $target; the provider finishes it on its own schedule)"
   else
     fail "$label k8s upgrade -> $target: operation $op succeeded, but the cluster's version never read $target"
   fi
@@ -2495,11 +2541,12 @@ run_provider() {
   fi
 
   # 7. Instance resize. Passes on the resize operation's success (or the
-  # platform's retry landing it) and every default-group node showing the new
-  # type: its instance-type label on Hetzner and UpCloud, which re-stamp it,
-  # its capacity on DigitalOcean and OVH, which resize in place and keep the
-  # label the node joined with (resize_reading). A genuine refusal, a parked
-  # or failed operation nothing lands, or nodes left as they were stay a FAIL.
+  # change landing anyway after a retried failure) and every default-group
+  # node showing the new type: its instance-type label on Hetzner and
+  # UpCloud, which re-stamp it, its capacity on DigitalOcean and OVH, which
+  # resize in place and keep the label the node joined with (resize_reading).
+  # A genuine refusal, a parked or failed operation nothing lands, or nodes
+  # left as they were stay a FAIL.
   plan="$(bigger_plan "$provider")"
   local reason=""
   if [ "$provider" = hetzner ] && reason="$(hetzner_resize_stock_gap "$plan" "$HETZNER_LOCATION")"; then

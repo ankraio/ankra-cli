@@ -58,11 +58,22 @@ func TestClassifyStepError(t *testing.T) {
 		// blocked by a PodDisruptionBudget, which a nudge only reruns.
 		{"parked upgrade drain", parkedUpgradeDrain, "parked"},
 		{"parked resize drain", parkedResizeDrain, "parked"},
-		{"parked wins over a timeout word", "draining node w-0 timed out: blocked by a PodDisruptionBudget, so its upgrade is parked", "parked"},
-		{"parked without a drain is not a parked drain", "the cluster is parked by its power schedule", "transient"},
+		// The park sentence decides, whatever the cause it quotes says: an
+		// upgrade park whose kubectl cause timed out is still a park.
+		{"a park sentence wins over the timeout its cause quotes", parkedUpgradeDrain + " Last attempt: global timeout reached: 5m0s", "parked"},
+		// The resize's other park reasons (cluster repo resizepark.go).
+		{"resize parked after its failed attempts", "The resize of w-0 from cpx22 to cpx32 is parked after 3 failed attempts in a row. " +
+			"The server still runs cpx22, so its recorded type is cpx22 again and the resize is not retried. Fix the cause of the failure, then resize again.", "parked"},
+		{"resize parked on a foreign cordon", "The resize of w-0 from cpx22 to cpx32 is parked: the node was already cordoned, and not by this resize.", "parked"},
+		// The platform's ordinary, retried resize failure names the budgets
+		// and the park to come, but is not a park: the platform retries it
+		// (controlplaneresize.go with resizepark.go's attempt note).
+		{"a retried drain failure that will park after attempt 3 is not a park", attemptOneDrainFailure, "transient"},
+		{"parked without a park sentence is not a park", "the cluster is parked by its power schedule", "transient"},
+		{"parked and a budget, without the park sentence, is not a park", "draining node w-0 is blocked by a PodDisruptionBudget; parked", "transient"},
 		// The verdict is read from the platform's wording (the CLI's step
-		// JSON carries no error_data): a drain refusal worded without
-		// "parked" falls back to transient, the behaviour before it existed.
+		// JSON carries no error_data): a drain refusal worded without a park
+		// sentence falls back to transient, the behaviour before it existed.
 		{"a drain refusal that does not say parked falls back", "draining node w-0 is blocked by a PodDisruptionBudget", "transient"},
 	}
 	for _, tc := range cases {
@@ -110,6 +121,13 @@ const (
 	parkedResizeDrain = "The resize of systest-hetzner-k3s-261109223029-4c8360f0-default-0 from cpx22 to cpx32 is parked: " +
 		"draining the node is blocked by a PodDisruptionBudget (pod(s) traefik/traefik-669c7fbc7b-tht75 cannot be evicted), " +
 		"and every retry would cordon the node and evict its other pods only to be blocked again."
+	// The first of three attempts of a resize whose drain timed out, as
+	// controlplaneresize.go and resizepark.go's withAttemptNote word it:
+	// retried, not parked.
+	attemptOneDrainFailure = "draining worker systest-hetzner-k3s-261109223029-4c8360f0-default-0 failed, so the resize was not started " +
+		"(PodDisruptionBudgets are honoured; resolve the blocking workloads or retry with force): " +
+		"error when evicting pods/\"traefik-669c7fbc7b-tht75\" -n \"traefik\": global timeout reached: 5m0s " +
+		"(attempt 1 of 3; the resize is parked after attempt 3)"
 )
 
 func TestRetryFailedReconcile(t *testing.T) {
@@ -194,12 +212,12 @@ func TestRetryFailedReconcile(t *testing.T) {
 			// node and evict its other pods only to be blocked again"), and the
 			// platform marks it permanent and does not retry it until the
 			// definition changes, so the wait cannot finish: fail it now.
-			name:          "the newest reconcile parked a drain on a PodDisruptionBudget: fail now, no retry",
+			name:          "the platform parked the newest reconcile: fail now, no retry",
 			list:          `[{"id":"exec-new","name":"reconcile","display_name":"Reconcile","status":"failed","attention_state":"open"}]`,
 			steps:         stepsFailedWith(parkedResizeDrain),
 			wantRC:        "rc=1",
 			wantReconcile: 0,
-			wantLog:       []string{"parked a drain at step uks_create_managed_k8s", "not retrying"},
+			wantLog:       []string{"reconcile parked at step uks_create_managed_k8s", "not retrying"},
 		},
 		{
 			name:          "no failed reconcile: nothing to do",
