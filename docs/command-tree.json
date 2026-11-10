@@ -201,6 +201,7 @@
     "ankra canvas revisions get",
     "ankra canvas revisions list",
     "ankra canvas unpublish",
+    "ankra canvas update",
     "ankra charts info",
     "ankra charts list",
     "ankra charts search",
