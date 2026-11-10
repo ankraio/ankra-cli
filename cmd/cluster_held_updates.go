@@ -143,6 +143,11 @@ changed with 'ankra cluster apply'. A cluster without a metrics source exits 3.`
 		defer cancel()
 		source, getError := apiClient.GetClusterMetricsSource(ctx, clusterID)
 		if getError != nil {
+			var unexpected *client.UnexpectedResponseError
+			if errors.As(getError, &unexpected) && unexpected.StatusCode == http.StatusNotFound && unexpected.Detail == routeAbsentDetail {
+				return withExitCode(exitError, errors.New(
+					"reading the metrics source: this Ankra platform does not serve this route yet (it answered 404)"))
+			}
 			return fmt.Errorf("reading the metrics source: %w", getError)
 		}
 		if format != outputDefault {

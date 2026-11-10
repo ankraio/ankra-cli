@@ -290,6 +290,13 @@ func TestClusterMetricsSourceWithoutOneExitsNotFound(t *testing.T) {
 	if runError == nil || exitCodeFor(runError) != exitNotFound {
 		t.Fatalf("a cluster without a metrics source must exit %d, got %v", exitNotFound, runError)
 	}
+	recorder.mutex.Lock()
+	delete(recorder.responses, "GET "+path)
+	recorder.mutex.Unlock()
+	_, _, runError = runClusterParityCommand(t, "cluster", "metrics", "source")
+	if runError == nil || exitCodeFor(runError) != exitError || !strings.Contains(runError.Error(), "does not serve this route yet") {
+		t.Fatalf("the router's own 404 is a platform without the route (exit 1), got %v (exit %d)", runError, exitCodeFor(runError))
+	}
 }
 
 func TestClusterDNSTokenRotationFlow(t *testing.T) {
