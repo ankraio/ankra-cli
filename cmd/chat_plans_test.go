@@ -168,6 +168,10 @@ func TestChatPlansApproveExitsNonZeroWhenThePlanDidNotFinish(t *testing.T) {
 			exitCode: exitError, message: "not in an approvable state",
 		},
 		"the stream ended with no outcome": {exitCode: exitError, message: "without an outcome"},
+		"the complete frame names no status": {
+			events:   []client.ChatStreamEvent{{Type: client.ChatPlanEventComplete, Data: "completed"}},
+			exitCode: exitError, message: "without an outcome",
+		},
 		"the stream was cut": {
 			events:   []client.ChatStreamEvent{planEvent(client.ChatPlanEventStepResult, map[string]any{"step_order": float64(1), "status": "completed"})},
 			failure:  errors.New("unexpected EOF"),

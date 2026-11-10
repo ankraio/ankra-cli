@@ -139,7 +139,7 @@ func renderCanvasPayload(command *cobra.Command, format outputFormat, payload js
 
 func canvasPageLimit(command *cobra.Command) (int, error) {
 	limit, _ := command.Flags().GetInt("limit")
-	if limit < 0 || limit > 100 {
+	if command.Flags().Changed("limit") && (limit < 1 || limit > 100) {
 		return 0, withExitCode(exitUsage, errors.New("--limit must be between 1 and 100"))
 	}
 	return limit, nil

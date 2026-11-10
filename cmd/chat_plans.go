@@ -203,7 +203,7 @@ func runChatPlanApprove(command *cobra.Command, arguments []string) error {
 				printChatPlanStepResult(output, data)
 			}
 		case client.ChatPlanEventComplete:
-			approval.Status = mapString(data, "status")
+			approval.Status, _ = data["status"].(string)
 		case client.ChatPlanEventError:
 			approval.Status = "refused"
 			refusal = chatPlanRefusalError(planID, data)

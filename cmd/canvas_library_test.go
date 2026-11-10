@@ -120,6 +120,11 @@ func TestCanvasLibraryListsCanvasesWithItsFilters(t *testing.T) {
 	if exitCodeFor(kindError) != exitUsage {
 		t.Fatalf("error = %v, want a usage error for an unknown kind", kindError)
 	}
+	for _, limit := range []string{"0", "101"} {
+		if _, _, limitError := runCanvasLibrary(t, empty, "", "library", "--limit", limit); exitCodeFor(limitError) != exitUsage {
+			t.Fatalf("--limit %s: error = %v, want a usage error", limit, limitError)
+		}
+	}
 }
 
 func TestCanvasGetPrintsTheCanvasItsContentOrThePlatformDocument(t *testing.T) {
