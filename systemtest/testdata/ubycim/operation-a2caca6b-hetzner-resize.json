@@ -1,0 +1,31 @@
+{
+  "execution": {
+    "id": "a2caca6b-ab68-4ec1-90df-5b5e6e9b54e8",
+    "name": "reconcile",
+    "display_name": "Reconcile 1 resource",
+    "type": "write",
+    "status": "failed",
+    "error_excerpt": "The resize of systest-hetzner-k3s-261109223029-4c8360f0-default-0 from cpx22 to cpx32 is parked: draining the node is blocked by a PodDisruptionBudget (pod(s) cert-manager/cert-manager-65f99c7c8c-s4fsb, hcloud/hcloud-csi-controller-55d556894d-hjzhv, traefik/traefik-669c7fbc7b-tht75 cannot be evicted), and every retry would cordon the node and evict its other pods only to be blocked again. The server still runs cpx22, so its recorded type is cpx22 again and the resize is not …",
+    "attention_state": "resolved",
+    "resolved_by_execution_id": "31572379-7096-4434-becb-2224a6bccb1c",
+    "created_at": "2026-11-09T22:52:09.140793Z",
+    "updated_at": "2026-11-09T22:58:42.317889Z"
+  },
+  "step_summary": {
+    "total": 1,
+    "succeeded": 0,
+    "failed": 1,
+    "running": 0,
+    "pending": 0
+  },
+  "steps": [
+    {
+      "id": "aef91eb9-c838-4af1-8a13-2105e39c8b57",
+      "name": "hetzner_update_server",
+      "status": "failed",
+      "error_excerpt": "The resize of systest-hetzner-k3s-261109223029-4c8360f0-default-0 from cpx22 to cpx32 is parked: draining the node is blocked by a PodDisruptionBudget (pod(s) cert-manager/cert-manager-65f99c7c8c-s4fsb, hcloud/hcloud-csi-controller-55d556894d-hjzhv, traefik/traefik-669c7fbc7b-tht75 cannot be evicted), and every retry would cordon the node and evict its other pods only to be blocked again. The server still runs cpx22, so its recorded type is cpx22 again and the resize is not …",
+      "created_at": "2026-11-09T22:52:09.140793Z",
+      "updated_at": "2026-11-09T22:58:42.317889Z"
+    }
+  ]
+}

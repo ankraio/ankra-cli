@@ -1,0 +1,39 @@
+{
+  "execution": {
+    "id": "be3b5487-15a4-4fb0-bbf7-b0356af4cbff",
+    "name": "reconcile",
+    "display_name": "Reconcile 2 resources",
+    "type": "write",
+    "status": "failed",
+    "error_excerpt": "draining node ip-10-0-9-52.eu-north-1.compute.internal is blocked by a PodDisruptionBudget, so its upgrade is parked instead of retried on a timer: pod(s) cert-manager/cert-manager-84c97585b-msfht (PodDisruptionBudget cert-manager), traefik/traefik-564c77bf66-km7dh (PodDisruptionBudget traefik) cannot be evicted without violating their budget. To continue, give the blocking workloads eviction headroom (add replicas or relax the PodDisruptionBudget), then retry the upgrade - …",
+    "attention_state": "resolved",
+    "resolved_by_execution_id": "faa71572-bb64-42eb-9960-218094f0c4fa",
+    "created_at": "2026-11-09T22:38:58.582190Z",
+    "updated_at": "2026-11-09T22:45:48.791421Z"
+  },
+  "step_summary": {
+    "total": 2,
+    "succeeded": 1,
+    "failed": 1,
+    "running": 0,
+    "pending": 0
+  },
+  "steps": [
+    {
+      "id": "4979a2c2-ff8e-43fd-be3b-cbf0500621e5",
+      "name": "aws_update_k8s",
+      "status": "success",
+      "error_excerpt": null,
+      "created_at": "2026-11-09T22:38:58.582190Z",
+      "updated_at": "2026-11-09T22:40:29.570257Z"
+    },
+    {
+      "id": "803193f0-f483-4b35-a8ae-446b52dddbe0",
+      "name": "aws_update_k8s",
+      "status": "failed",
+      "error_excerpt": "draining node ip-10-0-9-52.eu-north-1.compute.internal is blocked by a PodDisruptionBudget, so its upgrade is parked instead of retried on a timer: pod(s) cert-manager/cert-manager-84c97585b-msfht (PodDisruptionBudget cert-manager), traefik/traefik-564c77bf66-km7dh (PodDisruptionBudget traefik) cannot be evicted without violating their budget. To continue, give the blocking workloads eviction headroom (add replicas or relax the PodDisruptionBudget), then retry the upgrade - …",
+      "created_at": "2026-11-09T22:38:58.582190Z",
+      "updated_at": "2026-11-09T22:45:48.791421Z"
+    }
+  ]
+}
