@@ -257,6 +257,11 @@ var pipelinePolicyLists = map[string]string{
 	"external-providers":      "external_providers",
 }
 
+// pipelinePolicyReadOnly are the members 'policy get' prints that the policy
+// write does not take, dropped from -f so its output can be edited and sent
+// back.
+var pipelinePolicyReadOnly = []string{"allowed_image_prefixes", "updated_by", "updated_at"}
+
 func newPipelinePolicyCommand() *cobra.Command {
 	policyCommand := &cobra.Command{
 		Use:   "policy",
@@ -287,7 +292,8 @@ A list flag replaces the whole list; pass it empty (--allowed-credentials "")
 to allow none. Node selectors and tolerations are set through -f, which takes
 the platform's body as YAML or JSON (- reads stdin); a flag wins over the
 document. allowed_image_prefixes belongs to 'ankra org ci-settings' and is not
-writable here.
+writable here: it, updated_by and updated_at are dropped from -f, so the
+document 'get' prints can be edited and sent back.
 
 The policy bounds every pipeline of the organisation, so this confirms first;
 --yes skips the prompt.`,
@@ -304,6 +310,9 @@ The policy bounds every pipeline of the organisation, so this confirms first;
 				document, readError := readAlertRuleDocument(command)
 				if readError != nil {
 					return readError
+				}
+				for _, readOnly := range pipelinePolicyReadOnly {
+					delete(document, readOnly)
 				}
 				changes = document
 			}
@@ -490,8 +499,8 @@ workspaces.use reads which kinds exist, each as an empty profile.`,
 		Use:   "put",
 		Short: "Replace a repository's workspace profiles from a file",
 		Long: `Replace the repository's workspace profiles with the ones in -f: a YAML or
-JSON object keyed by kind (- reads stdin), or the document 'get' prints, whose
-profiles member is used. An empty object clears them. Every profile is
+JSON object keyed by kind (- reads stdin), or the document 'get' prints (it carries
+repository_id), whose profiles member is used. An empty object clears them. Every profile is
 validated as a workspace would be rendered from it. A running workspace picks
 the change up at its owner's next bring-up, which replaces it.
 
@@ -512,7 +521,7 @@ first; --yes skips the prompt.`,
 				return readError
 			}
 			if nested, isDocument := profiles["profiles"].(map[string]any); isDocument {
-				if _, hasRepository := profiles["repository_id"]; hasRepository || len(profiles) == 1 {
+				if _, hasRepository := profiles["repository_id"]; hasRepository {
 					profiles = nested
 				}
 			}

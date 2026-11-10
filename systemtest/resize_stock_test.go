@@ -67,7 +67,14 @@ func TestHetznerResizeIsSkippedWhenTheTargetTypeHasNoStock(t *testing.T) {
 	if !regexp.MustCompile(`skip "[^"]*instance resize[^"]*\$\{?reason`).MatchString(body) {
 		t.Error("a stock gap must be recorded with skip(), carrying the reason")
 	}
-	if !strings.Contains(body, `fail "$label instance resize"`) {
-		t.Error("a genuine refusal or timeout must stay a FAIL")
+	// Without a gap the step runs the resize through assert_resize, whose
+	// refused submit, failed operation and unchanged nodes are all FAILs
+	// (observed_outcome_test.go replays them).
+	if !strings.Contains(body, `assert_resize "$label"`) {
+		t.Error("without a stock gap the resize must run and be judged by assert_resize")
+	}
+	resize := regexp.MustCompile(`(?ms)^assert_resize\(\) \{.*?^\}`).Find(script)
+	if resize == nil || !strings.Contains(string(resize), `fail "$label instance resize $group -> $plan (submit)"`) {
+		t.Error("a genuine refusal must stay a FAIL")
 	}
 }

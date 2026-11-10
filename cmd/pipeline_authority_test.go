@@ -132,7 +132,7 @@ func TestPipelinePolicyGetAndSet(t *testing.T) {
 	}
 	requireDocumentCalls(t, calls)
 	policyFile := filepath.Join(t.TempDir(), "policy.yaml")
-	if writeError := os.WriteFile(policyFile, []byte("allowed_node_selectors:\n  pool: [ci]\nmax_cpu: \"4\"\n"), 0o600); writeError != nil {
+	if writeError := os.WriteFile(policyFile, []byte("allowed_image_prefixes: [ghcr.io/]\nupdated_at: null\nallowed_node_selectors:\n  pool: [ci]\nmax_cpu: \"4\"\n"), 0o600); writeError != nil {
 		t.Fatal(writeError)
 	}
 	if _, _, setError := runDocumentCommand(t, server, newPipelineCommand(), "", "policy", "set", "-f", policyFile,
@@ -146,8 +146,10 @@ func TestPipelinePolicyGetAndSet(t *testing.T) {
 	if body["max_cpu"] != "8" || body["max_gpu"] != float64(1) || len(tiers) != 2 || !isCleared || len(credentials) != 0 || selectors["pool"] == nil {
 		t.Fatalf("policy body = %v", body)
 	}
-	if _, isSent := body["max_memory"]; isSent {
-		t.Errorf("a setting nobody named was sent: %v", body)
+	for _, member := range []string{"max_memory", "allowed_image_prefixes", "updated_at"} {
+		if _, isSent := body[member]; isSent {
+			t.Errorf("%s must not be sent: %v", member, body)
+		}
 	}
 }
 

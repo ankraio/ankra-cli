@@ -150,7 +150,7 @@ limits, the stored layers a 'set' starts from, and the application-wide gate.`,
 					environment.Level, orDash(strings.Join(differing, ", "))})
 			}
 			writer.Render()
-			if autonomy.ReadState != "ok" {
+			if autonomy.ReadState != "" && autonomy.ReadState != "ok" {
 				_, _ = fmt.Fprintf(out, "This read is %s: some of the settings behind it could not be read.\n", autonomy.ReadState)
 			}
 			switch {
@@ -278,11 +278,22 @@ first; --yes skips the prompt.`,
 			if environmentReference, _ := command.Flags().GetString("environment"); strings.TrimSpace(environmentReference) != "" {
 				environmentReference = strings.TrimSpace(environmentReference)
 				known := []string{}
+				named := []string{}
 				for _, environment := range autonomy.Environments {
 					known = append(known, environment.Name)
-					if environment.EnvironmentID == environmentReference || environment.Name == environmentReference {
+					if environment.EnvironmentID == environmentReference {
 						environmentID = environment.EnvironmentID
 					}
+					if environment.Name == environmentReference {
+						named = append(named, environment.EnvironmentID)
+					}
+				}
+				if environmentID == "" && len(named) > 1 {
+					return withExitCode(exitUsage, fmt.Errorf("%d environments are named %q - pass the environment id instead (%s)",
+						len(named), environmentReference, strings.Join(named, ", ")))
+				}
+				if environmentID == "" && len(named) == 1 {
+					environmentID = named[0]
 				}
 				if environmentID == "" {
 					return withExitCode(exitUsage, fmt.Errorf("the application has no environment %q; it has: %s",
