@@ -126,7 +126,11 @@ people took.`,
 				writer.SetOutputMirror(out)
 				writer.AppendHeader(table.Row{"AT", "WHAT", "TICKET", "DETAIL"})
 				for _, entry := range timeline.Entries {
-					writer.AppendRow(table.Row{entry.At, entry.Kind, fmt.Sprintf("#%d", entry.TicketNumber),
+					ticket := "-"
+					if entry.TicketNumber > 0 {
+						ticket = fmt.Sprintf("#%d", entry.TicketNumber)
+					}
+					writer.AppendRow(table.Row{entry.At, entry.Kind, ticket,
 						truncateCell(strings.Join(strings.Fields(entry.Detail), " "), 80)})
 				}
 				writer.Render()
