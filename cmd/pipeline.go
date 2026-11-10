@@ -78,6 +78,7 @@ stored definition directly by its own id and take neither flag - see
 		newPipelineTrainCommand(),
 		newPipelineTimeSavedCommand(),
 	)
+	pipelineCommand.AddCommand(newPipelineReleaseQueueCommand(), newPipelineResourceSuggestionsCommand())
 	return pipelineCommand
 }
 

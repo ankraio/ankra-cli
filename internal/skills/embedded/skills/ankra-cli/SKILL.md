@@ -87,6 +87,7 @@ exits 3 saying so and everything else works as before.
 | Cloud cost and Ankra usage | `ankra cost ...`, `ankra org usage\|limits\|billing standing\|billing wallet` | below |
 | Heavy local commands in a workspace pod | `ankra exec`, `ankra workspace up\|status\|down`, `ankra dev install\|mode\|status` | below |
 | Sharing a page at a public URL | `ankra canvas publish\|list\|unpublish` | below |
+| Saved canvases, their revisions and comments | `ankra canvas library\|get\|create\|update\|delete`, `ankra canvas revisions\|comments ...` | below |
 | Agent skills for assistants | `ankra skills install\|list\|clients\|uninstall` | below |
 | Support requests | `ankra support create\|list\|get\|comment\|attach\|close` | below |
 
@@ -395,6 +396,7 @@ ankra exec -- go test ./...              # a heavy command for this checkout, ru
 ankra workspace up --wait                # bring the workspace up ahead of time (status, down)
 ankra dev install                        # shims so plain go test / golangci-lint / pnpm typecheck go to the workspace
 ankra canvas publish report.html         # an HTML, SVG or Markdown page at a public, unguessable URL (list, unpublish)
+ankra canvas library                     # the saved canvases you can see (get --content, create, update, delete, revisions, comments)
 ankra skills install                     # these skills plus the /ankra-* workflow commands, into every assistant found
 ankra skills install --with-hooks        # also ask before an assistant runs a cluster-mutating kubectl or helm
 ankra skills list

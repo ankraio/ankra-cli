@@ -310,6 +310,11 @@ ankra ai memories list ; ankra ai memories clear   # what the assistant remember
 ankra chat actions list <conversation-id>          # writes awaiting confirmation
 ankra chat actions confirm <action-id>
 ankra chat actions reject <action-id>
+
+ankra chat plans list <conversation-id>            # multi-step plans awaiting approval
+ankra chat plans get <plan-id>                     # the steps, their risk and whether each is reversible
+ankra chat plans approve <plan-id>                 # runs the steps; --acknowledge 2,4 names high-risk or irreversible ones
+ankra chat plans reject <plan-id> --reason "not now"
 ```
 
 Agent-mode chat **halts before every write** and proposes it as a pending action. Pending actions

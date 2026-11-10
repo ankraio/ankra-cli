@@ -229,6 +229,7 @@ type APIClient interface {
 	UpdateOrganisationDnsRecord(ctx context.Context, recordID, content string, ttl *int) (*client.DnsRecord, error)
 	DeleteOrganisationDnsRecord(ctx context.Context, recordID string) error
 
+	operationParityAPIClient
 	PublishCanvasPublication(ctx context.Context, request client.CanvasPublicationRequest) (*client.CanvasPublicationResult, error)
 	ListCanvasPublications(ctx context.Context, cursor string, limit int) (*client.CanvasPublicationsListResult, error)
 	UnpublishCanvasPublication(ctx context.Context, publicationID string) error
