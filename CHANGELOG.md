@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **A cluster whose create failed no longer reads as being created.** A failed create leaves the cluster's state at `creating` (or `provider_without_access`, `provider_access` or `kubernetes_access`), so `ankra cluster list` and `ankra cluster info` showed it as still being set up long after the create had stopped. When the platform reports that the setup stopped, the list now shows `creating (setup stopped)` and points at `ankra cluster info`, which names the operation it stopped at, its status, when it ended and its error, and the `ankra cluster operations list <id>` command that opens it. `-o json` and `-o yaml` keep the stored state and carry the platform's `setup_stopped` object (`execution_id`, `status`, `error_excerpt`, `stopped_at`). A cluster with a reconcile under way, which may be the retry that finishes the setup, is not marked. It needs a platform that sends `setup_stopped` (ankraio/cluster#6282); an older one leaves the output as before.
+
 ## v0.73.0 - 2026-11-09
 
 This release reads and exports the organisation's audit trail, manages alert definitions and

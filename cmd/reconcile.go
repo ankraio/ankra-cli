@@ -6,13 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"ankra/internal/client"
 
 	"github.com/jedib0t/go-pretty/v6/table"
-	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
 )
 
@@ -86,22 +84,19 @@ var clusterListCmd = &cobra.Command{
 			{Number: 8, WidthMin: 15},
 		})
 		for _, cluster := range clusters {
-			state := cluster.State
-			if strings.ToLower(state) == "online" {
-				state = text.FgGreen.Sprint(state)
-			}
 			t.AppendRow(table.Row{
 				cluster.Name,
 				cluster.Environment,
 				cluster.KubeVersion,
 				cluster.Nodes,
 				cluster.ControlPlanes,
-				state,
+				clusterStateCell(cluster),
 				cluster.Kind,
 				formatTimeAgo(cluster.CreatedAt),
 			})
 		}
 		t.Render()
+		printStoppedSetupHint(os.Stdout, clusters)
 		return nil
 	},
 }
@@ -151,7 +146,8 @@ If no cluster is given, shows details for the currently selected cluster.`,
 		fmt.Printf("  Name: %s\n", cluster.Name)
 		fmt.Printf("  Environment: %s\n", cluster.Environment)
 		fmt.Printf("  Kube Version: %s\n", cluster.KubeVersion)
-		fmt.Printf("  State: %s\n", cluster.State)
+		fmt.Printf("  State: %s\n", clusterStateText(cluster))
+		printStoppedSetup(os.Stdout, cluster)
 		fmt.Printf("  Control Planes: %d\n", cluster.ControlPlanes)
 		fmt.Printf("  Nodes: %d\n", cluster.Nodes)
 		fmt.Printf("  Kind: %s\n", cluster.Kind)
