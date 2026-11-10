@@ -187,15 +187,15 @@ func TestRetryFailedReconcile(t *testing.T) {
 		},
 		{
 			// A nudge reruns the blocked drain ("every retry would cordon the
-			// node and evict its other pods only to be blocked again"), and
-			// the platform clears a parked drain itself, so the wait neither
-			// nudges nor ends early: it goes on to its own timeout.
-			name:          "the newest reconcile parked a drain on a PodDisruptionBudget: no retry, keep waiting",
+			// node and evict its other pods only to be blocked again"), and the
+			// platform marks it permanent and does not retry it until the
+			// definition changes, so the wait cannot finish: fail it now.
+			name:          "the newest reconcile parked a drain on a PodDisruptionBudget: fail now, no retry",
 			list:          `[{"id":"exec-new","name":"reconcile","display_name":"Reconcile","status":"failed","attention_state":"open"}]`,
 			steps:         stepsFailedWith(parkedResizeDrain),
-			wantRC:        "rc=0",
+			wantRC:        "rc=1",
 			wantReconcile: 0,
-			wantLog:       []string{"reconcile parked at step uks_create_managed_k8s", "not nudging"},
+			wantLog:       []string{"parked a drain at step uks_create_managed_k8s", "not retrying"},
 		},
 		{
 			name:          "no failed reconcile: nothing to do",

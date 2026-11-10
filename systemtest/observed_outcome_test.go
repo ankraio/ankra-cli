@@ -376,9 +376,14 @@ func TestParkedUpgradeAndResizeFailTheirSteps(t *testing.T) {
 		hetznerNodes(t, createdVersion, "cpx22"))
 	run := runLane(t, files, nil, hetznerUpgradeAndResize(t))
 	run.wantResult(t, "hetzner/k3s k8s upgrade", "FAIL",
-		hetznerUpgradeOperation, "ended failed", "blocked by a PodDisruptionBudget")
+		hetznerUpgradeOperation, "ended failed", "blocked by a PodDisruptionBudget", "a parked drain, which the platform does not retry")
 	run.wantResult(t, "hetzner/k3s instance resize", "FAIL",
-		hetznerResizeOperation, "ended failed", "from cpx22 to cpx32 is parked")
+		hetznerResizeOperation, "ended failed", "from cpx22 to cpx32 is parked", "a parked drain, which the platform does not retry")
+	// The platform marks a parked drain permanent and does not retry it, so
+	// there is no retry to wait the step's timeout out for.
+	if strings.Contains(run.output, "waiting out the step's timeout") {
+		t.Errorf("a parked operation waited for a retry the platform never makes:\n%s", run.output)
+	}
 	if run.reconciles != 0 {
 		t.Fatalf("the steps started %d reconciles, want none", run.reconciles)
 	}
@@ -387,17 +392,13 @@ func TestParkedUpgradeAndResizeFailTheirSteps(t *testing.T) {
 // TestParkedAwsUpgradeFailsItsStep replays the AWS lane's step 6b: the
 // upgrade be3b5487 ended failed after 7 minutes while `cluster list` showed
 // the target at once. It must FAIL with the operation's error; on master it
-// PASSed "(cp+worker Ready)" one second after the submit. The operations
-// listing is the cluster's after the run, where reconciles created after the
-// failure (b93bbd7e onwards) succeeded: a later success alone is not the
-// platform's retry landing the upgrade while the kubelets stay behind.
+// PASSed "(cp+worker Ready)" one second after the submit.
 func TestParkedAwsUpgradeFailsItsStep(t *testing.T) {
 	step := laneStep(t, "  # 6b. Kubernetes upgrade", "  # 6c. Node-group autoscaling")
 	files := map[string]string{
 		"cluster-list":   clusterList(awsClusterName, upgradeTarget),
 		"upgrade-answer": upgradeAnswer("aws", awsClusterID, awsUpgradeOperation),
 		"operation-" + awsUpgradeOperation + ".json": testdataFile(t, "operation-be3b5487-aws-upgrade.json"),
-		"operations.json": testdataFile(t, "operations-aws-after-run.json"),
 		"nodes.json": nodesJSON(t,
 			fakeNode{name: "ip-10-0-13-201.eu-north-1.compute.internal", kubelet: createdVersion, instanceType: "t3.medium", controlPlane: true},
 			fakeNode{name: "ip-10-0-9-52.eu-north-1.compute.internal", kubelet: createdVersion, instanceType: "t3.medium", group: "default"}),
@@ -415,7 +416,7 @@ replay
 `)
 	run.wantResult(t, "aws/k3s k8s upgrade", "FAIL",
 		awsUpgradeOperation, "ended failed", "ip-10-0-9-52.eu-north-1.compute.internal is blocked by a PodDisruptionBudget",
-		"nothing landed it by the timeout", "="+createdVersion)
+		"a parked drain, which the platform does not retry")
 }
 
 // TestUpgradeAndResizePassOnlyOnWhatTheNodesShow: an operation that ended in

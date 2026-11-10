@@ -30,14 +30,19 @@ RECONCILE_RETRYABLE_4XX="${RECONCILE_RETRYABLE_4XX:-408 409 423 425 429}"
 # validation refusal - and "transient" otherwise. Timeouts and 5xx win over
 # everything but a parked drain, so an ambiguous excerpt keeps the retry.
 #
-# A parked drain is its own verdict. The platform parks it instead of
-# retrying it on a timer ("... is blocked by a PodDisruptionBudget, so its
-# upgrade is parked instead of retried on a timer"), and a nudged reconcile
-# only runs the same blocked drain again: one more failed production
-# execution per poll. Yet it is not a refusal that ends the wait at once: the
-# platform clears a parked drain itself once the budget allows it (the
-# 2026-11-09 upgrade and resize read attention_state "resolved" by a later
-# execution), so failing the wait on it would trade a nudge for a false FAIL.
+# A parked drain is a refusal a retry repeats, like a terminal one, with its
+# own name in the log. The platform parks it instead of retrying it ("... is
+# blocked by a PodDisruptionBudget, so its upgrade is parked instead of
+# retried on a timer"): the step fails marked permanent, which latches the
+# reconcile retry ladder until the definition changes (cluster
+# scheduler/go/internal/drainx/upgradepark.go, and
+# noderemediationjobs/resizepark.go for a resize), so the wait it holds up
+# cannot finish without a person. A nudge only runs the blocked drain again
+# ("every retry would cordon the node and evict its other pods only to be
+# blocked again"): one more failed production execution per poll. It is read
+# from the text: the CLI's step JSON carries no error_data, where the
+# platform records the parked marker. Should the wording change, the
+# classification falls back to transient, the behaviour before it existed.
 classify_step_error() {
   local lower code
   lower="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
@@ -113,8 +118,8 @@ RECONCILE_STEPS_JQ='
 #   parked<TAB><step><TAB><error>
 #                                the newest reconcile parked a node drain on
 #                                a PodDisruptionBudget: a retry repeats the
-#                                blocked drain, and the platform clears it
-#                                itself once the budget allows
+#                                blocked drain, and the platform does not
+#                                retry it until its definition changes
 #
 # A superseded failure is "none", not a reason to nudge: a reconcile has
 # started since it (or the platform resolved it), so the platform is already
@@ -168,13 +173,18 @@ reconcile_failure_verdict() {
 nudge_reconcile() { select_cluster "$1"; ank cluster reconcile >/dev/null 2>&1 || true; }
 
 # reconcile_refused <cluster name> <verdict>
-# Logs a terminal verdict and succeeds; fails for every other verdict.
+# Logs a terminal or parked verdict and succeeds; fails for every other one.
 reconcile_refused() {
   local step error
   case "$2" in
     terminal*)
       IFS=$'\t' read -r _ step error <<<"$2"
       log "  $1 reconcile failed at step $step on a refusal a retry repeats -> not retrying: $error"
+      return 0
+      ;;
+    parked*)
+      IFS=$'\t' read -r _ step error <<<"$2"
+      log "  $1 reconcile parked a drain at step $step, which a retry repeats and the platform does not retry -> not retrying: $error"
       return 0
       ;;
   esac
@@ -184,13 +194,11 @@ reconcile_refused() {
 # retry_failed_reconcile <cluster name> <log text for a retry>
 # Called from the wait loops on every poll. Nudges a new reconcile when the
 # newest one failed transiently and returns 0 (keep waiting). Returns 1 without
-# nudging when the newest reconcile failed on a terminal refusal, so the
-# caller fails the step now instead of re-running it until its timeout. A
-# drain parked on a PodDisruptionBudget is neither: no nudge (it would rerun
-# the blocked drain) and no early end (the platform clears it itself), so the
-# wait goes on to its own timeout, the parking logged once.
+# nudging when the newest reconcile failed on a terminal refusal or parked a
+# drain on a PodDisruptionBudget, so the caller fails the step now instead of
+# re-running it until its timeout.
 retry_failed_reconcile() {
-  local name="$1" retry_text="$2" verdict step error
+  local name="$1" retry_text="$2" verdict
   if [ -z "${RECONCILE_JQ_NOTED:-}" ] && ! command -v jq >/dev/null 2>&1; then
     RECONCILE_JQ_NOTED=1
     log "  note: jq is not installed, so a failed reconcile cannot be classified and every failure is retried"
@@ -199,16 +207,6 @@ retry_failed_reconcile() {
   if reconcile_refused "$name" "$verdict"; then
     return 1
   fi
-  case "$verdict" in
-    parked*)
-      if [ "${RECONCILE_PARKED_LOGGED:-}" != "$name $verdict" ]; then
-        RECONCILE_PARKED_LOGGED="$name $verdict"
-        IFS=$'\t' read -r _ step error <<<"$verdict"
-        log "  $name reconcile parked at step $step: $error -> not nudging (a retry repeats the blocked drain); waiting for the platform"
-      fi
-      return 0
-      ;;
-  esac
   if [ "$verdict" = transient ]; then
     log "  $name $retry_text -> retrying"
     nudge_reconcile "$name"

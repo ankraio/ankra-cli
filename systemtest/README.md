@@ -48,8 +48,10 @@ second of being submitted and then failed, parked on PodDisruptionBudgets
 - An operation that fails is not the end of it: the platform retries a
   transient failure in a new execution. The step waits out its timeout, and
   passes when the nodes show the change and a reconcile created since the
-  failure succeeded. A parked or failed operation that nothing lands by then
-  fails the step with the operation's own error.
+  failure succeeded. A failed operation that nothing lands by then fails the
+  step with the operation's own error. A node drain parked on a
+  PodDisruptionBudget fails it at once: the platform marks the park permanent
+  and does not retry it.
 
 Between 7 and 8 the opt-in **node-group autoscaling** step runs when
 `ANKRA_SYSTEMTEST_AUTOSCALING=1` (see below); otherwise it is recorded as a
@@ -220,10 +222,9 @@ it is "as real as possible". It tolerates the real behaviours of the platform:
   refused teardown reconcile does not end it either (a provider 404 on a
   resource already gone is one): it waits for the cluster to leave the list,
   and a teardown that stalls goes to the bounded force fallback. A node drain
-  the platform parked on a PodDisruptionBudget is never nudged either (a retry
-  only runs the blocked drain again) and does not end a wait early (the
-  platform clears it itself once the budget allows): the wait runs to its own
-  timeout
+  the platform parked on a PodDisruptionBudget fails a wait at once, like a
+  refused step: a retry only runs the blocked drain again, and the platform
+  does not retry it until the definition changes
 - the platform serialises writes (HTTP 409 while a reconcile runs, or a managed
   cluster reporting "not in a state that allows ...") → it waits and retries the
   day-2 operation

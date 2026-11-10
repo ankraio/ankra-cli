@@ -843,6 +843,8 @@ pick_upgrade_target() {
 # transient failure in a new execution, so the step waits out its timeout for
 # that retry to land the change (the nodes as above, and a reconcile since
 # the failure that succeeded) before it fails with the operation's own error.
+# A drain parked on a PodDisruptionBudget fails at once: the platform does not
+# retry it (classify_step_error).
 # All of it reads -o json with jq, which the workflow installs and the
 # preflight requires.
 
@@ -943,9 +945,9 @@ later_reconcile() {
 # change is not a failure (a red schedule for a transient is a false FAIL).
 # Waits until the deadline for both: the read (nodes_at_version or
 # group_resized, run with its arguments) answering ok, and a reconcile created
-# since the failed operation having succeeded. A parked or terminal failure
-# that nothing lands stays a failure. Sets NODES_VERDICT to the read's last
-# answer and RETRY_RECONCILE to the reconcile.
+# since the failed operation having succeeded. A failure that nothing lands
+# stays a failure. Sets NODES_VERDICT to the read's last answer and
+# RETRY_RECONCILE to the reconcile.
 await_platform_retry() {
   local id="$1" failed="$2" since="$3" deadline="$4" last=""
   shift 4
@@ -966,6 +968,24 @@ await_platform_retry() {
     [ "$(date +%s)" -lt "$deadline" ] || return 1
     sleep "$POLL_INTERVAL"
   done
+}
+
+# retry_hopeless: whether the operation wait_for_operation followed ended so
+# that no retry of the platform's can land it - it had not ended by the
+# timeout, or it parked a node drain on a PodDisruptionBudget, which the
+# platform marks permanent and does not retry until the definition changes
+# (classify_step_error) - and the step fails without waiting for one.
+# RETRY_HOPELESS says why, for the FAIL line.
+retry_hopeless() {
+  RETRY_HOPELESS=""
+  if [ -z "$OPERATION_ENDED" ]; then
+    return 0
+  fi
+  if [ "$(classify_step_error "$OPERATION_VERDICT")" = parked ]; then
+    RETRY_HOPELESS="; a parked drain, which the platform does not retry"
+    return 0
+  fi
+  return 1
 }
 
 # short_version <version>: major.minor.patch, without the leading "v" and any
@@ -1131,8 +1151,8 @@ wait_for_group_resized() {
 # assert_k8s_upgrade <label> <cluster name> <cluster id> <target> <node count>
 # Self-managed upgrade (k3s or kubeadm). PASS when the operation the write
 # names ended in success AND every one of the cluster's nodes runs a kubelet
-# at the target and is Ready - or, when it ended in failure, when the
-# platform's own retry landed it by the timeout (await_platform_retry). An
+# at the target and is Ready - or, when it ended in a failure the platform
+# retries, when that retry landed it by the timeout (await_platform_retry). An
 # answer that names no operation is judged by the kubelets alone, which are
 # what the upgrade is for.
 assert_k8s_upgrade() {
@@ -1144,11 +1164,12 @@ assert_k8s_upgrade() {
   deadline=$(( $(date +%s) + DAYTWO_TIMEOUT ))
   op="$(operation_id_in upgrade "$DAYTWO_OUT")"
   if [ -n "$op" ] && ! wait_for_operation "$op" "$DAYTWO_TIMEOUT"; then
-    if [ -n "$OPERATION_ENDED" ] \
-       && await_platform_retry "$id" "$op" "$OPERATION_CREATED" "$deadline" nodes_at_version "$id" "$target" "$count"; then
+    if retry_hopeless; then
+      fail "$label k8s upgrade -> $target: $OPERATION_VERDICT$RETRY_HOPELESS"
+    elif await_platform_retry "$id" "$op" "$OPERATION_CREATED" "$deadline" nodes_at_version "$id" "$target" "$count"; then
       pass "$label k8s upgrade -> $target (operation $op ended $OPERATION_ENDED, but the platform's retry landed it: reconcile $RETRY_RECONCILE succeeded; $count kubelets at $(short_version "$target"), all Ready)"
     else
-      fail "$label k8s upgrade -> $target: $OPERATION_VERDICT${OPERATION_ENDED:+; nothing landed it by the timeout (kubelets: ${NODES_VERDICT:-unreadable})}"
+      fail "$label k8s upgrade -> $target: $OPERATION_VERDICT; nothing landed it by the timeout (kubelets: ${NODES_VERDICT:-unreadable})"
     fi
     return
   fi
@@ -1164,8 +1185,8 @@ assert_k8s_upgrade() {
 # PASS when the operation the write names ended in success AND every node of
 # the group is Ready and shows the new type - its label where the platform
 # re-stamps it, its capacity elsewhere (resize_reading) - or, when the
-# operation ended in failure, when the platform's own retry landed it by the
-# timeout. The write runs with --wait: the platform then answers once it has
+# operation ended in a failure the platform retries, when that retry landed it
+# by the timeout. The write runs with --wait: the platform then answers once it has
 # recorded (or refused) the change, naming the operation that resizes the
 # nodes. An answer that names none is judged by the nodes alone. Nodes that
 # leave the type unreadable (no label at all, or no capacity from before the
@@ -1187,11 +1208,13 @@ assert_resize() {
   deadline=$(( $(date +%s) + DAYTWO_TIMEOUT ))
   op="$(operation_id_in resize "$DAYTWO_OUT")"
   if [ -n "$op" ] && ! wait_for_operation "$op" "$DAYTWO_TIMEOUT"; then
-    if [ -n "$OPERATION_ENDED" ] \
-       && await_platform_retry "$id" "$op" "$OPERATION_CREATED" "$deadline" group_resized "$id" "$group" "$plan" "$reading" "$before"; then
+    if retry_hopeless; then
+      fail "$label instance resize $group -> $plan: $OPERATION_VERDICT$RETRY_HOPELESS"
+      dump_node_group_state "$name" "$id" "$group"
+    elif await_platform_retry "$id" "$op" "$OPERATION_CREATED" "$deadline" group_resized "$id" "$group" "$plan" "$reading" "$before"; then
       pass "$label instance resize $group -> $plan (operation $op ended $OPERATION_ENDED, but the platform's retry landed it: reconcile $RETRY_RECONCILE succeeded; ${NODES_VERDICT#ok })"
     else
-      fail "$label instance resize $group -> $plan: $OPERATION_VERDICT${OPERATION_ENDED:+; nothing landed it by the timeout ($group nodes: ${NODES_VERDICT:-unreadable})}"
+      fail "$label instance resize $group -> $plan: $OPERATION_VERDICT; nothing landed it by the timeout ($group nodes: ${NODES_VERDICT:-unreadable})"
       dump_node_group_state "$name" "$id" "$group"
     fi
     return
