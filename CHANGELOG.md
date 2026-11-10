@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- **Add-on definitions and the add-on catalog.** `ankra helm addon-definitions list|get|create|update|delete` manage the organisation's add-on definitions: what an add-on is and which charts it matches by name, keyword or home URL prefix. `update` changes only the flags you pass, `delete` asks first, and Ankra's global definitions stay read-only. `link-chart` and `unlink-chart` add and remove the manual override for one chart in one registry (`--type include` or `exclude`). `ankra helm addon-catalog list|get` browse the organisation's charts grouped by add-on, with the clusters that run each.
+- **Data source credentials from the terminal.** `ankra credentials datasource list` shows the credentials a cluster's metrics source and log source name by `credential_name`, and `ankra credentials datasource create --name <name>` stores one: a bearer token or API key, or with `--username` a basic username and password. The secret is never an argument: pipe it with `--secret-stdin` or type it at a hidden prompt, and it is never printed back.
+- **Security evidence to Vanta, a Wazuh relay or a signed webhook.** `ankra security evidence destinations list|create|revoke` manage where evidence goes, and `ankra security evidence deliveries send|list|submit` capture a snapshot (the SBOM image inventory and, with `--framework`, that framework's report), follow its delivery and submit an uploaded Vanta document. A destination's credential comes from `--secret-stdin` or a hidden prompt, never from a flag; `revoke` deletes it and asks first. A submission that leaves the delivery uploaded exits 1 and shows why.
+- **The credentials managed services take as inputs.** `ankra services credentials list|get|create` manage credential families, `ankra services credentials values list|add` their versions, and `ankra services credentials grants list|issue|revoke` the references that bind a value to one input of one package version. `values add` needs `--first` or `--expected-value-id <id>`, so a repeated or stale command cannot replace a newer value, and takes the value from `--value-stdin` or a hidden prompt. No command shows a value.
+
 ## v0.73.0 - 2026-11-09
 
 This release reads and exports the organisation's audit trail, manages alert definitions and
