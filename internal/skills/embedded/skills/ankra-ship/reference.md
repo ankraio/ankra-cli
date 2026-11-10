@@ -319,8 +319,9 @@ All under `/api/v1/org/applications/{application_id}` with a bearer token (the s
 | Lane | Call | Body / answer |
 |---|---|---|
 | Auto-fix builds (default on) | `GET` / `PUT …/auto-fix-builds` | `{"enabled": false}` |
-| Rollback targets | `GET …/rollback-targets` | `targets[]` of `image_tag`, `pushed_at`, `is_current`; `not_reverted[]`; `auto_deploy_enabled`; browser session only |
-| Roll back | `POST …/rollbacks` | `{"cluster_id": "…", "image_tag": "sha-1a2b3c4"}`; holds until a newer build is observed |
+| Rollback targets | `GET …/rollback-targets?cluster_id=…` | `targets[]` of `image_tag`, `pushed_at`, `is_current`; `not_reverted[]`; `auto_deploy_enabled`. CLI: `ankra application rollback <application> --cluster <cluster>` |
+| Roll back | `POST …/rollbacks` | `{"cluster_id": "…", "image_tag": "sha-1a2b3c4"}`; holds until a newer build is observed. CLI: `ankra application rollback <application> --cluster <cluster> --to sha-1a2b3c4` |
+| Rollback history | `GET …/rollbacks?cluster_id=…` | `rollbacks[]`, newest first. CLI: `ankra application rollbacks <application> --cluster <cluster>` |
 | Promotion preview | `GET …/promotions/preview?source_environment_id=…&target_environment_id=…` | `state` (`ready`\|`already_current`\|`blocked`), `blocker` (`source_not_settled`, `target_follows_pushes`, `secrets_missing`, …), config differences, `fingerprint` |
 | Promote | `POST …/promotions` | `{"source_environment_id","target_environment_id","expected_fingerprint"}` — the fingerprint from the preview; the tag and only the tag moves |
 | Deploy runs | `GET …/deploy-runs`, `GET …/deploy-runs/{run_id}` | the journey phases `analyse` → `build` → `stacks` → `dns` → `certificate` → `serving` |

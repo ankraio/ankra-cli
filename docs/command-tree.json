@@ -165,6 +165,8 @@
     "ankra application remove",
     "ankra application rerun-workflow",
     "ankra application retry",
+    "ankra application rollback",
+    "ankra application rollbacks",
     "ankra application security-versions",
     "ankra application settings get",
     "ankra application settings set",

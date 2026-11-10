@@ -396,6 +396,18 @@ func (m baseMock) StartApplicationPromotion(requestContext context.Context, appl
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetApplicationRollbackTargets(requestContext context.Context, applicationID string, clusterID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListApplicationRollbacks(requestContext context.Context, applicationID string, clusterID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StartApplicationRollback(requestContext context.Context, applicationID string, clusterID string, imageTag string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }

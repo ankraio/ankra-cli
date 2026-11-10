@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **Roll an application back from the terminal.** `ankra application rollback <application> --cluster <cluster>` shows what the application's deployment on that cluster runs, the newest build, the image tags still in the registry it could go back to, and what a rollback does not undo (a migrated schema, data written since, changed secrets, stack edits). Add `--to <image-tag>` and it shows the same picture, asks, and puts that tag back; the platform confirms the tag is in the application's registry first and holds the rollback until a newer build is observed, so push-to-deploy does not undo it. A rollback is never started without `--to`: there is no "previous" default. `--yes` skips the question (`-o json|yaml` with `--to` needs it) and prints the rollback record; declining exits 4, a deployment the platform cannot roll back exits 8 with its reason, a tag the deployment already runs exits 0 with nothing changed, and a rollback the platform recorded as failed exits 1. `ankra application rollbacks <application> --cluster <cluster>` lists the rollbacks recorded for the deployment, newest first, which is what explains a deployment running an older build than the newest one. The cluster is named by name or id. Rolling back needs the `applications.deploy` permission, and a scoped token must carry that scope. The bundled `ankra-ship` skill now documents the command in place of redeploying the old tag by hand.
+
 ## v0.73.0 - 2026-11-09
 
 This release reads and exports the organisation's audit trail, manages alert definitions and
