@@ -442,6 +442,28 @@ func TestManagedUpgrade_PrintsTheOperationItStarted(t *testing.T) {
 	}
 }
 
+// An answer without an operation (a platform older than the field) says so
+// rather than leaving the operator looking for something to follow.
+func TestManagedUpgrade_SaysWhenTheAnswerNamesNoOperation(t *testing.T) {
+	mock := &managedClusterMock{upgradeResponse: &client.UpgradeManagedK8sVersionResponse{
+		ClusterID: testClusterID, Version: "1.33.1-do.0",
+	}}
+	resetConfirmFlag(t, managedUpgradeCmd)
+	out := captureStdout(t, func() {
+		_, err := runWithInput(t, mock, "",
+			"cluster", "managed", "upgrade", testClusterID, "--provider", "doks", "--version", "1.33.1-do.0", "--yes")
+		if err != nil {
+			t.Fatalf("execute failed: %v", err)
+		}
+	})
+	if !strings.Contains(out, "The platform's answer named no operation to follow.") {
+		t.Errorf("output does not say the answer named no operation:\n%s", out)
+	}
+	if strings.Contains(out, "Operation:") {
+		t.Errorf("output prints an operation line without an operation:\n%s", out)
+	}
+}
+
 func TestManagedStop_Success(t *testing.T) {
 	mock := &managedClusterMock{}
 	resetConfirmFlag(t, managedStopCmd)

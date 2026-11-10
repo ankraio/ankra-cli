@@ -3,10 +3,12 @@ package systemtest
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -485,6 +487,8 @@ func managedUpgradeAnswer(target, operation string) string {
 	answer := "Managed cluster " + managedClusterID + " upgrade to Kubernetes " + target + " started.\n"
 	if operation != "" {
 		answer += "Operation: " + operation + " (follow it with 'ankra cluster operations list " + operation + "')\n"
+	} else {
+		answer += "The platform's answer named no operation to follow.\n"
 	}
 	return answer
 }
@@ -768,6 +772,55 @@ func TestOperationIDIsReadFromTheWritesAnswer(t *testing.T) {
 			}
 			if got := strings.TrimSpace(string(out)); got != "id="+testCase.want {
 				t.Fatalf("operation_id_in %s (%q) = %q, want id=%s", testCase.command, testCase.answer, got, testCase.want)
+			}
+		})
+	}
+}
+
+// TestOperationIDIsReadFromWhatTheCLIPrints pins operation_id_in to the CLI's
+// own format strings, read from its source, rather than to copies of its
+// answers: a change to the wording of a line the steps follow would leave
+// them following no operation, so it must fail here, in the same pull request.
+func TestOperationIDIsReadFromWhatTheCLIPrints(t *testing.T) {
+	const operation = "0d7e7c1e-5d55-4c39-8f43-2a9b7c4f1e20"
+	cases := []struct {
+		command, source, format string
+		arguments               []any
+	}{
+		{"upgrade", "../cmd/cluster_upgrade.go", `"(  Operation: +%s\\n)"`, []any{operation}},
+		{"resize", "../cmd/node_group_write_output.go",
+			`"(Node group '%s' %s change recorded for %d node\(s\); the resize rolls out in operation %s\.\\n)"`,
+			[]any{"default", "instance type", 1, operation}},
+		{"managed-upgrade", "../cmd/cluster_managed.go", `"(Operation: %s \(follow it with [^"]*\\n)"`, []any{operation, operation}},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.command, func(t *testing.T) {
+			source, err := os.ReadFile(testCase.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := regexp.MustCompile(`fmt\.Printf\(` + testCase.format).FindSubmatch(source)
+			if found == nil {
+				t.Fatalf("%s no longer prints the line operation_id_in %s reads (%s): update operation_id_in with it",
+					testCase.source, testCase.command, testCase.format)
+			}
+			format, err := strconv.Unquote(`"` + string(found[1]) + `"`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			answer := "Preflight: operation 9f8e7d6c-5b4a-4f3e-8d2c-1b0a9f8e7d6c is still running.\n" + fmt.Sprintf(format, testCase.arguments...)
+			bash := requireBashAndJq(t)
+			dir := t.TempDir()
+			script := sourceableScript(t, dir)
+			command := exec.Command(bash, "-c", `. "$1"; trap - EXIT INT TERM; printf 'id=%s\n' "$(operation_id_in "$2" "$3")"`,
+				"lane", script, testCase.command, answer)
+			command.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "ANKRA_BIN=/nonexistent"}
+			out, err := command.CombinedOutput()
+			if err != nil {
+				t.Fatalf("operation_id_in: %v\n%s", err, out)
+			}
+			if got := strings.TrimSpace(string(out)); got != "id="+operation {
+				t.Fatalf("operation_id_in %s on the CLI's own line %q = %q, want id=%s", testCase.command, answer, got, operation)
 			}
 		})
 	}

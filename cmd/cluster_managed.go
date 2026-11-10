@@ -506,6 +506,11 @@ var managedUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 		fmt.Printf("Managed cluster %s upgrade to Kubernetes %s started.\n", result.ClusterID, result.Version)
 		if result.OperationID != "" {
 			fmt.Printf("Operation: %s (follow it with 'ankra cluster operations list %s')\n", result.OperationID, result.OperationID)
+		} else {
+			// Only a platform older than the operation_id field answers
+			// without one. The operation carries no cluster id, so no
+			// cluster's operations listing can stand in for it.
+			fmt.Println("The platform's answer named no operation to follow.")
 		}
 		return nil
 	},

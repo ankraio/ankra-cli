@@ -60,6 +60,10 @@ func TestClassifyStepError(t *testing.T) {
 		{"parked resize drain", parkedResizeDrain, "parked"},
 		{"parked wins over a timeout word", "draining node w-0 timed out: blocked by a PodDisruptionBudget, so its upgrade is parked", "parked"},
 		{"parked without a drain is not a parked drain", "the cluster is parked by its power schedule", "transient"},
+		// The verdict is read from the platform's wording (the CLI's step
+		// JSON carries no error_data): a drain refusal worded without
+		// "parked" falls back to transient, the behaviour before it existed.
+		{"a drain refusal that does not say parked falls back", "draining node w-0 is blocked by a PodDisruptionBudget", "transient"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
