@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- **See and set who runs an application.** `ankra application autonomy get <application>` shows, for each environment, whether you run it, you and Ankra run it together, or Ankra runs it, and the areas that differ. `ankra application autonomy set` changes the application's layer, or one environment's with `--environment`: it starts from the stored layer, changes only the level, areas and limits you name, and sends what it read as the expected state, so a layer someone else changed in between is refused with a 409 instead of overwritten. `ankra application autonomy pause|resume|pause-status` stop and restart what Ankra does unasked for one application without touching any level.
+- **The unattended application switches.** `ankra application auto-fix-builds get|set` opts an application out of automatic build fixing (or back in), `ankra application setup-auto-merge get|set` says whether Ankra may merge its setup pull requests on its own (`--follow-organisation` clears the application's own answer), and `ankra application database-backup set` turns the database backup default that `ankra application backups` reads on or off. Each `set` takes an explicit `--enabled` or `--enabled=false`.
+- **Price a change before making it.** `ankra application cost-estimate <application> --change replicas|resources|park|promote|new_environment|database` answers the monthly change to the application's cost, what it costs today, and how sure the figure is; a change that cannot be priced says why instead of answering zero.
+- **The pipeline approvals inbox, policy, caches and workspace profiles.** `ankra pipeline authority list|get|dismiss` works the requests a run raises when its definition asks for protected settings nobody approved: `get` prints what is asked against the approved authority with the command that approves it, and `dismiss --reason` declines it (confirms; needs pipelines.manage and a human). `ankra pipeline policy get|set` reads and changes the organisation's pipeline ceiling (network tiers, credentials, runtime classes, maximum CPU, memory, cache and GPU; node selectors and tolerations through `-f`), and `set` confirms first. `ankra pipeline caches` lists the cache volumes a pipeline keeps between runs and when each lapses. `ankra pipeline workspace-profiles get|put` reads a repository's workspace profiles whole, services, setup and tools included, and replaces them from a file.
+
 ## v0.73.0 - 2026-11-09
 
 This release reads and exports the organisation's audit trail, manages alert definitions and
