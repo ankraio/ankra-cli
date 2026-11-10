@@ -325,17 +325,20 @@ var backupVaultPollInterval = 5 * time.Second
 // uses it only to decide whether to prompt for Hetzner's Object Storage
 // keys, the platform decides everything else.
 var provisionableBackupVaultProviders = map[string]bool{
-	"hetzner": true, "upcloud": true, "digitalocean": true, "scaleway": true,
+	"hetzner": true, "upcloud": true, "digitalocean": true, "scaleway": true, "ankracloud": true,
 }
 
 // backupVaultDefaultRegions is the region each provider gets when none was
 // given - the same defaults the dashboard opens with. A provider absent
-// here has no safe default and asks for --region.
+// here has no safe default and asks for --region. For Ankra Cloud the
+// region is a zone id (se-sto1, fr-lil1, nl-ams1): the platform enables
+// object storage in that zone and uses the endpoint it answers.
 var backupVaultDefaultRegions = map[string]string{
 	"hetzner":      "fsn1",
 	"upcloud":      "europe-1",
 	"digitalocean": "fra1",
 	"scaleway":     "fr-par",
+	"ankracloud":   "se-sto1",
 }
 
 // defaultBackupVaultName is the name a vault gets when none was given:
@@ -380,7 +383,7 @@ func selectProvisionCredential(reference string) (client.Credential, error) {
 	}
 	if len(candidates) == 0 {
 		return client.Credential{}, errors.New(
-			"this organisation has no Hetzner, UpCloud, DigitalOcean or Scaleway credential to provision a bucket from; " +
+			"this organisation has no Hetzner, UpCloud, DigitalOcean, Scaleway or Ankra Cloud credential to provision a bucket from; " +
 				"add one under credentials, or register a bucket you own with 'ankra backup vaults create'")
 	}
 	described := make([]string, 0, len(candidates))
@@ -461,8 +464,8 @@ var backupVaultsProvisionCmd = &cobra.Command{
 	Use:   "provision [name]",
 	Short: "Create a backup vault by letting Ankra provision the bucket from a provider credential",
 	Long: `Create a backup vault and let Ankra create the bucket for it, using one of
-the organisation's provider credentials (Hetzner, UpCloud, DigitalOcean or
-Scaleway). Ankra creates the bucket, mints or stores the access keys,
+the organisation's provider credentials (Hetzner, UpCloud, DigitalOcean,
+Scaleway or Ankra Cloud). Ankra creates the bucket, mints or stores the access keys,
 verifies the bucket and registers the vault; the vault shows "provisioning"
 until that finishes.
 
@@ -474,12 +477,15 @@ prints what it chose before it creates anything.
 Hetzner alone needs its Object Storage key pair passed in (or prompted for):
 Hetzner issues those in the Cloud Console (Object Storage > Manage
 credentials) and its Cloud API cannot mint them. The other providers need
-nothing beyond the credential.
+nothing beyond the credential. On Ankra Cloud the region is a zone (se-sto1,
+fr-lil1, nl-ams1): Ankra enables object storage in that zone, and on a
+single-node zone the bucket name gets the account's bucket prefix in front.
 
 Examples:
   ankra backup vaults provision
   ankra backup vaults provision offsite --credential upcloud-main --region europe-1 --wait
-  ankra backup vaults provision offsite --credential hetzner-main --region fsn1`,
+  ankra backup vaults provision offsite --credential hetzner-main --region fsn1
+  ankra backup vaults provision offsite --credential ankracloud-main --region se-sto1 --wait`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		credentialReference, _ := cmd.Flags().GetString("credential")
@@ -494,7 +500,7 @@ Examples:
 		}
 		if !provisionableBackupVaultProviders[credential.Provider] {
 			return fmt.Errorf("credential %q is a %s credential; Ankra can provision buckets from hetzner, upcloud, "+
-				"digitalocean and scaleway credentials - use 'ankra backup vaults create' to register a bucket you own",
+				"digitalocean, scaleway and ankracloud credentials - use 'ankra backup vaults create' to register a bucket you own",
 				credentialReference, credential.Provider)
 		}
 		name := ""
@@ -693,7 +699,7 @@ func init() {
 	backupVaultsProvisionCmd.Flags().String("credential", "",
 		"Provider credential (name or id) Ankra creates the bucket with (default: the only one it can provision from)")
 	backupVaultsProvisionCmd.Flags().String("region", "",
-		"Provider region for the bucket (default: that provider's usual one - fsn1, europe-1, fra1, fr-par)")
+		"Provider region for the bucket; the zone for Ankra Cloud (default: that provider's usual one - fsn1, europe-1, fra1, fr-par, se-sto1)")
 	backupVaultsProvisionCmd.Flags().String("bucket", "", "Bucket name (default: a unique name derived from the vault name)")
 	backupVaultsProvisionCmd.Flags().String("access-key-id", "", "Hetzner Object Storage access key (Hetzner only; prompted for when omitted)")
 	backupVaultsProvisionCmd.Flags().String("secret-access-key", "", "Hetzner Object Storage secret key (Hetzner only; prompted for hidden when omitted)")
