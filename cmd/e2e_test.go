@@ -902,6 +902,106 @@ func (m baseMock) GetClusterIaC(ctx context.Context, clusterID string) (string, 
 	return "", errors.New("not implemented")
 }
 
+func (m baseMock) ListHelmAddonDefinitions(context.Context) ([]client.HelmAddonDefinition, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetHelmAddonDefinition(context.Context, string) (*client.HelmAddonDefinitionDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateHelmAddonDefinition(context.Context, client.HelmAddonDefinitionWrite) (*client.HelmAddonDefinition, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateHelmAddonDefinition(context.Context, string, client.HelmAddonDefinitionWrite) (*client.HelmAddonDefinition, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteHelmAddonDefinition(context.Context, string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) LinkHelmAddonChart(context.Context, string, client.HelmAddonChartLinkRequest) (*client.HelmAddonChartLink, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UnlinkHelmAddonChart(context.Context, string, client.HelmAddonChartLinkRequest) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) ListHelmAddonCatalog(context.Context, client.HelmAddonCatalogOptions) (*client.HelmAddonCatalogPage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetHelmAddonCatalogEntry(context.Context, string) (*client.HelmAddonCatalogDetail, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListDatasourceCredentials(context.Context) ([]client.Credential, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateDatasourceCredential(context.Context, client.CreateDatasourceCredentialRequest) (*client.CreateDatasourceCredentialResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListSecurityEvidenceDestinations(context.Context) ([]client.SecurityEvidenceDestination, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateSecurityEvidenceDestination(context.Context, client.CreateSecurityEvidenceDestinationRequest) (*client.SecurityEvidenceDestination, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RevokeSecurityEvidenceDestination(context.Context, string) (*client.SecurityEvidenceDestination, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListSecurityEvidenceDeliveries(context.Context, string, int) ([]client.SecurityEvidenceDelivery, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SendSecurityEvidence(context.Context, client.SendSecurityEvidenceRequest) (*client.SecurityEvidenceDelivery, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SubmitSecurityEvidenceDelivery(context.Context, string) (*client.SecurityEvidenceDelivery, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListServiceCredentialFamilies(context.Context, client.ServicePageOptions) (*client.ServiceCredentialFamilyPage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateServiceCredentialFamily(context.Context, string) (*client.ServiceCredentialFamily, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetServiceCredentialFamily(context.Context, string) (*client.ServiceCredentialFamily, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListServiceCredentialValues(context.Context, string, client.ServicePageOptions) (*client.ServiceCredentialValuePage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AddServiceCredentialValue(context.Context, string, string, *string) (*client.ServiceCredentialRotation, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListServiceCredentialGrants(context.Context, string, client.ServicePageOptions) (*client.ServiceCredentialGrantPage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) IssueServiceCredentialGrant(context.Context, client.IssueServiceCredentialGrantRequest) (*client.ServiceCredentialGrant, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RevokeServiceCredentialGrant(context.Context, string) error {
+	return errors.New("not implemented")
+}
+
 func (m baseMock) PatchClusterStackPartial(ctx context.Context, clusterID, stackName string, body client.PatchStackRequest) (*client.PatchStackResult, error) {
 	return nil, errors.New("not implemented")
 }

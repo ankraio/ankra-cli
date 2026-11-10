@@ -199,6 +199,31 @@ type APIClient interface {
 	ExecuteDecision(decisionID string, options client.DecisionExecuteOptions) (*client.DecisionProposal, error)
 
 	GetClusterIaC(ctx context.Context, clusterID string) (string, error)
+	ListHelmAddonDefinitions(ctx context.Context) ([]client.HelmAddonDefinition, error)
+	GetHelmAddonDefinition(ctx context.Context, definitionName string) (*client.HelmAddonDefinitionDetail, error)
+	CreateHelmAddonDefinition(ctx context.Context, definition client.HelmAddonDefinitionWrite) (*client.HelmAddonDefinition, error)
+	UpdateHelmAddonDefinition(ctx context.Context, definitionName string, definition client.HelmAddonDefinitionWrite) (*client.HelmAddonDefinition, error)
+	DeleteHelmAddonDefinition(ctx context.Context, definitionName string) error
+	LinkHelmAddonChart(ctx context.Context, definitionName string, link client.HelmAddonChartLinkRequest) (*client.HelmAddonChartLink, error)
+	UnlinkHelmAddonChart(ctx context.Context, definitionName string, link client.HelmAddonChartLinkRequest) error
+	ListHelmAddonCatalog(ctx context.Context, options client.HelmAddonCatalogOptions) (*client.HelmAddonCatalogPage, error)
+	GetHelmAddonCatalogEntry(ctx context.Context, definitionName string) (*client.HelmAddonCatalogDetail, error)
+	ListDatasourceCredentials(ctx context.Context) ([]client.Credential, error)
+	CreateDatasourceCredential(ctx context.Context, request client.CreateDatasourceCredentialRequest) (*client.CreateDatasourceCredentialResult, error)
+	ListSecurityEvidenceDestinations(ctx context.Context) ([]client.SecurityEvidenceDestination, error)
+	CreateSecurityEvidenceDestination(ctx context.Context, request client.CreateSecurityEvidenceDestinationRequest) (*client.SecurityEvidenceDestination, error)
+	RevokeSecurityEvidenceDestination(ctx context.Context, destinationID string) (*client.SecurityEvidenceDestination, error)
+	ListSecurityEvidenceDeliveries(ctx context.Context, destinationID string, limit int) ([]client.SecurityEvidenceDelivery, error)
+	SendSecurityEvidence(ctx context.Context, request client.SendSecurityEvidenceRequest) (*client.SecurityEvidenceDelivery, error)
+	SubmitSecurityEvidenceDelivery(ctx context.Context, deliveryID string) (*client.SecurityEvidenceDelivery, error)
+	ListServiceCredentialFamilies(ctx context.Context, options client.ServicePageOptions) (*client.ServiceCredentialFamilyPage, error)
+	CreateServiceCredentialFamily(ctx context.Context, name string) (*client.ServiceCredentialFamily, error)
+	GetServiceCredentialFamily(ctx context.Context, familyID string) (*client.ServiceCredentialFamily, error)
+	ListServiceCredentialValues(ctx context.Context, familyID string, options client.ServicePageOptions) (*client.ServiceCredentialValuePage, error)
+	AddServiceCredentialValue(ctx context.Context, familyID string, value string, expectedValueID *string) (*client.ServiceCredentialRotation, error)
+	ListServiceCredentialGrants(ctx context.Context, familyID string, options client.ServicePageOptions) (*client.ServiceCredentialGrantPage, error)
+	IssueServiceCredentialGrant(ctx context.Context, request client.IssueServiceCredentialGrantRequest) (*client.ServiceCredentialGrant, error)
+	RevokeServiceCredentialGrant(ctx context.Context, grantID string) error
 	PatchClusterStackPartial(ctx context.Context, clusterID, stackName string, body client.PatchStackRequest) (*client.PatchStackResult, error)
 
 	GetSopsConfig() (*client.SopsConfigResult, error)
