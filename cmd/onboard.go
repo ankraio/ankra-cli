@@ -237,7 +237,7 @@ func (run *onboardRun) greet() {
 	}
 	if run.events != nil {
 		run.events.emit("onboarding_start",
-			"Ankra onboarding has started. If the user already has an Ankra account, they should sign in with the same method they used before (GitHub, Google or email): a different method can create a separate, empty account.",
+			"Ankra onboarding has started. If the user already has an Ankra account, any sign-in method with the same verified email address reaches it (GitHub, Google or email): Ankra links the method to the existing account. A different email address creates a new account.",
 			"",
 			onboardValue("version", version),
 			onboardValue("agent", run.agent))
@@ -339,8 +339,8 @@ func (run *onboardRun) signInInteractively() (bool, error) {
 	if isSignup {
 		_, _ = fmt.Fprintln(out, "Opening your browser to create your free Ankra account. If it does not open, visit:")
 	} else {
-		_, _ = fmt.Fprintln(out, "Opening your browser to sign in. Use the same method you signed up with (GitHub, Google or")
-		_, _ = fmt.Fprintln(out, "email): a different one can create a separate, empty account. If the browser does not open, visit:")
+		_, _ = fmt.Fprintln(out, "Opening your browser to sign in. GitHub, Google or email all reach your account when they use")
+		_, _ = fmt.Fprintln(out, "the same verified email address. If the browser does not open, visit:")
 	}
 	_, _ = fmt.Fprintln(out)
 	_, _ = fmt.Fprintf(out, "  %s\n", session.AuthURL)
