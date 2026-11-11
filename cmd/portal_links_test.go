@@ -14,7 +14,7 @@ import (
 
 const (
 	portalTestOrganisationID = "0c0ffee0-0000-4000-8000-000000000001"
-	portalTestClusterPrefix  = "/organisation/clusters/cluster/imported/" + testClusterID
+	portalTestClusterPrefix  = "/next/clusters/" + testClusterID
 )
 
 func writeSelectedClusterWithOrganisation(t *testing.T) {
@@ -51,56 +51,94 @@ func portalURLSuffix(t *testing.T, link string) string {
 	return strings.TrimPrefix(link, base)
 }
 
+// TestPortalURLBuilders pins every page the CLI links, one row per target,
+// to its /next address. The Classic portal at the root (/organisation/...)
+// is being retired (ankra-t5jf5.6.15); no row may produce a Classic path.
 func TestPortalURLBuilders(t *testing.T) {
 	originalBaseURL := baseURL
 	t.Cleanup(func() { baseURL = originalBaseURL })
 	baseURL = "https://portal.example.test/"
 
 	cluster := client.ClusterListItem{ID: "cluster-1", OrganisationID: "organisation-1"}
-	cases := map[string]struct{ got, want string }{
-		"cluster": {
-			portalClusterURL(cluster),
-			"https://portal.example.test/organisation/clusters/cluster/imported/cluster-1/overview?org=organisation-1",
-		},
-		"stack": {
-			portalStackURL(cluster, "platform-secrets"),
-			"https://portal.example.test/organisation/clusters/cluster/imported/cluster-1/stacks/platform-secrets/edit?org=organisation-1",
-		},
-		"manifest in a stack": {
-			portalStackMemberURL(cluster, "platform-secrets", portalStackMemberManifest, "hub-secrets"),
-			"https://portal.example.test/organisation/clusters/cluster/imported/cluster-1/stacks/platform-secrets/edit" +
-				"?activeSubTab=configuration&activeTab=manifest%3Ahub-secrets&org=organisation-1",
-		},
-		"add-on in a stack": {
-			portalStackMemberURL(cluster, "monitoring", portalStackMemberAddon, "grafana"),
-			"https://portal.example.test/organisation/clusters/cluster/imported/cluster-1/stacks/monitoring/edit" +
-				"?activeSubTab=configuration&activeTab=addon%3Agrafana&org=organisation-1",
-		},
-		"add-on page": {
-			portalAddonURL(cluster, "grafana"),
-			"https://portal.example.test/organisation/clusters/cluster/imported/cluster-1/add-ons/add-on/grafana?org=organisation-1",
-		},
-		"name that needs escaping": {
-			portalStackURL(cluster, "my stack/one"),
-			"https://portal.example.test/organisation/clusters/cluster/imported/cluster-1/stacks/my%20stack%2Fone/edit?org=organisation-1",
-		},
-		"no organisation leaves the marker off": {
-			portalClusterURL(client.ClusterListItem{ID: "cluster-1"}),
-			"https://portal.example.test/organisation/clusters/cluster/imported/cluster-1/overview",
-		},
-		"no cluster id gives no link":    {portalClusterURL(client.ClusterListItem{}), ""},
-		"no stack name gives no link":    {portalStackURL(cluster, ""), ""},
-		"no member name gives no link":   {portalStackMemberURL(cluster, "monitoring", portalStackMemberAddon, ""), ""},
-		"no add-on name gives no link":   {portalAddonURL(cluster, ""), ""},
-		"member needs a cluster id too":  {portalStackMemberURL(client.ClusterListItem{}, "monitoring", portalStackMemberAddon, "grafana"), ""},
-		"add-on page needs a cluster id": {portalAddonURL(client.ClusterListItem{}, "grafana"), ""},
+	for _, testCase := range []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"cluster overview", portalClusterURL(cluster),
+			"https://portal.example.test/next/clusters/cluster-1?org=organisation-1"},
+		{"stack editor", portalStackURL(cluster, "platform-secrets"),
+			"https://portal.example.test/next/clusters/cluster-1/stacks/platform-secrets?org=organisation-1"},
+		{"manifest selected in its stack", portalStackMemberURL(cluster, "platform-secrets", portalStackMemberManifest, "hub-secrets"),
+			"https://portal.example.test/next/clusters/cluster-1/stacks/platform-secrets?kind=manifest&member=hub-secrets&org=organisation-1"},
+		{"add-on selected in its stack", portalStackMemberURL(cluster, "monitoring", portalStackMemberAddon, "grafana"),
+			"https://portal.example.test/next/clusters/cluster-1/stacks/monitoring?kind=addon&member=grafana&org=organisation-1"},
+		{"add-on page", portalAddonURL(cluster, "grafana", "monitoring"),
+			"https://portal.example.test/next/clusters/cluster-1/addons/grafana?namespace=monitoring&org=organisation-1"},
+		{"add-on page without a namespace", portalAddonURL(cluster, "grafana", ""),
+			"https://portal.example.test/next/clusters/cluster-1/addons/grafana?org=organisation-1"},
+		{"pod terminal", portalPodURL(cluster, "payments", "debug-api-7f3a", portalPodViewExec),
+			"https://portal.example.test/next/clusters/cluster-1/kubernetes/pods/payments/debug-api-7f3a?org=organisation-1&view=exec"},
+		{"pod overview", portalPodURL(cluster, "payments", "api-0", ""),
+			"https://portal.example.test/next/clusters/cluster-1/kubernetes/pods/payments/api-0?org=organisation-1"},
+		{"organisation billing", portalOrganisationPageURL("organisation-1", "organisation", "billing"),
+			"https://portal.example.test/next/organisation/billing?org=organisation-1"},
+		{"profile authentication", portalPageURL("account", "security"),
+			"https://portal.example.test/next/account/security"},
+		{"AI agent runs", portalPageURL("ai", "agent-runs"),
+			"https://portal.example.test/next/ai/agent-runs"},
+		{"name that needs escaping", portalStackURL(cluster, "my stack/one"),
+			"https://portal.example.test/next/clusters/cluster-1/stacks/my%20stack%2Fone?org=organisation-1"},
+		{"no organisation leaves the marker off", portalClusterURL(client.ClusterListItem{ID: "cluster-1"}),
+			"https://portal.example.test/next/clusters/cluster-1"},
+		{"no cluster id gives no link", portalClusterURL(client.ClusterListItem{}), ""},
+		{"no stack name gives no link", portalStackURL(cluster, ""), ""},
+		{"no member name gives no link", portalStackMemberURL(cluster, "monitoring", portalStackMemberAddon, ""), ""},
+		{"no add-on name gives no link", portalAddonURL(cluster, "", "monitoring"), ""},
+		{"member needs a cluster id too", portalStackMemberURL(client.ClusterListItem{}, "monitoring", portalStackMemberAddon, "grafana"), ""},
+		{"add-on page needs a cluster id", portalAddonURL(client.ClusterListItem{}, "grafana", ""), ""},
+		{"pod needs a cluster id", portalPodURL(client.ClusterListItem{}, "payments", "api-0", portalPodViewExec), ""},
+		{"pod needs a namespace", portalPodURL(cluster, "", "api-0", portalPodViewExec), ""},
+		{"pod needs a name", portalPodURL(cluster, "payments", "", portalPodViewExec), ""},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if testCase.got != testCase.want {
+				t.Errorf("\n got  %s\n want %s", testCase.got, testCase.want)
+			}
+			if strings.Contains(testCase.got, "/organisation/clusters") || strings.Contains(testCase.got, "activeTab") {
+				t.Errorf("a Classic path or parameter reached the link: %s", testCase.got)
+			}
+		})
 	}
-	for name, testCase := range cases {
-		if testCase.got != testCase.want {
-			t.Errorf("%s:\n got  %s\n want %s", name, testCase.got, testCase.want)
-		}
-	}
+}
 
+// portalProjectMock is an invocation scoped to a project (--project).
+type portalProjectMock struct {
+	baseMock
+	projectID string
+}
+
+func (m *portalProjectMock) ProjectOverride() string { return m.projectID }
+
+// The project this invocation acts in rides along on a project-scoped page
+// and stays off an organisation-level one, where a ?project= for another
+// project would stop on a switch offer before showing the page.
+func TestPortalURLCarriesTheProjectOnlyOnProjectScopedPages(t *testing.T) {
+	originalBaseURL := baseURL
+	t.Cleanup(func() { baseURL = originalBaseURL })
+	baseURL = "https://portal.example.test"
+	setMockClient(t, &portalProjectMock{projectID: "project-1"})
+
+	cluster := client.ClusterListItem{ID: "cluster-1", OrganisationID: "organisation-1"}
+	if got, want := portalClusterURL(cluster), "https://portal.example.test/next/clusters/cluster-1?org=organisation-1&project=project-1"; got != want {
+		t.Errorf("cluster link:\n got  %s\n want %s", got, want)
+	}
+	if got, want := portalOrganisationPageURL("organisation-1", "organisation", "billing"), "https://portal.example.test/next/organisation/billing?org=organisation-1"; got != want {
+		t.Errorf("billing link:\n got  %s\n want %s", got, want)
+	}
+	if got, want := portalPageURL("account", "security"), "https://portal.example.test/next/account/security"; got != want {
+		t.Errorf("account link:\n got  %s\n want %s", got, want)
+	}
 }
 
 func TestPortalBaseURLIsSchemeAndHostOnly(t *testing.T) {
@@ -125,14 +163,14 @@ func TestPortalBaseURLIsSchemeAndHostOnly(t *testing.T) {
 	}
 
 	baseURL = "https://portal.example.test/prefix/api"
-	want := "https://portal.example.test/organisation/clusters/cluster/imported/cluster-1/overview"
+	want := "https://portal.example.test/next/clusters/cluster-1"
 	if got := portalClusterURL(client.ClusterListItem{ID: "cluster-1"}); got != want {
 		t.Errorf("a path on the API address leaked into the link:\n got  %s\n want %s", got, want)
 	}
 }
 
 func TestPortalURLLeavesTheCallersQueryAlone(t *testing.T) {
-	query := url.Values{"activeTab": {"manifest:rules"}}
+	query := url.Values{"member": {"rules"}}
 
 	link := portalURL("organisation-1", query, "clusters")
 
@@ -189,7 +227,7 @@ func TestClusterListJSONCarriesPortalURL(t *testing.T) {
 		t.Fatalf("expected one cluster, got %d", len(clusters))
 	}
 	link, _ := clusters[0]["portal_url"].(string)
-	if want := portalTestClusterPrefix + "/overview?org=" + portalTestOrganisationID; portalURLSuffix(t, link) != want {
+	if want := portalTestClusterPrefix + "?org=" + portalTestOrganisationID; portalURLSuffix(t, link) != want {
 		t.Errorf("portal_url = %s, want suffix %s", link, want)
 	}
 }
@@ -201,7 +239,7 @@ func TestClusterInfoPrintsPortalLine(t *testing.T) {
 
 	output := runPortalLinkCommand(t, clusterInfoCmd, "cluster", "info", "production")
 
-	if want := "Portal: " + portalBaseURL() + portalTestClusterPrefix + "/overview?org=" + portalTestOrganisationID; !strings.Contains(output, want) {
+	if want := "Portal: " + portalBaseURL() + portalTestClusterPrefix + "?org=" + portalTestOrganisationID; !strings.Contains(output, want) {
 		t.Errorf("expected %q in the detail view, got:\n%s", want, output)
 	}
 }
@@ -224,12 +262,12 @@ func TestClusterStacksListJSONLinksStackAndMembers(t *testing.T) {
 	if len(stacks) != 1 || len(stacks[0].Manifests) != 1 || len(stacks[0].Addons) != 1 {
 		t.Fatalf("unexpected shape: %s", output)
 	}
-	editPath := portalTestClusterPrefix + "/stacks/platform-secrets/edit"
+	editPath := portalTestClusterPrefix + "/stacks/platform-secrets"
 	organisation := "org=" + portalTestOrganisationID
 	for name, pair := range map[string][2]string{
 		"stack":    {stacks[0].PortalURL, editPath + "?" + organisation},
-		"manifest": {stacks[0].Manifests[0].PortalURL, editPath + "?activeSubTab=configuration&activeTab=manifest%3Ahub-secrets&" + organisation},
-		"add-on":   {stacks[0].Addons[0].PortalURL, editPath + "?activeSubTab=configuration&activeTab=addon%3Aexternal-secrets&" + organisation},
+		"manifest": {stacks[0].Manifests[0].PortalURL, editPath + "?kind=manifest&member=hub-secrets&" + organisation},
+		"add-on":   {stacks[0].Addons[0].PortalURL, editPath + "?kind=addon&member=external-secrets&" + organisation},
 	} {
 		if got := portalURLSuffix(t, pair[0]); got != pair[1] {
 			t.Errorf("%s portal_url suffix = %s, want %s", name, got, pair[1])
@@ -243,7 +281,7 @@ func TestClusterStacksListDetailPrintsPortalLine(t *testing.T) {
 
 	output := runPortalLinkCommand(t, clusterStacksListCmd, "cluster", "stacks", "list", "platform-secrets")
 
-	if want := portalTestClusterPrefix + "/stacks/platform-secrets/edit?org=" + portalTestOrganisationID; !strings.Contains(output, "Portal:") || !strings.Contains(output, want) {
+	if want := portalTestClusterPrefix + "/stacks/platform-secrets?org=" + portalTestOrganisationID; !strings.Contains(output, "Portal:") || !strings.Contains(output, want) {
 		t.Errorf("expected a Portal line ending %q, got:\n%s", want, output)
 	}
 }
@@ -266,7 +304,7 @@ func TestClusterManifestsListJSONLinksOnlyManifestsInAStack(t *testing.T) {
 		t.Fatalf("expected two manifests, got %d", len(manifests))
 	}
 	link, _ := manifests[0]["portal_url"].(string)
-	want := portalTestClusterPrefix + "/stacks/platform-secrets/edit?activeSubTab=configuration&activeTab=manifest%3Ahub-secrets&org=" + portalTestOrganisationID
+	want := portalTestClusterPrefix + "/stacks/platform-secrets?kind=manifest&member=hub-secrets&org=" + portalTestOrganisationID
 	if got := portalURLSuffix(t, link); got != want {
 		t.Errorf("portal_url suffix = %s, want %s", got, want)
 	}
@@ -277,11 +315,11 @@ func TestClusterManifestsListJSONLinksOnlyManifestsInAStack(t *testing.T) {
 
 func TestClusterAddonsListYAMLCarriesPortalURL(t *testing.T) {
 	writeSelectedClusterWithOrganisation(t)
-	setMockClient(t, &clusterAddonsListMock{addons: []client.ClusterAddonListItem{{Name: "grafana", ChartName: "grafana"}}})
+	setMockClient(t, &clusterAddonsListMock{addons: []client.ClusterAddonListItem{{Name: "grafana", ChartName: "grafana", Namespace: "monitoring"}}})
 
 	output := runPortalLinkCommand(t, clusterAddonsListCmd, "cluster", "addons", "list", "-o", "yaml")
 
-	want := "portal_url: " + portalBaseURL() + portalTestClusterPrefix + "/add-ons/add-on/grafana?org=" + portalTestOrganisationID
+	want := "portal_url: " + portalBaseURL() + portalTestClusterPrefix + "/addons/grafana?namespace=monitoring&org=" + portalTestOrganisationID
 	if !strings.Contains(output, want) {
 		t.Errorf("expected %q in the YAML output, got:\n%s", want, output)
 	}
@@ -315,11 +353,11 @@ func TestCreateLinkCarriesTheOrganisation(t *testing.T) {
 		want string
 	}{
 		{name: "request organisation", mock: &createLinkMock{organisationID: portalTestOrganisationID},
-			want: "/organisation/clusters/cluster/imported/hz-cluster-123/overview?org=" + portalTestOrganisationID},
+			want: "/next/clusters/hz-cluster-123?org=" + portalTestOrganisationID},
 		{name: "cluster record organisation", mock: &createLinkMock{recordOrganisationID: portalTestOrganisationID},
-			want: "/organisation/clusters/cluster/imported/hz-cluster-123/overview?org=" + portalTestOrganisationID},
+			want: "/next/clusters/hz-cluster-123?org=" + portalTestOrganisationID},
 		{name: "organisation unknown", mock: &createLinkMock{},
-			want: "/organisation/clusters/cluster/imported/hz-cluster-123/overview\n"},
+			want: "/next/clusters/hz-cluster-123\n"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			resetTreeFlags(t, hetznerCreateCmd)

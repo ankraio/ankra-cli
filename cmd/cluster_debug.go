@@ -146,7 +146,7 @@ Examples:
 		if handled, renderError := renderStructured(cmd, created); handled || renderError != nil {
 			return renderError
 		}
-		renderDebugPodCreated(cmd, cluster.ID, created)
+		renderDebugPodCreated(cmd, cluster, created)
 		if !attach {
 			return nil
 		}
@@ -164,7 +164,7 @@ Examples:
 	},
 }
 
-func renderDebugPodCreated(cmd *cobra.Command, clusterID string, created *client.DebugPodResponse) {
+func renderDebugPodCreated(cmd *cobra.Command, cluster client.ClusterListItem, created *client.DebugPodResponse) {
 	out := cmd.OutOrStdout()
 	state := "created"
 	if created.Ready {
@@ -189,16 +189,9 @@ func renderDebugPodCreated(cmd *cobra.Command, clusterID string, created *client
 	for _, warning := range created.Warnings {
 		_, _ = fmt.Fprintf(out, "  %s %s\n", text.FgYellow.Sprint("!"), warning)
 	}
-	_, _ = fmt.Fprintf(out, "\nOpen a terminal in the portal (every session is recorded to the audit log):\n  %s\n",
-		debugPodTerminalPath(clusterID, created.Namespace, created.PodName))
-}
-
-// debugPodTerminalPath is the portal page the CLI hands over to, as a path
-// under the portal's own host: an interactive terminal from the CLI itself
-// is a later piece.
-func debugPodTerminalPath(clusterID string, namespace string, podName string) string {
-	return "/organisation/clusters/cluster/imported/" + clusterID +
-		"/kubernetes/workloads/pods/" + namespace + "/" + podName + "?activeTab=terminal"
+	if link := portalPodURL(cluster, created.Namespace, created.PodName, portalPodViewExec); link != "" {
+		_, _ = fmt.Fprintf(out, "\nOpen a terminal in the portal (every session is recorded to the audit log):\n  %s\n", link)
+	}
 }
 
 var clusterDebugListCmd = &cobra.Command{

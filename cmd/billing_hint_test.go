@@ -45,7 +45,7 @@ func TestBillingRestrictedHint_NamesTheBillingPageOfTheSelectedOrganisation(t *t
 	if err := saveSelectedOrganisation(SelectedOrganisation{OrganisationID: "org 1"}); err != nil {
 		t.Fatalf("saveSelectedOrganisation: %v", err)
 	}
-	want := "Add credit in the portal under Billing: https://platform.example.test/organisation/org%201/billing"
+	want := "Add credit in the portal under Billing: https://platform.example.test/next/organisation/billing?org=org+1"
 	if got := billingRestrictedHint(); got != want {
 		t.Errorf("billingRestrictedHint() = %q, want %q", got, want)
 	}
@@ -58,7 +58,7 @@ func TestBillingRestrictedHint_PrefersTheOrgOverride(t *testing.T) {
 	if err := saveSelectedOrganisation(SelectedOrganisation{OrganisationID: "org-selected"}); err != nil {
 		t.Fatalf("saveSelectedOrganisation: %v", err)
 	}
-	if got := billingRestrictedHint(); !strings.HasSuffix(got, "/organisation/org-override/billing") {
+	if got := billingRestrictedHint(); !strings.HasSuffix(got, "/next/organisation/billing?org=org-override") {
 		t.Errorf("billingRestrictedHint() = %q, want the --org organisation's page", got)
 	}
 }
