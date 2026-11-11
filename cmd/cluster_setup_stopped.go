@@ -56,7 +56,7 @@ func printStoppedSetupHint(out io.Writer, clusters []client.ClusterListItem) {
 	if stoppedCount > 1 {
 		subject = fmt.Sprintf("%d clusters", stoppedCount)
 	}
-	fmt.Fprintf(out, "Setup stopped on %s: `ankra cluster info <name>` shows the operation it stopped at and its error.\n", subject)
+	_, _ = fmt.Fprintf(out, "Setup stopped on %s: `ankra cluster info <name>` shows the operation it stopped at and its error.\n", subject)
 }
 
 // printStoppedSetup prints the operation a cluster's setup stopped at, for
@@ -71,10 +71,10 @@ func printStoppedSetup(out io.Writer, cluster client.ClusterListItem) {
 	if stopped.StoppedAt != nil && strings.TrimSpace(*stopped.StoppedAt) != "" {
 		ended = " " + formatTimeAgo(*stopped.StoppedAt)
 	}
-	fmt.Fprintf(out, "  Setup stopped: operation %s %s%s\n", stopped.ExecutionID, stopped.Status, ended)
+	_, _ = fmt.Fprintf(out, "  Setup stopped: operation %s %s%s\n", stopped.ExecutionID, stopped.Status, ended)
 	if stopped.ErrorExcerpt != nil && strings.TrimSpace(*stopped.ErrorExcerpt) != "" {
 		errorLines := strings.Split(strings.TrimSpace(*stopped.ErrorExcerpt), "\n")
-		fmt.Fprintf(out, "    Error: %s\n", strings.Join(errorLines, "\n           "))
+		_, _ = fmt.Fprintf(out, "    Error: %s\n", strings.Join(errorLines, "\n           "))
 	}
-	fmt.Fprintf(out, "    Details: ankra cluster operations list %s\n", stopped.ExecutionID)
+	_, _ = fmt.Fprintf(out, "    Details: ankra cluster operations list %s\n", stopped.ExecutionID)
 }
