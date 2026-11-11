@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Added
+
+- **One line from nothing to a working setup: `curl -fsSL https://ankra.ai/install | sh`.** The install script now runs `ankra onboard` once the CLI is in place, so a new user signs up and a returning user signs in through the browser without a second command. On Windows the same is `irm https://ankra.ai/install.ps1 | iex`: a new PowerShell script, published with each release next to `install.sh`, that verifies the checksum, installs `ankra.exe` into `%LOCALAPPDATA%\Programs\ankra` and adds it to the user `PATH`. Skip the onboarding with `sh -s -- --no-onboard` (or `ANKRA_NO_ONBOARD=1`).
+- **`ankra onboard` sets up only what an account still needs.** It signs you up or in through the browser, picks the organisation (asking when there are several), offers a free playground cluster when the organisation has none and waits for it to be ready, and installs the Ankra skills for the coding agents on the machine (and offers the MCP connection to Claude Code). Run again, it skips every step that is already done. `--signup` and `--login` answer the account question up front, `--yes` accepts the offers, and `--no-playground` and `--no-agent-setup` skip them.
+- **Coding agents can onboard a user.** `ankra onboard --json` prints one JSON event per step (`login_url`, `signed_in`, `organisation`, `playground_offer`, `playground_status`, `agent_setup`, `done`, `error` and others), each with an `instruction` saying what to tell or ask the user and, when there is one, the `next_command` to run. Without a terminal it never prompts: it prints the sign-in link and exits, and `ankra onboard --wait --json` collects the session once the user has approved it. The pending sign-in is kept in `~/.ankra/onboard-login.json` (readable only by you), so rerunning the command hands out the same link until it expires instead of breaking the one the user already opened; `--new` starts over, and a link that expires before it is approved exits 5.
+- **`ankra login --signup` and a code to compare.** `ankra login --signup` opens the sign-up page for a new account. On a platform that issues one, `ankra login` and `ankra onboard` print a short code that the browser shows too, so you can check the approval page belongs to your terminal.
+
+### Changed
+
+- **The install script never asks and never uses `sudo`.** It is now POSIX `sh`, so `curl ... | sh` works where `sh` is dash (Debian, Ubuntu). It installs next to an `ankra` you already have when it can write there, else into `/usr/local/bin` when that is writable, else into `~/.ankra/bin`, which it adds to `PATH` in your shell's startup files inside a block marked `ankra installer` (a rerun replaces the block rather than adding another) and links from `~/.local/bin/ankra`. It replaces the binary atomically, names an older copy elsewhere on `PATH` that would run instead, and leaves a Homebrew-managed `ankra` alone. `--install-dir`, `--no-modify-path` and `--version` (and `ANKRA_INSTALL_DIR`, `ANKRA_NO_MODIFY_PATH`, `ANKRA_VERSION`) adjust it.
+- **The install script refuses a release it cannot verify.** A missing or malformed `.sha256` file used to be a warning and the binary was installed anyway; now the script stops without installing, as it already did on a mismatch.
+
+### Fixed
+
+- **The install script no longer stops at a question nobody can answer.** Run through a pipe with `ankra` already installed, it asked "Do you want to reinstall?" and read the answer from the script itself, so `curl ... | bash` ended without installing. It now reinstalls without asking.
+
 ## v0.74.0 - 2026-11-11
 
 This release moves one key of a Secret running in a cluster into an organisation secret
