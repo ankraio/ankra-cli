@@ -280,6 +280,9 @@ ankra security dispositions preview --occurrence <id> --disposition accepted_ris
 ankra security dispositions create --occurrence <id> --disposition acknowledged --reason "..." --expires-at 2026-12-31
 ankra security dispositions update <policy-id> --expires-at 2027-03-31
 ankra security dispositions revoke <policy-id> --reason "fix rolled out"
+ankra security code-dispositions list --application <app>            # Semgrep and Checkov findings the image gate no longer blocks on
+ankra security code-dispositions create --application <app> --tool semgrep --rule <rule-id> --path <file> --disposition false_positive --reason "..."
+ankra security code-dispositions revoke <disposition-id> --reason "fixed in the code" --yes
 ```
 
 Software bill of materials and licences:
@@ -319,6 +322,11 @@ ankra security evidence destinations revoke <destination-id> --yes   # deletes i
 ankra security evidence deliveries send --destination <destination-id> --framework iso27001 --month 2026-10
 ankra security evidence deliveries list --destination <destination-id>
 ankra security evidence deliveries submit <delivery-id>              # Vanta only: an uploaded draft is not submitted
+ankra security finding rebuild-plan <finding-id>   # the base-image bump pull requests a finding would get; a read
+ankra security remediations start <finding-id> --yes   # open or reuse the fix pull requests and follow each to a verified rescan
+ankra security remediations list ; ankra security remediations get <run-id>   # "uncertain" never means clean
+ankra security remediations cancel <run-id> --yes  # stop following a run; its pull request stays
+ankra security finding rebuild <finding-id> --yes  # open the pull requests only, without a run
 ```
 
 An evidence destination's credential (a webhook signing secret, a Wazuh bearer token, a Vanta

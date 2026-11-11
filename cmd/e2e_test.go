@@ -6303,3 +6303,75 @@ func (m baseMock) GetProfileRuntimeQualification(context.Context, string) (*clie
 func (m baseMock) CancelProfileRuntimeQualification(context.Context, string) (*client.ProfileRuntimeQualification, error) {
 	return nil, nil
 }
+
+func (m baseMock) ListSecurityRemediations(ctx context.Context, options client.SecurityRemediationsOptions) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetSecurityRemediation(ctx context.Context, runID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StartSecurityRemediations(ctx context.Context, findingID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CancelSecurityRemediation(ctx context.Context, runID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetSecurityFindingRebuildPlan(ctx context.Context, findingID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RebuildSecurityFinding(ctx context.Context, findingID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListSecurityCodeDispositions(ctx context.Context, options client.SecurityCodeDispositionsOptions) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateSecurityCodeDisposition(ctx context.Context, request client.SecurityCodeDispositionRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PreviewSecurityCodeDisposition(ctx context.Context, request client.SecurityCodeDispositionRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RevokeSecurityCodeDisposition(ctx context.Context, dispositionID string, reason string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListCostRateCards(ctx context.Context) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetCostRateCard(ctx context.Context, request client.CostRateCardRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteCostRateCard(ctx context.Context, credentialID string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) ResolveCloudWasteFinding(ctx context.Context, findingID string, request client.CloudWasteResolveRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ResolveCloudWasteBatch(ctx context.Context, request client.CloudWasteResolveRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetResolvedCloudWaste(ctx context.Context, days int) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetClusterCostEstimate(ctx context.Context, clusterID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) EstimateClusterCost(ctx context.Context, clusterID string, draft map[string]any) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
