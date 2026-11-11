@@ -124,10 +124,10 @@ func (m *portalProjectMock) ProjectOverride() string { return m.projectID }
 // and stays off an organisation-level one, where a ?project= for another
 // project would stop on a switch offer before showing the page.
 func TestPortalURLCarriesTheProjectOnlyOnProjectScopedPages(t *testing.T) {
-	originalBaseURL := baseURL
-	t.Cleanup(func() { baseURL = originalBaseURL })
-	baseURL = "https://portal.example.test"
+	// setMockClient points baseURL at its own test host, so the base is set
+	// after it; its cleanup restores the original.
 	setMockClient(t, &portalProjectMock{projectID: "project-1"})
+	baseURL = "https://portal.example.test"
 
 	cluster := client.ClusterListItem{ID: "cluster-1", OrganisationID: "organisation-1"}
 	if got, want := portalClusterURL(cluster), "https://portal.example.test/next/clusters/cluster-1?org=organisation-1&project=project-1"; got != want {
