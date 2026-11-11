@@ -10,8 +10,9 @@ import (
 )
 
 // stream is a trimmed `go test -json` run: a passing package with one slow,
-// one fast and one parallel test, a package whose test failed, and a package
-// that timed out with TestHang still running.
+// one fast and one parallel test and one whose subtests are parallel, a
+// package whose test failed, and a package that timed out with TestHang
+// still running.
 const stream = `{"Action":"start","Package":"ex/a"}
 {"Action":"run","Package":"ex/a","Test":"TestSlow"}
 {"Action":"output","Package":"ex/a","Test":"TestSlow","Output":"=== RUN   TestSlow\n"}
@@ -25,8 +26,14 @@ const stream = `{"Action":"start","Package":"ex/a"}
 {"Action":"pause","Package":"ex/a","Test":"TestPar"}
 {"Action":"cont","Package":"ex/a","Test":"TestPar"}
 {"Action":"pass","Package":"ex/a","Test":"TestPar","Elapsed":0.05}
-{"Action":"output","Package":"ex/a","Output":"ok  \tex/a\t2.600s\n"}
-{"Action":"pass","Package":"ex/a","Elapsed":2.6}
+{"Time":"2026-11-11T12:00:00Z","Action":"run","Package":"ex/a","Test":"TestRows"}
+{"Time":"2026-11-11T12:00:00.1Z","Action":"run","Package":"ex/a","Test":"TestRows/one"}
+{"Action":"pause","Package":"ex/a","Test":"TestRows/one"}
+{"Action":"cont","Package":"ex/a","Test":"TestRows/one"}
+{"Time":"2026-11-11T12:00:03Z","Action":"pass","Package":"ex/a","Test":"TestRows/one","Elapsed":2.9}
+{"Time":"2026-11-11T12:00:03Z","Action":"pass","Package":"ex/a","Test":"TestRows","Elapsed":0}
+{"Action":"output","Package":"ex/a","Output":"ok  \tex/a\t5.600s\n"}
+{"Action":"pass","Package":"ex/a","Elapsed":5.6}
 {"ImportPath":"ex/b","Action":"build-output","Output":"# ex/b\n"}
 {"Action":"run","Package":"ex/b","Test":"TestBroken"}
 {"Action":"output","Package":"ex/b","Test":"TestBroken","Output":"    b_test.go:9: want 1, got 2\n"}
@@ -51,7 +58,7 @@ func TestFilterKeepsFailuresAndResultsOnly(t *testing.T) {
 	got := out.String()
 	for _, want := range []string{
 		"go: downloading x\n",
-		"ok  \tex/a\t2.600s\n",
+		"ok  \tex/a\t5.600s\n",
 		"# ex/b\n",
 		"    b_test.go:9: want 1, got 2\n--- FAIL: TestBroken (0.20s)\n",
 		"FAIL\tex/b\t0.300s\n",
@@ -79,8 +86,8 @@ func TestCollectCountsTopLevelTests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rep.Tests) != 5 {
-		t.Fatalf("want 5 top-level results (subtests excluded), got %d: %+v", len(rep.Tests), rep.Tests)
+	if len(rep.Tests) != 6 {
+		t.Fatalf("want 6 top-level results (subtests excluded), got %d: %+v", len(rep.Tests), rep.Tests)
 	}
 	if first := rep.Tests[0]; first.Test != "TestDone" || first.Elapsed != 12*time.Second {
 		t.Errorf("slowest test = %+v, want TestDone at 12s", first)
@@ -94,8 +101,15 @@ func TestCollectCountsTopLevelTests(t *testing.T) {
 			a = p
 		}
 	}
-	if a.Tests != 3 || a.Parallel != 1 || a.TestTime != 2552*time.Millisecond || a.Elapsed != 2600*time.Millisecond {
-		t.Errorf("ex/a = %+v, want 3 tests, 1 parallel, 2.552s of test time in 2.6s", a)
+	if a.Tests != 4 || a.Parallel != 1 || a.TestTime != 5552*time.Millisecond || a.Elapsed != 5600*time.Millisecond {
+		t.Errorf("ex/a = %+v, want 4 tests, 1 parallel, 5.552s of test time in 5.6s", a)
+	}
+	// go test reports TestRows as 0s; it held the package for 3s while its
+	// parallel subtest ran.
+	for _, result := range rep.Tests {
+		if result.Test == "TestRows" && result.Elapsed != 3*time.Second {
+			t.Errorf("TestRows = %s, want the 3s from its run to its result", result.Elapsed)
+		}
 	}
 	if len(rep.Unfinished) != 1 || rep.Unfinished[0].Test != "TestHang" {
 		t.Errorf("unfinished = %+v, want TestHang", rep.Unfinished)
@@ -132,19 +146,19 @@ func TestSummaryWritesTextAndMarkdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := out.String()
-	for _, want := range []string{"Slowest 2 top-level tests:", "12.00s  pass  ex/c TestDone", "2.50s  pass  ex/a TestSlow", "ex/c TestHang"} {
+	for _, want := range []string{"Slowest 2 top-level tests:", "12.00s  pass  ex/c TestDone", "3.00s  pass  ex/a TestRows", "ex/c TestHang"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("text summary lacks %q:\n%s", want, text)
 		}
 	}
-	if strings.Contains(text, "TestBroken") {
+	if strings.Contains(text, "TestSlow") {
 		t.Errorf("-top 2 listed a third test:\n%s", text)
 	}
 	written, err := os.ReadFile(md)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"| `ex/a` | pass | 2.60s | 3 | 1 | 2.55s |", "| 12.00s | pass | `ex/c` | `TestDone` |", "- `ex/c` `TestHang`"} {
+	for _, want := range []string{"| `ex/a` | pass | 5.60s | 4 | 1 | 5.55s |", "| 12.00s | pass | `ex/c` | `TestDone` |", "- `ex/c` `TestHang`"} {
 		if !strings.Contains(string(written), want) {
 			t.Errorf("markdown summary lacks %q:\n%s", want, written)
 		}

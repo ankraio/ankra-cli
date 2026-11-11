@@ -39,6 +39,7 @@ import (
 // event is one line of `go test -json` (cmd/test2json), including the build
 // events `go test -json` emits since Go 1.24.
 type event struct {
+	Time       time.Time
 	Action     string
 	Package    string
 	ImportPath string
@@ -197,6 +198,10 @@ type testResult struct {
 	Package string
 	Test    string
 	Result  string
+	// Elapsed is the time the test held the package. For a test that ran
+	// on its own that includes its parallel subtests, which go test leaves
+	// out of the test's own duration (a parent whose subtests all call
+	// t.Parallel reports 0s).
 	Elapsed time.Duration
 }
 
@@ -207,8 +212,8 @@ type packageResult struct {
 	// Tests counts top-level tests; Parallel those that called t.Parallel.
 	Tests    int
 	Parallel int
-	// TestTime sums the top-level tests' own durations. Close to Elapsed
-	// means the package runs its tests one after another.
+	// TestTime sums the top-level tests' durations. Close to Elapsed means
+	// the package runs its tests one after another.
 	TestTime time.Duration
 }
 
@@ -238,6 +243,7 @@ func collect(r io.Reader) (report, error) {
 		return p
 	}
 	running := map[key]bool{}
+	started := map[key]time.Time{}
 	paused := map[key]bool{}
 	var rep report
 	err := decode(r, func(e event) {
@@ -260,16 +266,22 @@ func collect(r io.Reader) (report, error) {
 		switch e.Action {
 		case "run":
 			running[k] = true
+			started[k] = e.Time
 		case "pause":
 			paused[k] = true
 		case "pass", "fail", "skip":
 			delete(running, k)
 			p.Tests++
+			elapsed := seconds(e.Elapsed)
 			if paused[k] {
 				p.Parallel++
+			} else if start := started[k]; !start.IsZero() && !e.Time.IsZero() && e.Time.Sub(start) > elapsed {
+				// A test that did not pause held the package from its run
+				// event to its result, its parallel subtests included.
+				elapsed = e.Time.Sub(start)
 			}
-			p.TestTime += seconds(e.Elapsed)
-			rep.Tests = append(rep.Tests, testResult{Package: e.Package, Test: e.Test, Result: e.Action, Elapsed: seconds(e.Elapsed)})
+			p.TestTime += elapsed
+			rep.Tests = append(rep.Tests, testResult{Package: e.Package, Test: e.Test, Result: e.Action, Elapsed: elapsed})
 		}
 	}, func(string) {})
 	for _, name := range packageOrder {
