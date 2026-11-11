@@ -339,7 +339,9 @@ note_other_copies() {
 		fi
 		[ -n "$directory" ] || continue
 		candidate="$directory/ankra"
-		[ -f "$candidate" ] && [ -x "$candidate" ] || continue
+		if [ ! -f "$candidate" ] || [ ! -x "$candidate" ]; then
+			continue
+		fi
 		[ "$(resolve_path "$candidate")" != "$installed" ] || continue
 		if is_homebrew_managed "$candidate"; then
 			advice="remove it with: brew uninstall ankra"
