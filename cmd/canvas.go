@@ -38,7 +38,7 @@ var canvasSupportedLanguages = []string{"html", "svg", "markdown"}
 
 var canvasCmd = &cobra.Command{
 	Use:   "canvas",
-	Short: "Publish canvas pages at a public, unguessable URL",
+	Short: "Publish canvas pages at a public, unguessable URL, and work with saved canvases",
 	Long: `Publish an HTML, SVG or Markdown file as a static page on the Ankra pages
 host, list the pages your organisation has published, and unpublish them.
 
@@ -48,7 +48,15 @@ host, list the pages your organisation has published, and unpublish them.
 
 Anyone holding the URL can open the page, so publish nothing you would not
 hand to that audience. Pages are static snapshots, expire after a retention
-period (--ttl-hours) and can be unpublished at any time.`,
+period (--ttl-hours) and can be unpublished at any time.
+
+The saved canvases behind the portal's canvas pages are a separate library:
+'library' lists them, 'get', 'create', 'update' and 'delete' work on one, and
+'revisions' and 'comments' read its history and its comment threads.
+
+  ankra canvas library
+  ankra canvas get 3f0a2f7e-0000-4000-8000-000000000001 --content > report.html
+  ankra canvas comments list 3f0a2f7e-0000-4000-8000-000000000001`,
 }
 
 var canvasPublishCmd = &cobra.Command{

@@ -49,6 +49,7 @@ func newApplicationCommand() *cobra.Command {
 	applicationCommand.AddCommand(newApplicationPreviewsCommand())
 	applicationCommand.AddCommand(newApplicationImportCommand())
 	applicationCommand.AddCommand(newApplicationDataMigrationCommand())
+	applicationCommand.AddCommand(newApplicationTimelineCommand(), newApplicationLaunchPlanCommand())
 	registerApplicationResourceCommands(applicationCommand)
 	return applicationCommand
 }
