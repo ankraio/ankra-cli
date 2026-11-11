@@ -88,6 +88,10 @@ func (c *Client) AdoptSecretSlot(ctx context.Context, request SecretSlotAdoptReq
 			return nil, unavailable
 		}
 	}
+	// A 403 that carries no permission body and a 503 that is not the
+	// agent envelope leave the switch on purpose: like every other status
+	// they get the platform's detail sentence, or the unexpected-response
+	// error when there is none.
 	if detail := mcpDetailFromBody(body); detail != "" {
 		return nil, newBackendDetailError(response.StatusCode, detail)
 	}
