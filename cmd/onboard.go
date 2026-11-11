@@ -602,6 +602,17 @@ func (run *onboardRun) confirmYes(question string) bool {
 func (run *onboardRun) offerPlayground() {
 	listing, listError := apiClient.ListClusters(1, 1)
 	if listError != nil {
+		// Not fatal: the rest of onboarding does not depend on it. The event
+		// keeps a --json caller from missing the step.
+		run.note("Clusters: could not be checked")
+		if run.events != nil {
+			run.events.emit("clusters",
+				"Could not check whether the organisation has clusters ("+listError.Error()+"), so no playground was offered. "+
+					"Onboarding continues; run next_command later to see the clusters.",
+				"ankra cluster list",
+				onboardValue("error", listError.Error()))
+			return
+		}
 		_, _ = fmt.Fprintf(run.errOut, "Warning: could not check the organisation's clusters: %v\n", listError)
 		return
 	}

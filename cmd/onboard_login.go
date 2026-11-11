@@ -34,6 +34,7 @@ type onboardPendingLogin struct {
 	CodeVerifier string    `json:"code_verifier"`
 	AuthURL      string    `json:"auth_url"`
 	UserCode     string    `json:"user_code,omitempty"`
+	Signup       bool      `json:"signup,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 	ExpiresAt    time.Time `json:"expires_at"`
 }
@@ -132,6 +133,12 @@ func (run *onboardRun) signInWithLink() (bool, error) {
 		// Expired and nobody is waiting on it: hand out a new link.
 		pending = nil
 	}
+	if pending != nil && !run.flags.wait && (run.flags.signup || run.flags.login) && pending.Signup != run.flags.signup {
+		// An explicit --signup or --login that the saved link was not started
+		// with: hand out a link that opens the page asked for. With --wait the
+		// saved link stays, because it is the one the person already has.
+		pending = nil
+	}
 
 	isFresh := false
 	if pending == nil {
@@ -147,6 +154,7 @@ func (run *onboardRun) signInWithLink() (bool, error) {
 			CodeVerifier: session.CodeVerifier,
 			AuthURL:      session.AuthURL,
 			UserCode:     session.UserCode,
+			Signup:       run.flags.signup,
 			CreatedAt:    now,
 			ExpiresAt:    now.Add(onboardPendingLoginLifetime),
 		}

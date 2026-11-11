@@ -91,6 +91,7 @@ type onboardMock struct {
 	creates        int
 	statuses       []client.PlaygroundStatus
 	statusRequests int
+	clustersError  error
 }
 
 func (m *onboardMock) ListOrganisations() ([]client.OrganisationSummary, error) {
@@ -105,6 +106,9 @@ func (m *onboardMock) SwitchOrganisation(organisationID string) (*client.SwitchO
 func (m *onboardMock) SetOrganisationOverride(organisationID string) { m.override = organisationID }
 
 func (m *onboardMock) ListClusters(int, int) (*client.ClusterListResponse, error) {
+	if m.clustersError != nil {
+		return nil, m.clustersError
+	}
 	response := &client.ClusterListResponse{Pagination: client.Pagination{TotalCount: m.clusters}}
 	if m.clusters > 0 {
 		response.Result = []client.ClusterListItem{{ID: "cluster-1", Name: "prod"}}
@@ -372,6 +376,47 @@ func TestOnboardRerunReusesThePendingLink(t *testing.T) {
 	}
 	if inits := platform.inits(); len(inits) != 1 {
 		t.Fatalf("the rerun must not start a second sign-in, init requests = %d", len(inits))
+	}
+}
+
+// An explicit --signup or --login the saved link was not started with gets a
+// link that opens the page asked for; --wait keeps the link the person has.
+func TestOnboardExplicitAccountChoiceReplacesADifferentPendingLink(t *testing.T) {
+	home := setUpOnboardTest(t, &onboardMock{})
+	platform := newOnboardFakePlatform(t, "")
+
+	if _, _, runError := executeOnboard(t, "", "--json", "--signup"); runError != nil {
+		t.Fatal(runError)
+	}
+	if pending, _ := readPendingLogin(t, home); !pending.Signup {
+		t.Fatal("the pending sign-in must remember it was started for a new account")
+	}
+	if _, _, runError := executeOnboard(t, "", "--json", "--signup"); runError != nil {
+		t.Fatal(runError)
+	}
+	if inits := platform.inits(); len(inits) != 1 {
+		t.Fatalf("the same choice must reuse the link, init requests = %d", len(inits))
+	}
+	stdout, _, runError := executeOnboard(t, "", "--json", "--login")
+	if runError != nil {
+		t.Fatal(runError)
+	}
+	link := findOnboardEvent(t, parseOnboardEvents(t, stdout), "login_url")
+	if link["reused"] != false || link["url"] != "https://auth.example.test/authorize?ticket=2" {
+		t.Fatalf("--login after a sign-up link must hand out a new link, got %v", link)
+	}
+	inits := platform.inits()
+	if len(inits) != 2 || inits[1].Has("screen_hint") {
+		t.Fatalf("the --login link must not ask for the sign-up screen, init queries = %v", inits)
+	}
+	if pending, _ := readPendingLogin(t, home); pending.Signup || pending.Ticket != "ticket-2" {
+		t.Fatalf("the file must hold the sign-in link, got %+v", pending)
+	}
+	if _, _, runError := executeOnboard(t, "", "--json"); runError != nil {
+		t.Fatal(runError)
+	}
+	if inits := platform.inits(); len(inits) != 2 {
+		t.Fatalf("without a choice any pending link is reused, init requests = %d", len(inits))
 	}
 }
 
@@ -690,6 +735,31 @@ func TestOnboardOffersAPlaygroundWithoutClusters(t *testing.T) {
 	}
 	if mock.creates != 0 {
 		t.Fatal("without --yes an agent run only offers the playground")
+	}
+}
+
+// A cluster list that fails does not stop onboarding, and a --json caller
+// still gets the step.
+func TestOnboardClusterCheckFailureIsAnEvent(t *testing.T) {
+	mock := &onboardMock{
+		organisations: []client.OrganisationSummary{onboardOrg("org-1", "Acme", true)},
+		clustersError: errors.New("connection reset"),
+	}
+	setUpOnboardTest(t, mock)
+	writeAnkraConfig(t, map[string]string{"token": "saved-token", "base-url": "https://platform.example.test"})
+
+	stdout, _, runError := executeOnboard(t, "", "--json", "--no-agent-setup")
+	if runError != nil {
+		t.Fatal(runError)
+	}
+	events := parseOnboardEvents(t, stdout)
+	clusters := findOnboardEvent(t, events, "clusters")
+	if clusters["error"] != "connection reset" || clusters["next_command"] != "ankra cluster list" {
+		t.Fatalf("clusters = %v", clusters)
+	}
+	findOnboardEvent(t, events, "done")
+	if mock.creates != 0 {
+		t.Fatal("no playground may be created when the clusters could not be checked")
 	}
 }
 
