@@ -326,6 +326,11 @@ func TestClusterFlagFormsBehaveAsBefore(t *testing.T) {
 			requests: []string{dnsZone}, stderr: "Cluster: demo"},
 	} {
 		t.Run(row.name, func(t *testing.T) {
+			// Each row is its own child process with its own fake API and
+			// HOME, and touches no state of this process, so the rows run
+			// side by side. One after another they were ~0.6s each, the
+			// slowest test in the package (ankra-hq41xb.28).
+			t.Parallel()
 			run := runParityChild(t, row.selected, row.args)
 			if run.exitCode != row.exitCode || !slices.Equal(run.requests, row.requests) ||
 				!strings.Contains(run.stdout, row.stdout) || !strings.Contains(run.stderr, row.stderr) {
