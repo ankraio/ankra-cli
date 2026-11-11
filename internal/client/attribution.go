@@ -179,6 +179,15 @@ func equals(expected string) func(string) bool {
 	return func(value string) bool { return strings.TrimSpace(value) == expected }
 }
 
+// DetectedAgentName names the coding agent this process runs under (Claude
+// Code, Codex, Cursor, ...), from the same markers the request attribution
+// reads, or "" when none is detected. ANKRA_AGENT names one the CLI does not
+// detect. Unlike the attribution headers it is not switched off by
+// DO_NOT_TRACK: callers use it to decide how to behave, not to report.
+func DetectedAgentName() string {
+	return detectAgent(os.Getenv).name
+}
+
 // detectAgent names the agent from, in order: ANKRA_AGENT, the AI_AGENT
 // convention ("claude-code_2-1-316_agent", "github-copilot"), then the
 // agents' own markers. The version comes from whichever source carries one.
