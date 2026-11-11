@@ -43,6 +43,7 @@ for a cluster whose setup stopped (`setup_stopped`) and the `operation_id` that
 ### Changed
 
 - **The bundled skills describe `kind: environment` as a stage kind that runs.** `ankra-cicd` and `ankra-ship` listed it nowhere among the kinds that execute, beside the note that unsupported kinds are skipped as `kind_unavailable`. They now list it with the kinds that execute, and `ankra-cicd` shows the `test_environment` block, the variables the tests get, the limits (six live clusters per organisation, a 2h default and 6h maximum lifetime), the approval it needs and that fork runs never build one. Run `ankra skills install --force` to refresh installed copies.
+- **The bundled `ankra-ship` skill gives the cache read order a branch run has now.** The platform offers a branch, pull request or merge train car run the default branch's ready cache entries first and its own branch's second (ankraio/cluster#6329), so a key the default branch holds restores that entry and a key only the branch holds still restores the branch's. The skill's reference said the branch's own entries came first. A default-branch run still reads only its own. Run `ankra skills install --force` to refresh installed copies.
 
 ### Fixed
 
