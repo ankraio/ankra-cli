@@ -264,8 +264,7 @@ func initConfig() {
 			viper.SetConfigType("yaml")
 		}
 	} else if home, err := os.UserHomeDir(); err == nil {
-		viper.AddConfigPath(home)
-		viper.SetConfigName(".ankra")
+		viper.SetConfigFile(homeConfigFile(home))
 		viper.SetConfigType("yaml")
 	}
 	viper.AutomaticEnv()
@@ -276,6 +275,39 @@ func initConfig() {
 		fmt.Fprintf(os.Stderr, "Warning: Could not bind base-url environment variable: %v\n", err)
 	}
 	_ = viper.ReadInConfig()
+}
+
+// homeConfigFile is the config file read when --config is not given: the
+// first of $HOME/.ankra.<ext> that exists, trying the formats viper reads in
+// viper's own order, then a bare $HOME/.ankra file. With none of them it names
+// $HOME/.ankra.yaml, whose read then fails quietly like any absent config.
+//
+// That is the lookup viper.AddConfigPath(home) with SetConfigName(".ankra")
+// made, done here because viper keeps every path ever added for the life of
+// the process and searches all of them, first added first. One command per
+// process never noticed. Anything that runs the root command many times in
+// one process did: the package's tests run it thousands of times, most under
+// their own temporary HOME, and each run stat-ed 13 names in every HOME seen
+// before it, so the suite slowed down with the square of its size and could
+// read an earlier HOME's config first (ankra-hq41xb.28).
+func homeConfigFile(home string) string {
+	for _, extension := range viper.SupportedExts {
+		if candidate := filepath.Join(home, ".ankra."+extension); isConfigFileCandidate(candidate) {
+			return candidate
+		}
+	}
+	if bare := filepath.Join(home, ".ankra"); isConfigFileCandidate(bare) {
+		return bare
+	}
+	return filepath.Join(home, ".ankra.yaml")
+}
+
+// isConfigFileCandidate is viper's own test for a config file: path exists
+// (following symlinks) and is not a directory. ~/.ankra is normally the
+// CLI's state directory, so the bare name is skipped there.
+func isConfigFileCandidate(path string) bool {
+	info, statError := os.Stat(path)
+	return statError == nil && !info.IsDir()
 }
 
 // persistentPreRunE resolves API credentials for any command that requires

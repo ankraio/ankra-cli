@@ -1938,6 +1938,7 @@ func TestServicesConsumersUnbindAnOrphanedBinding(t *testing.T) {
 // nothing about the binding, so --revision does not remove it unread
 // (ankra-kpq4ae audit).
 func TestServicesConsumersUnbindFailsClosedWhenTheReadFails(t *testing.T) {
+	withFastClientRetries(t)
 	platform := newFakeServicesPlatform(t)
 	platform.consumerReadFails = true
 	_, _, runError := runServicesCommand(t, platform, "", "consumers", "unbind", fakeServiceConsumerID, "--revision", "4", "--yes")

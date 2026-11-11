@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // resetApplicationAddFlags puts the add command's flags back to their
@@ -34,8 +35,13 @@ func resetApplicationAddFlags(t *testing.T) {
 
 // serveApplicationAnalysis answers the create route once and then the
 // application read route with each supplied body in turn, repeating the last.
+// --wait reads again after applicationAnalysisPollInterval, shortened here so
+// a case that walks through several answers does not sleep 5s between them.
 func serveApplicationAnalysis(t *testing.T, readBodies ...string) {
 	t.Helper()
+	previousPollInterval := applicationAnalysisPollInterval
+	applicationAnalysisPollInterval = time.Millisecond
+	t.Cleanup(func() { applicationAnalysisPollInterval = previousPollInterval })
 	var reads atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
 		responseWriter.Header().Set("Content-Type", "application/json")
