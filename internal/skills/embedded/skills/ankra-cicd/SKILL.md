@@ -162,10 +162,11 @@ stages:
 ```
 
 Stage kinds (closed vocabulary; an unknown kind is fatal): `checkout`, `run`, `build`, `scan`,
-`gate`, `publish`, `deploy` **execute today**; `preview`, `verify`, `agent`, `approval`, `webhook`,
-`automation`, `ankra`, `external` validate with a warning and are skipped as `kind_unavailable`.
-`deploy` releases a signed bundle to host targets outside Kubernetes (`ankra targets`), never to a
-cluster.
+`gate`, `publish`, `deploy`, `environment` **execute today**; `preview`, `verify`, `agent`,
+`approval`, `webhook`, `automation`, `ankra`, `external` validate with a warning and are skipped as
+`kind_unavailable`. `deploy` releases a signed bundle to host targets outside Kubernetes
+(`ankra targets`), never to a cluster. `environment` tests the run's build on ephemeral clusters
+(section 7b).
 `run` is the open kind — any image the organisation's policy permits, any script — so a kind is never
 needed to express custom work. `uses:` is refused; write the step as `run:`.
 
@@ -435,10 +436,32 @@ in a warm Ankra Workspace on the CI pool and `ankra dev install` routes heavy co
 
 Test against real clusters with a stage of `kind: environment`: for each leg of its `matrix` (for
 example `kubernetes: ["1.35", "1.36", "1.37"]` x `postgres: ["16", "17"]`) Ankra builds an ephemeral
-cluster, deploys the build under test, runs the tests, records the result and tears the cluster
-down. Legs beyond the organisation's concurrency cap wait as `queued`. `ankra pipeline environments
-<run-id>` (alias `envs`) prints the legs as a grid with a one-line verdict and each failed leg's
-message and last log lines (`--logs` for the whole tail, `-o json` for the platform's answer);
+Ankra Cloud cluster in the organisation, deploys the build under test, runs the tests, records the
+result and tears the cluster down when the leg ends, whatever the result (`teardown: always`, the
+default; `teardown: on_success` keeps a failed leg's cluster for debugging until its lifetime ends). A `publish` that needs the stage waits for every leg.
+
+```yaml
+  - name: test-matrix
+    kind: environment
+    needs: [build]
+    matrix: { kubernetes: ["1.35", "1.36", "1.37"], postgres: ["16", "17"] }
+    test_environment:
+      kubernetes: "${{ matrix.kubernetes }}"
+      services: [{ postgres: "${{ matrix.postgres }}" }]
+      deploy: build-under-test        # or { artifact: <build|publish stage>, port: 8080, env: {...} }
+      test: { image: golang:1.26, run: "go test ./e2e/...", timeout: "30m" }
+      # plan (smallest by default), zone, teardown: always|on_success, max_lifetime: 2h (max 6h)
+```
+
+The tests get `ANKRA_TEST_ENVIRONMENT_URL`, `ANKRA_KUBERNETES_VERSION`, and with a PostgreSQL
+service `DATABASE_URL` and `ANKRA_POSTGRES_VERSION`. Limits: six live environment clusters per
+organisation (legs beyond the cap wait as `queued`), a 2h default and 6h maximum lifetime enforced by
+a reaper even when the run dies, one PostgreSQL service (14-18) per leg. `test_environment` is a
+protected section: the clusters are billed to the organisation, so nothing is built until an
+administrator approves the definition (`ankra pipeline definitions approve <id>`), and a fork's
+head never builds one. `ankra pipeline environments <run-id>` (alias `envs`) prints the legs as a
+grid with a one-line verdict and each failed leg's message and last log lines (`--logs` for the
+whole tail, `-o json` for the platform's answer);
 `ankra pipeline get <run-id>` and `ankra pipeline tests <run-id>` print the same grid under "Test
 environments".
 

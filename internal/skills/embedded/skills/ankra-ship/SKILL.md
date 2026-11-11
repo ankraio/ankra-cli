@@ -437,8 +437,9 @@ the binding's identity and still arrives as a pull request.
 
 ## 10. What is not there yet
 
-Say this out loud rather than promising it. Seven stage kinds execute: `checkout`, `run`, `build`,
-`scan`, `gate`, `publish`, `deploy` (host targets only, never a cluster). `preview`, `verify`,
+Say this out loud rather than promising it. Eight stage kinds execute: `checkout`, `run`, `build`,
+`scan`, `gate`, `publish`, `deploy` (host targets only, never a cluster) and `environment`
+(ephemeral test clusters, torn down when each leg ends). `preview`, `verify`,
 `agent`, `approval`, `webhook`, `automation`, `ankra`, `external` are skipped as
 `kind_unavailable`, so **an `approval` stage blocks nothing**; `uses:` is refused; `retry:` is not
 applied. Previews, cluster deploys, rollback and promotion happen through the application lanes,

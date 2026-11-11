@@ -198,9 +198,15 @@ type UpgradeManagedK8sVersionRequest struct {
 	Version string `json:"version"`
 }
 
+// UpgradeManagedK8sVersionResponse is the platform's answer to a managed
+// upgrade: it accepted the target and started the managed_k8s_upgrade
+// operation that runs it. That operation is platform-scoped - it carries no
+// cluster id - so `ankra cluster operations list --cluster <id>` never lists
+// it; OperationID is the only handle on it, read by id.
 type UpgradeManagedK8sVersionResponse struct {
-	ClusterID string `json:"cluster_id"`
-	Version   string `json:"version"`
+	ClusterID   string `json:"cluster_id"`
+	Version     string `json:"version"`
+	OperationID string `json:"operation_id,omitempty"`
 }
 
 func (c *Client) managedClusterBasePath(provider ManagedK8sProvider) string {
