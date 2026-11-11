@@ -505,8 +505,10 @@ stages:
 
 Caches: `hashFiles` is evaluated after checkout in the stage's `working_directory`; the exact key
 restores first, then each `restore_keys` prefix in order. A default-branch run reads and saves only
-its own scope; a branch or PR run reads its own scope then the default branch's and saves only its
-own; fork and tag runs get none. A save happens only after the step passes (a `hashFiles` key once,
+its own scope; a branch, PR or merge train car run reads the default branch's scope first,
+then its own (a key main holds restores main's entry, a key only the branch holds still restores
+the branch's), and saves only its own; fork and tag runs get none.
+A save happens only after the step passes (a `hashFiles` key once,
 a static key every time). 14 days unused, 10 GiB per repository, 4 GiB per path. On an agent
 without cache archives a cache is a shared 5Gi volume per path - `fallback: none` makes it an
 empty directory instead, which never wedges overlapping runs. The generated `test` stage declares
