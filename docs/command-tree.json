@@ -844,6 +844,7 @@
     "ankra migrate restore",
     "ankra migrate restore-status",
     "ankra migrate up",
+    "ankra onboard",
     "ankra openclaw skill",
     "ankra org access-gateway get",
     "ankra org access-gateway set",

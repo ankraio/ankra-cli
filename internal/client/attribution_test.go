@@ -340,3 +340,26 @@ func TestDestinationComparesHostAndPort(t *testing.T) {
 		}
 	}
 }
+
+// DetectedAgentName reads the process environment through the same markers
+// the attribution headers use.
+func TestDetectedAgentNameReadsTheEnvironment(t *testing.T) {
+	t.Setenv(envAnkraAgent, "")
+	t.Setenv("AI_AGENT", "")
+	for _, marker := range agentMarkers {
+		for _, variable := range marker.variables {
+			t.Setenv(variable, "")
+		}
+	}
+	if got := DetectedAgentName(); got != "" {
+		t.Fatalf("no markers: DetectedAgentName = %q, want empty", got)
+	}
+	t.Setenv("CLAUDECODE", "1")
+	if got := DetectedAgentName(); got != "claude-code" {
+		t.Fatalf("CLAUDECODE=1: DetectedAgentName = %q, want claude-code", got)
+	}
+	t.Setenv(envAnkraAgent, "my-agent/2.0")
+	if got := DetectedAgentName(); got != "my-agent" {
+		t.Fatalf("ANKRA_AGENT: DetectedAgentName = %q, want my-agent", got)
+	}
+}
