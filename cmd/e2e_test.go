@@ -5781,6 +5781,74 @@ func (m baseMock) ClearAIMemories() (int, error) {
 	return 0, errors.New("not implemented")
 }
 
+func (m baseMock) ListAITasks(ctx context.Context) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAITask(ctx context.Context, taskID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateAITask(ctx context.Context, definition map[string]any) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateAITask(ctx context.Context, taskID string, changes map[string]any) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteAITask(ctx context.Context, taskID string) error {
+	return errors.New("not implemented")
+}
+
+func (m baseMock) ControlAITask(ctx context.Context, taskID string, action string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ReapplyAITaskTemplate(ctx context.Context, taskID string, force bool) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAITaskRuns(ctx context.Context, taskID string, limit int) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAITaskTemplates(ctx context.Context) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) HireAITaskTemplate(ctx context.Context, templateID string, clusterID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAIConditions(ctx context.Context, chronicOnly bool, limit int) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetAICondition(ctx context.Context, conditionID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAIPlaybooks(ctx context.Context) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AdoptAIPlaybook(ctx context.Context, playbookID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) RetireAIPlaybook(ctx context.Context, playbookID string, reason string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListAIEngineeringHandoffs(ctx context.Context, status string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AcknowledgeAIEngineeringHandoff(ctx context.Context, handoffID string, trackerReference string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (baseMock) ListAzureCredentials() ([]client.AzureCredentialListItem, error) {
 	return nil, nil
 }
