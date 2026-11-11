@@ -54,9 +54,11 @@ umbrella run this pipeline run belongs to, useful for correlating with
 'pipeline get' can also select a run by its commit, branch or trigger, and
 wait on or watch it - see 'ankra pipeline get --help'.
 
-'pipeline definitions get|approve' are the one exception: they address a
-stored definition directly by its own id and take neither flag - see
-'ankra pipeline definitions --help'.`,
+'pipeline definitions get|approve' address a stored definition directly by
+its own id and take neither flag - see 'ankra pipeline definitions --help'.
+'pipeline authority' and 'pipeline policy' act on the organisation: the
+approvals inbox takes the flags only to narrow its listing, and the policy
+takes neither.`,
 	}
 	pipelineCommand.AddCommand(
 		newPipelineRunCommand(),
@@ -77,6 +79,10 @@ stored definition directly by its own id and take neither flag - see
 		newPipelineRepositoriesCommand(),
 		newPipelineTrainCommand(),
 		newPipelineTimeSavedCommand(),
+		newPipelineAuthorityCommand(),
+		newPipelinePolicyCommand(),
+		newPipelineCachesCommand(),
+		newPipelineWorkspaceProfilesCommand(),
 	)
 	pipelineCommand.AddCommand(newPipelineReleaseQueueCommand(), newPipelineResourceSuggestionsCommand())
 	return pipelineCommand

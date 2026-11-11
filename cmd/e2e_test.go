@@ -3958,6 +3958,82 @@ func (m baseMock) ApprovePipelineDefinition(ctx context.Context, definitionID st
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetApplicationAutonomy(ctx context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetApplicationAutonomy(ctx context.Context, applicationID string, environmentID string, layer map[string]any) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationAutonomyPause(ctx context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PauseApplicationAutonomy(ctx context.Context, applicationID string, reason string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ResumeApplicationAutonomy(ctx context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationAutoFixBuilds(ctx context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetApplicationAutoFixBuilds(ctx context.Context, applicationID string, enabled bool) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationSetupAutoMerge(ctx context.Context, applicationID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetApplicationSetupAutoMerge(ctx context.Context, applicationID string, enabled *bool) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SetApplicationDatabaseBackup(ctx context.Context, applicationID string, enabled bool) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) EstimateApplicationCost(ctx context.Context, applicationID string, change map[string]any) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListPipelineAuthorityRequests(ctx context.Context, options client.ListPipelineAuthorityRequestsOptions) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetPipelineAuthorityRequest(ctx context.Context, requestID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DismissPipelineAuthorityRequest(ctx context.Context, requestID string, reason string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetPipelinePolicy(ctx context.Context) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdatePipelinePolicy(ctx context.Context, changes map[string]any) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListPipelineCaches(ctx context.Context, selector client.PipelineSelector, cursor string, limit int) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetWorkspaceProfilesDocument(ctx context.Context, repositoryID string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PutWorkspaceProfiles(ctx context.Context, repositoryID string, profiles map[string]any) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListPipelineSchedules(ctx context.Context, selector client.PipelineSelector) (*client.PipelineScheduleList, error) {
 	return nil, errors.New("not implemented")
 }
