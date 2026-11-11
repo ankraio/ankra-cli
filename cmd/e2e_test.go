@@ -1303,6 +1303,10 @@ func (m baseMock) DeleteSecretSlot(ctx context.Context, slotID string) (*client.
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) AdoptSecretSlot(ctx context.Context, request client.SecretSlotAdoptRequest) (*client.SecretSlot, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) CreateSupportTicket(ctx context.Context, req client.CreateSupportTicketRequest) (*client.SupportTicket, error) {
 	return nil, errors.New("not implemented")
 }

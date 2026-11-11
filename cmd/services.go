@@ -312,6 +312,7 @@ type APIClient interface {
 	ReplaceSecretSlot(ctx context.Context, slotID string, request client.SecretSlotReplaceRequest) (*client.SecretSlot, error)
 	ListSecretSlots(ctx context.Context) (*client.SecretSlotListResult, error)
 	DeleteSecretSlot(ctx context.Context, slotID string) (*client.SecretSlotDeleteResult, error)
+	AdoptSecretSlot(ctx context.Context, request client.SecretSlotAdoptRequest) (*client.SecretSlot, error)
 
 	CreateSupportTicket(ctx context.Context, req client.CreateSupportTicketRequest) (*client.SupportTicket, error)
 	ReviewSupportTicket(ctx context.Context, req client.ReviewSupportTicketRequest) (*client.SupportTicketReview, error)
