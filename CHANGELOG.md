@@ -13,6 +13,23 @@
 
 - **The install script never asks and never uses `sudo`.** It is now POSIX `sh`, so `curl ... | sh` works where `sh` is dash (Debian, Ubuntu). It installs next to an `ankra` you already have when it can write there, else into `/usr/local/bin` when that is writable, else into `~/.ankra/bin`, which it adds to `PATH` in your shell's startup files inside a block marked `ankra installer` (a rerun replaces the block rather than adding another) and links from `~/.local/bin/ankra`. It replaces the binary atomically, names an older copy elsewhere on `PATH` that would run instead, and leaves a Homebrew-managed `ankra` alone. `--install-dir`, `--no-modify-path` and `--version` (and `ANKRA_INSTALL_DIR`, `ANKRA_NO_MODIFY_PATH`, `ANKRA_VERSION`) adjust it.
 - **The install script refuses a release it cannot verify.** A missing or malformed `.sha256` file used to be a warning and the binary was installed anyway; now the script stops without installing, as it already did on a mismatch.
+- **Every portal link the CLI prints or returns opens the web app under `/next`.** The
+  classic portal pages at the root of the platform (`/organisation/...`) are being retired,
+  so the links pointed at pages that are going away. `portal_url` in `ankra cluster list`,
+  `cluster info`, `cluster stacks list`, `cluster manifests list` and `cluster addons list`
+  (`-o json|yaml` and the detail views), the "View it in the UI" line after a cluster
+  create or import, the drafts link after `ankra cluster draft`, the billing hint after a
+  billing refusal, the terminal link `ankra cluster debug create` prints, the page
+  `ankra profile auth open` opens, and the links in `ankra openclaw handoff` and the skill
+  `ankra openclaw skill` writes now all open `/next`: a cluster's overview is
+  `/next/clusters/<id>`, a stack `/next/clusters/<id>/stacks/<name>`, a manifest or add-on
+  in its stack that stack with `?member=<name>&kind=manifest|addon` (the member is selected
+  in the editor), an add-on's page `/next/clusters/<id>/addons/<name>?namespace=<ns>`, a
+  debug pod's terminal `/next/clusters/<id>/kubernetes/pods/<ns>/<pod>?view=exec` (now a
+  full address rather than a path), billing `/next/organisation/billing?org=<id>`, profile
+  authentication `/next/account/security` and the AI agents page `/next/ai/agent-runs`.
+  The `?org=` and `?project=` a link carried are kept, and the API address the CLI talks
+  to is unchanged.
 
 ### Fixed
 

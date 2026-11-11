@@ -128,7 +128,7 @@ func TestClusterDebugCreateImpersonatesAPod(t *testing.T) {
 		t.Errorf("--ttl 30m is 1800 seconds: %d", request.TTLSeconds)
 	}
 	plain := stripANSICodes(output)
-	for _, expected := range []string{"debug-api-7f3a", "running", "Mirrors:   api-6d8f9c7b5-x2kq9 (container api)", "1 volume mount(s), 2 env var(s), 1 envFrom source(s)", "emptyDir", "activeTab=terminal"} {
+	for _, expected := range []string{"debug-api-7f3a", "running", "Mirrors:   api-6d8f9c7b5-x2kq9 (container api)", "1 volume mount(s), 2 env var(s), 1 envFrom source(s)", "emptyDir", "/next/clusters/" + testClusterID + "/kubernetes/pods/payments/debug-api-7f3a?view=exec"} {
 		if !strings.Contains(plain, expected) {
 			t.Errorf("output lacks %q:\n%s", expected, plain)
 		}
