@@ -189,6 +189,32 @@ Statuses: `pending`, `running`, `awaiting_user`, `completed`, `failed`, `cancell
 `agents transcript` is the audit trail: it shows what the agent read, which tools it called, and
 what it concluded. Read it before accepting a conclusion, and always before approving a write.
 
+The agents themselves are **agent tasks**: a goal, a trigger (mission, cron, alert or manual), a
+tool profile, an autonomy level and a budget. A task is named by its id or its exact name; reading
+needs `ai.use`, every change `ai.manage` and an organisation admin.
+
+```bash
+ankra ai tasks list                                # the organisation's agents
+ankra ai tasks templates list                      # the built-in roles, and which are hired
+ankra ai tasks templates hire <template> [--cluster <name|id>]
+ankra ai tasks create --name "Nightly cost review" --goal "..." --trigger cron --cron "0 6 * * *"
+ankra ai tasks update <task> --autonomy-level propose          # only what you name changes; -f for the rest
+ankra ai tasks run <task>                          # queue it now
+ankra ai tasks pause <task>                        # stop scheduling; a live run finishes its turn
+ankra ai tasks stop <task>                         # pause and cancel the live run; confirms
+ankra ai tasks resume <task>
+ankra ai tasks runs <task>                         # this agent's recent runs
+ankra ai tasks reapply-template <task>             # bring a hired agent up to its role; --force replaces a customised one
+ankra ai tasks delete <task>                       # confirms
+```
+
+What the ticket lane has learned is readable too: `ankra ai conditions list [--chronic]` and
+`conditions get <id>` (the recurring problems tickets are filed against, with their evidence
+timeline), `ankra ai playbooks list|adopt|retire` (the reviewed procedures remediation runs;
+adopting and retiring confirm and need an organisation admin), and `ankra ai handoffs list` with
+`handoffs acknowledge <id> --tracker-reference ENG-482` for the platform-level conditions handed to
+your engineering tracker.
+
 ### Autonomy, remediation and cost
 
 ```bash
@@ -310,6 +336,11 @@ ankra ai memories list ; ankra ai memories clear   # what the assistant remember
 ankra chat actions list <conversation-id>          # writes awaiting confirmation
 ankra chat actions confirm <action-id>
 ankra chat actions reject <action-id>
+
+ankra chat plans list <conversation-id>            # multi-step plans awaiting approval
+ankra chat plans get <plan-id>                     # the steps, their risk and whether each is reversible
+ankra chat plans approve <plan-id>                 # runs the steps; --acknowledge 2,4 names high-risk or irreversible ones
+ankra chat plans reject <plan-id> --reason "not now"
 ```
 
 Agent-mode chat **halts before every write** and proposes it as a pending action. Pending actions
