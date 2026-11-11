@@ -284,3 +284,68 @@ func withFreshViperAndEnv(t *testing.T) {
 	viper.Reset()
 	viper.SetDefault("base-url", defaultBaseURL)
 }
+
+// TestInitConfigReadsOnlyTheCurrentHome pins that each run of the root
+// command reads the config file of the HOME it runs under. initConfig used to
+// call viper.AddConfigPath(home), and viper keeps every path it was ever given
+// for the life of the process and searches them first added first: a second
+// run in the same process under another HOME read the first HOME's config,
+// and every run stat-ed every HOME seen before it, which made this package's
+// tests slow down with the square of their number (ankra-hq41xb.28).
+func TestInitConfigReadsOnlyTheCurrentHome(t *testing.T) {
+	withFreshViperAndEnv(t)
+	first := withTempHome(t)
+	if err := os.WriteFile(filepath.Join(first, ".ankra.yaml"), []byte("hq41xb_probe: first\n"), 0o600); err != nil {
+		t.Fatalf("write first config: %v", err)
+	}
+	initConfig()
+	if got := viper.GetString("hq41xb_probe"); got != "first" {
+		t.Fatalf("first HOME: hq41xb_probe = %q, want first", got)
+	}
+
+	second := withTempHome(t)
+	if err := os.WriteFile(filepath.Join(second, ".ankra.yaml"), []byte("hq41xb_probe: second\n"), 0o600); err != nil {
+		t.Fatalf("write second config: %v", err)
+	}
+	initConfig()
+	if got := viper.GetString("hq41xb_probe"); got != "second" {
+		t.Errorf("second HOME: hq41xb_probe = %q, want second (the first HOME, %s, still exists and must not be read)", got, first)
+	}
+}
+
+// TestHomeConfigFileKeepsViperLookupOrder pins that homeConfigFile finds what
+// viper's own search (SetConfigName(".ankra") with a config type) found: the
+// first existing $HOME/.ankra.<ext> in viper.SupportedExts order, then a bare
+// $HOME/.ankra file but never the ~/.ankra state directory, and names
+// ~/.ankra.yaml when there is none.
+func TestHomeConfigFileKeepsViperLookupOrder(t *testing.T) {
+	home := t.TempDir()
+	if got, want := homeConfigFile(home), filepath.Join(home, ".ankra.yaml"); got != want {
+		t.Errorf("empty HOME: homeConfigFile = %s, want %s", got, want)
+	}
+
+	if err := os.MkdirAll(filepath.Join(home, ".ankra"), 0o755); err != nil {
+		t.Fatalf("mkdir state directory: %v", err)
+	}
+	if got, want := homeConfigFile(home), filepath.Join(home, ".ankra.yaml"); got != want {
+		t.Errorf("HOME with only the ~/.ankra directory: homeConfigFile = %s, want %s", got, want)
+	}
+
+	for _, name := range []string{".ankra.yml", ".ankra.json"} {
+		if err := os.WriteFile(filepath.Join(home, name), []byte("{}\n"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	// json comes before yml in viper.SupportedExts.
+	if got, want := homeConfigFile(home), filepath.Join(home, ".ankra.json"); got != want {
+		t.Errorf("HOME with .ankra.json and .ankra.yml: homeConfigFile = %s, want %s", got, want)
+	}
+
+	bareHome := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bareHome, ".ankra"), []byte("token: x\n"), 0o600); err != nil {
+		t.Fatalf("write bare config: %v", err)
+	}
+	if got, want := homeConfigFile(bareHome), filepath.Join(bareHome, ".ankra"); got != want {
+		t.Errorf("HOME with a bare ~/.ankra file: homeConfigFile = %s, want %s", got, want)
+	}
+}
