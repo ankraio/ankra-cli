@@ -9,18 +9,24 @@ import (
 
 // Portal links: the address of the portal page for a resource the CLI just
 // printed, so a script or an assistant can hand a teammate a link instead of
-// guessing one from the API paths. The routes are the documented, stable
-// subset (docs: reference/portal-links). Every cluster lives under the
-// "imported" segment however it was created, clusters are addressed by id,
-// and stacks, manifests and add-ons by name. The owning organisation rides
-// along as ?org= so the portal offers to switch organisation instead of
-// answering "not found" to a member whose active organisation is another one,
-// and the project this invocation acts in rides along as ?project= for the
-// same reason (ADR 0022).
+// guessing one from the API paths. Every link is a page of the web app under
+// /next: the Classic portal at the root (/organisation/...) is being retired
+// (ankra-t5jf5.6.15), so nothing here may build a Classic path. Clusters are
+// addressed by id, and stacks, manifests and add-ons by name. The owning
+// organisation rides along as ?org= so the app offers to switch organisation
+// instead of answering "not found" to a member whose active organisation is
+// another one, and the project this invocation acts in rides along as
+// ?project= for the same reason (ADR 0022).
 
 const (
+	// portalAppPath is where the web app is served on the portal's origin.
+	portalAppPath = "/next/"
+
 	portalStackMemberManifest = "manifest"
 	portalStackMemberAddon    = "addon"
+
+	// portalPodViewExec is the pod page's terminal view.
+	portalPodViewExec = "exec"
 )
 
 // portalBaseURL is the portal the CLI is logged in to: the scheme and host of
@@ -36,15 +42,37 @@ func portalBaseURL() string {
 	return parsed.Scheme + "://" + parsed.Host
 }
 
-// portalURL joins escaped path segments under /organisation and appends the
-// query, with the owning organisation when it is known. The caller's query
-// is copied, never changed.
+// portalURL is a page of the web app that belongs to a project-scoped
+// resource: the owning organisation when it is known and the project this
+// invocation acts in both ride along.
 func portalURL(organisationID string, query url.Values, segments ...string) string {
+	return portalLink(organisationID, selectedProjectIDForLinks(), query, segments...)
+}
+
+// portalOrganisationPageURL is an organisation-level page (billing): the
+// organisation rides along, the project does not, because the page is the
+// same in every project and a ?project= for another one would stop on a
+// project switch offer before showing it.
+func portalOrganisationPageURL(organisationID string, segments ...string) string {
+	return portalLink(organisationID, "", nil, segments...)
+}
+
+// portalPageURL is a page that is the person's own or the active
+// organisation's, with nothing to carry (account settings, the AI agent runs
+// list).
+func portalPageURL(segments ...string) string {
+	return portalLink("", "", nil, segments...)
+}
+
+// portalLink joins escaped path segments under the web app's path and
+// appends the query, with the organisation and project when they are given.
+// The caller's query is copied, never changed.
+func portalLink(organisationID string, projectID string, query url.Values, segments ...string) string {
 	escaped := make([]string, 0, len(segments))
 	for _, segment := range segments {
 		escaped = append(escaped, url.PathEscape(segment))
 	}
-	link := portalBaseURL() + "/organisation/" + strings.Join(escaped, "/")
+	link := portalBaseURL() + portalAppPath + strings.Join(escaped, "/")
 	linkQuery := url.Values{}
 	for key, values := range query {
 		linkQuery[key] = append([]string(nil), values...)
@@ -52,7 +80,7 @@ func portalURL(organisationID string, query url.Values, segments ...string) stri
 	if organisationID != "" {
 		linkQuery.Set("org", organisationID)
 	}
-	if projectID := selectedProjectIDForLinks(); projectID != "" {
+	if projectID != "" {
 		linkQuery.Set("project", projectID)
 	}
 	if encoded := linkQuery.Encode(); encoded != "" {
@@ -62,7 +90,7 @@ func portalURL(organisationID string, query url.Values, segments ...string) stri
 }
 
 func portalClusterSegments(clusterID string, rest ...string) []string {
-	return append([]string{"clusters", "cluster", "imported", clusterID}, rest...)
+	return append([]string{"clusters", clusterID}, rest...)
 }
 
 // portalClusterURL is the cluster's overview page, or "" for a cluster with
@@ -71,7 +99,7 @@ func portalClusterURL(cluster client.ClusterListItem) string {
 	if cluster.ID == "" {
 		return ""
 	}
-	return portalURL(cluster.OrganisationID, nil, portalClusterSegments(cluster.ID, "overview")...)
+	return portalURL(cluster.OrganisationID, nil, portalClusterSegments(cluster.ID)...)
 }
 
 // portalClusterURLByID is the overview page of a cluster this invocation
@@ -108,28 +136,47 @@ func portalStackURL(cluster client.ClusterListItem, stackName string) string {
 	if cluster.ID == "" || stackName == "" {
 		return ""
 	}
-	return portalURL(cluster.OrganisationID, nil, portalClusterSegments(cluster.ID, "stacks", stackName, "edit")...)
+	return portalURL(cluster.OrganisationID, nil, portalClusterSegments(cluster.ID, "stacks", stackName)...)
 }
 
-// portalStackMemberURL opens the stack editor on one manifest or add-on of
-// the stack, on its configuration tab.
+// portalStackMemberURL opens the stack editor with one manifest or add-on of
+// the stack selected: the editor reads ?member=<name> and ?kind=manifest
+// (any other kind selects an add-on).
 func portalStackMemberURL(cluster client.ClusterListItem, stackName string, memberKind string, memberName string) string {
 	if cluster.ID == "" || stackName == "" || memberName == "" {
 		return ""
 	}
 	query := url.Values{}
-	query.Set("activeTab", memberKind+":"+memberName)
-	query.Set("activeSubTab", "configuration")
-	return portalURL(cluster.OrganisationID, query, portalClusterSegments(cluster.ID, "stacks", stackName, "edit")...)
+	query.Set("member", memberName)
+	query.Set("kind", memberKind)
+	return portalURL(cluster.OrganisationID, query, portalClusterSegments(cluster.ID, "stacks", stackName)...)
 }
 
 // portalAddonURL is an add-on's own page on its cluster, outside the stack
-// editor.
-func portalAddonURL(cluster client.ClusterListItem, addonName string) string {
+// editor. The namespace, when known, picks between two add-ons of one name.
+func portalAddonURL(cluster client.ClusterListItem, addonName string, namespace string) string {
 	if cluster.ID == "" || addonName == "" {
 		return ""
 	}
-	return portalURL(cluster.OrganisationID, nil, portalClusterSegments(cluster.ID, "add-ons", "add-on", addonName)...)
+	var query url.Values
+	if namespace != "" {
+		query = url.Values{"namespace": {namespace}}
+	}
+	return portalURL(cluster.OrganisationID, query, portalClusterSegments(cluster.ID, "addons", addonName)...)
+}
+
+// portalPodURL is one pod's page on its cluster, on the given view
+// (overview, logs, metrics or exec), or "" without a cluster, namespace or
+// pod to address it by.
+func portalPodURL(cluster client.ClusterListItem, namespace string, podName string, view string) string {
+	if cluster.ID == "" || namespace == "" || podName == "" {
+		return ""
+	}
+	var query url.Values
+	if view != "" {
+		query = url.Values{"view": {view}}
+	}
+	return portalURL(cluster.OrganisationID, query, portalClusterSegments(cluster.ID, "kubernetes", "pods", namespace, podName)...)
 }
 
 // The annotate helpers fill portal_url on what a list command is about to
@@ -180,7 +227,7 @@ func annotateManifestPortalURLs(cluster client.ClusterListItem, manifests []clie
 func annotateAddonPortalURLs(cluster client.ClusterListItem, addons []client.ClusterAddonListItem) {
 	for index := range addons {
 		if addons[index].PortalURL == "" {
-			addons[index].PortalURL = portalAddonURL(cluster, addons[index].Name)
+			addons[index].PortalURL = portalAddonURL(cluster, addons[index].Name, addons[index].Namespace)
 		}
 	}
 }
