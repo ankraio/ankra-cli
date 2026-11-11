@@ -56,8 +56,8 @@ exits 3 saying so and everything else works as before.
 |------|-------------|-------|
 | Clusters, stacks, addons, manifests, variables | `ankra cluster apply\|draft\|stacks\|addons\|manifests\|variables ...` | `ankra-import-cluster`, `ankra-stacks-addons` |
 | GitOps sync state and merge conflicts | `ankra cluster gitops status\|conflicts list\|resolve` | `ankra-gitops` |
-| Shipping code end to end | `ankra application ship\|add\|deploy\|deployments\|auto-deploy\|env-secrets\|demo ...` | `ankra-ship`, `ankra-applications` |
-| Ankra Pipelines (CI for any repository) | `ankra pipeline list\|get\|logs\|run\|rerun\|cancel\|validate\|tests\|findings\|artifacts\|time-saved`, `ankra pipeline repositories\|definitions\|schedules\|train ...`, `ankra org ci-settings`, `ankra cluster agent ci` | `ankra-cicd` |
+| Shipping code end to end | `ankra application ship\|add\|deploy\|deployments\|promote\|previews\|auto-deploy\|env-secrets\|demo ...` | `ankra-ship`, `ankra-applications` |
+| Ankra Pipelines (CI for any repository) | `ankra pipeline list\|get\|logs\|run\|rerun\|cancel\|validate\|tests\|environments\|findings\|artifacts\|time-saved`, `ankra pipeline repositories\|definitions\|schedules\|train ...`, `ankra org ci-settings`, `ankra cluster agent ci` | `ankra-cicd` |
 | AI review of pull requests | `ankra org ai-review repos\|related-repos ...` | `ankra-ai-gateway` |
 | Managed services, image registry | `ankra services ...`, `ankra registry projects\|robots\|storage ...` | `ankra-app-integrations`, `ankra-applications` |
 | Reusable parameterised stacks | `ankra stack-profiles ...` | `ankra-stack-profiles` |
@@ -77,6 +77,8 @@ exits 3 saying so and everything else works as before.
 | Tokens, roles, cluster access | `ankra tokens create\|list\|rotate\|revoke\|delete` (`--service` for service accounts, `--project` to pin one to a project), `ankra org members\|roles\|invite`, `ankra cluster access grant\|list\|revoke\|elevate`, `ankra org access-policy get`, `ankra org oidc-trust` | `ankra-security` |
 | Projects (scope beneath the organisation) | `ankra project list\|current\|switch\|create\|get\|rename\|delete\|members\|move`, global `--project`, `ankra cost ... --all-projects`, `ankra cost object project`, `ankra org usage --group-by project` | `ankra-security`, `ankra-platform-principles` |
 | Credentials | `ankra credentials ...` | `ankra-security` |
+| Audit trail (who did what, agents included) | `ankra org audit-logs list\|export`, `ankra cluster audit-logs [cluster]` (CLI v0.73.0) | `ankra-security` |
+| Connecting an AI client or Slack | `ankra mcp connect --client claude-code\|cursor\|codex`, `ankra mcp token`, `ankra slack connect\|status` | below |
 | Vulnerabilities, CVEs, compliance | `ankra security overview\|findings\|clusters\|compliance\|dispositions ...` | `ankra-security` |
 | Backup vaults, object storage | `ankra backup vaults ...`, `ankra bucket ...` | `ankra-backups` |
 | Protecting and restoring a stack's data | `ankra cluster stacks protect\|unprotect\|restore-points\|data ...`, `ankra backup restore-points ...`, `ankra runs ...` | `ankra-backups` |
@@ -254,6 +256,40 @@ planes are Ready and etcd keeps quorum without it. The switch is per cluster and
 ```bash
 ankra cluster control-plane-heal get                    # switch + latest NotReady episode (shadow = recorded only)
 ankra cluster control-plane-heal set --enabled=false    # stop the automatic restart (needs clusters.write)
+ankra cluster worker-heal get                           # the same switch for NotReady worker nodes
+ankra cluster worker-heal set --enabled=false           # leave a NotReady worker for you to handle
+```
+
+More per-cluster reads and switches (the cluster is `--cluster` or the selected one):
+
+```bash
+ankra cluster baseline                                  # Ankra Baseline score: each check pass, fail or unknown with its evidence
+ankra cluster export -f cluster.yaml                    # the cluster's whole ImportCluster YAML, as 'cluster apply -f' takes it
+ankra cluster metrics source                            # registered metrics source, its health and credential (never a secret)
+ankra cluster held-updates take <notification-id> --fingerprint <fingerprint>   # take the platform add-on updates one held card names
+ankra cluster dns-token status                          # where the rotation of the cluster's DNS write token stands
+ankra cluster dns-token rotate                          # mint a replacement; the replaced token stays valid
+ankra cluster dns-token revoke-previous --yes           # only after external-dns restarted onto the new token
+```
+
+An unscored cluster has no Baseline score, which is not a score of zero, and an unknown check is
+never a pass. `held-updates take` needs the card's id and `data.fingerprint` as they were read: a
+card that changed since is refused, so nothing is taken unseen. Confirm with the user before
+`dns-token revoke-previous --yes`: a cluster whose external-dns still uses the replaced token
+stops publishing DNS records.
+
+Provider settings on clusters Ankra provisions name the cluster as the argument or with `--cluster`:
+
+```bash
+ankra cluster k3s-disabled-components get <cluster>                          # k3s packaged components kept disabled
+ankra cluster k3s-disabled-components set <cluster> --components traefik     # the complete list; entries can be added, never dropped
+ankra cluster upcloud gateway-plans --credential-id <id>                     # NAT gateway plans, the default, the change notice
+ankra cluster upcloud gateway-plan <cluster> --plan <plan>                   # interrupts outbound internet for minutes; asks first
+ankra cluster upcloud load-balancer-plans --credential-id <id>
+ankra cluster upcloud load-balancer-plan get|set <cluster> [--plan <plan>]   # ingress load balancer plan, recorded and live
+ankra cluster upcloud available-zones --credential-id <id>
+ankra cluster ovh gateway-model <cluster> --model s|m|l|xl|2xl|3xl
+ankra cluster hetzner external-cloud-provider converge <cluster>             # store the flag where nodes already run that way; restarts nothing
 ```
 
 Ankra backs up each running cluster's etcd state every six hours and keeps the 4 newest backups plus
@@ -326,6 +362,26 @@ ankra agents runs --status running
   infrastructure and never opens a pull request.
 - `--mode agent` - can act. Opening a pull request is automatic (the PR is the review gate); other
   destructive changes stay confirmation-gated via `ankra chat actions`.
+
+Connect a coding agent to the Ankra MCP server with one command. It mints a read-only MCP token
+(`--write` adds the mutating tools) that expires in 90 days (`--expires-days`), keeps it in a file
+only you can read and registers the server with the client; the token is never printed or written
+into the client's config. Run it again to renew (the old token is revoked). `--skills` also installs
+the Ankra skills without asking.
+
+```bash
+ankra mcp connect --client claude-code
+ankra mcp connect --client cursor --write
+```
+
+Connect Slack for Ankra's AI from the terminal (organisation admin, a person's token): `connect`
+prints the install address and waits until someone approves it in a browser on any machine
+(exit 5 after `--timeout`, default 15m); `--no-wait` prints the address and exits.
+
+```bash
+ankra slack connect
+ankra slack status
+```
 
 Omit `--mode` to use the server default. MCP token scopes mirror the modes:
 `ankra tokens create <name> --scopes mcp:read` for the Ask surface, `--scopes mcp:read,mcp:write`

@@ -96,7 +96,7 @@ func TestBackupVaultsProvisionExplainsAnOrganisationWithNoUsableCredential(t *te
 	resetBackupVaultsProvisionFlags(t)
 
 	_, executeError := executeCommand("backup", "vaults", "provision")
-	if executeError == nil || !strings.Contains(executeError.Error(), "no Hetzner, UpCloud, DigitalOcean or Scaleway credential") {
+	if executeError == nil || !strings.Contains(executeError.Error(), "no Hetzner, UpCloud, DigitalOcean, Scaleway or Ankra Cloud credential") {
 		t.Fatalf("expected the no-credential explanation, got %v", executeError)
 	}
 	if !strings.Contains(executeError.Error(), "backup vaults create") {
@@ -119,5 +119,34 @@ func TestBackupVaultsProvisionExplicitArgumentsWin(t *testing.T) {
 	}
 	if mock.provisioned == nil || *mock.provisioned != expected {
 		t.Fatalf("request = %+v, want %+v", mock.provisioned, expected)
+	}
+}
+
+// An Ankra Cloud credential provisions a vault like any other, and the
+// region it defaults to is a zone: the platform validates an ankracloud
+// region against the zone shape (se-sto1), never a region name.
+func TestBackupVaultsProvisionDefaultsAnAnkraCloudCredentialToAZone(t *testing.T) {
+	mock := &backupVaultsMock{
+		credentials:      []client.Credential{{ID: backupVaultProvisionCredentialID, Name: "ankracloud-main", Provider: "ankracloud", Available: true}},
+		provisionedVault: provisioningVault("backups", "ankracloud"),
+	}
+	setMockClient(t, mock)
+	resetBackupVaultsProvisionFlags(t)
+
+	var executeError error
+	output := captureStdout(t, func() {
+		_, executeError = executeCommand("backup", "vaults", "provision")
+	})
+	if executeError != nil {
+		t.Fatal(executeError)
+	}
+	expected := client.ProvisionBackupVaultRequest{
+		Name: "backups", CredentialID: backupVaultProvisionCredentialID, Region: "se-sto1",
+	}
+	if mock.provisioned == nil || *mock.provisioned != expected {
+		t.Fatalf("request = %+v, want %+v", mock.provisioned, expected)
+	}
+	if !strings.Contains(output, "ankracloud-main") || !strings.Contains(output, "se-sto1") {
+		t.Fatalf("the command must say which credential and zone it chose:\n%s", output)
 	}
 }

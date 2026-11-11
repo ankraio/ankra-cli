@@ -440,6 +440,8 @@ func TestClusterGatewayAPIEnableHelpSaysWhatRestartsAndWhatAHoldDoes(t *testing.
 		"then Traefik and the cert-manager controller each restart once to pick the settings up",
 		"so --wait stops at once, names the hold and exits 1 instead of repeating the enable until --timeout",
 		"1 the option is recorded but the platform needs a person: a conflict in the values, a values hold",
+		"Enabled means the cluster itself reports the Gateway as served",
+		"or the values written and the Gateway not yet reported as served",
 	})
 	if strings.Contains(long, "then one Traefik rollout") {
 		t.Fatalf("the help still says only Traefik rolls out:\n%s", long)
@@ -491,7 +493,7 @@ func TestClusterGatewayAPIEnableWaitRepeatsTheEnableWhenTheValuesAreNext(t *test
 	assertContainsAll(t, stderr, []string{
 		"recorded, waiting for the Gateway API CRDs",
 		"CRDs established, values still to be written",
-		"values written, Traefik or cert-manager is applying them",
+		"values written, waiting for the cluster to report the Gateway served",
 		"enabled",
 		"The Gateway API is on for cluster 'test-cluster'.",
 	})
@@ -500,6 +502,62 @@ func TestClusterGatewayAPIEnableWaitRepeatsTheEnableWhenTheValuesAreNext(t *test
 		"State:        enabled",
 		"The Gateway API is on.",
 	})
+}
+
+// While the values are written and the Gateway is not yet read as served, the
+// phase stays applying and only the note says what the enable waits for (the
+// Gateway not yet Programmed, or a Gateway status the platform cannot read
+// yet), so --wait prints the note each time it changes, and only then.
+func TestClusterGatewayAPIEnableWaitPrintsTheNoteWhenItChanges(t *testing.T) {
+	notProgrammed := "The values are written; Gateway traefik/traefik-gateway has not reported Programmed yet (Pending: Waiting for controller)."
+	unreadable := "The values are written; the platform cannot read the Gateway's status on this cluster yet (gateways has not synced)."
+	recorder := newGatewayAPIServer(t, "hetzner",
+		gatewayAPIOff(),
+		gatewayAPIRecorded(client.GatewayAPIPhaseApplying, notProgrammed),
+		gatewayAPIRecorded(client.GatewayAPIPhaseApplying, unreadable),
+		gatewayAPIRecorded(client.GatewayAPIPhaseApplying, unreadable),
+		gatewayAPIRecorded(client.GatewayAPIPhaseEnabled, "The Gateway API is on."),
+	)
+	recorder.scriptPuts(gatewayAPIEnableAnswer(gatewayAPIRecorded(client.GatewayAPIPhaseApplying, notProgrammed), true, true))
+
+	_, stderr, runError := runGatewayAPI(t, "", "enable", "--yes", "--wait", "--timeout", "10s")
+	if runError != nil {
+		t.Fatalf("enable --wait failed: %v\nstderr:\n%s", runError, stderr)
+	}
+	for _, note := range []string{notProgrammed, unreadable} {
+		if got := strings.Count(stderr, note); got != 1 {
+			t.Fatalf("note %q printed %d times, want once (when it first appears)\nstderr:\n%s", note, got, stderr)
+		}
+	}
+	if got := strings.Count(stderr, "values written, waiting for the cluster to report the Gateway served"); got != 1 {
+		t.Fatalf("applying label printed %d times, want once (the phase did not change)\nstderr:\n%s", got, stderr)
+	}
+	if strings.Contains(stderr, "    The Gateway API is on.") {
+		t.Fatalf("the enabled standing's note was printed as a progress line\nstderr:\n%s", stderr)
+	}
+}
+
+// A held write ends the follow with a verdict that carries the platform's
+// sentence for the hold, so the note is not printed a second time as progress.
+func TestGatewayAPIEnableIsMovingLeavesAHeldWriteToTheVerdict(t *testing.T) {
+	cases := []struct {
+		status client.GatewayAPIStatus
+		want   bool
+	}{
+		{gatewayAPIRecorded(client.GatewayAPIPhaseCRDsPending, "waiting"), true},
+		{gatewayAPIRecorded(client.GatewayAPIPhaseValuesPending, "values next"), true},
+		{gatewayAPIHeld(client.GatewayAPIPhaseValuesPending), false},
+		{gatewayAPIRecorded(client.GatewayAPIPhaseApplying, "applying"), true},
+		{gatewayAPIRecorded(client.GatewayAPIPhaseEnabled, "on"), false},
+		{gatewayAPIRecorded(client.GatewayAPIPhaseConflict, "conflict"), false},
+		{gatewayAPIRecorded(client.GatewayAPIPhaseApplyFailed, "failed"), false},
+	}
+	for _, testCase := range cases {
+		status := testCase.status
+		if got := gatewayAPIEnableIsMoving(&status); got != testCase.want {
+			t.Errorf("gatewayAPIEnableIsMoving(phase %s, hold %q) = %v, want %v", status.Phase, status.ValuesHold, got, testCase.want)
+		}
+	}
 }
 
 func TestClusterGatewayAPIEnableWaitJSONIsTheFinalStanding(t *testing.T) {
@@ -622,7 +680,7 @@ func TestClusterGatewayAPIEnableWithoutWaitExitsOneWhenTheGitOpsPushFailed(t *te
 		"Values written: yes (this call wrote the Traefik and cert-manager values)",
 		"GitOps commit:  0123abcd",
 		"GitOps push:    git push to origin was refused",
-		"State:        values written, Traefik or cert-manager is applying them",
+		"State:        values written, waiting for the cluster to report the Gateway served",
 	})
 	if strings.Contains(stdout, "Follow it to enabled") {
 		t.Fatalf("a failed push must not be given the --wait hint, got:\n%s", stdout)
@@ -664,7 +722,7 @@ func TestClusterGatewayAPIEnableWaitExitsOneWhenTheGitOpsPushFailed(t *testing.T
 		if !strings.Contains(stderr, "git push to origin was refused: the deploy key is read-only") {
 			t.Fatalf("the failure text must reach stderr, got:\n%s", stderr)
 		}
-		if !strings.Contains(stdout, "State:        values written, Traefik or cert-manager is applying them") {
+		if !strings.Contains(stdout, "State:        values written, waiting for the cluster to report the Gateway served") {
 			t.Fatalf("the standing the wait stopped on must be printed, got:\n%s", stdout)
 		}
 		if got := recorder.methods(); strings.Join(got, " ") != "GET PUT" {
