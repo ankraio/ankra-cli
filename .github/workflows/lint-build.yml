@@ -189,3 +189,25 @@ jobs:
         run: |
           sudo swapoff /mnt/ci.swap && sudo rm -f /mnt/ci.swap \
             || echo "::warning::could not remove /mnt/ci.swap; it stays on this runner"
+
+  # install.sh is what `curl -fsSL https://ankra.ai/install | sh` runs. It
+  # must stay POSIX sh: on Debian and Ubuntu sh is dash, which is where a
+  # bashism breaks it. The test installs from a fake file:// release with an
+  # isolated HOME and PATH under both sh and dash.
+  install-script:
+    runs-on: ${{ vars.CI_RUNNER_2 || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Check install.sh
+        env:
+          TEST_INSTALL_REQUIRE_DASH: "1"
+        run: |
+          dash -n install.sh
+          if command -v shellcheck >/dev/null 2>&1; then
+            shellcheck -s sh install.sh tools/test-install-sh.sh
+          else
+            echo "::warning::shellcheck is not installed on this runner, so install.sh was not linted"
+          fi
+          sh tools/test-install-sh.sh
