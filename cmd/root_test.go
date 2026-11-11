@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -336,9 +337,15 @@ func TestHomeConfigFileKeepsViperLookupOrder(t *testing.T) {
 			t.Fatalf("write %s: %v", name, err)
 		}
 	}
-	// json comes before yml in viper.SupportedExts.
-	if got, want := homeConfigFile(home), filepath.Join(home, ".ankra.json"); got != want {
-		t.Errorf("HOME with .ankra.json and .ankra.yml: homeConfigFile = %s, want %s", got, want)
+	// Whichever of the two viper.SupportedExts lists first wins, as in
+	// viper's own search; the order is viper's, not this package's.
+	first := ".ankra.yml"
+	if slices.Index(viper.SupportedExts, "json") < slices.Index(viper.SupportedExts, "yml") {
+		first = ".ankra.json"
+	}
+	if got, want := homeConfigFile(home), filepath.Join(home, first); got != want {
+		t.Errorf("HOME with .ankra.json and .ankra.yml (viper.SupportedExts %v): homeConfigFile = %s, want %s",
+			viper.SupportedExts, got, want)
 	}
 
 	bareHome := t.TempDir()

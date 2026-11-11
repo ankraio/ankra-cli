@@ -92,6 +92,8 @@ func runSummary(args []string, top int, markdownPath string, stdout io.Writer) e
 	if markdownPath == "" {
 		return nil
 	}
+	// Appended, not replaced: $GITHUB_STEP_SUMMARY collects every step's
+	// summary for the job.
 	f, err := os.OpenFile(markdownPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
@@ -346,7 +348,7 @@ func writeText(w io.Writer, rep report, top int) {
 		_, _ = fmt.Fprintf(w, "  %-9s %6d tests  %10s\n", b.Label, b.Count, short(b.Total))
 	}
 	_, _ = fmt.Fprintln(w)
-	n := min(top, len(rep.Tests))
+	n := max(0, min(top, len(rep.Tests)))
 	_, _ = fmt.Fprintf(w, "Slowest %d top-level tests:\n", n)
 	for _, t := range rep.Tests[:n] {
 		_, _ = fmt.Fprintf(w, "  %9s  %-4s  %s %s\n", short(t.Elapsed), t.Result, t.Package, t.Test)
@@ -375,7 +377,7 @@ func writeMarkdown(w io.Writer, rep report, top int) {
 		_, _ = fmt.Fprintf(w, "| %s | %d | %s |\n", b.Label, b.Count, short(b.Total))
 	}
 	_, _ = fmt.Fprintln(w)
-	n := min(top, len(rep.Tests))
+	n := max(0, min(top, len(rep.Tests)))
 	_, _ = fmt.Fprintf(w, "<details><summary>Slowest %d top-level tests</summary>\n\n", n)
 	_, _ = fmt.Fprintln(w, "| elapsed | result | package | test |")
 	_, _ = fmt.Fprintln(w, "|---:|---|---|---|")

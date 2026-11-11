@@ -164,3 +164,18 @@ func TestSummaryWritesTextAndMarkdown(t *testing.T) {
 		}
 	}
 }
+
+func TestSummaryToleratesANegativeTop(t *testing.T) {
+	dir := t.TempDir()
+	events := filepath.Join(dir, "events.json")
+	if err := os.WriteFile(events, []byte(stream), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := runSummary([]string{events}, -1, filepath.Join(dir, "summary.md"), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Slowest 0 top-level tests:") {
+		t.Errorf("-top -1 should list no test:\n%s", out.String())
+	}
+}
