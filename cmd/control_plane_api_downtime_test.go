@@ -218,6 +218,7 @@ func TestSetInstanceTypeSendsAcceptAPIDowntimeWhenGiven(t *testing.T) {
 // When the read fails the command does not guess a lane: the request goes out
 // as given, and the platform's 409 is the explanation the operator sees.
 func TestSetInstanceTypeSendsAsGivenWhenTheReadFails(t *testing.T) {
+	withFastClientRetries(t)
 	recorder, realClient := newAPIDowntimeServer(t, singleControllerLiveInfo())
 	recorder.getStatus = http.StatusServiceUnavailable
 
