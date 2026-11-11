@@ -32,6 +32,18 @@ const retryAttempts = 3
 // A package variable so tests can shrink it.
 var retryBackoffSchedule = []time.Duration{time.Second, 2 * time.Second}
 
+// SetRetryBackoffSchedule replaces the waits before the second and third
+// attempts of a retried read and returns a function that puts the previous
+// ones back. It is for the tests of other packages that drive a real Client
+// against a fake platform answering a read with 502, 503 or 504 on purpose:
+// with the real schedule every such read sleeps 3s (ankra-hq41xb.28). Call it
+// only while no request is in flight.
+func SetRetryBackoffSchedule(schedule []time.Duration) (restore func()) {
+	previous := retryBackoffSchedule
+	retryBackoffSchedule = schedule
+	return func() { retryBackoffSchedule = previous }
+}
+
 func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if !requestIsRetryable(req) {
 		return t.base.RoundTrip(req)
