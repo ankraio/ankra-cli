@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## v0.75.0 - 2026-11-11
+
+This release takes a new user from nothing to a working setup with one line:
+`curl -fsSL https://ankra.ai/install | sh` (on Windows, `irm https://ankra.ai/install.ps1 | iex`)
+installs the CLI and runs the new `ankra onboard`, which signs the user up or in through the
+browser, picks the organisation, offers a free playground cluster and sets up the coding agents
+on the machine. A coding agent can drive the same steps with `ankra onboard --json`. The install
+script is now POSIX `sh`, never asks a question or uses `sudo`, and refuses a release it cannot
+verify. Every portal link the CLI prints or returns now opens the web app under `/next`. No
+command, flag or exit code is removed or changed.
+
 ### Added
 
 - **One line from nothing to a working setup: `curl -fsSL https://ankra.ai/install | sh`.** The install script now runs `ankra onboard` once the CLI is in place, so a new user signs up and a returning user signs in through the browser without a second command. On Windows the same is `irm https://ankra.ai/install.ps1 | iex`: a new PowerShell script, published with each release next to `install.sh`, that verifies the checksum, installs `ankra.exe` into `%LOCALAPPDATA%\Programs\ankra` and adds it to the user `PATH`. Skip the onboarding with `sh -s -- --no-onboard` (or `ANKRA_NO_ONBOARD=1`).
