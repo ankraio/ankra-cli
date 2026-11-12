@@ -433,12 +433,24 @@ func organisationOverrideValue(cmd *cobra.Command) string {
 	return strings.TrimSpace(os.Getenv(envAnkraOrg))
 }
 
+// Where resolveTargetOrganisation found the organisation, as `ankra org
+// current` and `ankra login status` report it. organisationSourceToken is the
+// organisation a --token or ANKRA_API_TOKEN token belongs to: the platform's
+// current organisation for that token, which the saved selection never
+// replaces.
+const (
+	organisationSourceOverride = "override"
+	organisationSourceLocal    = "local"
+	organisationSourceServer   = "server"
+	organisationSourceToken    = "token"
+)
+
 // resolveTargetOrganisation resolves which organisation a command should act
 // on and the source of that decision. Precedence is: the explicit `--org`
-// flag / ANKRA_ORG override, then the saved local selection (but only when it
-// still matches an organisation the user belongs to, so a stale selection is
-// ignored rather than sent to the API), then the server-side current
-// organisation.
+// flag / ANKRA_ORG override, then the saved local selection (only for the
+// saved login, and only when it still matches an organisation the user
+// belongs to, so a stale selection is ignored rather than sent to the API),
+// then the server-side current organisation.
 func resolveTargetOrganisation(cmd *cobra.Command) (client.OrganisationSummary, string, error) {
 	orgs, err := apiClient.ListOrganisations()
 	if err != nil {
@@ -458,23 +470,30 @@ func resolveTargetOrganisationFrom(cmd *cobra.Command, orgs []client.Organisatio
 		}
 		for _, org := range orgs {
 			if org.OrganisationID == orgID {
-				return org, "override", nil
+				return org, organisationSourceOverride, nil
 			}
 		}
 		return client.OrganisationSummary{}, "", fmt.Errorf("organisation %q not found", override)
 	}
 
-	if local, loadErr := loadSelectedOrganisation(); loadErr == nil && local.OrganisationID != "" {
-		for _, org := range orgs {
-			if org.OrganisationID == local.OrganisationID {
-				return org, "local", nil
+	isSavedLogin := savedOrganisationSelectionApplies(organisationScopeTokenSource)
+	if isSavedLogin {
+		if local, loadErr := loadSelectedOrganisation(); loadErr == nil && local.OrganisationID != "" {
+			for _, org := range orgs {
+				if org.OrganisationID == local.OrganisationID {
+					return org, organisationSourceLocal, nil
+				}
 			}
 		}
 	}
 
+	currentSource := organisationSourceToken
+	if isSavedLogin {
+		currentSource = organisationSourceServer
+	}
 	for _, org := range orgs {
 		if org.UserCurrent {
-			return org, "server", nil
+			return org, currentSource, nil
 		}
 	}
 	return client.OrganisationSummary{}, "", fmt.Errorf("no organisation selected: run `ankra org switch <org_id>`")

@@ -15,16 +15,17 @@ const billingRestrictedHintPrefix = "Add credit in the portal under Billing"
 
 // billingPortalURL is the organisation's billing page in the portal, or ""
 // when no organisation is known without an API call: neither a --org
-// override nor a persisted `ankra org select`. The page shows the active
-// organisation, so the one the refusal came from rides along as ?org= and
-// the app offers to switch to it. The refusal is already an error path, so
-// it never fetches the organisation just to build a link.
+// override nor a persisted `ankra org select` that applies to this token.
+// The page shows the active organisation, so the one the refusal came from
+// rides along as ?org= and the app offers to switch to it. The refusal is
+// already an error path, so it never fetches the organisation just to build
+// a link.
 func billingPortalURL() string {
 	organisationID := ""
 	if apiClient != nil {
 		organisationID = apiClient.OrganisationOverride()
 	}
-	if organisationID == "" {
+	if organisationID == "" && savedOrganisationSelectionApplies(organisationScopeTokenSource) {
 		if selected, err := loadSelectedOrganisation(); err == nil {
 			organisationID = selected.OrganisationID
 		}

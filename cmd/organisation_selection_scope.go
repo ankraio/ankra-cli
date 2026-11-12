@@ -139,7 +139,7 @@ func serverCurrentOrganisation(organisations []client.OrganisationSummary) (clie
 // returns "" when there is nothing to warn about.
 func organisationScopeWarning(target client.OrganisationSummary, source string, organisations []client.OrganisationSummary) string {
 	switch source {
-	case "local":
+	case organisationSourceLocal:
 		serverCurrent, found := serverCurrentOrganisation(organisations)
 		if !found || serverCurrent.OrganisationID == target.OrganisationID {
 			return ""
@@ -147,7 +147,7 @@ func organisationScopeWarning(target client.OrganisationSummary, source string, 
 		return fmt.Sprintf("Warning: the platform's current organisation is %s (the portal's selection), but this CLI runs commands in %s.\n"+
 			"Run 'ankra org switch %s' to use the same organisation in both.",
 			organisationLabel(serverCurrent), organisationLabel(target), target.OrganisationID)
-	case "server":
+	case organisationSourceServer:
 		selected, err := loadSelectedOrganisation()
 		if err != nil || strings.TrimSpace(selected.OrganisationID) == "" {
 			return ""

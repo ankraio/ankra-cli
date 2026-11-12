@@ -42,6 +42,7 @@ func TestBillingRestrictedHint_NamesTheBillingPageOfTheSelectedOrganisation(t *t
 	t.Setenv("HOME", t.TempDir())
 	setMockClient(t, &orgOverrideMock{})
 	setTestBaseURL(t, "https://platform.example.test/api/v1")
+	withTokenSource(t, sourceConfigFile)
 	if err := saveSelectedOrganisation(SelectedOrganisation{OrganisationID: "org 1"}); err != nil {
 		t.Fatalf("saveSelectedOrganisation: %v", err)
 	}

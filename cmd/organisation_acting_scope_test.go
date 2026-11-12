@@ -155,6 +155,14 @@ func actingScopes() []actingScope {
 // and organisation scope that scope names.
 func runActingOrganisationCommand(t *testing.T, mock *actingOrganisationMock, scope actingScope, args ...string) error {
 	t.Helper()
+	_, runError := runActingOrganisationCommandOutput(t, mock, scope, args...)
+	return runError
+}
+
+// runActingOrganisationCommandOutput is runActingOrganisationCommand that
+// also returns what the command printed.
+func runActingOrganisationCommandOutput(t *testing.T, mock *actingOrganisationMock, scope actingScope, args ...string) (string, error) {
+	t.Helper()
 	home := withTempHome(t)
 	t.Setenv(envAnkraProject, "")
 	t.Setenv(envAnkraOrg, scope.environmentOrganisation)
@@ -181,7 +189,7 @@ func runActingOrganisationCommand(t *testing.T, mock *actingOrganisationMock, sc
 		resetGlobalProjectFlag(t)
 		resetGlobalOrganisationFlag(t)
 		resetGlobalTokenFlag(t)
-		resetTreeFlags(t, orgInviteCmd, orgRemoveCmd, orgMemberRoleCmd, orgAssignCmd)
+		resetTreeFlags(t, orgInviteCmd, orgRemoveCmd, orgMemberRoleCmd, orgAssignCmd, orgCurrentCmd, orgMembersCmd)
 	}
 	reset()
 	t.Cleanup(func() {
@@ -190,13 +198,14 @@ func runActingOrganisationCommand(t *testing.T, mock *actingOrganisationMock, sc
 		organisationScopeTokenSource = originalTokenSource
 	})
 	var runError error
-	captureStdout(t, func() {
-		rootCmd.SetOut(new(bytes.Buffer))
+	commandOutput := new(bytes.Buffer)
+	printed := captureStdout(t, func() {
+		rootCmd.SetOut(commandOutput)
 		rootCmd.SetErr(new(bytes.Buffer))
 		rootCmd.SetArgs(arguments)
 		runError = rootCmd.Execute()
 	})
-	return runError
+	return printed + commandOutput.String(), runError
 }
 
 // assertEveryCallActsIn fails unless every recorded call sent
