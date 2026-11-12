@@ -301,8 +301,9 @@ func metricsReadError(clusterID string, failedItem client.ResourceResponseItem) 
 }
 
 // probeMetricsAPIRegistration reads the metrics APIService by name, live.
-// Only the apiserver's 404 (not_found) or a successful empty answer counts as
-// "not registered"; any other failure is unknown, never a "no".
+// Only the apiserver's 404 (not_found) counts as "not registered". A by-name
+// read that succeeds with no items is not an answer the apiserver gives for a
+// missing object, so it is unknown, like any other failure, never a "no".
 func probeMetricsAPIRegistration(clusterID string) metricsAPIRegistration {
 	response, requestError := apiClient.GetResources(clusterID, client.GetResourcesRequest{
 		ResourceRequests: []client.ResourceRequestItem{{
@@ -328,7 +329,7 @@ func probeMetricsAPIRegistration(clusterID string) metricsAPIRegistration {
 		return metricsAPIRegistrationUnknown
 	}
 	if len(probeItem.Items) == 0 {
-		return metricsAPINotRegistered
+		return metricsAPIRegistrationUnknown
 	}
 	return metricsAPIRegistered
 }

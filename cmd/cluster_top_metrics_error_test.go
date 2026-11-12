@@ -69,11 +69,18 @@ func TestTopSaysMetricsServerIsNotInstalledWhenTheAPIServiceIsAbsent(t *testing.
 	}
 }
 
-func TestTopTreatsASuccessfulEmptyAPIServiceReadAsNotInstalled(t *testing.T) {
+func TestTopDoesNotTreatASuccessfulEmptyAPIServiceReadAsNotInstalled(t *testing.T) {
 	metricsErrorServer(t, `{"status":"success","kind":"APIService","version":"v1","items":[]}`)
 	_, fetchError := fetchLiveMetrics("cluster-id", "NodeMetrics", "nodes", "")
-	if fetchError == nil || !strings.Contains(fetchError.Error(), "metrics-server is not installed") {
-		t.Fatalf("an empty successful probe means not installed, got %v", fetchError)
+	if fetchError == nil {
+		t.Fatal("a failed metrics read must be an error")
+	}
+	message := fetchError.Error()
+	if strings.Contains(message, "not installed on this cluster") {
+		t.Errorf("a by-name read the apiserver did not answer with a 404 is unknown, not absent: %q", message)
+	}
+	if !strings.Contains(message, "could not answer") {
+		t.Errorf("the error should say the read failed, got %q", message)
 	}
 }
 
