@@ -1,5 +1,12 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Membership changes made with `--token` or `ANKRA_API_TOKEN` land in the token's own organisation.** `ankra org invite`, `org remove`, `org assign` and `org member role` used to act in the organisation saved by `ankra org switch` even when the token came from `--token` or `ANKRA_API_TOKEN`, while every other command ignores that saved selection for such a token. A service account or CI token with a stale selection on the machine could invite, remove or re-role members of an organisation nobody named. They now act in the token's own organisation, or the one `--org`/`ANKRA_ORG` names; the saved `ankra login` behaves as before. `org assign` also looks up a `--scope-id` cluster or project in the organisation it writes the assignment to, so the id can no longer come from one organisation and the assignment land in another. The other places that name the organisation in scope follow the same rule: `ankra credentials delete`, the `--org` that `cluster kubeconfig add` pins for a bare cluster id, the organisation `project switch` records with the saved project, and the service account names in the cluster access listings.
+- **Commands that name or show your organisation agree with the token too.** Under `--token` or `ANKRA_API_TOKEN`, `ankra org current` and `ankra login status` reported the saved selection as the organisation (source `local`), `ankra org members` without an argument listed the saved selection's members, and `ankra application ship` announced and checked the cluster against the saved selection, so a ship to the token's own organisation could be refused as a mismatch. They now use the token's own organisation, or the one `--org`/`ANKRA_ORG` names, and `org current`/`login status` report its source as `token` (also in `-o json`). `ankra onboard` follows the same rule when it runs on such a token, and keeps the saved selection for the saved login. The billing link after a billing refusal and the organisation a "cluster not found" error names no longer point at the saved selection for such a token either.
+
 ## v0.76.0 - 2026-11-12
 
 ### Added

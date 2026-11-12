@@ -126,8 +126,8 @@ func crossOrgMock() *orgScopeMock {
 }
 
 // withOrgScopeMock installs the mock and an isolated HOME carrying the
-// persistently selected organisation, so nothing reads the developer's real
-// ~/.ankra state.
+// persistently selected organisation of the saved login, so nothing reads the
+// developer's real ~/.ankra state.
 func withOrgScopeMock(t *testing.T, mock *orgScopeMock) *orgScopeMock {
 	t.Helper()
 	home := t.TempDir()
@@ -144,11 +144,14 @@ func withOrgScopeMock(t *testing.T, mock *orgScopeMock) *orgScopeMock {
 	}
 	originalClient := apiClient
 	originalBaseURL := baseURL
+	originalTokenSource := organisationScopeTokenSource
 	apiClient = mock
 	baseURL = "https://test.ankra.app"
+	organisationScopeTokenSource = sourceConfigFile
 	t.Cleanup(func() {
 		apiClient = originalClient
 		baseURL = originalBaseURL
+		organisationScopeTokenSource = originalTokenSource
 	})
 	return mock
 }
