@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **Accept a CVE for a whole namespace: `ankra security dispositions create --scope namespace`.** The new scope covers the vulnerability in every workload of the occurrence's namespace on its cluster, so an accepted risk in your own application (a transitive dependency's CVE, for example) keeps holding after the next rollout and the next image build. `--scope workload` now pins a Deployment rather than the ReplicaSet the scanner reported, so it survives rollouts too; `--scope image` still pins one digest and lapses on the next build. The dispositions list shows a namespace policy as `namespace <name> on cluster <id>`.
+
 ## v0.75.0 - 2026-11-11
 
 This release takes a new user from nothing to a working setup with one line:
