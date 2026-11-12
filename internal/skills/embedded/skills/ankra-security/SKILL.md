@@ -282,7 +282,7 @@ ankra security dispositions create --occurrence <id> --scope namespace --disposi
 ankra security dispositions update <policy-id> --expires-at 2027-03-31
 ankra security dispositions revoke <policy-id> --reason "fix rolled out"
 ankra security code-dispositions list --application <app>            # Semgrep and Checkov findings the image gate no longer blocks on
-ankra security code-dispositions create --application <app> --tool semgrep --rule <rule-id> --path <file> --disposition false_positive --reason "..."
+ankra security code-dispositions create --application <app> --tool semgrep --rule <rule-id> --path <file> --disposition false_positive --reason "..." --yes
 ankra security code-dispositions revoke <disposition-id> --reason "fixed in the code" --yes
 ```
 

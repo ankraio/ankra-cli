@@ -111,7 +111,7 @@ that fixes the finding.`,
 			applicationReference, _ := command.Flags().GetString("application")
 			limit, _ := command.Flags().GetInt("limit")
 			if limit < 0 || limit > 100 {
-				return nil, withExitCode(exitUsage, fmt.Errorf("--limit is between 1 and 100"))
+				return nil, withExitCode(exitUsage, fmt.Errorf("--limit is between 1 and 100, or 0 for the platform's default"))
 			}
 			options := client.SecurityRemediationsOptions{FindingID: strings.TrimSpace(findingID), Limit: limit}
 			if strings.TrimSpace(applicationReference) != "" {
@@ -501,8 +501,8 @@ dispositions'.`,
 			repositoryID, _ := command.Flags().GetString("repository-id")
 			includeRevoked, _ := command.Flags().GetBool("include-revoked")
 			limit, _ := command.Flags().GetInt("limit")
-			if limit < 0 {
-				return nil, withExitCode(exitUsage, fmt.Errorf("--limit cannot be negative"))
+			if limit < 0 || limit > 200 {
+				return nil, withExitCode(exitUsage, fmt.Errorf("--limit is between 1 and 200, or 0 for the platform's default"))
 			}
 			options := client.SecurityCodeDispositionsOptions{RepositoryID: strings.TrimSpace(repositoryID),
 				IncludeRevoked: includeRevoked, Limit: limit}
@@ -551,7 +551,8 @@ dispositions'.`,
 		long: `Record a reviewed Semgrep or Checkov finding as a false_positive or an
 accepted_risk. An accepted risk needs --expires-at, at most a year out. A
 CRITICAL finding is refused, as is a second active disposition of the same
-finding. See what it would cover first with 'preview'.`,
+finding. See what it would cover first with 'preview'. It asks first; --yes
+skips the question and is required when there is no terminal to ask on.`,
 		example: `  ankra security code-dispositions create --application shop --tool semgrep \
     --rule go.lang.security.audit.xss --path internal/web/render.go \
     --disposition false_positive --reason "Output is escaped by the template"`,
@@ -561,11 +562,17 @@ finding. See what it would cover first with 'preview'.`,
 			if requestError != nil {
 				return nil, requestError
 			}
+			if confirmError := confirmOrganisationChange(command, fmt.Sprintf(
+				"Recording %s rule %s in %s as %s stops the image gate blocking on it.",
+				request.Tool, request.RuleID, request.Path, request.Disposition)); confirmError != nil {
+				return nil, confirmError
+			}
 			return apiClient.CreateSecurityCodeDisposition(command.Context(), request)
 		},
 		human: printSecurityCodeDisposition,
 	})
 	registerSecurityCodeDispositionFlags(createCommand)
+	createCommand.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt (required when stdin is not a terminal)")
 
 	previewCommand := newOperationCommand(operationCommand{
 		use:       "preview --application <application> --tool semgrep|checkov --rule <rule-id> --path <file> --disposition <kind>",

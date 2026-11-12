@@ -66,8 +66,8 @@ type CloudWasteResolveRequest struct {
 // finding and answers the operation that does it.
 // POST /api/v1/org/cloud-cost/waste/{finding_id}/resolve
 func (c *Client) ResolveCloudWasteFinding(ctx context.Context, findingID string, request CloudWasteResolveRequest) (json.RawMessage, error) {
-	request.FindingIDs = nil
-	return c.requestDocument(ctx, http.MethodPost, cloudWastePath+"/"+neturl.PathEscape(findingID)+"/resolve", request)
+	single := CloudWasteResolveRequest{Consent: request.Consent, MinUnattachedDays: request.MinUnattachedDays}
+	return c.requestDocument(ctx, http.MethodPost, cloudWastePath+"/"+neturl.PathEscape(findingID)+"/resolve", single)
 }
 
 // ResolveCloudWasteBatch starts the cleanup of up to 100 findings, one

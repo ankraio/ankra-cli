@@ -104,9 +104,10 @@ ships none.`,
 		long: `State a rate card for one private credential (name or id), or for the
 organisation's fallback card with 'organisation'. Amounts are decimal, per
 month, in --currency. Needs billing.manage. A token pinned to a project writes
-the cards of its own project's credentials only.`,
+the cards of its own project's credentials only. It asks first; --yes skips
+the question and is required when there is no terminal to ask on.`,
 		example: `  ankra cost rate-cards set homelab-proxmox --currency EUR --vcpu 4.50 --memory-gb 1.20 --storage-gb 0.04
-  ankra cost rate-cards set organisation --currency USD --vcpu 5 --memory-gb 1.5 --storage-gb 0.05`,
+  ankra cost rate-cards set organisation --currency USD --vcpu 5 --memory-gb 1.5 --storage-gb 0.05 --yes`,
 		arguments: cobra.ExactArgs(1),
 		invoke: func(command *cobra.Command, arguments []string) (json.RawMessage, error) {
 			currency, currencyError := requiredTextFlag(command, "currency", "the currency the amounts are stated in, such as EUR")
@@ -126,6 +127,11 @@ the cards of its own project's credentials only.`,
 				return nil, targetError
 			}
 			request.CredentialID = target
+			if confirmError := confirmOrganisationChange(command, fmt.Sprintf(
+				"Stating the rate card of %s changes what its capacity is priced at in every cost view.",
+				strings.TrimSpace(arguments[0]))); confirmError != nil {
+				return nil, confirmError
+			}
 			return apiClient.SetCostRateCard(command.Context(), request)
 		},
 		human: func(out io.Writer, document json.RawMessage) error {
@@ -142,6 +148,7 @@ the cards of its own project's credentials only.`,
 	setCommand.Flags().String("vcpu", "", "Decimal amount per vCPU per month")
 	setCommand.Flags().String("memory-gb", "", "Decimal amount per GB of memory per month")
 	setCommand.Flags().String("storage-gb", "", "Decimal amount per GB of storage per month")
+	setCommand.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt (required when stdin is not a terminal)")
 
 	deleteCommand := newOperationCommand(operationCommand{
 		use:   "delete <credential|organisation>",
@@ -328,7 +335,7 @@ never summed as zero.`,
 		invoke: func(command *cobra.Command, _ []string) (json.RawMessage, error) {
 			days, _ := command.Flags().GetInt("days")
 			if days < 0 || days > 90 {
-				return nil, withExitCode(exitUsage, fmt.Errorf("--days is between 1 and 90"))
+				return nil, withExitCode(exitUsage, fmt.Errorf("--days is between 1 and 90, or 0 for the platform's 30"))
 			}
 			applyCostProjectScope(command)
 			return apiClient.GetResolvedCloudWaste(command.Context(), days)
