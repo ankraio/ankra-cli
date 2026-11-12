@@ -28,13 +28,24 @@ const notOrganisationMemberDetail = "Not a member of the requested organisation"
 // selection is only the default scope.
 var organisationScopedByLocalSelection bool
 
-// applyLocalOrganisationSelection sends the saved organisation selection with
-// every request. It applies only to the saved `ankra login` token: a token
+// organisationScopeTokenSource is where this invocation's token came from,
+// which decides whether the saved organisation selection applies to it.
+var organisationScopeTokenSource credentialSource
+
+// savedOrganisationSelectionApplies reports whether the selection saved by
+// `ankra org switch` may scope an invocation whose token came from
+// tokenSource. Only the saved `ankra login` token is paired with it: a token
 // passed with --token or ANKRA_API_TOKEN (a service account, a CI token) is
-// bound to its own organisation and is not paired with a selection made for a
-// different login.
+// bound to its own organisation, and a selection made for a different login
+// never retargets it.
+func savedOrganisationSelectionApplies(tokenSource credentialSource) bool {
+	return tokenSource == sourceConfigFile
+}
+
+// applyLocalOrganisationSelection sends the saved organisation selection with
+// every request, for the tokens savedOrganisationSelectionApplies accepts.
 func applyLocalOrganisationSelection(cmd *cobra.Command, tokenSource credentialSource) {
-	if tokenSource != sourceConfigFile {
+	if !savedOrganisationSelectionApplies(tokenSource) {
 		return
 	}
 	if cmd.Annotations[annotationIgnoresLocalOrganisation] == "true" {

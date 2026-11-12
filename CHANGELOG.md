@@ -6,6 +6,10 @@
 
 - **Accept a CVE for a whole namespace: `ankra security dispositions create --scope namespace`.** The new scope covers the vulnerability in every workload of the occurrence's namespace on its cluster, so an accepted risk in your own application (a transitive dependency's CVE, for example) keeps holding after the next rollout and the next image build. `--scope workload` now pins a Deployment rather than the ReplicaSet the scanner reported, so it survives rollouts too; `--scope image` still pins one digest and lapses on the next build. The dispositions list shows a namespace policy as `namespace <name> on cluster <id>`.
 
+### Fixed
+
+- **Membership changes made with `--token` or `ANKRA_API_TOKEN` land in the token's own organisation.** `ankra org invite`, `org remove`, `org assign` and `org member role` used to act in the organisation saved by `ankra org switch` even when the token came from `--token` or `ANKRA_API_TOKEN`, while every other command ignores that saved selection for such a token. A service account or CI token with a stale selection on the machine could invite, remove or re-role members of an organisation nobody named. They now act in the token's own organisation, or the one `--org`/`ANKRA_ORG` names; the saved `ankra login` behaves as before. `org assign` also looks up a `--scope-id` cluster or project in the organisation it writes the assignment to, so the id can no longer come from one organisation and the assignment land in another. The other places that name the organisation in scope follow the same rule: `ankra credentials delete`, the `--org` that `cluster kubeconfig add` pins for a bare cluster id, the organisation `project switch` records with the saved project, and the service account names in the cluster access listings.
+
 ## v0.75.0 - 2026-11-11
 
 This release takes a new user from nothing to a working setup with one line:

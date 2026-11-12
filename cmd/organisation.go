@@ -375,7 +375,10 @@ func loadSelectedOrganisation() (SelectedOrganisation, error) {
 
 // resolveOrganisationID returns the organisation this invocation acts on: the
 // --org/ANKRA_ORG override applied by the root command when there is one, then
-// the saved local selection, then the server-side current organisation.
+// the saved local selection when it applies to this invocation's token, then
+// the server-side current organisation. A --token or ANKRA_API_TOKEN token
+// skips the saved selection exactly as the root command does, so it acts in
+// its own organisation here too.
 func resolveOrganisationID() (string, error) {
 	if apiClient != nil {
 		if override := strings.TrimSpace(apiClient.OrganisationOverride()); override != "" {
@@ -383,9 +386,11 @@ func resolveOrganisationID() (string, error) {
 		}
 	}
 
-	local, err := loadSelectedOrganisation()
-	if err == nil && local.OrganisationID != "" {
-		return local.OrganisationID, nil
+	if savedOrganisationSelectionApplies(organisationScopeTokenSource) {
+		local, err := loadSelectedOrganisation()
+		if err == nil && local.OrganisationID != "" {
+			return local.OrganisationID, nil
+		}
 	}
 
 	orgs, err := apiClient.ListOrganisations()
@@ -593,14 +598,13 @@ Examples:
 			return withExitCode(exitUsage, fmt.Errorf(
 				"invalid role %q; valid roles: %s", role, strings.Join(assignableRoles, ", ")))
 		}
-		projectID, projectRole, grantError := inviteProjectGrant(cmd, role)
-		if grantError != nil {
-			return grantError
-		}
-
 		orgID, err := resolveActingOrganisationID()
 		if err != nil {
 			return fmt.Errorf("%w\nSelect an organisation first with 'ankra org switch <org_id>'", err)
+		}
+		projectID, projectRole, grantError := inviteProjectGrant(cmd, role)
+		if grantError != nil {
+			return grantError
 		}
 
 		result, err := apiClient.InviteUserToOrganisation(client.InviteUserRequest{
