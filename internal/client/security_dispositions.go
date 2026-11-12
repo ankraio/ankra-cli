@@ -219,8 +219,9 @@ func (c *Client) ListSecurityDispositions(options SecurityDispositionsOptions) (
 // SecurityDispositionPreviewRequest asks what a disposition would cover
 // before it is written: anchored on one occurrence (a new policy) or on an
 // existing policy (an edit). Scope is organisation_addon (the default),
-// workload or image; the last two pin a policy whose occurrence no add-on
-// owns to one workload or to one image digest.
+// namespace, workload or image; the last three pin a policy whose occurrence
+// no add-on owns to one namespace on its cluster, one workload (a
+// Deployment, across rollouts) or one image digest.
 type SecurityDispositionPreviewRequest struct {
 	OccurrenceID           string     `json:"occurrence_id,omitempty"`
 	PolicyID               string     `json:"policy_id,omitempty"`
