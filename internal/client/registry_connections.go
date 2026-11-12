@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	registryConnectionsPath = "/api/v1/org/registry-connections"
-	aiMemoryProfilePath     = "/api/v1/org/ai-memory/profile"
+	registryConnectionDiscoverPath = "/api/v1/org/registry-connections/discover"
+	registryConnectionVerifyPath   = "/api/v1/org/registry-connections/verify"
+	aiMemoryProfilePath            = "/api/v1/org/ai-memory/profile"
 )
 
 // DiscoverRegistryConnection lists what an admin credential sees on a
@@ -21,7 +22,7 @@ const (
 // never sent. A connection that fails answers ok false with the reason.
 // POST /api/v1/org/registry-connections/discover
 func (c *Client) DiscoverRegistryConnection(ctx context.Context, registryURL string, adminCredentialName string) (json.RawMessage, error) {
-	return c.requestDocument(ctx, http.MethodPost, registryConnectionsPath+"/discover",
+	return c.requestDocument(ctx, http.MethodPost, registryConnectionDiscoverPath,
 		map[string]string{"url": registryURL, "admin_credential_name": adminCredentialName})
 }
 
@@ -29,7 +30,7 @@ func (c *Client) DiscoverRegistryConnection(ctx context.Context, registryURL str
 // robots on an integrated registry entry. Nothing is minted.
 // POST /api/v1/org/registry-connections/verify
 func (c *Client) VerifyRegistryConnection(ctx context.Context, registry string, adminCredentialName string) (json.RawMessage, error) {
-	return c.requestDocument(ctx, http.MethodPost, registryConnectionsPath+"/verify",
+	return c.requestDocument(ctx, http.MethodPost, registryConnectionVerifyPath,
 		map[string]string{"registry": registry, "admin_credential_name": adminCredentialName})
 }
 
