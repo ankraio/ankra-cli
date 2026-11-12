@@ -21,10 +21,11 @@ curl -fsSL -O https://github.com/ankraio/ankra-cli/releases/download/<TAG>/ankra
 sha256sum -c ankra-cli-linux-amd64.sha256
 ```
 
-The recommended installer at
+The recommended installers, `curl -fsSL https://ankra.ai/install | sh` and
+`irm https://ankra.ai/install.ps1 | iex` (served from
 <https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh>
-performs this verification automatically and refuses to install on
-mismatch.
+and `install.ps1`), perform this verification automatically and refuse to
+install when the checksum is missing or does not match.
 
 ## macOS Signing
 

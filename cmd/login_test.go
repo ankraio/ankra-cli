@@ -1,14 +1,18 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -113,7 +117,7 @@ func TestPollLoginOncePendingKeepsPolling(t *testing.T) {
 	defer server.Close()
 	withShortLoginHTTPClient(t)
 
-	result, done, err := pollLoginOnce(server.URL,
+	result, done, err := pollLoginOnce(io.Discard, server.URL,
 		[]byte(`{"ticket":"ticket-1","code_verifier":"verifier-1"}`), map[string]bool{})
 	if err != nil {
 		t.Fatalf("pollLoginOnce() error = %v", err)
@@ -140,7 +144,7 @@ func TestPollLoginOnceCompleted(t *testing.T) {
 	defer server.Close()
 	withShortLoginHTTPClient(t)
 
-	result, done, err := pollLoginOnce(server.URL, []byte(`{}`), map[string]bool{})
+	result, done, err := pollLoginOnce(io.Discard, server.URL, []byte(`{}`), map[string]bool{})
 	if err != nil {
 		t.Fatalf("pollLoginOnce() error = %v", err)
 	}
@@ -168,7 +172,7 @@ func TestPollLoginOnceClientErrorIsFatal(t *testing.T) {
 	defer server.Close()
 	withShortLoginHTTPClient(t)
 
-	_, _, err := pollLoginOnce(server.URL, []byte(`{}`), map[string]bool{})
+	_, _, err := pollLoginOnce(io.Discard, server.URL, []byte(`{}`), map[string]bool{})
 	if err == nil {
 		t.Fatal("expected expired login session error")
 	}
@@ -184,7 +188,7 @@ func TestPollLoginOnceServerErrorKeepsPolling(t *testing.T) {
 	defer server.Close()
 	withShortLoginHTTPClient(t)
 
-	_, done, err := pollLoginOnce(server.URL, []byte(`{}`), map[string]bool{})
+	_, done, err := pollLoginOnce(io.Discard, server.URL, []byte(`{}`), map[string]bool{})
 	if err != nil {
 		t.Fatalf("expected 5xx to keep polling, got error: %v", err)
 	}
@@ -451,7 +455,7 @@ func TestRunLoginRefusesPlaintextHTTPBaseURL(t *testing.T) {
 	viper.Set("base-url", "http://api.example.com")
 	t.Cleanup(func() { viper.Set("base-url", previousBaseURL) })
 
-	err := runLogin()
+	err := runLogin(io.Discard, loginOptions{})
 	if err == nil || !strings.Contains(err.Error(), "plaintext http") {
 		t.Fatalf("login must refuse a non-loopback http:// base URL, got %v", err)
 	}
@@ -464,11 +468,110 @@ func TestRunLoginAllowsLoopbackHTTPBaseURL(t *testing.T) {
 
 	// The guard lets loopback through; the loopback port is closed, so the
 	// failure must be the connection, never the plaintext refusal.
-	err := runLogin()
+	err := runLogin(io.Discard, loginOptions{})
 	if err == nil {
 		t.Fatal("expected the unreachable loopback to fail the login")
 	}
 	if strings.Contains(err.Error(), "plaintext http") {
 		t.Fatalf("loopback http:// must pass the guard, got %v", err)
+	}
+}
+
+// fakeLoginPlatform answers the init and poll routes of a browser sign-in and
+// records the init query.
+func fakeLoginPlatform(t *testing.T, userCode string) (*httptest.Server, func() url.Values) {
+	t.Helper()
+	var mutex sync.Mutex
+	var initQuery url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		responseWriter.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/api/v1/cli/login/init":
+			mutex.Lock()
+			initQuery = request.URL.Query()
+			mutex.Unlock()
+			response := map[string]string{"auth_url": "https://auth.example.test/authorize", "ticket": "ticket-1"}
+			if userCode != "" {
+				response["user_code"] = userCode
+			}
+			_ = json.NewEncoder(responseWriter).Encode(response)
+		case "/api/v1/cli/login/poll":
+			_ = json.NewEncoder(responseWriter).Encode(tokenExchangeResponse{
+				Token: "login-token", TokenID: "token-id", TokenName: "CLI Login", ExpiresAt: "2027-01-01T00:00:00Z", Status: "issued",
+			})
+		default:
+			responseWriter.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server, func() url.Values {
+		mutex.Lock()
+		defer mutex.Unlock()
+		return initQuery
+	}
+}
+
+func withFastLogin(t *testing.T) {
+	t.Helper()
+	withShortLoginHTTPClient(t)
+	originalBrowser, originalInterval := launchBrowser, loginPollInterval
+	t.Cleanup(func() { launchBrowser, loginPollInterval = originalBrowser, originalInterval })
+	launchBrowser = func(string) error { return nil }
+	loginPollInterval = 5 * time.Millisecond
+}
+
+// `ankra login` asks the platform for a user code (it mints one only when
+// asked), names itself as the source, and --signup opens the sign-up screen.
+func TestLoginSignupAsksForAUserCodeAndShowsIt(t *testing.T) {
+	withFreshViperAndEnv(t)
+	home := withTempHome(t)
+	withFastLogin(t)
+	t.Cleanup(func() { _ = loginCmd.Flags().Set("signup", "false") })
+	server, initQuery := fakeLoginPlatform(t, "ABCD-EFGH")
+	viper.Set("base-url", server.URL)
+
+	output, err := executeCommand("login", "--signup")
+	if err != nil {
+		t.Fatalf("login --signup: %v\n%s", err, output)
+	}
+	query := initQuery()
+	if query.Get("user_code") != "1" || query.Get("source") != "login" || query.Get("screen_hint") != "signup" {
+		t.Fatalf("init query = %v", query)
+	}
+	if !strings.Contains(output, "Your code: ABCD-EFGH (the browser shows the same code)") || !strings.Contains(output, "Login successful") {
+		t.Fatalf("output:\n%s", output)
+	}
+	contents, readError := os.ReadFile(filepath.Join(home, ".ankra.yaml"))
+	if readError != nil || !strings.Contains(string(contents), "token: login-token") {
+		t.Fatalf("saved config = %s (%v)", contents, readError)
+	}
+}
+
+// An older platform sends no user code: login shows none and works as before.
+func TestRunLoginWithoutAUserCode(t *testing.T) {
+	withFreshViperAndEnv(t)
+	withTempHome(t)
+	withFastLogin(t)
+	server, initQuery := fakeLoginPlatform(t, "")
+	viper.Set("base-url", server.URL)
+
+	var output bytes.Buffer
+	if err := runLogin(&output, loginOptions{Source: "login"}); err != nil {
+		t.Fatalf("runLogin: %v", err)
+	}
+	if strings.Contains(output.String(), "Your code") {
+		t.Fatalf("no code to show, output:\n%s", output.String())
+	}
+	if query := initQuery(); query.Has("screen_hint") || query.Get("user_code") != "1" {
+		t.Fatalf("init query = %v", query)
+	}
+}
+
+func TestDescribeLoginTimeout(t *testing.T) {
+	if got := describeLoginTimeout(10 * time.Minute); got != "10 minutes" {
+		t.Fatalf("describeLoginTimeout(10m) = %q", got)
+	}
+	if got := describeLoginTimeout(90 * time.Second); got != "1m30s" {
+		t.Fatalf("describeLoginTimeout(90s) = %q", got)
 	}
 }

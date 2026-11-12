@@ -315,7 +315,9 @@ ankra application promote <application> --from development --to production      
 ankra application deploy <application-id> --cluster <prod-cluster> --namespace shop \
   --set image_tag=sha-<the-tag-that-passed> --mode high_availability --set replicas=3 \
   --set ingress_enabled=true --set ingress_host=shop.example.com
-# Rollback is the deploy command with the previous tag from `ankra application deployments`.
+# 3. Roll back: list what the deployment can go back to, then put a tag back (asks first; --yes to script it).
+ankra application rollback <application> --cluster <prod-cluster>
+ankra application rollback <application> --cluster <prod-cluster> --to sha-<previous>
 ```
 
 Production is not brought online until development is online and tested, and production is a
@@ -370,10 +372,15 @@ the preview hostname but publishes **no DNS** under the demo base domain — poi
 staging cluster's ingress yourself, or the URL resolves nowhere and gets no certificate.
 
 **Rollback.** Every deployment is keyed on a `sha-<7>` tag, so rolling back is putting an earlier
-published tag back: `ankra application deploy <application-id> --cluster <cluster> --set
-image_tag=sha-<previous>` (§7), or the portal's Environments page / `ankra chat "roll shop back to
-sha-1a2b3c4 on <cluster>" --mode agent` (the rollback lane, which also lists what it does **not**
-revert: a migrated schema, data written since, changed secrets, stack edits). A stack Ankra
+published tag back. `ankra application rollback <application> --cluster <cluster>` reads the tag
+running, the newest build, the tags still in the registry and what a rollback does **not** revert
+(a migrated schema, data written since, changed secrets, stack edits); adding `--to sha-<previous>`
+shows the same, asks, and puts that tag back (`--yes` skips the question, `-o json` prints the
+record; it never rolls back without `--to`, exits 8 when the deployment cannot be rolled back and
+needs `applications.deploy`). The platform checks the tag is in the registry and holds the rollback
+until a newer build is observed, so push-to-deploy does not undo it. `ankra application rollbacks
+<application> --cluster <cluster>` is the history. The portal's Environments page and `ankra chat
+"roll shop back to sha-1a2b3c4 on <cluster>" --mode agent` reach the same lane. A stack Ankra
 deployed is `git revert` in the GitOps repository; a Helm release you manage yourself is `ankra
 cluster helm rollback <release> -n <ns> --revision <n>` after `ankra cluster helm history` (refused
 for addon-managed releases — change the stack). Roll back first, fix on a branch.

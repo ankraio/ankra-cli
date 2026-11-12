@@ -34,7 +34,7 @@ jobs:
             echo "No CHANGELOG.md section found for ${TAG}; will fall back to generated notes"
           fi
 
-      - name: Create release and upload install script
+      - name: Create release and upload the install scripts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -55,7 +55,7 @@ jobs:
                 --generate-notes
             fi
           fi
-          gh release upload "${{ github.ref_name }}" install.sh --clobber
+          gh release upload "${{ github.ref_name }}" install.sh install.ps1 --clobber
 
   build-and-release:
     name: Build and Release

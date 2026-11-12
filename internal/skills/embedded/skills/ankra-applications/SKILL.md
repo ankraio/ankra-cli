@@ -181,6 +181,13 @@ ankra cluster logs -l app=<name> -n prod --follow=false --tail 100
 ```bash
 ankra application auto-deploy get <application-id>
 ankra application auto-deploy set <application-id> --enabled        # or --enabled=false
+ankra application autonomy get <application-id>                      # who runs each environment: you, together, or Ankra
+ankra application autonomy set <application-id> --environment production --area ship_changes=you_run_it
+ankra application autonomy pause <application-id> --reason "..."    # stop what Ankra does unasked; `resume` lifts it
+ankra application auto-fix-builds set <application-id> --enabled=false   # opt out of automatic build fixing
+ankra application setup-auto-merge set <application-id> --enabled   # or --follow-organisation; organisation admin
+ankra application database-backup set <application-id> --enabled    # the database backup default `backups` reads
+ankra application cost-estimate <application-id> --change replicas --cluster <name> --namespace <ns> --replicas 4
 ankra application environments <application-id>                      # what each environment follows
 ankra application environments set <application-id> staging --follow develop
 ankra application environments set <application-id> staging --none  # back to the tracked branch

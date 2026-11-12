@@ -617,7 +617,7 @@ func downloadToFile(httpClient *http.Client, url, destination string) error {
 
 // fetchChecksum downloads the .sha256 file for a release asset and returns the
 // hex digest. A 404 yields an empty string (older releases predate published
-// checksums), matching the lenient behaviour of install.sh.
+// checksums). install.sh no longer accepts that and refuses to install.
 func fetchChecksum(httpClient *http.Client, url string) (string, error) {
 	response, err := httpClient.Get(url)
 	if err != nil {

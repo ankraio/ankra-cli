@@ -171,6 +171,17 @@ type APIClient interface {
 	// same restore points, addressed by application and cluster rather
 	// than by stack.
 	GetApplicationBackups(applicationID string) (*client.ApplicationBackups, error)
+	GetApplicationAutonomy(ctx context.Context, applicationID string) (json.RawMessage, error)
+	SetApplicationAutonomy(ctx context.Context, applicationID string, environmentID string, layer map[string]any) (json.RawMessage, error)
+	GetApplicationAutonomyPause(ctx context.Context, applicationID string) (json.RawMessage, error)
+	PauseApplicationAutonomy(ctx context.Context, applicationID string, reason string) (json.RawMessage, error)
+	ResumeApplicationAutonomy(ctx context.Context, applicationID string) (json.RawMessage, error)
+	GetApplicationAutoFixBuilds(ctx context.Context, applicationID string) (json.RawMessage, error)
+	SetApplicationAutoFixBuilds(ctx context.Context, applicationID string, enabled bool) (json.RawMessage, error)
+	GetApplicationSetupAutoMerge(ctx context.Context, applicationID string) (json.RawMessage, error)
+	SetApplicationSetupAutoMerge(ctx context.Context, applicationID string, enabled *bool) (json.RawMessage, error)
+	SetApplicationDatabaseBackup(ctx context.Context, applicationID string, enabled bool) (json.RawMessage, error)
+	EstimateApplicationCost(ctx context.Context, applicationID string, change map[string]any) (json.RawMessage, error)
 	ProtectApplicationDeployment(applicationID string, deploymentID string, request client.ProtectApplicationDeploymentRequest) (*client.StackProtection, error)
 	CreateApplicationRestorePoint(applicationID string, deploymentID string, request client.CreateRestorePointRequest) (*client.CreateRestorePointResult, error)
 
@@ -254,6 +265,7 @@ type APIClient interface {
 	UpdateOrganisationDnsRecord(ctx context.Context, recordID, content string, ttl *int) (*client.DnsRecord, error)
 	DeleteOrganisationDnsRecord(ctx context.Context, recordID string) error
 
+	operationParityAPIClient
 	PublishCanvasPublication(ctx context.Context, request client.CanvasPublicationRequest) (*client.CanvasPublicationResult, error)
 	ListCanvasPublications(ctx context.Context, cursor string, limit int) (*client.CanvasPublicationsListResult, error)
 	UnpublishCanvasPublication(ctx context.Context, publicationID string) error
@@ -300,6 +312,7 @@ type APIClient interface {
 	ReplaceSecretSlot(ctx context.Context, slotID string, request client.SecretSlotReplaceRequest) (*client.SecretSlot, error)
 	ListSecretSlots(ctx context.Context) (*client.SecretSlotListResult, error)
 	DeleteSecretSlot(ctx context.Context, slotID string) (*client.SecretSlotDeleteResult, error)
+	AdoptSecretSlot(ctx context.Context, request client.SecretSlotAdoptRequest) (*client.SecretSlot, error)
 
 	CreateSupportTicket(ctx context.Context, req client.CreateSupportTicketRequest) (*client.SupportTicket, error)
 	ReviewSupportTicket(ctx context.Context, req client.ReviewSupportTicketRequest) (*client.SupportTicketReview, error)
@@ -455,6 +468,9 @@ type APIClient interface {
 	GetApplicationEnvironments(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	PreviewApplicationPromotion(requestContext context.Context, applicationID string, query url.Values) (json.RawMessage, error)
 	StartApplicationPromotion(requestContext context.Context, applicationID string, promotion map[string]string) (json.RawMessage, error)
+	GetApplicationRollbackTargets(requestContext context.Context, applicationID string, clusterID string) (json.RawMessage, error)
+	ListApplicationRollbacks(requestContext context.Context, applicationID string, clusterID string) (json.RawMessage, error)
+	StartApplicationRollback(requestContext context.Context, applicationID string, clusterID string, imageTag string) (json.RawMessage, error)
 	GetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	UpdateApplicationAIConfig(requestContext context.Context, applicationID string, configuration json.RawMessage) (json.RawMessage, error)
 	ResetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error)
@@ -545,6 +561,23 @@ type APIClient interface {
 	GetAIRemediationPolicy() (*client.AIRemediationPolicy, error)
 	ListAIMemories(limit int) ([]client.AIMemory, error)
 	ClearAIMemories() (int, error)
+	ListAITasks(ctx context.Context) (json.RawMessage, error)
+	GetAITask(ctx context.Context, taskID string) (json.RawMessage, error)
+	CreateAITask(ctx context.Context, definition map[string]any) (json.RawMessage, error)
+	UpdateAITask(ctx context.Context, taskID string, changes map[string]any) (json.RawMessage, error)
+	DeleteAITask(ctx context.Context, taskID string) error
+	ControlAITask(ctx context.Context, taskID string, action string) (json.RawMessage, error)
+	ReapplyAITaskTemplate(ctx context.Context, taskID string, force bool) (json.RawMessage, error)
+	ListAITaskRuns(ctx context.Context, taskID string, limit int) (json.RawMessage, error)
+	ListAITaskTemplates(ctx context.Context) (json.RawMessage, error)
+	HireAITaskTemplate(ctx context.Context, templateID string, clusterID string) (json.RawMessage, error)
+	ListAIConditions(ctx context.Context, chronicOnly bool, limit int) (json.RawMessage, error)
+	GetAICondition(ctx context.Context, conditionID string) (json.RawMessage, error)
+	ListAIPlaybooks(ctx context.Context) (json.RawMessage, error)
+	AdoptAIPlaybook(ctx context.Context, playbookID string) (json.RawMessage, error)
+	RetireAIPlaybook(ctx context.Context, playbookID string, reason string) (json.RawMessage, error)
+	ListAIEngineeringHandoffs(ctx context.Context, status string) (json.RawMessage, error)
+	AcknowledgeAIEngineeringHandoff(ctx context.Context, handoffID string, trackerReference string) (json.RawMessage, error)
 
 	ListTickets(filter client.TicketListFilter) (*client.TicketListResponse, error)
 	GetTicket(ticketID string) (*client.Ticket, error)
@@ -1164,6 +1197,14 @@ type APIClient interface {
 	ValidatePipelineDefinition(ctx context.Context, selector client.PipelineSelector, specYAML string, changedFiles []string) (*client.PipelineValidation, error)
 	GetPipelineDefinitionApproval(ctx context.Context, definitionID string) (*client.PipelineDefinitionApproval, error)
 	ApprovePipelineDefinition(ctx context.Context, definitionID string) (*client.PipelineDefinitionApproval, error)
+	ListPipelineAuthorityRequests(ctx context.Context, options client.ListPipelineAuthorityRequestsOptions) (json.RawMessage, error)
+	GetPipelineAuthorityRequest(ctx context.Context, requestID string) (json.RawMessage, error)
+	DismissPipelineAuthorityRequest(ctx context.Context, requestID string, reason string) (json.RawMessage, error)
+	GetPipelinePolicy(ctx context.Context) (json.RawMessage, error)
+	UpdatePipelinePolicy(ctx context.Context, changes map[string]any) (json.RawMessage, error)
+	ListPipelineCaches(ctx context.Context, selector client.PipelineSelector, cursor string, limit int) (json.RawMessage, error)
+	GetWorkspaceProfilesDocument(ctx context.Context, repositoryID string) (json.RawMessage, error)
+	PutWorkspaceProfiles(ctx context.Context, repositoryID string, profiles map[string]any) (json.RawMessage, error)
 	ListPipelineSchedules(ctx context.Context, selector client.PipelineSelector) (*client.PipelineScheduleList, error)
 	CreatePipelineSchedule(ctx context.Context, selector client.PipelineSelector, request client.CreatePipelineScheduleRequest) (*client.PipelineSchedule, error)
 	UpdatePipelineSchedule(ctx context.Context, selector client.PipelineSelector, scheduleID string, request client.UpdatePipelineScheduleRequest) (*client.PipelineSchedule, error)

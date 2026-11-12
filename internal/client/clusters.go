@@ -44,9 +44,34 @@ type ClusterListItem struct {
 	DeletedAt         *string         `json:"deleted_at"`
 	Kind              string          `json:"kind"`
 	Network           *ClusterNetwork `json:"network,omitempty"`
+	// SetupStopped names the operation the setup of a cluster Ankra builds
+	// stopped at. A failed create leaves State at creating (or one of the
+	// access stages after it), so this is what tells a stopped setup from
+	// one that is progressing. Nil when the cluster is not being set up,
+	// when its setup has not stopped, and from a platform that predates the
+	// field (ankra-2v9ewh).
+	SetupStopped *ClusterSetupStopped `json:"setup_stopped,omitempty" yaml:"setup_stopped,omitempty"`
 	// PortalURL is the resource's page in the portal. The CLI fills it in
 	// for display when the platform sent none.
 	PortalURL string `json:"portal_url,omitempty" yaml:"portal_url,omitempty"`
+}
+
+// ClusterSetupStopped mirrors the platform's ClusterSetupStopped: the
+// newest operation of a cluster still being set up that ended failed,
+// critical or cancelled and still needs a person, with no reconcile under
+// way that could finish the setup.
+type ClusterSetupStopped struct {
+	// ExecutionID is the operation the setup stopped at, the id
+	// `ankra cluster operations list <id>` reads.
+	ExecutionID string `json:"execution_id" yaml:"execution_id"`
+	// Status is the operation's terminal status: failed, critical or
+	// cancelled.
+	Status string `json:"status" yaml:"status"`
+	// ErrorExcerpt is the operation's error excerpt, nil when it recorded
+	// none, as a cancelled operation often does.
+	ErrorExcerpt *string `json:"error_excerpt" yaml:"error_excerpt"`
+	// StoppedAt is when the operation ended (RFC 3339).
+	StoppedAt *string `json:"stopped_at" yaml:"stopped_at"`
 }
 
 // ClusterNetwork mirrors the backend's optional provider network identifiers

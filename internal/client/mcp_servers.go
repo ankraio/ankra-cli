@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	neturl "net/url"
 )
@@ -435,34 +436,9 @@ func (refusal *orgRouteRefusal) Error() string { return refusal.Detail }
 // and secret-slot routes.
 func (c *Client) doOrgRouteRequest(ctx context.Context, method, url string, payload []byte,
 	notFound error, failureLabel string) ([]byte, error) {
-	var bodyReader *bytes.Reader
-	if payload != nil {
-		bodyReader = bytes.NewReader(payload)
-	}
-	var request *http.Request
-	var requestError error
-	if bodyReader != nil {
-		request, requestError = http.NewRequestWithContext(ctx, method, url, bodyReader)
-	} else {
-		request, requestError = http.NewRequestWithContext(ctx, method, url, nil)
-	}
-	if requestError != nil {
-		return nil, fmt.Errorf("create request: %w", requestError)
-	}
-	if payload != nil {
-		request.Header.Set("Content-Type", "application/json")
-	}
-	request.Header.Set("Authorization", "Bearer "+c.Token)
-
-	response, sendError := c.HTTP.Do(request)
+	response, responseBody, sendError := c.sendOrgRouteRequest(ctx, method, url, payload)
 	if sendError != nil {
-		return nil, fmt.Errorf("request failed: %w", sendError)
-	}
-	defer closeBody(response)
-
-	responseBody, readError := readResponseBody(response)
-	if readError != nil {
-		return nil, fmt.Errorf("read response: %w", readError)
+		return nil, sendError
 	}
 
 	switch response.StatusCode {
@@ -482,6 +458,37 @@ func (c *Client) doOrgRouteRequest(ctx context.Context, method, url string, payl
 		return nil, newUnexpectedResponseError(failureLabel,
 			response.StatusCode, redactedBodyForError(responseBody, 500))
 	}
+}
+
+// sendOrgRouteRequest sends an authenticated request on the org routes, with
+// payload as its JSON body when set, and returns the answer and its body
+// whatever the status, for callers that read a refusal's status themselves.
+// The response body is already read and closed.
+func (c *Client) sendOrgRouteRequest(ctx context.Context, method, url string, payload []byte) (*http.Response, []byte, error) {
+	var bodyReader io.Reader
+	if payload != nil {
+		bodyReader = bytes.NewReader(payload)
+	}
+	request, requestError := http.NewRequestWithContext(ctx, method, url, bodyReader)
+	if requestError != nil {
+		return nil, nil, fmt.Errorf("create request: %w", requestError)
+	}
+	if payload != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	request.Header.Set("Authorization", "Bearer "+c.Token)
+
+	response, sendError := c.HTTP.Do(request)
+	if sendError != nil {
+		return nil, nil, fmt.Errorf("request failed: %w", sendError)
+	}
+	defer closeBody(response)
+
+	responseBody, readError := readResponseBody(response)
+	if readError != nil {
+		return nil, nil, fmt.Errorf("read response: %w", readError)
+	}
+	return response, responseBody, nil
 }
 
 // decodeMCPResponse unmarshals a success-response body into target.

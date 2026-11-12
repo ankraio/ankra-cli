@@ -448,6 +448,29 @@ func (client *Client) StartApplicationPromotion(requestContext context.Context, 
 	return client.applicationResourceRequest(requestContext, http.MethodPost, applicationPath(applicationID, "/promotions"), nil, promotion)
 }
 
+// --- rollback ---
+
+// GetApplicationRollbackTargets reads what the application's deployment on a
+// cluster could be rolled back to.
+func (client *Client) GetApplicationRollbackTargets(requestContext context.Context, applicationID string, clusterID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/rollback-targets"),
+		url.Values{"cluster_id": []string{clusterID}}, nil)
+}
+
+// ListApplicationRollbacks reads the recorded rollbacks of the application's
+// deployment on a cluster, newest first.
+func (client *Client) ListApplicationRollbacks(requestContext context.Context, applicationID string, clusterID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/rollbacks"),
+		url.Values{"cluster_id": []string{clusterID}}, nil)
+}
+
+// StartApplicationRollback puts a previously published image tag back on the
+// application's deployment on a cluster and answers the rollback record.
+func (client *Client) StartApplicationRollback(requestContext context.Context, applicationID string, clusterID string, imageTag string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPost, applicationPath(applicationID, "/rollbacks"), nil,
+		map[string]string{"cluster_id": clusterID, "image_tag": imageTag})
+}
+
 // --- catalog publishing ---
 
 // PublishApplicationAddonRequest mirrors the publish-addon body; every field

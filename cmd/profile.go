@@ -31,7 +31,7 @@ var profileAuthOpenCmd = &cobra.Command{
 authentication, authenticator apps, recovery codes, passkeys, and security
 keys are managed.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		profileAuthenticationURL := fmt.Sprintf("%s/organisation/profile/authentication", strings.TrimRight(baseURL, "/"))
+		profileAuthenticationURL := portalPageURL("account", "security")
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Opening Profile Authentication in your browser:")
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", profileAuthenticationURL)
 		if err := openBrowser(profileAuthenticationURL); err != nil {

@@ -151,6 +151,7 @@ func registerApplicationResourceCommands(applicationCommand *cobra.Command) {
 	applicationCommand.AddCommand(newApplicationProtectCommand())
 	applicationCommand.AddCommand(newApplicationBackupCommand())
 	applicationCommand.AddCommand(newApplicationPipelineCommand())
+	registerApplicationAutonomyCommands(applicationCommand)
 }
 
 func newApplicationDeleteCommand() *cobra.Command {

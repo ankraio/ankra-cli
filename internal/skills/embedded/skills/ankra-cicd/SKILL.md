@@ -295,6 +295,13 @@ ankra pipeline get <run-id> --repository <repository-id>     # Authority: unappr
 ankra pipeline get <run-id> --repository <repository-id> -o json | jq -r .approve_definition_id
 ankra pipeline definitions get <definition-id>               # inspect what would be granted, and the approval state
 ankra pipeline definitions approve <definition-id>           # HUMAN admin: pipelines.manage + human actor; confirms; --yes to skip
+ankra pipeline authority list                                # the approvals inbox: pending requests runs raised (--status, --application)
+ankra pipeline authority get <request-id>                    # what it asks for against the approved authority, and its approve command
+ankra pipeline authority dismiss <request-id> --reason "..."  # HUMAN admin declines it; the run's check shows the reason
+ankra pipeline policy get                                    # the organisation's ceiling: network tiers, credentials, max CPU/memory/cache
+ankra pipeline policy set --max-cache-size 20Gi              # pipelines.manage; confirms; node selectors and tolerations via -f
+ankra pipeline caches --application <name>                   # the cache volumes kept between runs, and when each lapses
+ankra pipeline workspace-profiles get --application <name>   # what `ankra dev` workspaces run; `put -f` replaces them
 ```
 
 Facts: only the repository's **current default-branch** definition can be approved, and only once —

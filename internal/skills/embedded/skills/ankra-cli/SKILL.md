@@ -20,19 +20,27 @@ reads and operational fixes. If the CLI has no command for something, report the
 ## Install and verify
 
 ```bash
-bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh)
+curl -fsSL https://ankra.ai/install | sh   # installs, then runs `ankra onboard`; no prompts, no sudo
+irm https://ankra.ai/install.ps1 | iex     # Windows PowerShell
 ankra --version
 ankra completion install            # once per machine
 ankra upgrade                       # later, to update
 ankra config beta enable            # opt in to pre-release builds (disable to leave)
 ```
 
+`ankra onboard` signs the person up or in and sets up only what is missing (organisation, a free
+playground when there is no cluster, agent skills). An assistant runs it as
+`ankra onboard --json`: one JSON event per line, each with an `instruction` to follow and, when
+there is one, the `next_command` to run. Without a session it prints a `login_url` event; show the
+user that link, then run `ankra onboard --wait --json`, which waits for the approval and finishes.
+Rerunning keeps the same link until it expires (exit 5); `--new` starts over.
+
 Docs: https://docs.ankra.ai
 
 ## Orient before you act
 
 ```bash
-ankra login                 # browser SSO; stores credentials in ~/.ankra.yaml
+ankra login                 # browser SSO; stores credentials in ~/.ankra.yaml (ankra onboard does this too)
 ankra org list
 ankra org switch <slug|name|id>
 ankra org current
@@ -87,6 +95,7 @@ exits 3 saying so and everything else works as before.
 | Cloud cost and Ankra usage | `ankra cost ...`, `ankra org usage\|limits\|billing standing\|billing wallet` | below |
 | Heavy local commands in a workspace pod | `ankra exec`, `ankra workspace up\|status\|down`, `ankra dev install\|mode\|status` | below |
 | Sharing a page at a public URL | `ankra canvas publish\|list\|unpublish` | below |
+| Saved canvases, their revisions and comments | `ankra canvas library\|get\|create\|update\|delete`, `ankra canvas revisions\|comments ...` | below |
 | Agent skills for assistants | `ankra skills install\|list\|clients\|uninstall` | below |
 | Support requests | `ankra support create\|list\|get\|comment\|attach\|close` | below |
 
@@ -429,6 +438,7 @@ ankra exec -- go test ./...              # a heavy command for this checkout, ru
 ankra workspace up --wait                # bring the workspace up ahead of time (status, down)
 ankra dev install                        # shims so plain go test / golangci-lint / pnpm typecheck go to the workspace
 ankra canvas publish report.html         # an HTML, SVG or Markdown page at a public, unguessable URL (list, unpublish)
+ankra canvas library                     # the saved canvases you can see (get --content, create, update, delete, revisions, comments)
 ankra skills install                     # these skills plus the /ankra-* workflow commands, into every assistant found
 ankra skills install --with-hooks        # also ask before an assistant runs a cluster-mutating kubectl or helm
 ankra skills list

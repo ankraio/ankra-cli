@@ -5,7 +5,8 @@
 #            .golangci.yml, staticcheck included
 #   test     go test -race with coverage over ./..., against the cluster
 #            repository's route census, then the coverage summary
-#   checks   make verify-skills, go build ./... and govulncheck
+#   checks   make verify-skills, go build ./..., the install.sh test and
+#            govulncheck
 # The workflow stays until this pipeline has proven green on master; then it
 # is removed and branch protection requires `Ankra pipeline` instead.
 #
@@ -146,7 +147,7 @@ stages:
 
   - name: "checks"
     kind: "run"
-    image: &golang_image "golang:1.26.10@sha256:672c944cfd07599b5f1bb179869270cdc94c6254e41db4d431259693cb286b82"
+    image: &golang_image "golang:1.26.11@sha256:7af425da11f4fc1a9308eb704369e3f6d1c44e35bac0f874a59ade3f20fdc07e"
     needs:
       - "checkout"
     runs_on: *ci_large
@@ -182,6 +183,10 @@ stages:
       make verify-skills || status=1
       echo "--- go build ./..."
       go build -o /dev/null ./... || status=1
+      # install.sh is what `curl -fsSL https://ankra.ai/install | sh` runs;
+      # this image's sh is dash, where a bashism would break it.
+      echo "--- install.sh"
+      TMPDIR="$GOTMPDIR" TEST_INSTALL_REQUIRE_DASH=1 sh tools/test-install-sh.sh || status=1
       echo "--- govulncheck ./..."
       go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./... || status=1
       rm -rf "$GOCACHE"

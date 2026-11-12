@@ -45,9 +45,11 @@ func newApplicationCommand() *cobra.Command {
 	applicationCommand.AddCommand(newApplicationAddCommand())
 	applicationCommand.AddCommand(newApplicationShipCommand())
 	applicationCommand.AddCommand(newApplicationPromoteCommand())
+	applicationCommand.AddCommand(newApplicationRollbackCommand(), newApplicationRollbacksCommand())
 	applicationCommand.AddCommand(newApplicationPreviewsCommand())
 	applicationCommand.AddCommand(newApplicationImportCommand())
 	applicationCommand.AddCommand(newApplicationDataMigrationCommand())
+	applicationCommand.AddCommand(newApplicationTimelineCommand(), newApplicationLaunchPlanCommand())
 	registerApplicationResourceCommands(applicationCommand)
 	return applicationCommand
 }
@@ -347,8 +349,8 @@ const (
 // applicationAnalysisPollInterval is how often --wait asks the platform. The
 // analysis takes tens of seconds when the AI lane answers and longer when it
 // falls back, so this is slow enough not to hammer the API and fast enough to
-// feel live.
-const applicationAnalysisPollInterval = 5 * time.Second
+// feel live. A variable so tests do not sleep through it.
+var applicationAnalysisPollInterval = 5 * time.Second
 
 // applicationAnalysisDefaultTimeout bounds --wait when the command carries no
 // --timeout of its own.

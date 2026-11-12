@@ -144,7 +144,28 @@ jobs:
           # Set only when the census was fetched; otherwise the route test skips
           # visibly instead of failing on a file that was never there.
           ANKRA_CLUSTER_ROUTES_JSON: ${{ steps.routes_fetch.outputs.fetched == 'true' && format('{0}/routes.json', github.workspace) || '' }}
-        run: go test -race -count=1 -timeout=5m -coverprofile=coverage.out ./...
+        # -json keeps every test's duration, so a package creeping toward
+        # -timeout shows which tests it spends its time in (ankra-hq41xb.28).
+        # testreport -filter prints the log go test prints without -v: build
+        # errors, package results, and the output of failed tests and of any
+        # test still running when its package timed out.
+        shell: bash
+        run: |
+          set -o pipefail
+          go build -o "$RUNNER_TEMP/testreport" ./tools/testreport
+          go test -race -count=1 -timeout=5m -coverprofile=coverage.out -json ./... \
+            | tee test-events.json \
+            | "$RUNNER_TEMP/testreport" -filter
+      - name: Report test time
+        if: ${{ always() && hashFiles('test-events.json') != '' }}
+        run: go run ./tools/testreport -summary -top 40 -markdown "$GITHUB_STEP_SUMMARY" test-events.json
+      - name: Upload test events
+        if: ${{ always() && hashFiles('test-events.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-events
+          path: test-events.json
+          retention-days: 14
       - name: Check coverage
         if: ${{ !cancelled() && steps.tests.outcome == 'success' }}
         run: go tool cover -func=coverage.out
@@ -168,3 +189,35 @@ jobs:
         run: |
           sudo swapoff /mnt/ci.swap && sudo rm -f /mnt/ci.swap \
             || echo "::warning::could not remove /mnt/ci.swap; it stays on this runner"
+
+  # install.sh is what `curl -fsSL https://ankra.ai/install | sh` runs. It
+  # must stay POSIX sh: on Debian and Ubuntu sh is dash, which is where a
+  # bashism breaks it. The test installs from a fake file:// release with an
+  # isolated HOME and PATH under both sh and dash. install.ps1 is tested too.
+  install-script:
+    runs-on: ${{ vars.CI_RUNNER_2 || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Check install.sh
+        env:
+          TEST_INSTALL_REQUIRE_DASH: "1"
+        run: |
+          dash -n install.sh
+          if command -v shellcheck >/dev/null 2>&1; then
+            shellcheck -s sh install.sh tools/test-install-sh.sh
+          else
+            echo "::warning::shellcheck is not installed on this runner, so install.sh was not linted"
+          fi
+          sh tools/test-install-sh.sh
+      # install.ps1 is tested with the runner's PowerShell on Linux: the
+      # download, checksum, install and onboarding steps, with the
+      # Windows-only registry PATH write replaced by a recorder.
+      - name: Check install.ps1
+        run: |
+          if command -v pwsh >/dev/null 2>&1; then
+            pwsh -NoProfile -File tools/test-install-ps1.ps1
+          else
+            echo "::warning::pwsh is not installed on this runner, so install.ps1 was not tested"
+          fi
