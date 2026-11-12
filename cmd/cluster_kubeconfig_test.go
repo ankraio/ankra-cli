@@ -68,11 +68,14 @@ func withKubeconfigMock(t *testing.T, mock kubeconfigMock) {
 	t.Setenv("HOME", t.TempDir())
 	originalClient := apiClient
 	originalBaseURL := baseURL
+	originalTokenSource := organisationScopeTokenSource
 	apiClient = mock
 	baseURL = "https://test.ankra.app"
+	organisationScopeTokenSource = sourceConfigFile
 	t.Cleanup(func() {
 		apiClient = originalClient
 		baseURL = originalBaseURL
+		organisationScopeTokenSource = originalTokenSource
 	})
 }
 

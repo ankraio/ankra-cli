@@ -214,30 +214,51 @@ func TestClusterCommandsResolveClusterInOrganisationFromFlagsInEitherPosition(t 
 }
 
 func TestClusterFlagNotFoundNamesTheOrganisationSearched(t *testing.T) {
-	leaf, _, _ := rootCmd.Find([]string{"cluster", "get", "pods"})
-	resetFlagsToDefaults(leaf)
-	t.Cleanup(func() { resetFlagsToDefaults(leaf) })
-	mock := newOrganisationScopedClusterMock()
-	setMockClient(t, mock)
-	writeSavedSelectionInAnotherOrganisation(t)
+	for _, testCase := range []struct {
+		name         string
+		isSavedLogin bool
+		want         string
+		wantAbsent   string
+	}{
+		{name: "the saved login names its saved selection", isSavedLogin: true, want: flagOrderSavedOrganisationID},
+		{name: "an environment token never names the saved selection", want: "the organisation this command is scoped to", wantAbsent: flagOrderSavedOrganisationID},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			leaf, _, _ := rootCmd.Find([]string{"cluster", "get", "pods"})
+			resetFlagsToDefaults(leaf)
+			t.Cleanup(func() { resetFlagsToDefaults(leaf) })
+			mock := newOrganisationScopedClusterMock()
+			setMockClient(t, mock)
+			writeSavedSelectionInAnotherOrganisation(t)
+			if testCase.isSavedLogin {
+				useSavedLogin(t)
+			} else {
+				originalTokenSource := organisationScopeTokenSource
+				t.Cleanup(func() { organisationScopeTokenSource = originalTokenSource })
+			}
 
-	var runError error
-	captureStdout(t, func() {
-		_, runError = executeCommand("--cluster", "nowhere", "cluster", "get", "pods", "-n", "payments")
-	})
-	if runError == nil {
-		t.Fatal("an unknown cluster must fail")
-	}
-	if code := exitCodeFor(runError); code != exitNotFound {
-		t.Errorf("exit code = %d, want %d", code, exitNotFound)
-	}
-	for _, expected := range []string{`cluster "nowhere" not found`, flagOrderSavedOrganisationID, "--org"} {
-		if !strings.Contains(runError.Error(), expected) {
-			t.Errorf("error %q is missing %q", runError.Error(), expected)
-		}
-	}
-	if len(mock.targetedClusterIDs) != 0 {
-		t.Errorf("nothing should reach a cluster: %v", mock.targetedClusterIDs)
+			var runError error
+			captureStdout(t, func() {
+				_, runError = executeCommand("--cluster", "nowhere", "cluster", "get", "pods", "-n", "payments")
+			})
+			if runError == nil {
+				t.Fatal("an unknown cluster must fail")
+			}
+			if code := exitCodeFor(runError); code != exitNotFound {
+				t.Errorf("exit code = %d, want %d", code, exitNotFound)
+			}
+			for _, expected := range []string{`cluster "nowhere" not found`, testCase.want, "--org"} {
+				if !strings.Contains(runError.Error(), expected) {
+					t.Errorf("error %q is missing %q", runError.Error(), expected)
+				}
+			}
+			if testCase.wantAbsent != "" && strings.Contains(runError.Error(), testCase.wantAbsent) {
+				t.Errorf("error %q names %q, which this token is not scoped to", runError.Error(), testCase.wantAbsent)
+			}
+			if len(mock.targetedClusterIDs) != 0 {
+				t.Errorf("nothing should reach a cluster: %v", mock.targetedClusterIDs)
+			}
+		})
 	}
 }
 

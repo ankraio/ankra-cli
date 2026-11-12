@@ -266,6 +266,7 @@ func (run *onboardRun) emitError(err error) {
 func (run *onboardRun) connect(resolved resolvedCredentials) {
 	apiToken = resolved.token
 	baseURL = resolved.baseURL
+	organisationScopeTokenSource = resolved.source
 	run.baseURL = resolved.baseURL
 	if run.ownsClient || apiClient == nil {
 		apiClient = newAPIClient()

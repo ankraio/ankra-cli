@@ -22,8 +22,8 @@ func (m *projectInviteMock) InviteUserToOrganisation(request client.InviteUserRe
 	return &client.InviteUserResponse{Success: true}, nil
 }
 
-// runInvite runs `ankra org invite` with a saved organisation selection, so
-// the command needs no organisation listing.
+// runInvite runs `ankra org invite` on the saved login with a saved
+// organisation selection, so the command needs no organisation listing.
 func runInvite(t *testing.T, mock *projectInviteMock, args ...string) (string, error) {
 	t.Helper()
 	withTempHome(t)
@@ -34,6 +34,7 @@ func runInvite(t *testing.T, mock *projectInviteMock, args ...string) (string, e
 		t.Fatal(err)
 	}
 	setMockClient(t, mock)
+	useSavedLogin(t)
 	reset := func() { resetGlobalProjectFlag(t); resetTreeFlags(t, orgInviteCmd) }
 	reset()
 	t.Cleanup(reset)
