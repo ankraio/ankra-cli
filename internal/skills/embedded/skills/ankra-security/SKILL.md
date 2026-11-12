@@ -193,6 +193,7 @@ ankra credentials list
 ankra credentials get <name>
 ankra credentials repositories <name>    # what a Git credential can ACTUALLY reach
 ankra credentials validate <name>
+ankra credentials propagation <name>     # after a rotation: which clusters serve the new value, and whether the old one is safe to revoke
 ankra helm credentials list
 ```
 

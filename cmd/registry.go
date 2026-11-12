@@ -48,6 +48,7 @@ policy that frees it, and asks Ankra for more.`,
 	registryCommand.AddCommand(newRegistryRobotsCommand())
 	registryCommand.AddCommand(newRegistryProjectsCommand())
 	registryCommand.AddCommand(newRegistryStorageCommand())
+	registryCommand.AddCommand(newRegistryConnectionsCommand())
 	return registryCommand
 }
 

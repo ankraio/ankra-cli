@@ -97,3 +97,10 @@ func (c *Client) SetApplicationDatabaseBackup(ctx context.Context, applicationID
 func (c *Client) EstimateApplicationCost(ctx context.Context, applicationID string, change map[string]any) (json.RawMessage, error) {
 	return c.requestDocument(ctx, http.MethodPost, applicationPath(applicationID, "/cost/estimate"), change)
 }
+
+// ListApplicationAutonomousActions reads what Ankra did on its own across
+// every application, newest first.
+// GET /api/v1/org/applications/autonomous-actions
+func (c *Client) ListApplicationAutonomousActions(ctx context.Context) (json.RawMessage, error) {
+	return c.requestDocument(ctx, http.MethodGet, applicationsAPIPath+"/autonomous-actions", nil)
+}

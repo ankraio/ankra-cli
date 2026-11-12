@@ -60,6 +60,7 @@ any level; 'resume' lifts it. The organisation-wide stop is
 		newApplicationAutonomyGetCommand(),
 		newApplicationAutonomySetCommand(),
 		newApplicationAutonomyPauseCommand(),
+		newApplicationAutonomyActionsCommand(),
 		newApplicationDocumentCommand("resume", "Let Ankra act on an application again",
 			"Lift the application's pause, so what Ankra does unasked on its placements runs\nagain under the application's own autonomy setting.",
 			func(command *cobra.Command, applicationID string) (json.RawMessage, error) {

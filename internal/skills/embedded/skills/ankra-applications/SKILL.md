@@ -184,6 +184,7 @@ ankra application auto-deploy set <application-id> --enabled        # or --enabl
 ankra application autonomy get <application-id>                      # who runs each environment: you, together, or Ankra
 ankra application autonomy set <application-id> --environment production --area ship_changes=you_run_it
 ankra application autonomy pause <application-id> --reason "..."    # stop what Ankra does unasked; `resume` lifts it
+ankra application autonomy actions                                   # what Ankra did on its own, across every application
 ankra application auto-fix-builds set <application-id> --enabled=false   # opt out of automatic build fixing
 ankra application setup-auto-merge set <application-id> --enabled   # or --follow-organisation; organisation admin
 ankra application database-backup set <application-id> --enabled    # the database backup default `backups` reads

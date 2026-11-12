@@ -1,5 +1,12 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **Assign tickets, plan them and sync them to a tracker.** `ankra tickets assign` gives a ticket to an agent or a member, `ankra tickets plan draft|review` records a plan and approves it or asks for changes, and `ankra tickets workspace` attaches an AI workspace. `ankra tickets sync connections list|get|create|update|delete` manage the connections that mirror tickets to Jira, Linear or a webhook, and `ankra tickets sync destinations` lists the teams a tracker key can file into. A tracker credential is never an argument: pipe it with `--secret-stdin` or type it at a hidden prompt, and it is never printed back.
+- **Registry connection checks, rotation status, the learned AI profile and what Ankra did on its own.** `ankra registry connections discover|verify` check what a stored admin credential can do on a registry of your own before Ankra makes robots there, and exit 1 when the registry refuses. `ankra credentials propagation <credential>` shows which clusters serve a rotated credential's new value and whether the old one is safe to revoke. `ankra ai memories profile get|set|reset` read, correct or clear what the assistant learned about how you work, and switch learning off. `ankra application autonomy actions` lists what Ankra did unasked across every application.
+
 ## v0.76.0 - 2026-11-12
 
 ### Added

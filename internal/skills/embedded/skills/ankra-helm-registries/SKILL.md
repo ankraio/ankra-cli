@@ -63,6 +63,8 @@ spec:
 ankra helm credentials create --name harbor-pull --username robot-reader   # password is prompted, never a flag
 ankra helm credentials list
 ankra helm credentials get harbor-pull            # the password is never returned
+ankra registry connections discover --url oci://harbor.example.com --admin-credential harbor-admin   # the projects an admin credential sees
+ankra registry connections verify --registry harbor --admin-credential harbor-admin   # can Ankra make robots there; exits 1 when not
 ankra helm credentials update harbor-pull --username <user>   # re-prompts the password: rotation
 ankra helm credentials delete harbor-pull
 
