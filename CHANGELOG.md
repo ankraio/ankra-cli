@@ -6,6 +6,10 @@
 
 - **Accept a CVE for a whole namespace: `ankra security dispositions create --scope namespace`.** The new scope covers the vulnerability in every workload of the occurrence's namespace on its cluster, so an accepted risk in your own application (a transitive dependency's CVE, for example) keeps holding after the next rollout and the next image build. `--scope workload` now pins a Deployment rather than the ReplicaSet the scanner reported, so it survives rollouts too; `--scope image` still pins one digest and lapses on the next build. The dispositions list shows a namespace policy as `namespace <name> on cluster <id>`.
 
+### Fixed
+
+- **`ankra cluster addons upgrade` keeps the operation id when the commit back to Git is deferred.** When the platform saves and applies an upgrade but defers its commit to Git (for example while the cluster's GitOps sync is held), the platform now returns the upgrade's operation id. The CLI passes it on as `operation_id` in `-o json` output, the same as for an ordinary upgrade, so a release script that waits on the operation keeps going instead of stopping at that add-on.
+
 ## v0.75.0 - 2026-11-11
 
 This release takes a new user from nothing to a working setup with one line:
