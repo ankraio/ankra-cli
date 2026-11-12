@@ -358,6 +358,7 @@ func persistentPreRunE(cmd *cobra.Command, _ []string) error {
 // other sessions can move.
 func applyOrganisationOverride(cmd *cobra.Command, tokenSource credentialSource) error {
 	organisationScopedByLocalSelection = false
+	organisationScopeTokenSource = tokenSource
 	orgValue := ""
 	if flag, _ := flagValue(cmd.Root().PersistentFlags().Lookup("org")); flag != "" {
 		orgValue = flag

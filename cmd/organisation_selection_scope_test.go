@@ -62,8 +62,9 @@ func membershipsWithServerCurrent() []client.OrganisationSummary {
 	}
 }
 
-// withOrganisationHeaderServer installs a real API client against a recording
-// server and an isolated HOME, so the test exercises the header on the wire.
+// withOrganisationHeaderServer installs a real API client for the saved login
+// against a recording server and an isolated HOME, so the test exercises the
+// header on the wire.
 func withOrganisationHeaderServer(t *testing.T, server *organisationHeaderServer) {
 	t.Helper()
 	withTempHome(t)
@@ -73,6 +74,7 @@ func withOrganisationHeaderServer(t *testing.T, server *organisationHeaderServer
 	originalClient := apiClient
 	originalScope := organisationScopedByLocalSelection
 	apiClient = client.New("saved-token", httpServer.URL)
+	withTokenSource(t, sourceConfigFile)
 	t.Cleanup(func() {
 		apiClient = originalClient
 		organisationScopedByLocalSelection = originalScope
