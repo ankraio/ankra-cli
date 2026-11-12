@@ -20,19 +20,27 @@ reads and operational fixes. If the CLI has no command for something, report the
 ## Install and verify
 
 ```bash
-bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh)
+curl -fsSL https://ankra.ai/install | sh   # installs, then runs `ankra onboard`; no prompts, no sudo
+irm https://ankra.ai/install.ps1 | iex     # Windows PowerShell
 ankra --version
 ankra completion install            # once per machine
 ankra upgrade                       # later, to update
 ankra config beta enable            # opt in to pre-release builds (disable to leave)
 ```
 
+`ankra onboard` signs the person up or in and sets up only what is missing (organisation, a free
+playground when there is no cluster, agent skills). An assistant runs it as
+`ankra onboard --json`: one JSON event per line, each with an `instruction` to follow and, when
+there is one, the `next_command` to run. Without a session it prints a `login_url` event; show the
+user that link, then run `ankra onboard --wait --json`, which waits for the approval and finishes.
+Rerunning keeps the same link until it expires (exit 5); `--new` starts over.
+
 Docs: https://docs.ankra.ai
 
 ## Orient before you act
 
 ```bash
-ankra login                 # browser SSO; stores credentials in ~/.ankra.yaml
+ankra login                 # browser SSO; stores credentials in ~/.ankra.yaml (ankra onboard does this too)
 ankra org list
 ankra org switch <slug|name|id>
 ankra org current

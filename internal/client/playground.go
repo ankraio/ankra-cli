@@ -5,7 +5,11 @@ package client
 // one.
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	neturl "net/url"
 )
 
@@ -109,22 +113,92 @@ type createPlaygroundRequest struct {
 	Plan string `json:"plan"`
 }
 
+// PlaygroundExistsError is the 409 a create answers when the organisation
+// already holds a playground: the body names it ({detail, cluster_id}), so a
+// caller that only wants a playground can carry on with the one that exists.
+// It reads as the server's detail and unwraps to the same 409
+// *UnexpectedResponseError every other refusal is, so existing handling of
+// the 409 is unchanged.
+type PlaygroundExistsError struct {
+	ClusterID string
+	Detail    string
+}
+
+func (e *PlaygroundExistsError) Error() string {
+	if e.Detail != "" {
+		return e.Detail
+	}
+	return "the organisation already has a playground (" + e.ClusterID + ")"
+}
+
+func (e *PlaygroundExistsError) Unwrap() error {
+	return newBackendDetailError(http.StatusConflict, e.Error())
+}
+
 // CreatePlayground provisions the organisation's playground at the given
 // size; an empty planID orders the free trial. A 409 means one already
-// exists; a 503 means the shared host is at capacity; a 402 means a paid
-// size needs a billing plan. All surface as the server's detail text through
-// the shared unexpected-response error.
+// exists and comes back as a *PlaygroundExistsError naming it; a 503 means
+// the shared host is at capacity; a 402 means a paid size needs a billing
+// plan. Every refusal carries the server's detail text through the shared
+// unexpected-response error.
 func (c *Client) CreatePlayground(planID string) (*CreatePlaygroundResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/playground", c.BaseURL)
 	var body any
 	if planID != "" {
 		body = createPlaygroundRequest{Plan: planID}
 	}
+	payload, marshalError := marshalOptionalJSON(body)
+	if marshalError != nil {
+		return nil, marshalError
+	}
+	request, requestError := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+	if requestError != nil {
+		return nil, fmt.Errorf("create request: %w", requestError)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	c.applyAuthAndCSRFHeaders(request)
+
+	response, doError := c.HTTP.Do(request)
+	if doError != nil {
+		return nil, fmt.Errorf("request failed: %w", doError)
+	}
+	defer closeBody(response)
+	responseBody, readError := readResponseBody(response)
+	if readError != nil {
+		return nil, fmt.Errorf("read response: %w", readError)
+	}
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusCreated {
+		detail := detailFromBody(responseBody)
+		if response.StatusCode == http.StatusConflict {
+			var existing struct {
+				ClusterID string `json:"cluster_id"`
+			}
+			if json.Unmarshal(responseBody, &existing) == nil && existing.ClusterID != "" {
+				return nil, &PlaygroundExistsError{ClusterID: existing.ClusterID, Detail: detail}
+			}
+		}
+		if detail != "" {
+			return nil, newBackendDetailError(response.StatusCode, detail)
+		}
+		return nil, newUnexpectedResponseError("create playground", response.StatusCode, redactedBodyForError(responseBody, 500))
+	}
 	var result CreatePlaygroundResult
-	if err := c.postCSRFJSON(url, body, &result, "create playground"); err != nil {
-		return nil, err
+	if len(responseBody) > 0 {
+		if decodeError := json.Unmarshal(responseBody, &result); decodeError != nil {
+			return nil, fmt.Errorf("parse response: %w", decodeError)
+		}
 	}
 	return &result, nil
+}
+
+// ExistingPlaygroundID returns the cluster id a create refusal names when
+// the organisation already holds a playground, and "" for any other error.
+func ExistingPlaygroundID(err error) string {
+	var existing *PlaygroundExistsError
+	if errors.As(err, &existing) {
+		return existing.ClusterID
+	}
+	return ""
 }
 
 // ResizePlaygroundResult is the resize POST body.

@@ -278,6 +278,7 @@ Dispositions - the acknowledgements and accepted risks that shape the actionable
 ankra security dispositions --status expiring --status fix_available   # what needs review
 ankra security dispositions preview --occurrence <id> --disposition accepted_risk
 ankra security dispositions create --occurrence <id> --disposition acknowledged --reason "..." --expires-at 2026-12-31
+ankra security dispositions create --occurrence <id> --scope namespace --disposition accepted_risk --reason "..." --expires-at 2026-12-31
 ankra security dispositions update <policy-id> --expires-at 2027-03-31
 ankra security dispositions revoke <policy-id> --reason "fix rolled out"
 ankra security code-dispositions list --application <app>            # Semgrep and Checkov findings the image gate no longer blocks on
@@ -355,6 +356,11 @@ in the next 30 days.
 - **A disposition is a decision with a blast radius**: `preview` first, always give a
   `--reason`, set `--expires-at` or `--expire-when-fix-available` so it comes back for review.
   `accepted_risk` needs `security.manage`; `acknowledged` needs `security.triage`.
+- **Pick the scope that outlives the next deploy.** `organisation_addon` (default) needs a
+  catalogue add-on. For your own application's image, `--scope namespace` covers the CVE in
+  every workload of that namespace on that cluster and survives rollouts and rebuilds;
+  `workload` pins one workload (a Deployment, across rollouts); `image` pins one digest and
+  lapses on the next build.
 - **Absent is not negative.** An unsynced KEV or EPSS feed prints as unknown, a container with
   no report is "not scanned", a cluster whose agent is offline reads not_available with the
   reason. Never report any of these as clean.

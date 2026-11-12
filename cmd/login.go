@@ -30,6 +30,35 @@ type loginInitResponse struct {
 	State       string `json:"state"`
 	Auth0Domain string `json:"auth0_domain"`
 	Ticket      string `json:"ticket"`
+	// UserCode is the short code (XXXX-XXXX) the browser approval page shows
+	// next to this sign-in, so the person can tell the page they approve on
+	// belongs to the terminal in front of them. The platform mints one only
+	// when the init asks for it (user_code=1), and older platforms never do,
+	// so it is optional: without it no code is shown.
+	UserCode string `json:"user_code"`
+}
+
+// loginOptions shape the browser page a sign-in opens on. Older platforms
+// ignore every one of them.
+type loginOptions struct {
+	// Signup opens the sign-up screen (screen_hint=signup) instead of the
+	// sign-in screen, for a person who has no account yet.
+	Signup bool
+	// Source names the command that started the sign-in (source=login or
+	// source=onboard), which the platform records as signup attribution.
+	Source string
+}
+
+// loginSession is one started browser sign-in: what the poll needs to
+// collect the token, and what the person is shown.
+type loginSession struct {
+	BaseURL      string
+	MachineID    string
+	Ticket       string
+	CodeVerifier string
+	AuthURL      string
+	UserCode     string
+	Auth0Domain  string
 }
 
 // loginPollRequest proves possession of the PKCE code verifier: the
@@ -82,7 +111,8 @@ Your credentials will be saved to ~/.ankra.yaml`,
 			}
 			return nil
 		}
-		if err := runLogin(); err != nil {
+		signup, _ := cmd.Flags().GetBool("signup")
+		if err := runLogin(cmd.OutOrStdout(), loginOptions{Signup: signup, Source: "login"}); err != nil {
 			return fmt.Errorf("login failed: %w", err)
 		}
 		return nil
@@ -190,6 +220,7 @@ func revokeSavedTokenBestEffort(cmd *cobra.Command) {
 }
 
 func init() {
+	loginCmd.Flags().Bool("signup", false, "open the sign-up page, to create a new Ankra account")
 	logoutCmd.Flags().Bool("local-only", false, "clear saved credentials without revoking the token on the platform")
 
 	setRequiresAuth(loginCmd, false)
@@ -239,31 +270,120 @@ func ensureSecureConfigFile(path string) error {
 // exchange), behind the client's path check.
 var loginHTTPClient = client.NewGuardedHTTPClient(30 * time.Second)
 
-func runLogin() error {
-	fmt.Println("Ankra CLI Login")
-	fmt.Println("───────────────")
-	fmt.Println()
+// loginWaitTimeout is how long an interactive sign-in waits for the browser.
+const loginWaitTimeout = 10 * time.Minute
 
+// loginPollInterval is the pause between two polls of a pending sign-in. A
+// var so tests do not wait for it.
+var loginPollInterval = 2 * time.Second
+
+// launchBrowser opens a URL in the person's browser. A var so tests do not.
+var launchBrowser = openBrowser
+
+func runLogin(out io.Writer, options loginOptions) error {
+	_, _ = fmt.Fprintln(out, "Ankra CLI Login")
+	_, _ = fmt.Fprintln(out, "───────────────")
+	_, _ = fmt.Fprintln(out)
+
+	session, err := startLoginSession(options)
+	if err != nil {
+		return err
+	}
+
+	if session.Auth0Domain != "" {
+		_, _ = fmt.Fprintf(out, "Using Auth0 domain: %s\n", session.Auth0Domain)
+		_, _ = fmt.Fprintln(out)
+	}
+
+	_, _ = fmt.Fprintln(out, "Opening browser for authentication...")
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, "If the browser doesn't open, visit this URL:")
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintf(out, "  %s\n", session.AuthURL)
+	_, _ = fmt.Fprintln(out)
+	if session.UserCode != "" {
+		_, _ = fmt.Fprintf(out, "Your code: %s (the browser shows the same code)\n", session.UserCode)
+		_, _ = fmt.Fprintln(out)
+	}
+
+	if err := launchBrowser(session.AuthURL); err != nil {
+		_, _ = fmt.Fprintln(out, "Could not open browser automatically. Please open the URL above manually.")
+	}
+
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, "Sign in and approve the login in your browser.")
+	_, _ = fmt.Fprintln(out, "(Press Ctrl+C to cancel)")
+	_, _ = fmt.Fprintln(out)
+
+	tokenData, err := pollForToken(out, session.BaseURL, session.Ticket, session.CodeVerifier, loginWaitTimeout)
+	if err != nil {
+		return err
+	}
+
+	// Never persist an empty token. Older CLIs silently wrote "" to
+	// ~/.ankra.yaml when the platform withheld the token (e.g. for a
+	// two-factor step-up this CLI version did not understand) and then
+	// reported "Login successful!", leaving every subsequent command
+	// failing with "not logged in".
+	if err := ensureTokenIssued(tokenData); err != nil {
+		return err
+	}
+
+	configPath, err := saveLoginCredentials(session.BaseURL, session.MachineID, tokenData)
+	if err != nil {
+		return err
+	}
+
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, "✓ Login successful!")
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintf(out, "  Credentials saved to: %s\n", configPath)
+	if tokenData.TokenName != "" {
+		_, _ = fmt.Fprintf(out, "  Token name: %s\n", tokenData.TokenName)
+	}
+	_, _ = fmt.Fprintf(out, "  Token expires: %s\n", formatExpiry(tokenData.ExpiresAt))
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, "You can now use ankra CLI commands. Try:")
+	_, _ = fmt.Fprintln(out, "  ankra cluster list")
+	_, _ = fmt.Fprintln(out)
+
+	return nil
+}
+
+// resolveLoginBaseURL is the platform a sign-in talks to: --base-url,
+// ANKRA_BASE_URL or the saved base URL, else the default.
+func resolveLoginBaseURL() (string, error) {
+	loginURL := viper.GetString("base-url")
+	if loginURL == "" {
+		loginURL = defaultBaseURL
+	}
+	// The same insecure-HTTP guard every API command runs (root.go): the
+	// poll sends the PKCE verifier and receives the minted token, which must
+	// never travel plaintext to a non-loopback host.
+	normalized, err := client.NormalizeBaseURL(loginURL, os.Getenv(envAllowInsecureHTTP) == "1")
+	if err != nil {
+		return "", fmt.Errorf("invalid base URL: %w", err)
+	}
+	return normalized, nil
+}
+
+// startLoginSession asks the platform to start a browser sign-in and returns
+// what the person must open and what the poll needs. Nothing is written to
+// disk.
+func startLoginSession(options loginOptions) (loginSession, error) {
 	// Generate the PKCE pair. The verifier stays on this machine: no
 	// localhost callback server is opened, and the browser part of the
 	// login runs entirely against the platform. The verifier is presented
 	// on /login/poll to collect the token parked for this login attempt.
 	codeVerifier, err := generateCodeVerifier()
 	if err != nil {
-		return fmt.Errorf("generate code verifier: %w", err)
+		return loginSession{}, fmt.Errorf("generate code verifier: %w", err)
 	}
 	codeChallenge := generateCodeChallenge(codeVerifier)
 
-	loginURL := viper.GetString("base-url")
-	if loginURL == "" {
-		loginURL = "https://platform.ankra.app"
-	}
-	// The same insecure-HTTP guard every API command runs (root.go): the
-	// poll below sends the PKCE verifier and receives the minted token,
-	// which must never travel plaintext to a non-loopback host.
-	loginURL, err = client.NormalizeBaseURL(loginURL, os.Getenv(envAllowInsecureHTTP) == "1")
+	loginURL, err := resolveLoginBaseURL()
 	if err != nil {
-		return fmt.Errorf("invalid base URL: %w", err)
+		return loginSession{}, err
 	}
 
 	machineID := getOrCreateMachineID()
@@ -278,10 +398,20 @@ func runLogin() error {
 		url.QueryEscape(machineID),
 		url.QueryEscape(machineName),
 		url.QueryEscape(loginURL))
+	// user_code=1 asks the platform for a short code to show on both sides:
+	// it mints one only on request, because older CLIs print none and the
+	// approval page says the terminal shows it.
+	initURL += "&user_code=1"
+	if options.Source != "" {
+		initURL += "&source=" + url.QueryEscape(options.Source)
+	}
+	if options.Signup {
+		initURL += "&screen_hint=signup"
+	}
 
 	resp, err := loginHTTPClient.Get(initURL)
 	if err != nil {
-		return fmt.Errorf("initialize login: %w", err)
+		return loginSession{}, fmt.Errorf("initialize login: %w", err)
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
@@ -294,59 +424,38 @@ func runLogin() error {
 		// A platform that predates the ticket flow still requires the
 		// legacy redirect_uri parameter and answers 422 for its absence.
 		if resp.StatusCode == http.StatusUnprocessableEntity && strings.Contains(string(body), "redirect_uri") {
-			return fmt.Errorf("the platform does not support this CLI's login flow yet; try again in a few minutes")
+			return loginSession{}, fmt.Errorf("the platform does not support this CLI's login flow yet; try again in a few minutes")
 		}
-		return fmt.Errorf("initialize login failed: %s", apiErrorDetail(body))
+		return loginSession{}, fmt.Errorf("initialize login failed: %s", apiErrorDetail(body))
 	}
 
 	var initResp loginInitResponse
 	if err := json.NewDecoder(resp.Body).Decode(&initResp); err != nil {
-		return fmt.Errorf("parse login response: %w", err)
+		return loginSession{}, fmt.Errorf("parse login response: %w", err)
 	}
 	if initResp.Ticket == "" {
-		return fmt.Errorf("the platform did not start a login session; it may not support this CLI version yet")
+		return loginSession{}, fmt.Errorf("the platform did not start a login session; it may not support this CLI version yet")
 	}
 
-	if initResp.Auth0Domain != "" {
-		fmt.Printf("Using Auth0 domain: %s\n", initResp.Auth0Domain)
-		fmt.Println()
-	}
+	return loginSession{
+		BaseURL:      loginURL,
+		MachineID:    machineID,
+		Ticket:       initResp.Ticket,
+		CodeVerifier: codeVerifier,
+		AuthURL:      initResp.AuthURL,
+		UserCode:     strings.TrimSpace(initResp.UserCode),
+		Auth0Domain:  initResp.Auth0Domain,
+	}, nil
+}
 
-	fmt.Println("Opening browser for authentication...")
-	fmt.Println()
-	fmt.Println("If the browser doesn't open, visit this URL:")
-	fmt.Println()
-	fmt.Printf("  %s\n", initResp.AuthURL)
-	fmt.Println()
-
-	if err := openBrowser(initResp.AuthURL); err != nil {
-		fmt.Println("Could not open browser automatically. Please open the URL above manually.")
-	}
-
-	fmt.Println()
-	fmt.Println("Sign in and approve the login in your browser.")
-	fmt.Println("(Press Ctrl+C to cancel)")
-	fmt.Println()
-
-	tokenData, err := pollForToken(loginURL, initResp.Ticket, codeVerifier)
-	if err != nil {
-		return err
-	}
-
-	// Never persist an empty token. Older CLIs silently wrote "" to
-	// ~/.ankra.yaml when the platform withheld the token (e.g. for a
-	// two-factor step-up this CLI version did not understand) and then
-	// reported "Login successful!", leaving every subsequent command
-	// failing with "not logged in".
-	if err := ensureTokenIssued(tokenData); err != nil {
-		return err
-	}
-
+// saveLoginCredentials writes an issued login token to ~/.ankra.yaml with
+// 0600 permissions and returns the file's path.
+func saveLoginCredentials(loginURL string, machineID string, tokenData tokenExchangeResponse) (string, error) {
 	configPath := getConfigPath()
 
 	configDir := filepath.Dir(configPath)
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
-		return fmt.Errorf("create config directory: %w", err)
+		return "", fmt.Errorf("create config directory: %w", err)
 	}
 
 	// Create the file with 0600 permissions before viper writes to it.
@@ -356,7 +465,7 @@ func runLogin() error {
 	// and-suspenders for the rare case where the file already exists
 	// with looser permissions.
 	if err := ensureSecureConfigFile(configPath); err != nil {
-		return err
+		return "", err
 	}
 
 	viper.SetConfigFile(configPath)
@@ -380,28 +489,14 @@ func runLogin() error {
 
 	if err := viper.WriteConfig(); err != nil {
 		if safeErr := viper.SafeWriteConfig(); safeErr != nil {
-			return fmt.Errorf("save config: %w", err)
+			return "", fmt.Errorf("save config: %w", err)
 		}
 	}
 
 	if err := os.Chmod(configPath, 0o600); err != nil {
-		return fmt.Errorf("secure config file: %w", err)
+		return "", fmt.Errorf("secure config file: %w", err)
 	}
-
-	fmt.Println()
-	fmt.Println("✓ Login successful!")
-	fmt.Println()
-	fmt.Printf("  Credentials saved to: %s\n", configPath)
-	if tokenData.TokenName != "" {
-		fmt.Printf("  Token name: %s\n", tokenData.TokenName)
-	}
-	fmt.Printf("  Token expires: %s\n", formatExpiry(tokenData.ExpiresAt))
-	fmt.Println()
-	fmt.Println("You can now use ankra CLI commands. Try:")
-	fmt.Println("  ankra cluster list")
-	fmt.Println()
-
-	return nil
+	return configPath, nil
 }
 
 func ensureTokenIssued(tokenData tokenExchangeResponse) error {
@@ -414,25 +509,38 @@ func ensureTokenIssued(tokenData tokenExchangeResponse) error {
 	return fmt.Errorf("the platform did not issue an API token; saved credentials were left unchanged. Upgrade the CLI (`ankra upgrade`) and run `ankra login` again")
 }
 
+// errLoginWaitExpired marks a sign-in that ran out of time before the
+// browser released a token.
+var errLoginWaitExpired = errors.New("login timed out")
+
+// loginRefusedError is a final answer from the poll: the session expired
+// (410), the verifier was refused (403), or this CLI must be upgraded (426).
+type loginRefusedError struct {
+	statusCode int
+	detail     string
+}
+
+func (e *loginRefusedError) Error() string { return "login failed: " + e.detail }
+
 // pollForToken collects the token the browser login parks on the ticket.
 // The browser drives everything user-facing (sign-in, the approval click,
 // and any two-factor challenge); this loop just waits for the release and
-// prints a hint when the login is blocked on a browser step.
-func pollForToken(loginURL string, ticket string, codeVerifier string) (tokenExchangeResponse, error) {
+// prints a hint to out when the login is blocked on a browser step.
+func pollForToken(out io.Writer, loginURL string, ticket string, codeVerifier string, timeout time.Duration) (tokenExchangeResponse, error) {
 	pollURL := fmt.Sprintf("%s/api/v1/cli/login/poll", strings.TrimRight(loginURL, "/"))
 	requestBody, _ := json.Marshal(loginPollRequest{Ticket: ticket, CodeVerifier: codeVerifier})
 
-	deadline := time.After(10 * time.Minute)
-	ticker := time.NewTicker(2 * time.Second)
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(loginPollInterval)
 	defer ticker.Stop()
 
 	printedHints := map[string]bool{}
 	for {
 		select {
 		case <-deadline:
-			return tokenExchangeResponse{}, fmt.Errorf("login timed out after 10 minutes")
+			return tokenExchangeResponse{}, fmt.Errorf("%w after %s", errLoginWaitExpired, describeLoginTimeout(timeout))
 		case <-ticker.C:
-			polled, done, err := pollLoginOnce(pollURL, requestBody, printedHints)
+			polled, done, err := pollLoginOnce(out, pollURL, requestBody, printedHints)
 			if err != nil {
 				return tokenExchangeResponse{}, err
 			}
@@ -443,7 +551,16 @@ func pollForToken(loginURL string, ticket string, codeVerifier string) (tokenExc
 	}
 }
 
-func pollLoginOnce(pollURL string, requestBody []byte, printedHints map[string]bool) (tokenExchangeResponse, bool, error) {
+// describeLoginTimeout renders a wait for the timeout message: "10 minutes"
+// for a whole number of minutes, the duration itself otherwise.
+func describeLoginTimeout(timeout time.Duration) string {
+	if timeout >= time.Minute && timeout%time.Minute == 0 {
+		return fmt.Sprintf("%d minutes", int(timeout/time.Minute))
+	}
+	return timeout.Round(time.Second).String()
+}
+
+func pollLoginOnce(out io.Writer, pollURL string, requestBody []byte, printedHints map[string]bool) (tokenExchangeResponse, bool, error) {
 	resp, err := loginHTTPClient.Post(pollURL, "application/json", strings.NewReader(string(requestBody)))
 	if err != nil {
 		// Transient network error - keep polling.
@@ -464,7 +581,7 @@ func pollLoginOnce(pollURL string, requestBody []byte, printedHints map[string]b
 		// refused (403), or this CLI must be upgraded (426). Retrying
 		// cannot fix it, so surface the platform's message immediately.
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024))
-		return tokenExchangeResponse{}, false, fmt.Errorf("login failed: %s", apiErrorDetail(body))
+		return tokenExchangeResponse{}, false, &loginRefusedError{statusCode: resp.StatusCode, detail: apiErrorDetail(body)}
 	}
 
 	var polled tokenExchangeResponse
@@ -484,7 +601,7 @@ func pollLoginOnce(pollURL string, requestBody []byte, printedHints map[string]b
 	}
 	if hint != "" && !printedHints[hint] {
 		printedHints[hint] = true
-		fmt.Println(hint)
+		_, _ = fmt.Fprintln(out, hint)
 	}
 	return tokenExchangeResponse{}, false, nil
 }
@@ -562,7 +679,7 @@ func formatExpiry(expiresAt string) string {
 // getOrCreateMachineID returns the machine ID for this host. It is read-only:
 // when a machine_id is already saved it is returned as-is, otherwise the ID is
 // derived in memory and returned WITHOUT writing anything to disk. Persisting
-// it is the caller's job (see the save block in runLogin), which only happens
+// it is the caller's job (see saveLoginCredentials), which only happens
 // after ensureSecureConfigFile has created the config file with 0600
 // permissions. Writing here previously created ~/.ankra.yaml world-readable
 // with the ANKRA_API_TOKEN env value bound into the global viper, leaking the

@@ -278,6 +278,8 @@ func TestSecuritySelectorTarget_NamesWhatThePolicyIsPinnedTo(t *testing.T) {
 		{"add-on", client.SecurityDispositionSelector{OrganisationID: "org", AddonSlug: "ingress-nginx"}, "add-on ingress-nginx"},
 		{"workload", client.SecurityDispositionSelector{OrganisationID: "org", ClusterID: "cluster-1", WorkloadKind: "StatefulSet", WorkloadNamespace: "database", WorkloadName: "postgres"}, "workload database/StatefulSet postgres on cluster cluster-1"},
 		{"cluster-scoped workload", client.SecurityDispositionSelector{OrganisationID: "org", ClusterID: "cluster-1", WorkloadKind: "Node", WorkloadName: "worker-1"}, "workload Node worker-1 on cluster cluster-1"},
+		{"namespace", client.SecurityDispositionSelector{OrganisationID: "org", ClusterID: "cluster-1", WorkloadNamespace: "crew"}, "namespace crew on cluster cluster-1"},
+		{"deployment across rollouts", client.SecurityDispositionSelector{OrganisationID: "org", ClusterID: "cluster-1", WorkloadKind: "deployment", WorkloadNamespace: "crew", WorkloadName: "crewai"}, "workload crew/deployment crewai on cluster cluster-1"},
 		{"image", client.SecurityDispositionSelector{OrganisationID: "org", ImageDigest: "sha256:abc123"}, "image sha256:abc123"},
 		{"organisation only", client.SecurityDispositionSelector{OrganisationID: "org"}, "organisation"},
 	}

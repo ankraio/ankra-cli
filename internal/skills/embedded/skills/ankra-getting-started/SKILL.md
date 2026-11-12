@@ -19,7 +19,7 @@ Three decisions are cheap now and expensive later - the GitOps repository, the b
 first cluster, and the domain - so they come before anything is deployed.
 
 ```
-CLI + login → credentials → GitOps repo (path 2) → first cluster (path 3) → domain/DNS
+CLI + onboard → credentials → GitOps repo (path 2) → first cluster (path 3) → domain/DNS
   → base platform stack (path 2) → first application (paths 1 + 6) → day 2 (path 4) → access
 ```
 
@@ -40,20 +40,48 @@ in a real browser on a public https URL, and "done" reported with evidence.
 Getting the first three right is what separates a cluster you can review and rebuild from one that
 only exists in a dashboard.
 
-## 1. CLI and login
+## 1. CLI and onboarding
+
+One line installs the CLI and runs `ankra onboard`, which signs the person up or in through the
+browser and then does only what the account still needs: the organisation, a free playground
+cluster when the organisation has no cluster, and the Ankra skills for the coding agents on the
+machine.
 
 ```bash
-bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh)
-ankra --version
-ankra completion install
+curl -fsSL https://ankra.ai/install | sh          # macOS and Linux; never asks, never uses sudo
+irm https://ankra.ai/install.ps1 | iex            # Windows PowerShell
+curl -fsSL https://ankra.ai/install | sh -s -- --no-onboard   # install only
+ankra onboard                                     # rerun any time; it skips what is done
+```
 
-ankra login                      # browser SSO
+**An assistant drives the same flow with `--json`**, never the interactive one. Each step prints
+one JSON line: `{"event": ..., data, "instruction": ..., "next_command": ...}`. Do what
+`instruction` says and run `next_command` when there is one.
+
+```bash
+ankra onboard --json          # not signed in: a login_url event with the link, then it exits
+                              # show the user the url (and user_code); have them sign in or sign up
+ankra onboard --wait --json   # waits for the approval, saves the session, finishes the setup
+```
+
+Rerunning `ankra onboard --json` returns the same link until it expires (`--new` starts over), so
+it never breaks a link the user already has open. Exit code 5 means the link expired unapproved:
+run `ankra onboard --json` again for a new one. `--yes` accepts the playground and skills offers;
+`--no-playground` and `--no-agent-setup` skip them. More than one organisation and none selected:
+the `organisation` event says to ask the user and run `ankra org switch <organisation_id>`.
+
+Done by hand, the same steps are:
+
+```bash
+ankra login                      # browser SSO; --signup opens the sign-up page
 ankra org list
 ankra org switch <slug>          # not "select" - the verb is switch
 ankra org current
+ankra completion install
 ```
 
-Install the skills into whatever assistant you use, so the rest of this is applied automatically:
+Install the skills into whatever assistant you use, so the rest of this is applied automatically
+(`ankra onboard` offers the first command):
 
 ```bash
 ankra skills install             # every assistant configured on this machine, plus the /ankra-* workflow commands
