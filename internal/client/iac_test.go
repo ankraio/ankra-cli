@@ -264,6 +264,31 @@ func TestPatchClusterStackPartial_DeferredGitPushIsSuccess(t *testing.T) {
 	}
 }
 
+// The platform names the operation the saved update started on the deferral
+// (cluster ankra-s3ep2f). A release script waits on it, so it must reach the
+// result exactly as it does on a 200.
+func TestPatchClusterStackPartial_DeferredGitPushCarriesTheOperation(t *testing.T) {
+	const operationID = "5b0f3c1e-8d7a-4c2b-9e61-0a4f2d3c7b18"
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"detail":"` + deferralDetail + `","error_code":"GIT_PUSH_DEFERRED","operation_id":"` + operationID + `"}`))
+	})
+	request := PatchStackRequest{
+		PartialStack: true,
+		Spec:         ResourceSpecSpec{Stacks: []StackSpec{{Name: "demo"}}},
+	}
+	result, patchError := testClient.PatchClusterStackPartial(context.Background(), "cluster-id", "demo", request)
+	if patchError != nil {
+		t.Fatalf("deferred git push must be success, got error: %v", patchError)
+	}
+	if !result.GitPushDeferred {
+		t.Error("GitPushDeferred = false, want true")
+	}
+	if result.OperationID != operationID {
+		t.Errorf("OperationID = %q, want %q", result.OperationID, operationID)
+	}
+}
+
 // GIT_PUSH_FAILED and a codeless 422 (older platform) keep today's typed
 // error, pinning the non-zero direction of the boundary.
 func TestPatchClusterStackPartial_FailedAndCodelessGitPushStayErrors(t *testing.T) {
