@@ -20,7 +20,6 @@ import (
 	"os/signal"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"ankra/internal/client"
 	"ankra/internal/skills"
@@ -31,47 +30,6 @@ import (
 )
 
 const onboardTagline = "Run applications as easily as you build them."
-
-// onboardLogo is the Ankra horizontal lockup, the symbol beside the ANKRA
-// wordmark, drawn from the brand artwork
-// (https://ankra.ai/brand/png/ankra-horizontal-black-2400.png) in quadrant block
-// characters, two pixels per cell each way. Block characters print solid in
-// common terminal fonts and most terminals draw them natively; braille and
-// sextant cells were tried and left out because many fonts render them faint or
-// not at all. The logo is monochrome by the brand rules, so it is printed in the
-// terminal's own text colour and reads on light and dark backgrounds alike.
-var onboardLogo = []string{
-	`    ▄▞▗█▙▄`,
-	`▗▄█▀▀▗█▚▖▀▀█▄▖                  ▖   ▖    ▗  ▄▄▄▄▖      ▗`,
-	`█▌  ▟█▘▝▜▙  ▐█     ▐▀▙   ▐▛▙    █  ▐▌ ▗▄▛▘  ▛   ▀▙    ▗▛▙`,
-	`█▌ ▟▛    ▜▙ ▐█    ▗▛ ▜▖  ▐▌▝▚▖  █  ▐▙▟▛     ▙   ▄█   ▗▛ ▝▙`,
-	`█▌▐▛      ▜▙▝█   ▗█▄▄▄█▖ ▐▌  ▜▄ █  ▐▌ ▀▙▖   ▛▀▀▜▙    █▙▄▄█▙`,
-	`▀▀▀▀▀▀▀▀▀▀▘▜█▞   ▛     ▜▖▐▌   ▝▙█  ▐▌   ▀▙  ▌   ▝▚▖ ▟▘    ▐▌`,
-	` ▀▜█▄▖  ▗▄█▛▀`,
-	`    ▝▀██▀▘`,
-}
-
-// onboardSymbolColumns is how many columns of onboardLogo the symbol takes.
-const onboardSymbolColumns = 14
-
-// onboardBanner is the logo to print in a terminal width columns wide (0 when
-// the width is unknown). A terminal too narrow for the whole lockup gets the
-// symbol alone, so the lockup never wraps into a broken picture.
-func onboardBanner(width int) []string {
-	logoWidth := 0
-	for _, line := range onboardLogo {
-		logoWidth = max(logoWidth, utf8.RuneCountInString(line))
-	}
-	if width == 0 || width > logoWidth {
-		return onboardLogo
-	}
-	banner := make([]string, 0, len(onboardLogo))
-	for _, line := range onboardLogo {
-		runes := []rune(line)
-		banner = append(banner, strings.TrimRight(string(runes[:min(len(runes), onboardSymbolColumns)]), " "))
-	}
-	return banner
-}
 
 // The seams tests replace.
 var (
@@ -262,11 +220,7 @@ func (run *onboardRun) note(format string, arguments ...any) {
 func (run *onboardRun) greet() {
 	if run.interactive {
 		_, _ = fmt.Fprintln(run.out)
-		for _, line := range onboardBanner(run.style.width) {
-			_, _ = fmt.Fprintln(run.out, line)
-		}
-		_, _ = fmt.Fprintln(run.out)
-		_, _ = fmt.Fprintln(run.out, run.style.bold(onboardTagline))
+		run.printBanner()
 		_, _ = fmt.Fprintln(run.out)
 	}
 	if run.events != nil {
