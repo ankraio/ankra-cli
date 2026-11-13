@@ -62,7 +62,7 @@ jobs:
         uses: actions/checkout@v6
       - name: Set up Go
         id: setup_go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       # The headroom left by -dwarf=false is ~1.5GB and the cmd test compile
