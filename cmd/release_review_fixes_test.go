@@ -72,7 +72,8 @@ func TestCostWasteResolveBatchShowsEveryReasonWhenNoneStarted(t *testing.T) {
 		"POST /api/v1/org/cloud-cost/waste/resolve-batch": {http.StatusConflict, `{"detail":"Another cleanup is running."}`},
 	})
 	stdout, _, runError = runDocumentCommand(t, plain, newCostWasteCommand(), "", "resolve-batch", "w-1", "--yes")
-	if runError == nil || !strings.Contains(runError.Error(), "Another cleanup is running.") || stdout != "" {
+	// No outcome table: stdout carries at most cobra's usage text (see above).
+	if runError == nil || !strings.Contains(runError.Error(), "Another cleanup is running.") || strings.Contains(stdout, "started,") || strings.Contains(stdout, "Finding") {
 		t.Fatalf("plain 409: stdout %q, error %v", stdout, runError)
 	}
 }
