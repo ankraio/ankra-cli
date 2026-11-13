@@ -214,6 +214,8 @@ Alertmanager delivers with a webhook receiver:
 		}
 		if tokenFile != nil {
 			if writeError := writeTokenFile(tokenFile, created.Token); writeError != nil {
+				_ = tokenFile.Close()
+				_ = os.Remove(tokenFilePath)
 				return fmt.Errorf("alert ingest credential %s was created but its token could not be written to %s: %w; "+
 					"the token cannot be read back, so delete the credential with "+
 					"'ankra alerts ingest-credentials delete %s' and create another", created.Item.ID, tokenFilePath, writeError, created.Item.ID)
