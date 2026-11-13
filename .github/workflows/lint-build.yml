@@ -59,7 +59,7 @@ jobs:
       GOFLAGS: -gcflags=all=-dwarf=false
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Set up Go
         id: setup_go
         uses: actions/setup-go@v6
@@ -211,7 +211,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Check install.sh
         env:
           TEST_INSTALL_REQUIRE_DASH: "1"

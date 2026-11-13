@@ -16,7 +16,7 @@ jobs:
     runs-on: ${{ vars.CI_RUNNER_2 || 'ubuntu-latest' }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Extract release notes from CHANGELOG.md
         run: |
@@ -87,7 +87,7 @@ jobs:
             goarch: arm64
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -159,7 +159,7 @@ jobs:
     runs-on: ${{ vars.CI_RUNNER_2 || 'ubuntu-latest' }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Render formula from template
         env:
