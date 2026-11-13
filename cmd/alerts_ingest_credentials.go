@@ -373,6 +373,7 @@ func init() {
 	alertsIngestCredentialsCreateCmd.Flags().String("scope", "cluster", "credential scope: cluster, platform or mixed")
 	alertsIngestCredentialsCreateCmd.Flags().String("token-file", "", "write the token to this new file (mode 0600) instead of printing it")
 	alertsIngestCredentialsDeleteCmd.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
+	registerStructuredOutputFlags(alertsIngestCredentialsListCmd, alertsIngestCredentialsCreateCmd)
 	alertsIngestCredentialsCmd.AddCommand(alertsIngestCredentialsCreateCmd)
 	alertsIngestCredentialsCmd.AddCommand(alertsIngestCredentialsListCmd)
 	alertsIngestCredentialsCmd.AddCommand(alertsIngestCredentialsRebindCmd)

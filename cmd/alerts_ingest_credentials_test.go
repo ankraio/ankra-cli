@@ -179,6 +179,7 @@ func TestRebindAlertIngestCredentialRequestSendsOnlyWhatWasSet(t *testing.T) {
 }
 
 func TestAlertsIngestCredentialsCreatePrintsIDWebhookURLAndTokenOnce(t *testing.T) {
+	t.Setenv("ANKRA_BASE_URL", "https://test.ankra.app")
 	mock := &alertIngestCredentialsMock{}
 	stdout, _, runError := runAlertsCommand(t, mock, "", "alerts", "ingest-credentials", "create",
 		"--name", "hel1-alertmanager", "--cluster", sampleIngestClusterID)
@@ -203,6 +204,7 @@ func TestAlertsIngestCredentialsCreatePrintsIDWebhookURLAndTokenOnce(t *testing.
 }
 
 func TestAlertsIngestCredentialsCreateJSONCarriesTheResponseAndWebhookURL(t *testing.T) {
+	t.Setenv("ANKRA_BASE_URL", "https://test.ankra.app")
 	mock := &alertIngestCredentialsMock{}
 	stdout, _, runError := runAlertsCommand(t, mock, "", "alerts", "ingest-credentials", "create",
 		"--name", "platform-monitor", "--scope", "platform", "-o", "json")
