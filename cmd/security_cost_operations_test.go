@@ -87,10 +87,10 @@ func TestCostRateCardWasteAndEstimateCommands(t *testing.T) {
 		"GET " + estimatePath:                                   {http.StatusOK, estimate},
 		"POST " + estimatePath:                                  {http.StatusOK, estimate},
 	})
-	if _, _, refusedError := runDocumentCommand(t, server, newCostRateCardsCommand(), "", "set", "organisation", "--currency", "EUR", "--vcpu", "4.50"); exitCodeFor(refusedError) != exitUsage || len(*calls) != 0 {
+	if _, _, refusedError := runDocumentCommand(t, server, newCostRateCardsCommand(), "", "set", "organisation", "--currency", "EUR", "--vcpu", "4.50", "--memory-gb", "1.20", "--storage-gb", "0.04"); exitCodeFor(refusedError) != exitUsage || len(*calls) != 0 {
 		t.Fatalf("rate-cards set without --yes: error %v, calls %v", refusedError, *calls)
 	}
-	stdout, _, runError := runDocumentCommand(t, server, newCostRateCardsCommand(), "", "set", "organisation", "--currency", "EUR", "--vcpu", "4.50", "--yes")
+	stdout, _, runError := runDocumentCommand(t, server, newCostRateCardsCommand(), "", "set", "organisation", "--currency", "EUR", "--vcpu", "4.50", "--memory-gb", "1.20", "--storage-gb", "0.04", "--yes")
 	if runError != nil || !strings.Contains(stdout, "4.50 per vCPU") {
 		t.Fatalf("rate-cards set: stdout %q, error %v", stdout, runError)
 	}

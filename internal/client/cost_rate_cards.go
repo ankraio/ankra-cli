@@ -7,6 +7,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	neturl "net/url"
 	"strconv"
@@ -70,12 +71,28 @@ func (c *Client) ResolveCloudWasteFinding(ctx context.Context, findingID string,
 	return c.requestDocument(ctx, http.MethodPost, cloudWastePath+"/"+neturl.PathEscape(findingID)+"/resolve", single)
 }
 
+// ErrCloudWasteNoneStarted is what ResolveCloudWasteBatch returns, together
+// with the outcome document, when no cleanup in the batch started.
+var ErrCloudWasteNoneStarted = errors.New("no cloud-waste cleanup started")
+
 // ResolveCloudWasteBatch starts the cleanup of up to 100 findings, one
 // operation each, and answers every finding's outcome. The platform answers
-// 409 when none started.
+// 409 when none started, with the same outcome document as its body; that
+// document comes back with ErrCloudWasteNoneStarted, so the caller can show
+// each finding's reason.
 // POST /api/v1/org/cloud-cost/waste/resolve-batch
 func (c *Client) ResolveCloudWasteBatch(ctx context.Context, request CloudWasteResolveRequest) (json.RawMessage, error) {
-	return c.requestDocument(ctx, http.MethodPost, cloudWastePath+"/resolve-batch", request)
+	document, requestError := c.requestDocument(ctx, http.MethodPost, cloudWastePath+"/resolve-batch", request)
+	var unexpected *UnexpectedResponseError
+	if errors.As(requestError, &unexpected) && unexpected.StatusCode == http.StatusConflict {
+		var outcome struct {
+			Results []json.RawMessage `json:"results"`
+		}
+		if json.Unmarshal(unexpected.body, &outcome) == nil && len(outcome.Results) > 0 {
+			return json.RawMessage(unexpected.body), ErrCloudWasteNoneStarted
+		}
+	}
+	return document, requestError
 }
 
 // GetResolvedCloudWaste totals what Ankra's cleanup resolved in the last

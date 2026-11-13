@@ -492,9 +492,10 @@ stores it in its secret store and never returns it. Organisation admins only.`,
 		short: "Change a ticket sync connection, or rotate its credential",
 		long: `Change a connection: only what you pass changes. --rotate-secret reads a new
 credential from stdin (--secret-stdin) or a hidden prompt and replaces the
-stored one; for Jira it needs --email too. An update also clears the
-connection's failure state and retries delivery at once. Organisation admins
-only.`,
+stored one; for Jira it needs --email too. An update that changes the
+settings or rotates the credential also clears the connection's failure state
+and retries delivery at once; one that only renames, switches or filters it
+does not. Organisation admins only.`,
 		example: `  ankra tickets sync connections update 5b1f0c7e-3a55-4d0b-9a57-0d5f3c1a2b3c --disable
   cat new-key.txt | ankra tickets sync connections update <connection-id> --rotate-secret --secret-stdin`,
 		arguments: cobra.ExactArgs(1),
@@ -535,6 +536,13 @@ only.`,
 				}
 				for key, value := range changedConfig {
 					request.Config[key] = value
+				}
+				// The stored Linear config labels its team; a new --team-id
+				// makes that label someone else's, so it is dropped and the
+				// platform labels the new team.
+				if newTeam, changesTeam := changedConfig["team_id"]; changesTeam && newTeam != fmt.Sprint(current.Config["team_id"]) {
+					delete(request.Config, "team_key")
+					delete(request.Config, "team_name")
 				}
 			}
 			secret := ""
@@ -601,8 +609,9 @@ func newTicketsSyncDestinationsCommand() *cobra.Command {
 	destinationsCommand := newOperationCommand(operationCommand{
 		use:   "destinations --provider <provider> [--connection <connection-id>]",
 		short: "List where a tracker credential can file tickets",
-		long: `List the destinations a tracker credential can reach, such as the Linear
-teams it can file into, so a connection can target one. With --connection the
+		long: `List the Linear teams a tracker credential can file into, so a connection can
+target one. Only Linear has a destination list: a Jira connection names its
+project with --project-key and a webhook its --url. With --connection the
 saved connection's stored credential is used; without it a credential is read
 from stdin (--secret-stdin) or a hidden prompt, used for this one lookup and
 not stored. Nothing is written. Organisation admins only.`,
@@ -610,12 +619,16 @@ not stored. Nothing is written. Organisation admins only.`,
   cat linear-key.txt | ankra tickets sync destinations --provider linear --secret-stdin`,
 		arguments: cobra.NoArgs,
 		invoke: func(command *cobra.Command, _ []string) (json.RawMessage, error) {
-			provider, providerError := requiredTextFlag(command, "provider", "jira, linear or webhook")
+			provider, providerError := requiredTextFlag(command, "provider", "linear")
 			if providerError != nil {
 				return nil, providerError
 			}
-			if _, isProvider := ticketSyncConfigFlags[provider]; !isProvider {
-				return nil, withExitCode(exitUsage, fmt.Errorf("--provider must be jira, linear or webhook, got %q", provider))
+			// Checked before a credential is asked for: only Linear has a list
+			// to browse, and the platform refuses the others only after the
+			// secret has been typed.
+			if provider != "linear" {
+				return nil, withExitCode(exitUsage, fmt.Errorf("only linear has a destination list, got --provider %q: "+
+					"a Jira connection names its project with --project-key and a webhook its --url", provider))
 			}
 			connectionID, _ := command.Flags().GetString("connection")
 			request := client.TicketSyncDestinationsRequest{Provider: provider, ConnectionID: strings.TrimSpace(connectionID)}
@@ -626,8 +639,8 @@ not stored. Nothing is written. Organisation admins only.`,
 					return nil, credentialError
 				}
 				request.Credential, secret = credential, readSecret
-			} else if command.Flags().Changed("email") || command.Flags().Changed("secret-stdin") {
-				return nil, withExitCode(exitUsage, fmt.Errorf("--connection uses the stored credential; leave --email and --secret-stdin off"))
+			} else if command.Flags().Changed("secret-stdin") {
+				return nil, withExitCode(exitUsage, fmt.Errorf("--connection uses the stored credential; leave --secret-stdin off"))
 			}
 			document, listError := apiClient.ListTicketSyncDestinations(command.Context(), request)
 			return document, redactSecret(ticketWriteError(listError), secret)
@@ -655,9 +668,8 @@ not stored. Nothing is written. Organisation admins only.`,
 			return nil
 		},
 	})
-	destinationsCommand.Flags().String("provider", "", "jira, linear or webhook (required)")
+	destinationsCommand.Flags().String("provider", "", "linear, the one tracker with a destination list (required)")
 	destinationsCommand.Flags().String("connection", "", "Use this saved connection's stored credential (its id)")
-	destinationsCommand.Flags().String("email", "", "Jira: the Atlassian account the API token belongs to")
 	destinationsCommand.Flags().Bool("secret-stdin", false, "Read the credential from stdin")
 	return destinationsCommand
 }
