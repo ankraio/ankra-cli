@@ -924,3 +924,27 @@ func TestOnboardEventsOmitEmptyValues(t *testing.T) {
 		t.Fatalf("event line =\n%s\nwant\n%s", got, want)
 	}
 }
+
+func TestOnboardBannerPutsTheSymbolBesideTheWordmark(t *testing.T) {
+	banner := onboardBanner()
+	if len(banner) != len(onboardWordmark) {
+		t.Fatalf("banner has %d rows, want the wordmark's %d", len(banner), len(onboardWordmark))
+	}
+	wordmarkColumn := -1
+	for row, line := range banner {
+		if !strings.HasPrefix(line, onboardSymbol[row]) {
+			t.Errorf("row %d does not start with the symbol row %q: %q", row, onboardSymbol[row], line)
+		}
+		runes := []rune(line)
+		wordmarkRunes := []rune(onboardWordmark[row])
+		column := len(runes) - len(wordmarkRunes)
+		if column < 0 || string(runes[column:]) != onboardWordmark[row] {
+			t.Fatalf("row %d does not end with the wordmark row %q: %q", row, onboardWordmark[row], line)
+		}
+		if wordmarkColumn == -1 {
+			wordmarkColumn = column
+		} else if column != wordmarkColumn {
+			t.Errorf("row %d starts the wordmark in column %d, row 0 in column %d", row, column, wordmarkColumn)
+		}
+	}
+}
