@@ -77,6 +77,8 @@
     "ankra alerts destinations test",
     "ankra alerts destinations test-url",
     "ankra alerts destinations update",
+    "ankra alerts ingest-credentials create",
+    "ankra alerts ingest-credentials delete",
     "ankra alerts ingest-credentials list",
     "ankra alerts ingest-credentials rebind",
     "ankra alerts routes create",

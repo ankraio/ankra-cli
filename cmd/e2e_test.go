@@ -3777,6 +3777,14 @@ func (m baseMock) RebindAlertIngestCredential(string, client.RebindAlertIngestCr
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) CreateAlertIngestCredential(client.CreateAlertIngestCredentialRequest) (*client.CreatedAlertIngestCredential, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteAlertIngestCredential(string) (*client.DeleteAlertIngestCredentialResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetAISpendCap() (*client.AISpendCap, error) {
 	return nil, errors.New("not implemented")
 }

@@ -1190,6 +1190,8 @@ type APIClient interface {
 	DeleteAlertDestination(destinationID string) (*client.DeleteAlertDestinationResult, error)
 	ListAlertIngestCredentials() (*client.AlertIngestCredentialList, error)
 	RebindAlertIngestCredential(credentialID string, request client.RebindAlertIngestCredentialRequest) (*client.AlertIngestCredential, error)
+	CreateAlertIngestCredential(request client.CreateAlertIngestCredentialRequest) (*client.CreatedAlertIngestCredential, error)
+	DeleteAlertIngestCredential(credentialID string) (*client.DeleteAlertIngestCredentialResult, error)
 	GetAISpendCap() (*client.AISpendCap, error)
 	UpdateAISpendCap(update client.AISpendCapUpdate) (*client.AISpendCap, error)
 	ListAuditLogs(ctx context.Context, filters client.AuditLogFilters) (*client.AuditLogTrail, error)

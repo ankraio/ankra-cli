@@ -486,8 +486,8 @@ func (c *Client) TestNotificationRoute(routeID string) (*NotificationRouteTestRe
 
 // Ingest credentials (ankra-z5cq5.28): the per-credential secrets external
 // notifiers use to deliver alerts into the platform. The token is minted
-// once by the portal; the CLI lists credentials and moves a credential's
-// cluster pin or scope without ever touching the token.
+// once, by the create call, and returned in that response only; listing and
+// rebinding never touch it, and deleting a credential revokes it.
 const alertIngestCredentialsBasePath = "/api/v1/org/alerts/ingest-credentials"
 
 // AlertIngestCredential is one credential row on the wire; the token is
@@ -555,4 +555,48 @@ func (c *Client) RebindAlertIngestCredential(credentialID string, request Rebind
 		return nil, rebindError
 	}
 	return &envelope.Item, nil
+}
+
+// CreateAlertIngestCredentialRequest mints a credential. ClusterID pins it
+// to one cluster; Scope is cluster (the server default when empty),
+// platform (never pinned) or mixed (always pinned).
+type CreateAlertIngestCredentialRequest struct {
+	Name      string  `json:"name"`
+	ClusterID *string `json:"cluster_id,omitempty"`
+	Scope     string  `json:"scope,omitempty"`
+}
+
+// CreatedAlertIngestCredential is the create response: the new row, the
+// token (returned here and never again) and the path a notifier posts to,
+// relative to the platform's address.
+type CreatedAlertIngestCredential struct {
+	Item        AlertIngestCredential `json:"item" yaml:"item"`
+	Token       string                `json:"token" yaml:"token"`
+	WebhookPath string                `json:"webhook_path" yaml:"webhook_path"`
+}
+
+// DeleteAlertIngestCredentialResult is the delete response body.
+type DeleteAlertIngestCredentialResult struct {
+	Success bool   `json:"success" yaml:"success"`
+	Message string `json:"message" yaml:"message"`
+}
+
+// CreateAlertIngestCredential mints a credential and returns its token once.
+func (c *Client) CreateAlertIngestCredential(request CreateAlertIngestCredentialRequest) (*CreatedAlertIngestCredential, error) {
+	var created CreatedAlertIngestCredential
+	if createError := c.sendJSON(http.MethodPost, c.BaseURL+alertIngestCredentialsBasePath, request, &created); createError != nil {
+		return nil, createError
+	}
+	return &created, nil
+}
+
+// DeleteAlertIngestCredential revokes a credential: its notifier's
+// deliveries are refused from then on.
+func (c *Client) DeleteAlertIngestCredential(credentialID string) (*DeleteAlertIngestCredentialResult, error) {
+	var result DeleteAlertIngestCredentialResult
+	if deleteError := c.sendJSON(http.MethodDelete, c.BaseURL+alertIngestCredentialsBasePath+"/"+neturl.PathEscape(credentialID),
+		nil, &result); deleteError != nil {
+		return nil, deleteError
+	}
+	return &result, nil
 }
