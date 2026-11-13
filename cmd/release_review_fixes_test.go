@@ -61,7 +61,9 @@ func TestCostWasteResolveBatchShowsEveryReasonWhenNoneStarted(t *testing.T) {
 		Results []map[string]any `json:"results"`
 		Started int              `json:"started"`
 	}
-	if exitCodeFor(runError) != exitError || json.Unmarshal([]byte(stdout), &document) != nil || len(document.Results) != 2 || document.Started != 0 {
+	// Decode the first value only: run on its own, without the root command's
+	// SilenceUsage, cobra appends its usage text after an error.
+	if exitCodeFor(runError) != exitError || json.NewDecoder(strings.NewReader(stdout)).Decode(&document) != nil || len(document.Results) != 2 || document.Started != 0 {
 		t.Fatalf("-o json: stdout %q, error %v, want the outcome document and exit 1", stdout, runError)
 	}
 
