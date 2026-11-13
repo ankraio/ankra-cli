@@ -29,7 +29,7 @@ jobs:
     runs-on: ${{ vars.CI_RUNNER_2 || 'ubuntu-latest' }}
     steps:
       - name: Checkout ankra-cli
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           # Full history so manual runs can name a version via git describe.
           fetch-depth: 0
@@ -45,7 +45,7 @@ jobs:
           python-version: "3.12"
 
       - name: Checkout ankra-docs
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: ankraio/ankra-docs
           token: ${{ secrets.DOCS_REPO_TOKEN }}
