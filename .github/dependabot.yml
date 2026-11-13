@@ -1,0 +1,53 @@
+# Dependabot: weekly dependency updates.
+#
+# Minor and patch bumps arrive as ONE grouped PR per ecosystem; a major bump
+# gets its own PR so it can be read on its own. Security updates are grouped
+# per ecosystem too and are not held by the cooldown. Every PR runs the Ankra
+# pipeline like any other branch. A person admits it to the merge train:
+# auto-admit never trusts a bot author (enginekit/mergetrain admission).
+#
+# cooldown mirrors the supply-chain wait we already keep for npm
+# (pnpm minimumReleaseAge): a release has to be a few days old first.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Stockholm
+    cooldown:
+      default-days: 3
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      go-minor-patch:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: [minor, patch]
+      go-security:
+        applies-to: security-updates
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+      time: "06:00"
+      timezone: Europe/Stockholm
+    cooldown:
+      default-days: 3
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      actions-minor-patch:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: [minor, patch]
+      actions-security:
+        applies-to: security-updates
+        patterns: ["*"]
