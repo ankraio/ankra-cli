@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"io"
 	"testing"
 
 	"ankra/internal/client"
@@ -62,5 +63,27 @@ func TestHelmCredentialsUpdate_PasswordStdin(t *testing.T) {
 	}
 	if len(mock.updateRequests) != 1 || mock.updateRequests[0].Password != "rotated" {
 		t.Errorf("update requests = %+v, want password \"rotated\"", mock.updateRequests)
+	}
+}
+
+func TestHelmCredentialsUpdate_PasswordStdinGoesThroughTheSharedSecretReader(t *testing.T) {
+	resetConfirmFlag(t, helmCredentialsUpdateCmd)
+	mock := &helmCredentialPasswordMock{}
+	out, err := runWithInput(t, mock, "rotated\n\n", "helm", "credentials", "update", "harbor",
+		"--username", "robot", "--password-stdin")
+	if err != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", err, out)
+	}
+	if len(mock.updateRequests) != 1 || mock.updateRequests[0].Password != "rotated\n" {
+		t.Fatalf("update requests = %+v, want only the pipe's newline dropped", mock.updateRequests)
+	}
+
+	previous := promptIsInteractive
+	promptIsInteractive = func(io.Reader) bool { return true }
+	t.Cleanup(func() { promptIsInteractive = previous })
+	_, err = runWithInput(t, mock, "typed\n", "helm", "credentials", "update", "harbor",
+		"--username", "robot", "--password-stdin")
+	if exitCodeFor(err) != exitUsage || len(mock.updateRequests) != 1 {
+		t.Fatalf("--password-stdin on a terminal must be refused before anything is sent, got %v", err)
 	}
 }
