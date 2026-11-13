@@ -24,7 +24,10 @@ jobs:
     # A starved runner stops reporting rather than failing, so the job holds
     # its runner slot until someone notices: run 34042422066 sat on master for
     # ~6h before a human cancelled it. Fail fast and give the runner back.
-    timeout-minutes: 45
+    # A healthy run on a slow runner takes about 48-50 minutes (golangci-lint
+    # 20-22 and the tests about 25), so 45 cancelled working runs mid-test
+    # (ankra-p5kn8p); 60 still frees a starved runner within the hour.
+    timeout-minutes: 60
     env:
       # ankra/cmd is one package, and the two heavy steps both compile its
       # test variant whole in a single `compile` process: golangci-lint (its
