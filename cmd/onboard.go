@@ -32,45 +32,43 @@ import (
 
 const onboardTagline = "Run applications as easily as you build them."
 
-// onboardSymbol is the Ankra symbol (the hexagon around the triangle, from
-// the website's brand/ankra-symbol.svg) drawn in braille, five rows to match
-// the wordmark beside it.
-var onboardSymbol = []string{
-	` ⣀⣴⢞⡾⠷⣤⣀`,
-	`⣿⠉⢠⡾⠁⢷⡄⠉⣿`,
-	`⣿⢠⡟⠁ ⠈⢿⡄⣿`,
-	`⢿⣛⡚⠒⠒⠒⢒⣻⡎`,
-	` ⠉⠛⠷⣤⠾⠛⠁`,
+// onboardLogo is the Ankra horizontal lockup, the symbol beside the ANKRA
+// wordmark, drawn from the brand artwork
+// (https://ankra.ai/brand/png/ankra-horizontal-black-2400.png) in quadrant block
+// characters, two pixels per cell each way. Block characters print solid in
+// common terminal fonts and most terminals draw them natively; braille and
+// sextant cells were tried and left out because many fonts render them faint or
+// not at all. The logo is monochrome by the brand rules, so it is printed in the
+// terminal's own text colour and reads on light and dark backgrounds alike.
+var onboardLogo = []string{
+	`    ▄▞▗█▙▄`,
+	`▗▄█▀▀▗█▚▖▀▀█▄▖                  ▖   ▖    ▗  ▄▄▄▄▖      ▗`,
+	`█▌  ▟█▘▝▜▙  ▐█     ▐▀▙   ▐▛▙    █  ▐▌ ▗▄▛▘  ▛   ▀▙    ▗▛▙`,
+	`█▌ ▟▛    ▜▙ ▐█    ▗▛ ▜▖  ▐▌▝▚▖  █  ▐▙▟▛     ▙   ▄█   ▗▛ ▝▙`,
+	`█▌▐▛      ▜▙▝█   ▗█▄▄▄█▖ ▐▌  ▜▄ █  ▐▌ ▀▙▖   ▛▀▀▜▙    █▙▄▄█▙`,
+	`▀▀▀▀▀▀▀▀▀▀▘▜█▞   ▛     ▜▖▐▌   ▝▙█  ▐▌   ▀▙  ▌   ▝▚▖ ▟▘    ▐▌`,
+	` ▀▜█▄▖  ▗▄█▛▀`,
+	`    ▝▀██▀▘`,
 }
 
-var onboardWordmark = []string{
-	`    _          _`,
-	`   / \   _ __ | | ___ __ __ _`,
-	`  / _ \ | '_ \| |/ / '__/ _` + "`" + ` |`,
-	` / ___ \| | | |   <| | | (_| |`,
-	`/_/   \_\_| |_|_|\_\_|  \__,_|`,
-}
+// onboardSymbolColumns is how many columns of onboardLogo the symbol takes.
+const onboardSymbolColumns = 14
 
-// onboardBanner puts the symbol to the left of the wordmark, row by row. The
-// symbol rows are padded to one width so the wordmark starts in the same
-// column on every row.
-func onboardBanner() []string {
-	symbolWidth := 0
-	for _, line := range onboardSymbol {
-		symbolWidth = max(symbolWidth, utf8.RuneCountInString(line))
+// onboardBanner is the logo to print in a terminal width columns wide (0 when
+// the width is unknown). A terminal too narrow for the whole lockup gets the
+// symbol alone, so the lockup never wraps into a broken picture.
+func onboardBanner(width int) []string {
+	logoWidth := 0
+	for _, line := range onboardLogo {
+		logoWidth = max(logoWidth, utf8.RuneCountInString(line))
 	}
-	rows := max(len(onboardSymbol), len(onboardWordmark))
-	banner := make([]string, 0, rows)
-	for row := 0; row < rows; row++ {
-		symbolLine, wordmarkLine := "", ""
-		if row < len(onboardSymbol) {
-			symbolLine = onboardSymbol[row]
-		}
-		if row < len(onboardWordmark) {
-			wordmarkLine = onboardWordmark[row]
-		}
-		padding := strings.Repeat(" ", symbolWidth-utf8.RuneCountInString(symbolLine))
-		banner = append(banner, strings.TrimRight(symbolLine+padding+"   "+wordmarkLine, " "))
+	if width == 0 || width > logoWidth {
+		return onboardLogo
+	}
+	banner := make([]string, 0, len(onboardLogo))
+	for _, line := range onboardLogo {
+		runes := []rune(line)
+		banner = append(banner, strings.TrimRight(string(runes[:min(len(runes), onboardSymbolColumns)]), " "))
 	}
 	return banner
 }
@@ -264,8 +262,8 @@ func (run *onboardRun) note(format string, arguments ...any) {
 func (run *onboardRun) greet() {
 	if run.interactive {
 		_, _ = fmt.Fprintln(run.out)
-		for _, line := range onboardBanner() {
-			_, _ = fmt.Fprintln(run.out, run.style.cyan(line))
+		for _, line := range onboardBanner(run.style.width) {
+			_, _ = fmt.Fprintln(run.out, line)
 		}
 		_, _ = fmt.Fprintln(run.out)
 		_, _ = fmt.Fprintln(run.out, run.style.bold(onboardTagline))
