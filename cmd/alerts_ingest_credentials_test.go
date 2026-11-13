@@ -272,15 +272,35 @@ func TestAlertsIngestCredentialsCreateRefusesAnExistingTokenFile(t *testing.T) {
 		t.Fatal(writeError)
 	}
 	mock := &alertIngestCredentialsMock{}
-	if _, _, runError := runAlertsCommand(t, mock, "", "alerts", "ingest-credentials", "create",
-		"--name", "hel1-alertmanager", "--token-file", tokenFilePath); runError == nil {
+	_, _, runError := runAlertsCommand(t, mock, "", "alerts", "ingest-credentials", "create",
+		"--name", "hel1-alertmanager", "--token-file", tokenFilePath)
+	if runError == nil {
 		t.Fatal("expected an existing --token-file to be refused")
+	}
+	if exitCodeFor(runError) != exitUsage {
+		t.Errorf("exit code = %d, want %d for an existing --token-file", exitCodeFor(runError), exitUsage)
 	}
 	if mock.createRequest != nil {
 		t.Fatal("a refused --token-file must not mint a credential")
 	}
 	if contents, _ := os.ReadFile(tokenFilePath); string(contents) != "previous secret" {
 		t.Fatalf("the existing file was overwritten: %q", contents)
+	}
+}
+
+func TestAlertsIngestCredentialsCreateReportsAnUnwritableTokenFileAsARuntimeError(t *testing.T) {
+	tokenFilePath := filepath.Join(t.TempDir(), "missing-directory", "ingest-token")
+	mock := &alertIngestCredentialsMock{}
+	_, _, runError := runAlertsCommand(t, mock, "", "alerts", "ingest-credentials", "create",
+		"--name", "hel1-alertmanager", "--token-file", tokenFilePath)
+	if runError == nil {
+		t.Fatal("expected a --token-file in a missing directory to fail")
+	}
+	if exitCodeFor(runError) != exitError {
+		t.Errorf("exit code = %d, want %d for an environment failure", exitCodeFor(runError), exitError)
+	}
+	if mock.createRequest != nil {
+		t.Fatal("an unwritable --token-file must not mint a credential")
 	}
 }
 

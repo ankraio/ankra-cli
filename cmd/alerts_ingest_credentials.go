@@ -192,8 +192,11 @@ Alertmanager delivers with a webhook receiver:
 		var tokenFile *os.File
 		if tokenFilePath != "" {
 			createdFile, openError := createTokenFile(tokenFilePath)
+			if errors.Is(openError, os.ErrExist) {
+				return withExitCode(exitUsage, fmt.Errorf("--token-file %q already exists; pass a new path so an existing secret is never overwritten", tokenFilePath))
+			}
 			if openError != nil {
-				return withExitCode(exitUsage, fmt.Errorf("opening --token-file: %w", openError))
+				return fmt.Errorf("opening --token-file: %w", openError)
 			}
 			tokenFile = createdFile
 			defer func() { _ = tokenFile.Close() }()
