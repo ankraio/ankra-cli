@@ -205,7 +205,7 @@ jobs:
 
       - name: Set up Go
         if: fromJSON(steps.plan.outputs.runnable_lanes || '0') > 0
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
