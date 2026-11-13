@@ -173,7 +173,7 @@ jobs:
         run: go run ./tools/testreport -summary -top 40 -markdown "$GITHUB_STEP_SUMMARY" test-events.json
       - name: Upload test events
         if: ${{ always() && hashFiles('test-events.json') != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-events
           path: test-events.json
