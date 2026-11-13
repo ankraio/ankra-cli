@@ -277,6 +277,13 @@ ankra tickets link T-50 T-31 --relation recurrence_of
 ankra tickets unlink T-50 T-31
 ankra tickets close T-50 --duplicate-of T-42       # closes as duplicate and links the keeper
 ankra tickets close T-50 --resolution fixed --note "Renewed the certificate"
+ankra tickets assign T-42 --agent <agent-task-id>  # or --user <user-id>, or --unassign
+ankra tickets plan draft T-42 --file plan.md       # record a plan you wrote; `-` reads stdin
+ankra tickets plan review T-42 --verdict approve   # or request_changes --rationale "..."
+ankra tickets workspace T-42 --workspace <id>      # attach an AI workspace; --detach removes it
+ankra tickets sync connections list                # tickets mirrored to Jira, Linear or a webhook
+ankra tickets sync connections create --name linear --provider linear --team-id <id> --secret-stdin   # the key is never an argument
+ankra tickets sync destinations --provider linear --connection <connection-id>   # the teams a key can file into
 ```
 
 `close --duplicate-of` names the open ticket covering the same cause. The platform links the
@@ -332,6 +339,7 @@ ankra chat --mode agent "open a PR fixing the failing lint job"
 ankra chat health                                  # AI-analysed cluster health
 ankra chat history ; ankra chat show <conversation-id> ; ankra chat delete <id>
 ankra ai memories list ; ankra ai memories clear   # what the assistant remembers about you
+ankra ai memories profile get                      # the profile it learned of you; `set --learning off`, `reset --yes`
 
 ankra chat actions list <conversation-id>          # writes awaiting confirmation
 ankra chat actions confirm <action-id>

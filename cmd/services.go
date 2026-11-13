@@ -614,6 +614,23 @@ type APIClient interface {
 	CloseTicket(ticketID string, request client.TicketCloseRequest) (*client.Ticket, error)
 	CreateTicket(request client.TicketCreateRequest) (*client.Ticket, error)
 	CreateSubTicket(parentTicketID string, request client.TicketCreateRequest) (*client.Ticket, error)
+	AssignTicket(ctx context.Context, ticketID string, request client.TicketAssignRequest) (json.RawMessage, error)
+	DraftTicketPlan(ctx context.Context, ticketID string, planDocument string) (json.RawMessage, error)
+	ReviewTicketPlan(ctx context.Context, ticketID string, request client.TicketPlanReviewRequest) (json.RawMessage, error)
+	SetTicketWorkspace(ctx context.Context, ticketID string, workspaceID *string) (json.RawMessage, error)
+	ListTicketSyncConnections(ctx context.Context) (json.RawMessage, error)
+	GetTicketSyncConnection(ctx context.Context, connectionID string) (json.RawMessage, error)
+	CreateTicketSyncConnection(ctx context.Context, request client.TicketSyncConnectionRequest) (json.RawMessage, error)
+	UpdateTicketSyncConnection(ctx context.Context, connectionID string, request client.TicketSyncConnectionRequest) (json.RawMessage, error)
+	DeleteTicketSyncConnection(ctx context.Context, connectionID string) error
+	ListTicketSyncDestinations(ctx context.Context, request client.TicketSyncDestinationsRequest) (json.RawMessage, error)
+	GetAIMemoryProfile(ctx context.Context) (json.RawMessage, error)
+	UpdateAIMemoryProfile(ctx context.Context, update client.AIMemoryProfileUpdate) (json.RawMessage, error)
+	ResetAIMemoryProfile(ctx context.Context) error
+	DiscoverRegistryConnection(ctx context.Context, registryURL string, adminCredentialName string) (json.RawMessage, error)
+	VerifyRegistryConnection(ctx context.Context, registry string, adminCredentialName string) (json.RawMessage, error)
+	GetCredentialPropagation(ctx context.Context, credentialID string) (json.RawMessage, error)
+	ListApplicationAutonomousActions(ctx context.Context) (json.RawMessage, error)
 
 	GetAIProviderStatus() (*client.AIProviderStatus, error)
 	SetAIProvider(provider string) (*client.AIProviderStatus, error)
