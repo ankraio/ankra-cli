@@ -1,6 +1,13 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.77.0 - 2026-11-13
+
+Security fixes, cost rate cards and waste cleanup, and ticket assignment,
+planning and tracker sync come to the terminal, and onboarding opens with the
+real Ankra logo in terminals that can show pictures. Membership and
+organisation commands run under `--token` or `ANKRA_API_TOKEN` now act on the
+token's own organisation. Nothing is removed: every existing command, flag,
+exit code and `-o json` key is unchanged, so scripts need no change.
 
 ### Added
 
