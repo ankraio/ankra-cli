@@ -147,7 +147,9 @@ func (c *Client) sendJSONThrough(ctx context.Context, httpClient *http.Client, m
 		if detail := detailFromBody(body); detail != "" {
 			return newBackendDetailError(response.StatusCode, detail)
 		}
-		return newUnexpectedResponseError("request failed", response.StatusCode, redactedBodyForError(body, 500))
+		unexpected := newUnexpectedResponseError("request failed", response.StatusCode, redactedBodyForError(body, 500))
+		unexpected.body = body
+		return unexpected
 	}
 	if target == nil {
 		return nil
