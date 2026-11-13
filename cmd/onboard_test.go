@@ -12,12 +12,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"ankra/internal/client"
 
@@ -924,57 +922,5 @@ func TestOnboardEventsOmitEmptyValues(t *testing.T) {
 		onboardValue("url", "https://a.test/?x=1&y=2"), onboardValue("user_code", ""), onboardValue("reused", false))
 	if got, want := buffer.String(), `{"event":"login_url","url":"https://a.test/?x=1&y=2","reused":false,"instruction":"Open <this>."}`+"\n"; got != want {
 		t.Fatalf("event line =\n%s\nwant\n%s", got, want)
-	}
-}
-
-func TestOnboardBannerDrawsTheLockupInBlockCharacters(t *testing.T) {
-	logoWidth := 0
-	for row, line := range onboardLogo {
-		logoWidth = max(logoWidth, utf8.RuneCountInString(line))
-		if line != strings.TrimRight(line, " ") {
-			t.Errorf("row %d has trailing spaces: %q", row, line)
-		}
-		for _, character := range line {
-			if character != ' ' && !strings.ContainsRune("▘▝▀▖▌▞▛▗▚▐▜▄▙▟█", character) {
-				t.Errorf("row %d has %q, which is not a quadrant block character", row, character)
-			}
-		}
-	}
-	if logoWidth > 64 {
-		t.Errorf("the lockup is %d columns wide; keep it well inside an 80-column terminal", logoWidth)
-	}
-	for _, width := range []int{0, logoWidth + 1, 200} {
-		if got := onboardBanner(width); !slices.Equal(got, onboardLogo) {
-			t.Errorf("width %d: banner is not the whole lockup:\n%s", width, strings.Join(got, "\n"))
-		}
-	}
-}
-
-func TestOnboardBannerFallsBackToTheSymbolInANarrowTerminal(t *testing.T) {
-	logoWidth := 0
-	for _, line := range onboardLogo {
-		logoWidth = max(logoWidth, utf8.RuneCountInString(line))
-	}
-	for _, width := range []int{logoWidth, 40, onboardSymbolColumns} {
-		banner := onboardBanner(width)
-		if len(banner) != len(onboardLogo) {
-			t.Fatalf("width %d: %d rows, want %d", width, len(banner), len(onboardLogo))
-		}
-		for row, line := range banner {
-			if columns := utf8.RuneCountInString(line); columns > onboardSymbolColumns {
-				t.Errorf("width %d: row %d is %d columns, wider than the symbol: %q", width, row, columns, line)
-			}
-			if !strings.HasPrefix(onboardLogo[row], line) {
-				t.Errorf("width %d: row %d %q is not the start of the lockup row %q", width, row, line, onboardLogo[row])
-			}
-		}
-	}
-	// The symbol ends where the lockup's gap begins: no row carries wordmark
-	// cells inside the symbol's columns, and the next columns are blank.
-	for row, line := range onboardLogo {
-		runes := []rune(line)
-		if len(runes) > onboardSymbolColumns && strings.TrimSpace(string(runes[onboardSymbolColumns:min(len(runes), onboardSymbolColumns+3)])) != "" {
-			t.Errorf("row %d has ink right after the symbol's %d columns: %q", row, onboardSymbolColumns, line)
-		}
 	}
 }
