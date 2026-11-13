@@ -147,7 +147,14 @@ func (c *Client) sendJSONThrough(ctx context.Context, httpClient *http.Client, m
 		if detail := detailFromBody(body); detail != "" {
 			return newBackendDetailError(response.StatusCode, detail)
 		}
-		return newUnexpectedResponseError("request failed", response.StatusCode, redactedBodyForError(body, 500))
+		unexpected := newUnexpectedResponseError("request failed", response.StatusCode, redactedBodyForError(body, 500))
+		if response.StatusCode == http.StatusConflict {
+			// Kept only for a 409, the one answer a caller reads as a
+			// document (ResolveCloudWasteBatch); every other body is
+			// dropped with the request.
+			unexpected.body = body
+		}
+		return unexpected
 	}
 	if target == nil {
 		return nil

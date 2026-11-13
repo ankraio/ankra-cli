@@ -16,7 +16,7 @@ func TestOnboardImageProtocolOnlyForTerminalsKnownToDrawImages(t *testing.T) {
 		env  map[string]string
 		want string
 	}{
-		{"iTerm2", map[string]string{"TERM_PROGRAM": "iTerm.app"}, onboardImageITerm},
+		{"iTerm2, which asks before it shows the picture", map[string]string{"TERM_PROGRAM": "iTerm.app", "LC_TERMINAL": "iTerm2"}, onboardImageNone},
 		{"WezTerm", map[string]string{"TERM_PROGRAM": "WezTerm"}, onboardImageITerm},
 		{"Ghostty", map[string]string{"TERM_PROGRAM": "ghostty", "TERM": "xterm-ghostty"}, onboardImageKitty},
 		{"Ghostty over ssh", map[string]string{"TERM": "xterm-ghostty"}, onboardImageKitty},
@@ -25,9 +25,9 @@ func TestOnboardImageProtocolOnlyForTerminalsKnownToDrawImages(t *testing.T) {
 		{"VS Code", map[string]string{"TERM_PROGRAM": "vscode"}, onboardImageNone},
 		{"Windows Terminal", map[string]string{"WT_SESSION": "x"}, onboardImageNone},
 		{"GNOME Terminal", map[string]string{"TERM": "xterm-256color", "VTE_VERSION": "7600"}, onboardImageNone},
-		{"iTerm2 inside tmux", map[string]string{"TERM_PROGRAM": "iTerm.app", "TMUX": "/tmp/tmux-501/default,1,0"}, onboardImageNone},
+		{"WezTerm inside tmux", map[string]string{"TERM_PROGRAM": "WezTerm", "TMUX": "/tmp/tmux-501/default,1,0"}, onboardImageNone},
 		{"kitty inside screen", map[string]string{"KITTY_WINDOW_ID": "1", "STY": "1.pts-0"}, onboardImageNone},
-		{"dumb terminal", map[string]string{"TERM_PROGRAM": "iTerm.app", "TERM": "dumb"}, onboardImageNone},
+		{"dumb terminal", map[string]string{"TERM_PROGRAM": "WezTerm", "TERM": "dumb"}, onboardImageNone},
 		{"nothing set", map[string]string{}, onboardImageNone},
 	}
 	for _, testCase := range cases {
@@ -42,7 +42,7 @@ func TestOnboardInlineImageITermCarriesThePNG(t *testing.T) {
 	sequence := onboardInlineImage(onboardImageITerm, onboardLockupWhite, 5)
 	prefix := "\x1b]1337;File=inline=1;size=" + strconv.Itoa(len(onboardLockupWhite)) + ";height=5;preserveAspectRatio=1:"
 	if !strings.HasPrefix(sequence, prefix) || !strings.HasSuffix(sequence, "\a") {
-		t.Fatalf("sequence does not have the iTerm2 frame: %q...", sequence[:min(len(sequence), 80)])
+		t.Fatalf("sequence does not have the OSC 1337 frame: %q...", sequence[:min(len(sequence), 80)])
 	}
 	decoded, decodeError := base64.StdEncoding.DecodeString(strings.TrimSuffix(strings.TrimPrefix(sequence, prefix), "\a"))
 	if decodeError != nil || !bytes.Equal(decoded, onboardLockupWhite) {

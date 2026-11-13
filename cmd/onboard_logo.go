@@ -41,7 +41,7 @@ const onboardTextMark = "A N K R A"
 // The inline image protocols the banner speaks.
 const (
 	onboardImageNone  = ""
-	onboardImageITerm = "iterm" // OSC 1337, iTerm2 and WezTerm
+	onboardImageITerm = "iterm" // OSC 1337, WezTerm
 	onboardImageKitty = "kitty" // the kitty graphics protocol, kitty and Ghostty
 )
 
@@ -51,13 +51,16 @@ const (
 // terminal is only sent a picture when it is known to draw it. VS Code and
 // Windows Terminal are left out (VS Code draws images only with a setting most
 // people have off; Windows Terminal reads sixel, and only from 1.22), and so is
-// tmux or screen, which pass neither protocol through by default.
+// tmux or screen, which pass neither protocol through by default. iTerm2 is
+// left out too: iTerm2 3.7.7 answered the real onboarding with an "Allow
+// Terminal-Initiated Display?" dialog about an "Unnamed file" instead of the
+// picture, and a security prompt is a worse first sight than the text.
 func onboardImageProtocol(getenv func(string) string) string {
 	if getenv("TMUX") != "" || getenv("STY") != "" || getenv("TERM") == "dumb" {
 		return onboardImageNone
 	}
 	switch getenv("TERM_PROGRAM") {
-	case "iTerm.app", "WezTerm":
+	case "WezTerm":
 		return onboardImageITerm
 	case "ghostty":
 		return onboardImageKitty
