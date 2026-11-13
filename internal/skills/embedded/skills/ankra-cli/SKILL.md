@@ -421,6 +421,9 @@ ankra cost settings set --currency eur --discount 12.5   # admins only; only the
 ankra cost namespaces prod-eu            # cost per namespace; `cost object` for one stack, application or credential
 ankra cost trend                         # how the run rate moved, with `cost events` for why
 ankra cost budgets list                  # monthly budgets (set, delete)
+ankra cost rate-cards list               # what private capacity costs per vCPU, GB of memory and storage (set, delete)
+ankra cost estimate prod-eu --draft-file draft.json   # price a what-if set of node groups; without the flag, what runs today
+ankra cost waste resolve <finding-id> --yes   # clean up one waste finding (`resolve-batch` for many, `resolved` for what it saved)
 ankra cost decisions list                # proposals and their ledger (`cost ledger`: what decisions actually saved)
 ankra cost autopilot get                 # how much Ankra may do about cost on its own
 ankra org usage                          # what the organisation used of Ankra itself, per meter
