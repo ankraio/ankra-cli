@@ -27,7 +27,7 @@ Once installed, the hook runs `go test` for the packages the commit changes
 (every package on a `go.mod`/`go.sum` change) and lints those same packages,
 and a red test blocks the commit. Do not bypass it with `--no-verify`
 unless explicitly asked. `ankra/cmd` is tested and linted only in CI's
-`lint-test-build`: building it needs more than 12 GiB, which neither an Ankra
+`lint` and `test` jobs: building it needs more than 12 GiB, which neither an Ankra
 Workspace on a default node nor most laptops have (ankra-klaw40).
 `ANKRA_PRECOMMIT_FULL=1` runs the whole suite and linter locally.
 

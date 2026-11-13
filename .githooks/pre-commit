@@ -12,8 +12,8 @@ unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX
 # ankra/cmd is one ~105k-line package whose test binary needs more than
 # 12 GiB to compile and link (measured 2026-10-16, ankra-klaw40), more than an
 # Ankra Workspace on a default node or most laptops can give, so it is left
-# to CI's lint-test-build (16 GB runner, GOMEMLIMIT=5GiB), which tests and
-# lints the whole module on every push; golangci-lint builds it too, and needs
+# to CI's lint and test jobs (16 GB runners, GOMEMLIMIT=5GiB), which test and
+# lint the whole module on every push; golangci-lint builds it too, and needs
 # as much. ANKRA_PRECOMMIT_FULL=1 runs `go test ./...` and
 # `golangci-lint run ./...` here instead. A go.mod or go.sum change tests and
 # lints every package (except cmd).
@@ -59,7 +59,7 @@ else
     echo "No Go package to test or lint locally in this commit."
   fi
   if [ "$skipped_cmd" = "1" ]; then
-    echo "ankra/cmd changed: it is tested and linted in CI's lint-test-build (too large to build here; ANKRA_PRECOMMIT_FULL=1 runs it locally)."
+    echo "ankra/cmd changed: it is tested and linted in CI's lint and test jobs (too large to build here; ANKRA_PRECOMMIT_FULL=1 runs it locally)."
   fi
 fi
 
