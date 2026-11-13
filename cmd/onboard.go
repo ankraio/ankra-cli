@@ -20,6 +20,7 @@ import (
 	"os/signal"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"ankra/internal/client"
 	"ankra/internal/skills"
@@ -31,12 +32,47 @@ import (
 
 const onboardTagline = "Run applications as easily as you build them."
 
+// onboardSymbol is the Ankra symbol (the hexagon around the triangle, from
+// the website's brand/ankra-symbol.svg) drawn in braille, five rows to match
+// the wordmark beside it.
+var onboardSymbol = []string{
+	` ⣀⣴⢞⡾⠷⣤⣀`,
+	`⣿⠉⢠⡾⠁⢷⡄⠉⣿`,
+	`⣿⢠⡟⠁ ⠈⢿⡄⣿`,
+	`⢿⣛⡚⠒⠒⠒⢒⣻⡎`,
+	` ⠉⠛⠷⣤⠾⠛⠁`,
+}
+
 var onboardWordmark = []string{
 	`    _          _`,
 	`   / \   _ __ | | ___ __ __ _`,
 	`  / _ \ | '_ \| |/ / '__/ _` + "`" + ` |`,
 	` / ___ \| | | |   <| | | (_| |`,
 	`/_/   \_\_| |_|_|\_\_|  \__,_|`,
+}
+
+// onboardBanner puts the symbol to the left of the wordmark, row by row. The
+// symbol rows are padded to one width so the wordmark starts in the same
+// column on every row.
+func onboardBanner() []string {
+	symbolWidth := 0
+	for _, line := range onboardSymbol {
+		symbolWidth = max(symbolWidth, utf8.RuneCountInString(line))
+	}
+	rows := max(len(onboardSymbol), len(onboardWordmark))
+	banner := make([]string, 0, rows)
+	for row := 0; row < rows; row++ {
+		symbolLine, wordmarkLine := "", ""
+		if row < len(onboardSymbol) {
+			symbolLine = onboardSymbol[row]
+		}
+		if row < len(onboardWordmark) {
+			wordmarkLine = onboardWordmark[row]
+		}
+		padding := strings.Repeat(" ", symbolWidth-utf8.RuneCountInString(symbolLine))
+		banner = append(banner, strings.TrimRight(symbolLine+padding+"   "+wordmarkLine, " "))
+	}
+	return banner
 }
 
 // The seams tests replace.
@@ -228,7 +264,7 @@ func (run *onboardRun) note(format string, arguments ...any) {
 func (run *onboardRun) greet() {
 	if run.interactive {
 		_, _ = fmt.Fprintln(run.out)
-		for _, line := range onboardWordmark {
+		for _, line := range onboardBanner() {
 			_, _ = fmt.Fprintln(run.out, run.style.cyan(line))
 		}
 		_, _ = fmt.Fprintln(run.out)
