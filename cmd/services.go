@@ -577,6 +577,7 @@ type APIClient interface {
 	ResolveCloudWasteFinding(ctx context.Context, findingID string, request client.CloudWasteResolveRequest) (json.RawMessage, error)
 	ResolveCloudWasteBatch(ctx context.Context, request client.CloudWasteResolveRequest) (json.RawMessage, error)
 	GetResolvedCloudWaste(ctx context.Context, days int) (json.RawMessage, error)
+	ListCloudWaste(ctx context.Context, clusterID string) (json.RawMessage, error)
 	GetClusterCostEstimate(ctx context.Context, clusterID string) (json.RawMessage, error)
 	EstimateClusterCost(ctx context.Context, clusterID string, draft map[string]any) (json.RawMessage, error)
 	ListAITasks(ctx context.Context) (json.RawMessage, error)
@@ -624,6 +625,11 @@ type APIClient interface {
 	UpdateTicketSyncConnection(ctx context.Context, connectionID string, request client.TicketSyncConnectionRequest) (json.RawMessage, error)
 	DeleteTicketSyncConnection(ctx context.Context, connectionID string) error
 	ListTicketSyncDestinations(ctx context.Context, request client.TicketSyncDestinationsRequest) (json.RawMessage, error)
+	GetTicketDeskSettings(ctx context.Context) (json.RawMessage, error)
+	UpdateTicketDeskSettings(ctx context.Context, changes map[string]any) (json.RawMessage, error)
+	GetTicketBoardSummary(ctx context.Context, filter client.TicketSummaryFilter) (json.RawMessage, error)
+	ListTicketChanges(ctx context.Context, ticketID string) (json.RawMessage, error)
+	UpdateTicket(ctx context.Context, ticketID string, changes map[string]any) (json.RawMessage, error)
 	GetAIMemoryProfile(ctx context.Context) (json.RawMessage, error)
 	UpdateAIMemoryProfile(ctx context.Context, update client.AIMemoryProfileUpdate) (json.RawMessage, error)
 	ResetAIMemoryProfile(ctx context.Context) error

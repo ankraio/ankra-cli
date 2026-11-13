@@ -62,6 +62,18 @@ type CloudWasteResolveRequest struct {
 	MinUnattachedDays *int     `json:"min_unattached_days,omitempty"`
 }
 
+// ListCloudWaste reads the open cloud-waste findings with their totals and
+// the scans that failed, under the cost project scope, narrowed to one
+// cluster when clusterID is set.
+// GET /api/v1/org/cloud-cost/waste
+func (c *Client) ListCloudWaste(ctx context.Context, clusterID string) (json.RawMessage, error) {
+	query := neturl.Values{}
+	if clusterID != "" {
+		query.Set("cluster_id", clusterID)
+	}
+	return c.requestDocument(ctx, http.MethodGet, c.costScopedURL(pathWithQuery(cloudWastePath, query)), nil)
+}
+
 // ResolveCloudWasteFinding starts the cleanup of one open cloud-waste
 // finding and answers the operation that does it.
 // POST /api/v1/org/cloud-cost/waste/{finding_id}/resolve
