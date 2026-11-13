@@ -11,6 +11,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
@@ -363,13 +364,18 @@ func ticketUpdateChangesFromFlags(command *cobra.Command) (map[string]any, []str
 			continue
 		}
 		value := strings.TrimSpace(mustFlagString(command, text.flag))
-		if value == "" && text.flag != "body" {
-			return nil, nil, 0, withExitCode(exitUsage, fmt.Errorf("--%s cannot be blank", text.flag))
-		}
 		if text.flag == "title" || text.flag == "body" {
 			cleaned, removed := hiddenunicode.Strip(value)
 			hidden += removed
-			value = cleaned
+			value = strings.TrimSpace(cleaned)
+		}
+		if value == "" && text.flag != "body" {
+			return nil, nil, 0, withExitCode(exitUsage, fmt.Errorf("--%s cannot be blank", text.flag))
+		}
+		if text.flag == "due" {
+			if _, parseError := time.Parse(time.RFC3339, value); parseError != nil {
+				return nil, nil, 0, withExitCode(exitUsage, fmt.Errorf("--due takes an RFC 3339 time such as 2026-11-20T17:00:00Z, got %q", value))
+			}
 		}
 		changes[text.member] = value
 		changed = append(changed, text.flag)

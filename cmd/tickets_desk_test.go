@@ -113,6 +113,8 @@ func TestTicketSummaryChangesAndUpdateSendWhatWasAsked(t *testing.T) {
 		{ticketOperationTestID, "--priority", "urgent"},
 		{ticketOperationTestID, "--yes"},
 		{ticketOperationTestID, "--title", " ", "--yes"},
+		{ticketOperationTestID, "--title", "​​", "--yes"},
+		{ticketOperationTestID, "--due", "2026-11-20", "--yes"},
 	} {
 		if _, _, usageError := runDocumentCommand(t, server, newTicketsUpdateCommand(), "", arguments...); exitCodeFor(usageError) != exitUsage {
 			t.Errorf("%v: error = %v, want a usage error", arguments, usageError)
