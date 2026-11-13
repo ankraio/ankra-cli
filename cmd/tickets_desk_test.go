@@ -113,7 +113,7 @@ func TestTicketSummaryChangesAndUpdateSendWhatWasAsked(t *testing.T) {
 		{ticketOperationTestID, "--priority", "urgent"},
 		{ticketOperationTestID, "--yes"},
 		{ticketOperationTestID, "--title", " ", "--yes"},
-		{ticketOperationTestID, "--title", "​​", "--yes"},
+		{ticketOperationTestID, "--title", "\u200b\u200b", "--yes"},
 		{ticketOperationTestID, "--due", "2026-11-20", "--yes"},
 	} {
 		if _, _, usageError := runDocumentCommand(t, server, newTicketsUpdateCommand(), "", arguments...); exitCodeFor(usageError) != exitUsage {
