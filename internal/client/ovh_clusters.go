@@ -94,6 +94,9 @@ type StartOvhClusterResult struct {
 	CreatedOperations int     `json:"created_operations"`
 	StateRestore      string  `json:"state_restore,omitempty"`
 	StateSnapshotID   *string `json:"state_snapshot_id,omitempty"`
+	// StateRestoreMessage is the platform's sentence on what the start does
+	// with the cluster's state; "" from older backends.
+	StateRestoreMessage string `json:"state_restore_message,omitempty"`
 }
 
 type ClusterSSHKeyEntry struct {

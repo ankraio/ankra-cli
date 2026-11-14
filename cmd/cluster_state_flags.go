@@ -222,8 +222,21 @@ func printStopStateOutcome(statePreserved bool, snapshot *client.StateSnapshotRe
 	}
 }
 
-// printStartStateOutcome mirrors it for a start.
-func printStartStateOutcome(stateRestore string, snapshotID *string) {
+// printStartStateOutcome mirrors it for a start. The platform's own sentence
+// (state_restore_message) is printed when it sends one: only the platform
+// knows whether "nothing restored" means an empty etcd or a control plane
+// kept with its state, and a start that brings workers back to a restored
+// control plane must not read as data loss. Older backends send none, and
+// the fallback lines then say only what the CLI knows: nothing is restored.
+func printStartStateOutcome(stateRestore string, snapshotID *string, message string) {
+	if message != "" {
+		line := "  Cluster state: " + message
+		if stateRestore == "requested" {
+			line = text.FgGreen.Sprint(line)
+		}
+		fmt.Println(line)
+		return
+	}
 	switch stateRestore {
 	case "requested":
 		line := "  Cluster state: the first control plane restores the snapshot captured at stop"
@@ -232,8 +245,8 @@ func printStartStateOutcome(stateRestore string, snapshotID *string) {
 		}
 		fmt.Println(text.FgGreen.Sprint(line + "."))
 	case "skipped":
-		fmt.Println("  Cluster state: starting fresh, the captured snapshot is not restored.")
+		fmt.Println("  Cluster state: no state snapshot is restored (restore_state=false).")
 	case "none":
-		fmt.Println("  Cluster state: no captured snapshot to restore; the cluster starts fresh.")
+		fmt.Println("  Cluster state: no state snapshot is restored.")
 	}
 }
