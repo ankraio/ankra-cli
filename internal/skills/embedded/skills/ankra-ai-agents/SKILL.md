@@ -281,6 +281,11 @@ ankra tickets assign T-42 --agent <agent-task-id>  # or --user <user-id>, or --u
 ankra tickets plan draft T-42 --file plan.md       # record a plan you wrote; `-` reads stdin
 ankra tickets plan review T-42 --verdict approve   # or request_changes --rationale "..."
 ankra tickets workspace T-42 --workspace <id>      # attach an AI workspace; --detach removes it
+ankra tickets update T-42 --priority urgent --label cert --yes   # title, body, priority, labels, cluster, staffing, due date
+ankra tickets changes T-42                         # the AI actions applied on the ticket's behalf, with who approved them
+ankra tickets summary --kind incident              # board counts by status, kind, priority and agent
+ankra tickets settings get                         # where tickets are announced, the reviewing agent, the notification policy
+ankra tickets settings set --notify-mode filtered --notify-min-priority high --yes   # admins only; only the flags you pass change
 ankra tickets sync connections list                # tickets mirrored to Jira, Linear or a webhook
 ankra tickets sync connections create --name linear --provider linear --team-id <id> --secret-stdin   # the key is never an argument
 ankra tickets sync destinations --provider linear --connection <connection-id>   # the teams a key can file into

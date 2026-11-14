@@ -214,10 +214,10 @@ func cloudWasteResolveRequestFromFlags(command *cobra.Command) (client.CloudWast
 func newCostWasteCommand() *cobra.Command {
 	wasteCommand := &cobra.Command{
 		Use:   "waste",
-		Short: "Clean up cloud waste and see what the cleanup saved",
+		Short: "List cloud waste, clean it up and see what the cleanup saved",
 		Long: `Cloud waste is what the scan finds billing with nothing using it: a stopped
 server, an unattached volume, an unassigned IP, an idle load balancer. 'ankra
-cost savings' lists the open findings with their ids.
+cost waste list' lists the open findings with their ids.
 
 What a cleanup does is decided by the kind of waste, never by the caller: a
 stopped server gets a snapshot kept for seven days before it is deleted; an
@@ -370,8 +370,116 @@ never summed as zero.`,
 	resolvedCommand.Flags().Int("days", 0, "How many days back to total (1 to 90; 30 when omitted)")
 	registerCostProjectScopeFlag(resolvedCommand)
 
-	wasteCommand.AddCommand(resolveCommand, resolveBatchCommand, resolvedCommand)
+	listCommand := newOperationCommand(operationCommand{
+		use:     "list",
+		aliases: []string{"ls"},
+		short:   "List the open cloud-waste findings, what they cost and which scans failed",
+		long: `List the open findings of the latest waste scan with what each costs a month,
+the total cleaning them up would save, and every credential whose scan failed,
+so an incomplete scan never reads as no waste. A finding Ankra will not clean
+up (it is shared with another organisation, or Ankra cannot tell) shows why in
+the Cleanup column and is not in the total. --cluster narrows the findings to
+one cluster; --all-projects reads the whole organisation instead of the
+project you act in.`,
+		example:   "  ankra cost waste list\n  ankra cost waste list --cluster prod-eu\n  ankra cost waste list --all-projects -o json",
+		arguments: cobra.NoArgs,
+		invoke: func(command *cobra.Command, _ []string) (json.RawMessage, error) {
+			clusterID := ""
+			if clusterReference, _ := command.Flags().GetString("cluster"); strings.TrimSpace(clusterReference) != "" {
+				resolvedID, resolveError := resolveClusterID(strings.TrimSpace(clusterReference))
+				if resolveError != nil {
+					return nil, resolveError
+				}
+				clusterID = resolvedID
+			}
+			applyCostProjectScope(command)
+			return apiClient.ListCloudWaste(command.Context(), clusterID)
+		},
+		human: printCloudWasteListing,
+	})
+	listCommand.Flags().String("cluster", "", "Only the findings on this cluster (name or id)")
+	registerCostProjectScopeFlag(listCommand)
+
+	wasteCommand.AddCommand(listCommand, resolveCommand, resolveBatchCommand, resolvedCommand)
 	return wasteCommand
+}
+
+func printCloudWasteListing(out io.Writer, document json.RawMessage) error {
+	var listing struct {
+		HasData                          bool    `json:"has_data"`
+		ScannedAt                        *string `json:"scanned_at"`
+		Currency                         string  `json:"currency"`
+		TotalMonthlyCostCents            int64   `json:"total_monthly_cost_cents"`
+		UnpricedFindingCount             int     `json:"unpriced_finding_count"`
+		SharedNotCountedMonthlyCostCents int64   `json:"shared_not_counted_monthly_cost_cents"`
+		SharedNotCountedFindingCount     int     `json:"shared_not_counted_finding_count"`
+		UnattributedFindingCount         int     `json:"unattributed_finding_count"`
+		UnattributedMonthlyCostCents     int64   `json:"unattributed_monthly_cost_cents"`
+		Findings                         []struct {
+			ID               string  `json:"id"`
+			Kind             string  `json:"kind"`
+			ResourceName     string  `json:"resource_name"`
+			Provider         string  `json:"provider"`
+			Region           string  `json:"region"`
+			ClusterName      *string `json:"cluster_name"`
+			MonthlyCostCents *int64  `json:"monthly_cost_cents"`
+			CleanupRefusal   *struct {
+				Code string `json:"code"`
+			} `json:"cleanup_refusal"`
+		} `json:"findings"`
+		CredentialErrors []struct {
+			Provider                  string `json:"provider"`
+			CredentialName            string `json:"credential_name"`
+			Error                     string `json:"error"`
+			CredentialOutsideProjects bool   `json:"credential_outside_projects"`
+		} `json:"credential_errors"`
+	}
+	if decodeError := decodeDocument(document, &listing); decodeError != nil {
+		return decodeError
+	}
+	if !listing.HasData && len(listing.CredentialErrors) == 0 {
+		_, _ = fmt.Fprintln(out, "No waste scan has run yet.")
+		return nil
+	}
+	if len(listing.Findings) == 0 {
+		_, _ = fmt.Fprintln(out, "No open cloud waste.")
+	} else {
+		rows := make([]table.Row, 0, len(listing.Findings))
+		for _, finding := range listing.Findings {
+			cleanup := "-"
+			if finding.CleanupRefusal != nil {
+				cleanup = "refused: " + finding.CleanupRefusal.Code
+			}
+			location := strings.Trim(finding.Provider+" "+finding.Region, " ")
+			rows = append(rows, table.Row{finding.ID, finding.Kind, orDash(finding.ResourceName), orDash(location),
+				valueOrDash(finding.ClusterName), formatOptionalCostCents(finding.MonthlyCostCents, listing.Currency), cleanup})
+		}
+		renderRoundedTable(out, table.Row{"Finding", "Kind", "Resource", "Where", "Cluster", "Monthly cost", "Cleanup"}, rows)
+		_, _ = fmt.Fprintf(out, "%s open; cleaning them up saves %s a month.\n", pluralCount(len(listing.Findings), "finding"),
+			formatCostCents(listing.TotalMonthlyCostCents, listing.Currency))
+	}
+	if listing.UnpricedFindingCount > 0 {
+		_, _ = fmt.Fprintf(out, "%s could not be priced and is not in the total.\n", pluralCount(listing.UnpricedFindingCount, "finding"))
+	}
+	if listing.SharedNotCountedFindingCount > 0 {
+		_, _ = fmt.Fprintf(out, "%s Ankra will not clean up (%s a month) is not in the total.\n",
+			pluralCount(listing.SharedNotCountedFindingCount, "shared finding"), formatCostCents(listing.SharedNotCountedMonthlyCostCents, listing.Currency))
+	}
+	if listing.UnattributedFindingCount > 0 {
+		_, _ = fmt.Fprintf(out, "%s in no project (%s a month) is counted apart; --all-projects lists it.\n",
+			pluralCount(listing.UnattributedFindingCount, "finding"), formatCostCents(listing.UnattributedMonthlyCostCents, listing.Currency))
+	}
+	if listing.ScannedAt != nil {
+		_, _ = fmt.Fprintf(out, "Scanned %s.\n", *listing.ScannedAt)
+	}
+	for _, failure := range listing.CredentialErrors {
+		if failure.CredentialOutsideProjects {
+			_, _ = fmt.Fprintf(out, "Incomplete: %s\n", failure.Error)
+			continue
+		}
+		_, _ = fmt.Fprintf(out, "Incomplete: the %s scan of %s failed: %s\n", orDash(failure.Provider), orDash(failure.CredentialName), failure.Error)
+	}
+	return nil
 }
 
 func newCostEstimateCommand() *cobra.Command {

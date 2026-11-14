@@ -423,6 +423,7 @@ ankra cost trend                         # how the run rate moved, with `cost ev
 ankra cost budgets list                  # monthly budgets (set, delete)
 ankra cost rate-cards list               # what private capacity costs per vCPU, GB of memory and storage (set, delete)
 ankra cost estimate prod-eu --draft-file draft.json   # price a what-if set of node groups; without the flag, what runs today
+ankra cost waste list                    # open cloud-waste findings, what they cost, which scans failed
 ankra cost waste resolve <finding-id> --yes   # clean up one waste finding (`resolve-batch` for many, `resolved` for what it saved)
 ankra cost decisions list                # proposals and their ledger (`cost ledger`: what decisions actually saved)
 ankra cost autopilot get                 # how much Ankra may do about cost on its own
