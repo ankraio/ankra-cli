@@ -44,6 +44,7 @@ type APIClient interface {
 	GetDeprovisionVolumes(kind, clusterID string) (*client.DeprovisionVolumes, error)
 	MoveCluster(ctx context.Context, clusterID string, destinationOrganisationID string) (*client.MoveClusterResult, error)
 	SetClusterEnvironment(ctx context.Context, clusterID string, environment string, criticality string) (*client.ClusterEnvironmentResult, error)
+	RenameCluster(ctx context.Context, clusterID string, newName string) (*client.ClusterRenameResult, error)
 	RollToClusterResourceVersion(ctx context.Context, clusterID, versionID string) (*client.RollToClusterResourceVersionResult, error)
 	ApplyCluster(ctx context.Context, clusterReq client.CreateImportClusterRequest, wait bool) (*client.ImportResponse, bool, error)
 	ValidateCluster(ctx context.Context, spec client.CreateResourceSpec, strictSecrets bool, clusterID string) (*client.ValidateClusterResponse, error)
