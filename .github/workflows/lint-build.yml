@@ -59,10 +59,10 @@ jobs:
       GOFLAGS: -gcflags=all=-dwarf=false
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Set up Go
         id: setup_go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       # The headroom left by -dwarf=false is ~1.5GB and the cmd test compile
@@ -179,7 +179,7 @@ jobs:
         run: go run ./tools/testreport -summary -top 40 -markdown "$GITHUB_STEP_SUMMARY" test-events.json
       - name: Upload test events
         if: ${{ always() && hashFiles('test-events.json') != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-events
           path: test-events.json
@@ -217,7 +217,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Check install.sh
         env:
           TEST_INSTALL_REQUIRE_DASH: "1"
