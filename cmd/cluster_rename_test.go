@@ -105,7 +105,7 @@ func TestClusterRenameAcceptsAClusterIDAndRendersJSON(t *testing.T) {
 
 // A name the platform would refuse is a usage error, and nothing is sent.
 func TestClusterRenameRefusesABadNameBeforeWriting(t *testing.T) {
-	for _, name := range []string{"Socloud-Dev", "socloud_dev", "-socloud", "socloud-", "1socloud",
+	for _, name := range []string{"Socloud-Dev", "socloud_dev", "socloud.dev", "socloud-", "1socloud",
 		strings.Repeat("a", 54)} {
 		t.Run(name, func(subtest *testing.T) {
 			mock := newClusterRenameMock()
