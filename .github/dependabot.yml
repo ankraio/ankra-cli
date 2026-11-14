@@ -43,11 +43,15 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    # One PR a month for every action, majors included: an action major is a
+    # runner or input change that CI itself proves, and one PR per action
+    # meant one full pipeline run each (the 2026-11-13 first run opened about
+    # 20 of them across five repositories).
     groups:
-      actions-minor-patch:
+      actions:
         applies-to: version-updates
         patterns: ["*"]
-        update-types: [minor, patch]
+        update-types: [major, minor, patch]
       actions-security:
         applies-to: security-updates
         patterns: ["*"]
