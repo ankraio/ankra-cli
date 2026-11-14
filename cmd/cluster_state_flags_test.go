@@ -203,3 +203,26 @@ func TestHetznerStopModeFlagIsSentAndValidated(t *testing.T) {
 		t.Fatal("a refused mode must not reach the client")
 	}
 }
+
+// A start over a kept control plane restores nothing, and the platform says
+// the control plane is kept with its state. The CLI used to print its own
+// "no captured snapshot to restore; the cluster starts fresh" there, which
+// read as data loss after a restore (ankra-k2gaer).
+func TestPrintStartStateOutcomePrintsThePlatformsSentence(t *testing.T) {
+	message := "Nothing is restored: the running control plane is kept with its etcd, including any state an earlier restore brought back, and this start only brings back parked workers."
+	output := captureStdout(t, func() { printStartStateOutcome("none", nil, message) })
+	if !strings.Contains(output, "Cluster state: "+message) || strings.Contains(output, "starts fresh") {
+		t.Fatalf("the platform's sentence must be printed as is, got %q", output)
+	}
+}
+
+// Without the platform's sentence (an older backend) the fallback claims
+// neither a fresh cluster nor a kept one.
+func TestPrintStartStateOutcomeFallbackNeverClaimsAFreshCluster(t *testing.T) {
+	for _, stateRestore := range []string{"none", "skipped"} {
+		output := captureStdout(t, func() { printStartStateOutcome(stateRestore, nil, "") })
+		if !strings.Contains(output, "no state snapshot is restored") || strings.Contains(output, "fresh") {
+			t.Fatalf("%s: fallback = %q", stateRestore, output)
+		}
+	}
+}
