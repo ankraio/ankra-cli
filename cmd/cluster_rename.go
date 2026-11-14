@@ -26,10 +26,13 @@ type clusterRenameOutput struct {
 	Changed      bool   `json:"changed"`
 }
 
-var clusterRenameCmd = &cobra.Command{
+var clusterRenameCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "rename <cluster> <new-name>",
 	Short: "Rename a cluster in place",
 	Long: `Rename a cluster. The cluster is given by its current name or its id.
+
+The cluster is never taken from 'ankra cluster select': name it here, as the
+argument or with --cluster.
 
 A rename changes the name Ankra knows the cluster by: the portal, the cluster
 list, 'ankra' commands and Ankra AI all use the new name. Nothing is rebuilt
@@ -60,10 +63,16 @@ The name must be 1 to 53 lowercase letters, digits and hyphens, starting with
 a letter and ending with a letter or digit, and no other cluster in the
 organisation may have it.`,
 	Example: `  ankra cluster rename socloud-cheap socloud-dev
+  ankra cluster rename --cluster socloud-cheap socloud-dev
   ankra cluster rename 22de7a2c-a671-4e7b-b6db-b32d03490a08 socloud-dev -o json`,
+	// The cluster may be given with --cluster instead of the argument. A
+	// rename never falls back to the cluster selected with 'ankra cluster
+	// select': that selection is shared by every shell on the machine, and a
+	// rename aimed at the wrong cluster would retire a name another file or
+	// pipeline still uses (clusterMustBeNamed).
 	Args: cobra.ExactArgs(2),
 	RunE: runClusterRename,
-}
+})
 
 func runClusterRename(cmd *cobra.Command, args []string) error {
 	newName := args[1]

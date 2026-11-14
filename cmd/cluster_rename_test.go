@@ -196,3 +196,16 @@ func TestFollowRenameInSelectionWarnsWhenTheSelectionCannotBeSaved(t *testing.T)
 		t.Fatalf("note = %q, warning = %q; want a warning naming the fix", note, warning)
 	}
 }
+
+// --cluster stands in for the cluster argument.
+func TestClusterRenameTakesTheClusterFromTheFlag(t *testing.T) {
+	mock := newClusterRenameMock()
+
+	if _, runError := runClusterRenameCommand(t, mock, "--cluster", "socloud-cheap", "socloud-dev"); runError != nil {
+		t.Fatalf("expected success, got %v", runError)
+	}
+	want := clusterRenameCall{clusterID: mock.cluster.ID, newName: "socloud-dev"}
+	if len(mock.calls) != 1 || mock.calls[0] != want {
+		t.Fatalf("calls = %+v, want one %+v", mock.calls, want)
+	}
+}
