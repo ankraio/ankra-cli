@@ -177,19 +177,61 @@ func clusterPathLiterals(t *testing.T, moduleRoot string) map[string][]string {
 	return found
 }
 
+// censusAbsence says what an unset ANKRA_CLUSTER_ROUTES_JSON means: skip
+// (with the message) or fail. getenv is os.Getenv in the test, a map in its
+// own test.
+//
+// Skipping locally keeps `go test ./...` green for someone who has not
+// fetched the census. Skipping in CI would be the bug this whole test exists
+// to prevent, one level up: a pipeline that lost its fetch step would report
+// "passed" for a check that never ran. So under CI an unset census fails,
+// unless the workflow skipped the fetch on purpose and said why in
+// ANKRA_CLUSTER_ROUTES_SKIP_REASON: a fork's or Dependabot's run, which GitHub
+// gives no repository secrets, so the census cannot be read at all.
+func censusAbsence(getenv func(string) string) (skip bool, message string) {
+	if reason := strings.TrimSpace(getenv("ANKRA_CLUSTER_ROUTES_SKIP_REASON")); reason != "" {
+		return true, "the cluster route census was not checked on this run, on purpose: " + reason
+	}
+	if getenv("CI") != "" {
+		return false, "ANKRA_CLUSTER_ROUTES_JSON is unset under CI: the workflow fetches the cluster route census before this step, so an unset value means that step is gone or failed, and skipping here would report a check that never ran as passed"
+	}
+	return true, "ANKRA_CLUSTER_ROUTES_JSON is unset: point it at the cluster repo's routes.json to check the CLI's paths against the route census (CI does)"
+}
+
+func TestCensusAbsenceFailsUnderCIUnlessTheSkipIsDeclared(t *testing.T) {
+	cases := []struct {
+		name     string
+		env      map[string]string
+		wantSkip bool
+	}{
+		{"local run skips", map[string]string{}, true},
+		{"CI without a reason fails", map[string]string{"CI": "true"}, false},
+		{"CI with a blank reason still fails", map[string]string{"CI": "true", "ANKRA_CLUSTER_ROUTES_SKIP_REASON": "  "}, false},
+		{"CI with a declared reason skips", map[string]string{"CI": "true", "ANKRA_CLUSTER_ROUTES_SKIP_REASON": "dependabot run"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			skip, message := censusAbsence(func(key string) string { return tc.env[key] })
+			if skip != tc.wantSkip {
+				t.Fatalf("skip = %v, want %v (%s)", skip, tc.wantSkip, message)
+			}
+			if reason := tc.env["ANKRA_CLUSTER_ROUTES_SKIP_REASON"]; strings.TrimSpace(reason) != "" && !strings.Contains(message, reason) {
+				t.Fatalf("the skip message %q does not carry the declared reason %q", message, reason)
+			}
+		})
+	}
+}
+
 // TestClusterRoutesAreRegistered checks every /api/v1 literal in the module
 // against the cluster route census.
 func TestClusterRoutesAreRegistered(t *testing.T) {
 	censusPath := os.Getenv("ANKRA_CLUSTER_ROUTES_JSON")
 	if censusPath == "" {
-		// Skipping locally keeps `go test ./...` green for someone who has
-		// not fetched the census. Skipping in CI would be the bug this whole
-		// test exists to prevent, one level up: a pipeline that lost its
-		// fetch step would report "passed" for a check that never ran.
-		if os.Getenv("CI") != "" {
-			t.Fatal("ANKRA_CLUSTER_ROUTES_JSON is unset under CI: the workflow fetches the cluster route census before this step, so an unset value means that step is gone or failed, and skipping here would report a check that never ran as passed")
+		skip, message := censusAbsence(os.Getenv)
+		if !skip {
+			t.Fatal(message)
 		}
-		t.Skip("ANKRA_CLUSTER_ROUTES_JSON is unset: point it at the cluster repo's routes.json to check the CLI's paths against the route census (CI does)")
+		t.Skip(message)
 	}
 	raw, readError := os.ReadFile(censusPath)
 	if readError != nil {
