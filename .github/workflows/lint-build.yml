@@ -127,11 +127,13 @@ jobs:
           if [ "$IS_FORK" = "true" ]; then
             echo "::warning::pull request from a fork: repository secrets are unavailable, so the cluster route census was not fetched and TestClusterRoutesAreRegistered will skip, not pass"
             echo "fetched=false" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=pull request from a fork: repository secrets are unavailable" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [ "$IS_DEPENDABOT" = "true" ]; then
             echo "::warning::Dependabot run: GitHub withholds repository secrets, so the cluster route census was not fetched and TestClusterRoutesAreRegistered will skip, not pass (the Ankra pipeline checks it on this PR)"
             echo "fetched=false" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=Dependabot run: GitHub withholds repository secrets (the Ankra pipeline checks the census on this PR)" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [ -z "$CLUSTER_ROUTES_GITHUB_TOKEN" ]; then
@@ -156,6 +158,10 @@ jobs:
           # Set only when the census was fetched; otherwise the route test skips
           # visibly instead of failing on a file that was never there.
           ANKRA_CLUSTER_ROUTES_JSON: ${{ steps.routes_fetch.outputs.fetched == 'true' && format('{0}/routes.json', github.workspace) || '' }}
+          # Set only on the two deliberate skip paths above. Under CI the test
+          # fails on an unset census unless this says why it was skipped, so a
+          # fetch step that silently disappears still turns the run red.
+          ANKRA_CLUSTER_ROUTES_SKIP_REASON: ${{ steps.routes_fetch.outputs.skip_reason }}
         # -json keeps every test's duration, so a package creeping toward
         # -timeout shows which tests it spends its time in (ankra-hq41xb.28).
         # testreport -filter prints the log go test prints without -v: build
