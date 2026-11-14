@@ -227,7 +227,7 @@ func printStopStateOutcome(statePreserved bool, snapshot *client.StateSnapshotRe
 // knows whether "nothing restored" means an empty etcd or a control plane
 // kept with its state, and a start that brings workers back to a restored
 // control plane must not read as data loss. Older backends send none, and
-// the fallback lines then claim neither.
+// the fallback lines then say only what the CLI knows: nothing is restored.
 func printStartStateOutcome(stateRestore string, snapshotID *string, message string) {
 	if message != "" {
 		line := "  Cluster state: " + message
@@ -245,8 +245,8 @@ func printStartStateOutcome(stateRestore string, snapshotID *string, message str
 		}
 		fmt.Println(text.FgGreen.Sprint(line + "."))
 	case "skipped":
-		fmt.Println("  Cluster state: no state snapshot is restored (restore_state=false); a control plane that is kept keeps its etcd.")
+		fmt.Println("  Cluster state: no state snapshot is restored (restore_state=false).")
 	case "none":
-		fmt.Println("  Cluster state: no state snapshot is restored; a control plane that is kept keeps its etcd, a new one starts empty.")
+		fmt.Println("  Cluster state: no state snapshot is restored.")
 	}
 }
