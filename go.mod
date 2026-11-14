@@ -5,7 +5,7 @@ go 1.26.0
 toolchain go1.26.11
 
 require (
-	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e
+	github.com/chzyer/readline v1.5.1
 	github.com/coder/websocket v1.8.15
 	github.com/dustin/go-humanize v1.1.0
 	github.com/google/uuid v1.6.0
