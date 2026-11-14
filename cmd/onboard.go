@@ -31,14 +31,6 @@ import (
 
 const onboardTagline = "Run applications as easily as you build them."
 
-var onboardWordmark = []string{
-	`    _          _`,
-	`   / \   _ __ | | ___ __ __ _`,
-	`  / _ \ | '_ \| |/ / '__/ _` + "`" + ` |`,
-	` / ___ \| | | |   <| | | (_| |`,
-	`/_/   \_\_| |_|_|\_\_|  \__,_|`,
-}
-
 // The seams tests replace.
 var (
 	// onboardIsTerminal reports whether a stream is a terminal.
@@ -228,11 +220,7 @@ func (run *onboardRun) note(format string, arguments ...any) {
 func (run *onboardRun) greet() {
 	if run.interactive {
 		_, _ = fmt.Fprintln(run.out)
-		for _, line := range onboardWordmark {
-			_, _ = fmt.Fprintln(run.out, run.style.cyan(line))
-		}
-		_, _ = fmt.Fprintln(run.out)
-		_, _ = fmt.Fprintln(run.out, run.style.bold(onboardTagline))
+		run.printBanner()
 		_, _ = fmt.Fprintln(run.out)
 	}
 	if run.events != nil {

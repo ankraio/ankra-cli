@@ -59,10 +59,10 @@ jobs:
       GOFLAGS: -gcflags=all=-dwarf=false
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Set up Go
         id: setup_go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       # The headroom left by -dwarf=false is ~1.5GB and the cmd test compile
@@ -119,10 +119,21 @@ jobs:
           CLUSTER_ROUTES_REF: main
           CLUSTER_ROUTES_GITHUB_TOKEN: ${{ secrets.CLUSTER_ROUTES_GITHUB_TOKEN }}
           IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
+          # GitHub never hands repository secrets to a run Dependabot triggers,
+          # so its PRs are treated like a fork's. The Ankra pipeline still
+          # checks the census on them with its own GitHub App credential.
+          IS_DEPENDABOT: ${{ github.actor == 'dependabot[bot]' }}
         run: |
           if [ "$IS_FORK" = "true" ]; then
             echo "::warning::pull request from a fork: repository secrets are unavailable, so the cluster route census was not fetched and TestClusterRoutesAreRegistered will skip, not pass"
             echo "fetched=false" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=pull request from a fork: repository secrets are unavailable" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$IS_DEPENDABOT" = "true" ]; then
+            echo "::warning::Dependabot run: GitHub withholds repository secrets, so the cluster route census was not fetched and TestClusterRoutesAreRegistered will skip, not pass (the Ankra pipeline checks it on this PR)"
+            echo "fetched=false" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=Dependabot run: GitHub withholds repository secrets (the Ankra pipeline checks the census on this PR)" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [ -z "$CLUSTER_ROUTES_GITHUB_TOKEN" ]; then
@@ -147,6 +158,10 @@ jobs:
           # Set only when the census was fetched; otherwise the route test skips
           # visibly instead of failing on a file that was never there.
           ANKRA_CLUSTER_ROUTES_JSON: ${{ steps.routes_fetch.outputs.fetched == 'true' && format('{0}/routes.json', github.workspace) || '' }}
+          # Set only on the two deliberate skip paths above. Under CI the test
+          # fails on an unset census unless this says why it was skipped, so a
+          # fetch step that silently disappears still turns the run red.
+          ANKRA_CLUSTER_ROUTES_SKIP_REASON: ${{ steps.routes_fetch.outputs.skip_reason }}
         # -json keeps every test's duration, so a package creeping toward
         # -timeout shows which tests it spends its time in (ankra-hq41xb.28).
         # testreport -filter prints the log go test prints without -v: build
@@ -164,7 +179,7 @@ jobs:
         run: go run ./tools/testreport -summary -top 40 -markdown "$GITHUB_STEP_SUMMARY" test-events.json
       - name: Upload test events
         if: ${{ always() && hashFiles('test-events.json') != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-events
           path: test-events.json
@@ -202,7 +217,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Check install.sh
         env:
           TEST_INSTALL_REQUIRE_DASH: "1"

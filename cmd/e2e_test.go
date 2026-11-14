@@ -150,6 +150,10 @@ func (m baseMock) SetClusterEnvironment(context.Context, string, string, string)
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) RenameCluster(context.Context, string, string) (*client.ClusterRenameResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) DeprovisionCluster(ctx context.Context, clusterID string) (*client.DeprovisionClusterResult, error) {
 	return nil, errors.New("not implemented")
 }

@@ -306,6 +306,10 @@ keeps its stored value.`,
 				if readError != nil {
 					return nil, readError
 				}
+				if len(profile) == 0 {
+					return nil, withExitCode(exitUsage, fmt.Errorf("%s is an empty object, so it would replace nothing; "+
+						"'ankra ai memories profile reset' clears the learned profile", strings.TrimSpace(profilePath)))
+				}
 				update.Profile = profile
 			}
 			if update.LearningEnabled == nil && update.Profile == nil {

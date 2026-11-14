@@ -6,6 +6,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -103,7 +104,9 @@ ships none.`,
 		short: "State the monthly rates of a private credential, or the organisation fallback card",
 		long: `State a rate card for one private credential (name or id), or for the
 organisation's fallback card with 'organisation'. Amounts are decimal, per
-month, in --currency. Needs billing.manage. A token pinned to a project writes
+month, in --currency, and all three are required: the platform replaces the
+whole card, so a rate left out would be stored as 0 (pass 0 to price that
+capacity as free). Needs billing.manage. A token pinned to a project writes
 the cards of its own project's credentials only. It asks first; --yes skips
 the question and is required when there is no terminal to ask on.`,
 		example: `  ankra cost rate-cards set homelab-proxmox --currency EUR --vcpu 4.50 --memory-gb 1.20 --storage-gb 0.04
@@ -119,8 +122,9 @@ the question and is required when there is no terminal to ask on.`,
 			storageAmount, _ := command.Flags().GetString("storage-gb")
 			request := client.CostRateCardRequest{Currency: currency, VCPUMonthlyAmount: strings.TrimSpace(vcpuAmount),
 				MemoryGBMonthlyAmount: strings.TrimSpace(memoryAmount), StorageGBMonthlyAmount: strings.TrimSpace(storageAmount)}
-			if request.VCPUMonthlyAmount == "" && request.MemoryGBMonthlyAmount == "" && request.StorageGBMonthlyAmount == "" {
-				return nil, withExitCode(exitUsage, fmt.Errorf("state at least one rate: --vcpu, --memory-gb or --storage-gb"))
+			if request.VCPUMonthlyAmount == "" || request.MemoryGBMonthlyAmount == "" || request.StorageGBMonthlyAmount == "" {
+				return nil, withExitCode(exitUsage, fmt.Errorf("state all three rates, --vcpu, --memory-gb and --storage-gb: "+
+					"the card is replaced whole, so a rate left out would be stored as 0 (pass 0 to price it as free)"))
 			}
 			target, targetError := resolveRateCardTarget(arguments[0])
 			if targetError != nil {
@@ -145,9 +149,9 @@ the question and is required when there is no terminal to ask on.`,
 		},
 	})
 	setCommand.Flags().String("currency", "", "Currency the amounts are stated in (required)")
-	setCommand.Flags().String("vcpu", "", "Decimal amount per vCPU per month")
-	setCommand.Flags().String("memory-gb", "", "Decimal amount per GB of memory per month")
-	setCommand.Flags().String("storage-gb", "", "Decimal amount per GB of storage per month")
+	setCommand.Flags().String("vcpu", "", "Decimal amount per vCPU per month (required)")
+	setCommand.Flags().String("memory-gb", "", "Decimal amount per GB of memory per month (required)")
+	setCommand.Flags().String("storage-gb", "", "Decimal amount per GB of storage per month (required)")
 	setCommand.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt (required when stdin is not a terminal)")
 
 	deleteCommand := newOperationCommand(operationCommand{
@@ -273,7 +277,10 @@ and is required when there is no terminal to ask on.`,
 		long: `Start the cleanup of up to 100 findings at once, one operation per finding,
 and print each finding's outcome: started, refused with the platform's reason,
 or failed. --consent and --min-unattached-days apply to every finding that
-needs them. The platform refuses the call when no cleanup started. It asks
+needs them, but a consent covers only its own kind of finding, and the generic
+no_snapshot_acknowledged is refused once the batch mixes kinds that need
+consent: split such a batch by kind. When no cleanup started, each finding's
+outcome is still printed and the command exits 1. It asks
 first; --yes skips the question and is required when there is no terminal to
 ask on.`,
 		example:   "  ankra cost waste resolve-batch <finding-id> <finding-id> --yes",
@@ -295,31 +302,18 @@ ask on.`,
 				pluralCount(len(request.FindingIDs), "waste finding"))); confirmError != nil {
 				return nil, confirmError
 			}
-			return apiClient.ResolveCloudWasteBatch(command.Context(), request)
+			document, batchError := apiClient.ResolveCloudWasteBatch(command.Context(), request)
+			if errors.Is(batchError, client.ErrCloudWasteNoneStarted) {
+				if renderError := renderDocument(command, document, func(out io.Writer) error {
+					return printCloudWasteBatch(out, document)
+				}); renderError != nil {
+					return nil, renderError
+				}
+				return nil, withExitCode(exitError, fmt.Errorf("no cleanup started; each finding's reason is above"))
+			}
+			return document, batchError
 		},
-		human: func(out io.Writer, document json.RawMessage) error {
-			var batch struct {
-				Results []struct {
-					FindingID   string  `json:"finding_id"`
-					Status      string  `json:"status"`
-					OperationID *string `json:"operation_id"`
-					Detail      *string `json:"detail"`
-				} `json:"results"`
-				Started int `json:"started"`
-				Refused int `json:"refused"`
-				Failed  int `json:"failed"`
-			}
-			if decodeError := decodeDocument(document, &batch); decodeError != nil {
-				return decodeError
-			}
-			rows := make([]table.Row, 0, len(batch.Results))
-			for _, result := range batch.Results {
-				rows = append(rows, table.Row{result.FindingID, result.Status, valueOrDash(result.OperationID), valueOrDash(result.Detail)})
-			}
-			renderRoundedTable(out, table.Row{"Finding", "Status", "Operation", "Detail"}, rows)
-			_, _ = fmt.Fprintf(out, "%d started, %d refused, %d failed.\n", batch.Started, batch.Refused, batch.Failed)
-			return nil
-		},
+		human: printCloudWasteBatch,
 	})
 	registerCloudWasteResolveFlags(resolveBatchCommand)
 
@@ -466,4 +460,30 @@ func printClusterCostEstimate(out io.Writer, document json.RawMessage) error {
 
 func init() {
 	costCmd.AddCommand(newCostRateCardsCommand(), newCostWasteCommand(), newCostEstimateCommand())
+}
+
+// printCloudWasteBatch prints each finding's outcome of a batch cleanup and
+// the totals.
+func printCloudWasteBatch(out io.Writer, document json.RawMessage) error {
+	var batch struct {
+		Results []struct {
+			FindingID   string  `json:"finding_id"`
+			Status      string  `json:"status"`
+			OperationID *string `json:"operation_id"`
+			Detail      *string `json:"detail"`
+		} `json:"results"`
+		Started int `json:"started"`
+		Refused int `json:"refused"`
+		Failed  int `json:"failed"`
+	}
+	if decodeError := decodeDocument(document, &batch); decodeError != nil {
+		return decodeError
+	}
+	rows := make([]table.Row, 0, len(batch.Results))
+	for _, result := range batch.Results {
+		rows = append(rows, table.Row{result.FindingID, result.Status, valueOrDash(result.OperationID), valueOrDash(result.Detail)})
+	}
+	renderRoundedTable(out, table.Row{"Finding", "Status", "Operation", "Detail"}, rows)
+	_, _ = fmt.Fprintf(out, "%d started, %d refused, %d failed.\n", batch.Started, batch.Refused, batch.Failed)
+	return nil
 }
