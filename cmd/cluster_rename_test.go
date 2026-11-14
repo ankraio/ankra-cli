@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -154,18 +155,44 @@ func TestFollowRenameInSelectionUpdatesOnlyTheRenamedCluster(t *testing.T) {
 		t.Fatalf("saving the selection: %v", saveError)
 	}
 
-	if note := followRenameInSelection("another-cluster-id", "socloud-dev"); note != "" {
-		t.Fatalf("another cluster's rename touched the selection: %q", note)
+	if note, warning := followRenameInSelection("another-cluster-id", "socloud-dev"); note != "" || warning != "" {
+		t.Fatalf("another cluster's rename touched the selection: %q %q", note, warning)
 	}
 	if reloaded, _ := loadSelectedCluster(); reloaded.Name != "socloud-cheap" {
 		t.Fatalf("selection = %q, want unchanged", reloaded.Name)
 	}
 
-	if note := followRenameInSelection(selected.ID, "socloud-dev"); !strings.Contains(note, "socloud-dev") {
-		t.Fatalf("note = %q, want it to name the new name", note)
+	if note, warning := followRenameInSelection(selected.ID, "socloud-dev"); !strings.Contains(note, "socloud-dev") || warning != "" {
+		t.Fatalf("note = %q, warning = %q; want a note naming the new name", note, warning)
 	}
 	reloaded, loadError := loadSelectedCluster()
 	if loadError != nil || reloaded.ID != selected.ID || reloaded.Name != "socloud-dev" {
 		t.Fatalf("selection = %+v (%v), want the renamed cluster under its new name", reloaded, loadError)
+	}
+}
+
+// A selection of the renamed cluster that cannot be saved is reported, not
+// silently left on the old name.
+func TestFollowRenameInSelectionWarnsWhenTheSelectionCannotBeSaved(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("a read-only file does not stop root from writing it")
+	}
+	withTempHome(t)
+	selected := client.ClusterListItem{ID: "22de7a2c-a671-4e7b-b6db-b32d03490a08", Name: "socloud-cheap"}
+	if saveError := saveSelectedCluster(selected); saveError != nil {
+		t.Fatalf("saving the selection: %v", saveError)
+	}
+	path, pathError := selectedClusterFile()
+	if pathError != nil {
+		t.Fatalf("selection path: %v", pathError)
+	}
+	if chmodError := os.Chmod(path, 0400); chmodError != nil {
+		t.Fatalf("making the selection read-only: %v", chmodError)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0600) })
+
+	note, warning := followRenameInSelection(selected.ID, "socloud-dev")
+	if note != "" || !strings.Contains(warning, "ankra cluster select socloud-dev") {
+		t.Fatalf("note = %q, warning = %q; want a warning naming the fix", note, warning)
 	}
 }

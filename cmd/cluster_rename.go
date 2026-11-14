@@ -85,7 +85,10 @@ func runClusterRename(cmd *cobra.Command, args []string) error {
 	if renameError != nil {
 		return fmt.Errorf("renaming cluster %q: %w", cluster.Name, renameError)
 	}
-	selectionNote := followRenameInSelection(cluster.ID, result.Name)
+	selectionNote, selectionWarning := followRenameInSelection(cluster.ID, result.Name)
+	if selectionWarning != "" {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), selectionWarning)
+	}
 
 	output := clusterRenameOutput{ClusterID: result.ClusterID, Name: result.Name, PreviousName: result.PreviousName,
 		IacDirectory: result.IacDirectory, Changed: result.Changed}
@@ -124,19 +127,22 @@ func clusterNameRefusal(name string) string {
 
 // followRenameInSelection keeps the cluster chosen with 'ankra cluster select'
 // pointing at the renamed cluster: several commands look the selection up by
-// name, which the rename just retired. It answers a line to print when it
-// updated the selection, and "" when the selection is another cluster, is
-// absent, or could not be read or written (the rename itself succeeded).
-func followRenameInSelection(clusterID string, newName string) string {
+// name, which the rename just retired. It answers a note when it updated the
+// selection, or a warning when the selection is the renamed cluster but could
+// not be saved (the rename itself succeeded, so the warning says how to fix
+// the selection). Both are "" when there is no selection or it is another
+// cluster.
+func followRenameInSelection(clusterID string, newName string) (string, string) {
 	selected, loadError := loadSelectedCluster()
 	if loadError != nil || selected.ID != clusterID || selected.Name == newName {
-		return ""
+		return "", ""
 	}
 	selected.Name = newName
 	if saveError := saveSelectedCluster(selected); saveError != nil {
-		return ""
+		return "", fmt.Sprintf("Warning: your selected cluster still reads the old name (%v); run 'ankra cluster select %s'.",
+			saveError, newName)
 	}
-	return fmt.Sprintf("Your selected cluster now reads '%s'.", newName)
+	return fmt.Sprintf("Your selected cluster now reads '%s'.", newName), ""
 }
 
 func init() {
