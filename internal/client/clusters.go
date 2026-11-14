@@ -629,6 +629,29 @@ func (c *Client) SetClusterEnvironment(ctx context.Context, clusterID string, en
 	return &result, nil
 }
 
+// ClusterRenameResult is the platform's answer to a rename: the cluster's
+// name after the write, the name it had before, and the GitOps directory it
+// resolves to, which a rename never moves. Changed is false when the cluster
+// already had the name and nothing was written.
+type ClusterRenameResult struct {
+	ClusterID    string `json:"cluster_id"`
+	Name         string `json:"name"`
+	PreviousName string `json:"previous_name"`
+	IacDirectory string `json:"iac_directory"`
+	Changed      bool   `json:"changed"`
+}
+
+// RenameCluster renames a cluster in place. The cluster id, its servers,
+// node names, DNS zone and every id-keyed binding stay as they are.
+func (c *Client) RenameCluster(ctx context.Context, clusterID string, newName string) (*ClusterRenameResult, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/name", c.BaseURL, neturl.PathEscape(clusterID))
+	var result ClusterRenameResult
+	if sendError := c.sendJSONContext(ctx, http.MethodPatch, url, map[string]any{"name": newName}, &result); sendError != nil {
+		return nil, sendError
+	}
+	return &result, nil
+}
+
 func (c *Client) ApplyCluster(ctx context.Context, clusterReq CreateImportClusterRequest, wait bool) (*ImportResponse, bool, error) {
 	for i := range clusterReq.Spec.Stacks {
 		if clusterReq.Spec.Stacks[i].Manifests == nil {

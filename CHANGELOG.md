@@ -1,5 +1,11 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **Rename a cluster: `ankra cluster rename <cluster> <new-name>`.** The cluster keeps running as it is: nothing is rebuilt or replaced, and its id does not change. The portal, the cluster list, `ankra` commands and Ankra AI use the new name. Server names, hostnames and Kubernetes node names keep the old name, because a running node cannot change its name, and so do the cluster's DNS zone and its GitOps directory. Kubeconfig contexts, API tokens, kube tokens and access grants are tied to the cluster id and keep working; `ankra cluster kubeconfig add <new-name>` adds a context under the new name. An ImportCluster file that still says the old `metadata.name` is refused by `ankra cluster apply` with a message naming the new name, so it never creates a second cluster. Change `metadata.name`, or apply with `--cluster <new-name>`. The cluster chosen with `ankra cluster select` follows the rename. A cluster synced with a connected GitOps repository, and an Ankra Cloud cluster, cannot be renamed yet; the platform refuses and changes nothing. Needs a platform release that serves the rename.
+
 ## v0.77.0 - 2026-11-13
 
 Security fixes, cost rate cards and waste cleanup, and ticket assignment,
