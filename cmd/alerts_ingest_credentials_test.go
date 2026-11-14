@@ -1,7 +1,11 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -14,6 +18,43 @@ type alertIngestCredentialsMock struct {
 	clusters      map[string]client.ClusterListItem
 	rebound       string
 	rebindRequest *client.RebindAlertIngestCredentialRequest
+	createRequest *client.CreateAlertIngestCredentialRequest
+	createError   error
+	deleteCalls   []string
+}
+
+const (
+	sampleIngestCredentialID    = "6a15a1c2-58ab-4a5a-8f1f-2f2e2b1a9c01"
+	sampleIngestCredentialToken = "ankra_ingest_s3cr3tTokenValueThatMustNotLeak"
+	sampleIngestClusterID       = "1fa75b8f-f87c-4d21-ab01-d97cfb4d795c"
+)
+
+func (mock *alertIngestCredentialsMock) CreateAlertIngestCredential(
+	request client.CreateAlertIngestCredentialRequest) (*client.CreatedAlertIngestCredential, error) {
+	mock.createRequest = &request
+	if mock.createError != nil {
+		return nil, mock.createError
+	}
+	scope := request.Scope
+	if scope == "" {
+		scope = "cluster"
+	}
+	credential := client.AlertIngestCredential{ID: sampleIngestCredentialID, Name: request.Name, Scope: scope, Enabled: true}
+	if request.ClusterID != nil {
+		clusterID, clusterName := *request.ClusterID, "prod-hel1"
+		credential.ClusterID = &clusterID
+		credential.ClusterName = &clusterName
+	}
+	return &client.CreatedAlertIngestCredential{
+		Item:        credential,
+		Token:       sampleIngestCredentialToken,
+		WebhookPath: "/webhooks/alerts/" + sampleIngestCredentialID,
+	}, nil
+}
+
+func (mock *alertIngestCredentialsMock) DeleteAlertIngestCredential(credentialID string) (*client.DeleteAlertIngestCredentialResult, error) {
+	mock.deleteCalls = append(mock.deleteCalls, credentialID)
+	return &client.DeleteAlertIngestCredentialResult{Success: true, Message: "Ingest credential deleted"}, nil
 }
 
 func (mock *alertIngestCredentialsMock) ListAlertIngestCredentials() (*client.AlertIngestCredentialList, error) {
@@ -134,5 +175,203 @@ func TestRebindAlertIngestCredentialRequestSendsOnlyWhatWasSet(t *testing.T) {
 		if marshalError != nil || string(encoded) != testCase.want {
 			t.Errorf("%s: %s %v", name, encoded, marshalError)
 		}
+	}
+}
+
+func TestAlertsIngestCredentialsCreatePrintsIDWebhookURLAndTokenOnce(t *testing.T) {
+	t.Setenv("ANKRA_BASE_URL", "https://test.ankra.app")
+	mock := &alertIngestCredentialsMock{}
+	stdout, _, runError := runAlertsCommand(t, mock, "", "alerts", "ingest-credentials", "create",
+		"--name", "hel1-alertmanager", "--cluster", sampleIngestClusterID)
+	if runError != nil {
+		t.Fatalf("create failed: %v", runError)
+	}
+	if mock.createRequest == nil || mock.createRequest.Name != "hel1-alertmanager" || mock.createRequest.Scope != "cluster" ||
+		mock.createRequest.ClusterID == nil || *mock.createRequest.ClusterID != sampleIngestClusterID {
+		t.Fatalf("create request = %+v", mock.createRequest)
+	}
+	for _, fragment := range []string{
+		sampleIngestCredentialID,
+		"https://test.ankra.app/webhooks/alerts/" + sampleIngestCredentialID,
+		sampleIngestCredentialToken,
+		"shown once",
+		"prod-hel1",
+	} {
+		if !strings.Contains(stdout, fragment) {
+			t.Errorf("expected the output to contain %q, got:\n%s", fragment, stdout)
+		}
+	}
+}
+
+func TestAlertsIngestCredentialsCreateJSONCarriesTheResponseAndWebhookURL(t *testing.T) {
+	t.Setenv("ANKRA_BASE_URL", "https://test.ankra.app")
+	mock := &alertIngestCredentialsMock{}
+	stdout, _, runError := runAlertsCommand(t, mock, "", "alerts", "ingest-credentials", "create",
+		"--name", "platform-monitor", "--scope", "platform", "-o", "json")
+	if runError != nil {
+		t.Fatalf("create -o json failed: %v", runError)
+	}
+	if mock.createRequest == nil || mock.createRequest.ClusterID != nil || mock.createRequest.Scope != "platform" {
+		t.Fatalf("create request = %+v", mock.createRequest)
+	}
+	var decoded map[string]any
+	if decodeError := json.Unmarshal([]byte(stdout), &decoded); decodeError != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", decodeError, stdout)
+	}
+	if decoded["token"] != sampleIngestCredentialToken ||
+		decoded["webhook_path"] != "/webhooks/alerts/"+sampleIngestCredentialID ||
+		decoded["webhook_url"] != "https://test.ankra.app/webhooks/alerts/"+sampleIngestCredentialID {
+		t.Fatalf("decoded = %v", decoded)
+	}
+}
+
+func TestAlertsIngestCredentialsCreateTokenFileIsPrivateAndKeepsTheTokenOffStdout(t *testing.T) {
+	tokenFilePath := filepath.Join(t.TempDir(), "ingest-token")
+	mock := &alertIngestCredentialsMock{}
+	stdout, stderr, runError := runAlertsCommand(t, mock, "", "alerts", "ingest-credentials", "create",
+		"--name", "hel1-alertmanager", "--cluster", sampleIngestClusterID, "--token-file", tokenFilePath, "-o", "json")
+	if runError != nil {
+		t.Fatalf("create --token-file failed: %v", runError)
+	}
+	if strings.Contains(stdout, sampleIngestCredentialToken) || strings.Contains(stderr, sampleIngestCredentialToken) {
+		t.Fatalf("the token leaked into the output:\nstdout: %s\nstderr: %s", stdout, stderr)
+	}
+	var decoded map[string]any
+	if decodeError := json.Unmarshal([]byte(stdout), &decoded); decodeError != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", decodeError, stdout)
+	}
+	if _, hasToken := decoded["token"]; hasToken || decoded["token_file"] != tokenFilePath {
+		t.Fatalf("decoded = %v", decoded)
+	}
+	contents, readError := os.ReadFile(tokenFilePath)
+	if readError != nil || string(contents) != sampleIngestCredentialToken {
+		t.Fatalf("token file = %q, %v", contents, readError)
+	}
+	if runtime.GOOS != "windows" {
+		information, statError := os.Stat(tokenFilePath)
+		if statError != nil {
+			t.Fatalf("stat token file: %v", statError)
+		}
+		if information.Mode().Perm() != 0o600 {
+			t.Fatalf("token file mode = %v, want 0600", information.Mode().Perm())
+		}
+	}
+
+	humanPath := filepath.Join(t.TempDir(), "human-token")
+	stdout, _, runError = runAlertsCommand(t, &alertIngestCredentialsMock{}, "", "alerts", "ingest-credentials", "create",
+		"--name", "hel1-alertmanager", "--token-file", humanPath)
+	if runError != nil {
+		t.Fatalf("create --token-file (human) failed: %v", runError)
+	}
+	if strings.Contains(stdout, sampleIngestCredentialToken) || !strings.Contains(stdout, "written to "+humanPath) {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestAlertsIngestCredentialsCreateRefusesAnExistingTokenFile(t *testing.T) {
+	tokenFilePath := filepath.Join(t.TempDir(), "ingest-token")
+	if writeError := os.WriteFile(tokenFilePath, []byte("previous secret"), 0o600); writeError != nil {
+		t.Fatal(writeError)
+	}
+	mock := &alertIngestCredentialsMock{}
+	_, _, runError := runAlertsCommand(t, mock, "", "alerts", "ingest-credentials", "create",
+		"--name", "hel1-alertmanager", "--token-file", tokenFilePath)
+	if runError == nil {
+		t.Fatal("expected an existing --token-file to be refused")
+	}
+	if exitCodeFor(runError) != exitUsage {
+		t.Errorf("exit code = %d, want %d for an existing --token-file", exitCodeFor(runError), exitUsage)
+	}
+	if mock.createRequest != nil {
+		t.Fatal("a refused --token-file must not mint a credential")
+	}
+	if contents, _ := os.ReadFile(tokenFilePath); string(contents) != "previous secret" {
+		t.Fatalf("the existing file was overwritten: %q", contents)
+	}
+}
+
+func TestAlertsIngestCredentialsCreateReportsAnUnwritableTokenFileAsARuntimeError(t *testing.T) {
+	tokenFilePath := filepath.Join(t.TempDir(), "missing-directory", "ingest-token")
+	mock := &alertIngestCredentialsMock{}
+	_, _, runError := runAlertsCommand(t, mock, "", "alerts", "ingest-credentials", "create",
+		"--name", "hel1-alertmanager", "--token-file", tokenFilePath)
+	if runError == nil {
+		t.Fatal("expected a --token-file in a missing directory to fail")
+	}
+	if exitCodeFor(runError) != exitError {
+		t.Errorf("exit code = %d, want %d for an environment failure", exitCodeFor(runError), exitError)
+	}
+	if mock.createRequest != nil {
+		t.Fatal("an unwritable --token-file must not mint a credential")
+	}
+}
+
+func TestAlertsIngestCredentialsCreateReportsTheAPIErrorAndRemovesTheTokenFile(t *testing.T) {
+	tokenFilePath := filepath.Join(t.TempDir(), "ingest-token")
+	mock := &alertIngestCredentialsMock{createError: errors.New("An ingest credential named 'hel1-alertmanager' already exists")}
+	_, _, runError := runAlertsCommand(t, mock, "", "alerts", "ingest-credentials", "create",
+		"--name", "hel1-alertmanager", "--token-file", tokenFilePath)
+	if runError == nil || !strings.Contains(runError.Error(), "already exists") {
+		t.Fatalf("expected the API error, got %v", runError)
+	}
+	if _, statError := os.Stat(tokenFilePath); !os.IsNotExist(statError) {
+		t.Fatalf("a failed create must not leave the token file behind: %v", statError)
+	}
+}
+
+func TestAlertsIngestCredentialsCreateValidatesBeforeCallingTheAPI(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		arguments []string
+	}{
+		{name: "platform scope with a cluster pin", arguments: []string{"--name", "x", "--scope", "platform", "--cluster", sampleIngestClusterID}},
+		{name: "mixed scope without a cluster pin", arguments: []string{"--name", "x", "--scope", "mixed"}},
+		{name: "an unknown scope", arguments: []string{"--name", "x", "--scope", "everything"}},
+		{name: "no name", arguments: []string{"--cluster", sampleIngestClusterID}},
+	} {
+		mock := &alertIngestCredentialsMock{}
+		_, _, runError := runAlertsCommand(t, mock, "",
+			append([]string{"alerts", "ingest-credentials", "create"}, testCase.arguments...)...)
+		if runError == nil {
+			t.Errorf("%s: expected a usage error", testCase.name)
+		}
+		if exitCodeFor(runError) != exitUsage {
+			t.Errorf("%s: exit code = %d, want %d", testCase.name, exitCodeFor(runError), exitUsage)
+		}
+		if mock.createRequest != nil {
+			t.Errorf("%s: the API was called: %+v", testCase.name, mock.createRequest)
+		}
+	}
+}
+
+func TestAlertsIngestCredentialsDeleteAsksFirstAndIsCancelledWithoutYes(t *testing.T) {
+	mock := &alertIngestCredentialsMock{}
+	_, stderr, runError := runAlertsCommand(t, mock, "", "alerts", "ingest-credentials", "delete", sampleIngestCredentialID)
+	if !errors.Is(runError, errCancelled) {
+		t.Fatalf("expected a non-interactive delete without --yes to be cancelled, got %v", runError)
+	}
+	if !strings.Contains(stderr, "Delete alert ingest credential") {
+		t.Errorf("expected the confirmation prompt on stderr, got %q", stderr)
+	}
+	if len(mock.deleteCalls) != 0 {
+		t.Fatalf("a cancelled delete must not call the API, got %v", mock.deleteCalls)
+	}
+
+	stdout, _, runError := runAlertsCommand(t, mock, "y\n", "alerts", "ingest-credentials", "delete", sampleIngestCredentialID)
+	if runError != nil || !strings.Contains(stdout, "Alert ingest credential "+sampleIngestCredentialID+" deleted.") {
+		t.Fatalf("confirmed delete: %v %q", runError, stdout)
+	}
+	if _, _, runError = runAlertsCommand(t, mock, "", "alerts", "ingest-credentials", "delete", "c2", "--yes"); runError != nil {
+		t.Fatalf("delete --yes failed: %v", runError)
+	}
+	if len(mock.deleteCalls) != 2 || mock.deleteCalls[1] != "c2" {
+		t.Fatalf("delete calls = %v", mock.deleteCalls)
+	}
+}
+
+func TestCreateAlertIngestCredentialRequestOmitsAnAbsentPin(t *testing.T) {
+	encoded, marshalError := json.Marshal(client.CreateAlertIngestCredentialRequest{Name: "monitor", Scope: "platform"})
+	if marshalError != nil || string(encoded) != `{"name":"monitor","scope":"platform"}` {
+		t.Fatalf("%s %v", encoded, marshalError)
 	}
 }

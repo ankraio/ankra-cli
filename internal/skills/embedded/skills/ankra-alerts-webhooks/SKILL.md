@@ -171,13 +171,18 @@ ankra alerts routes create --destination-id <id> \
   root cause and recommended actions - on the firing and in **AI → Inbox**. A firing can also
   start auto-remediation; read its envelope with `ankra ai remediation policy` (changing it is an
   admin action in the portal).
-- **External Alertmanagers and log monitors deliver into Ankra** with an ingest credential, minted
-  once in the portal. The CLI moves its cluster pin or scope without touching the token:
+- **External Alertmanagers and log monitors deliver into Ankra** with an ingest credential: the
+  notifier posts to `<platform>/webhooks/alerts/<credential-id>` with the token as a Bearer
+  `Authorization` header (or `X-Ankra-Alert-Token`). `create` prints the webhook URL and the token
+  once; `--token-file` writes the token to a new 0600 file instead, so it never reaches a terminal.
+  A rebind moves the cluster pin or scope without touching the token:
 
 ```bash
+ankra alerts ingest-credentials create --name hel1-alertmanager --cluster prod --token-file ./ingest-token
 ankra alerts ingest-credentials list                      # a pin to a deleted cluster shows BROKEN
 ankra alerts ingest-credentials rebind <id> --cluster prod
 ankra alerts ingest-credentials rebind <id> --unpin --scope platform   # scope: cluster, platform, mixed
+ankra alerts ingest-credentials delete <id>               # revokes the token; asks first, --yes skips
 ```
 
 Destinations and routes are also Terraform resources (`ankra_alert_destination`,
