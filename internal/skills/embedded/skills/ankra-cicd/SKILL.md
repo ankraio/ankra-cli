@@ -457,8 +457,14 @@ default; `teardown: on_success` keeps a failed leg's cluster for debugging until
       services: [{ postgres: "${{ matrix.postgres }}" }]
       deploy: build-under-test        # or { artifact: <build|publish stage>, port: 8080, env: {...} }
       test: { image: golang:1.26, run: "go test ./e2e/...", timeout: "30m" }
-      # plan (smallest by default), zone, teardown: always|on_success, max_lifetime: 2h (max 6h)
+      # plan (smallest by default), zone, disk_tier: local-nvme|standard|maxiops|hdd (zone default by default),
+      # teardown: always|on_success, max_lifetime: 2h (max 6h)
 ```
+
+`disk_tier` puts every server's root disk (bastion, control plane, worker) on that Ankra Cloud
+storage tier; anything else fails `ankra pipeline validate`. When a leg without it fails with "The
+requested storage is not available in this zone right now", the zone's default tier is full: set
+`disk_tier: standard` (Ankra Storage). The platform suggests it but never switches tier on its own.
 
 The tests get `ANKRA_TEST_ENVIRONMENT_URL`, `ANKRA_KUBERNETES_VERSION`, and with a PostgreSQL
 service `DATABASE_URL` and `ANKRA_POSTGRES_VERSION`. Limits: six live environment clusters per
