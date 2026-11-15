@@ -805,8 +805,9 @@ var supportClaudeNotRegisteredPattern = regexp.MustCompile(`(?i)no .*server.* (f
 func unregisterSupportMCPClient(clientName string) (string, error) {
 	if clientName == mcpClientClaudeCode {
 		if _, lookError := lookMCPClientCommand("claude"); lookError != nil {
-			return "The 'claude' command is not on PATH, so the " + supportMCPServerName +
-				" registration was not checked; remove it with 'claude mcp remove --scope user " + supportMCPServerName + "'.", nil
+			return "Disconnect is incomplete: the 'claude' command is not on PATH, so the " + supportMCPServerName +
+				" registration may still be in Claude Code, where it now fails for want of a token. Remove it with 'claude mcp remove --scope user " +
+				supportMCPServerName + "'.", nil
 		}
 		output, removeError := runMCPClientCommand("claude", "mcp", "remove", "--scope", "user", supportMCPServerName)
 		if removeError != nil && !supportClaudeNotRegisteredPattern.Match(output) {
