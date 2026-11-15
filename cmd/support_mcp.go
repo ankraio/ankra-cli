@@ -214,6 +214,13 @@ func runSupportConnect(command *cobra.Command, _ []string) error {
 	}
 	if storeError != nil {
 		restoreSupportStoredTokenFile(clientName, previousContent, previousExists)
+		if clientName == mcpClientClaudeCode {
+			// Claude Code cannot add a server under a name it already has, so the
+			// earlier registration was removed first and cannot be put back.
+			return fmt.Errorf("connecting %s failed and the token file was put back, but any earlier %s registration in Claude Code "+
+				"was removed before the new one could be added: run connect again once this is fixed: %w",
+				clientName, supportMCPServerName, storeError)
+		}
 		return fmt.Errorf("connecting %s (nothing was changed): %w", clientName, storeError)
 	}
 	if isLegacy && clientName == mcpClientClaudeCode {
@@ -455,6 +462,9 @@ func lastSupportEventData(stream []byte) []byte {
 		line := scanner.Text()
 		switch {
 		case strings.HasPrefix(line, "data:"):
+			if len(current) > 0 {
+				current = append(current, '\n')
+			}
 			current = append(current, strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " ")...)
 		case line == "" && len(current) > 0:
 			last, current = current, nil
@@ -764,22 +774,41 @@ func registerSupportMCPClaudeCode(serverURL string) error {
 	return nil
 }
 
-func unregisterSupportMCPClient(clientName string) error {
+// supportClaudeNotRegisteredPattern matches what `claude mcp remove` says
+// about a server that is not registered, which is a removal already done.
+var supportClaudeNotRegisteredPattern = regexp.MustCompile(`(?i)no .*server.* (found|named)|not found|does not exist`)
+
+// unregisterSupportMCPClient removes ankra-support from a client's config. It
+// answers what is left for the person to do when it could not check that the
+// registration is gone: Claude Code's own CLI is not on PATH to ask.
+func unregisterSupportMCPClient(clientName string) (string, error) {
 	if clientName == mcpClientClaudeCode {
 		if _, lookError := lookMCPClientCommand("claude"); lookError != nil {
-			return nil
+			return "The 'claude' command is not on PATH, so the " + supportMCPServerName +
+				" registration was not checked; remove it with 'claude mcp remove --scope user " + supportMCPServerName + "'.", nil
 		}
-		_, _ = runMCPClientCommand("claude", "mcp", "remove", "--scope", "user", supportMCPServerName)
-		return nil
+		output, removeError := runMCPClientCommand("claude", "mcp", "remove", "--scope", "user", supportMCPServerName)
+		if removeError != nil && !supportClaudeNotRegisteredPattern.Match(output) {
+			return "", fmt.Errorf("'claude mcp remove' failed: %w: %s", removeError, strings.TrimSpace(string(output)))
+		}
+		return "", nil
 	}
 	path, pathError := supportClientConfigPath(clientName)
 	if pathError != nil {
-		return pathError
+		return "", pathError
 	}
 	if clientName == mcpClientCursor {
-		return unregisterMCPCursorServer(path, supportMCPServerName)
+		return "", unregisterMCPCursorServer(path, supportMCPServerName)
 	}
-	return unregisterMCPCodexServer(path, supportMCPServerName)
+	if removeError := unregisterMCPCodexServer(path, supportMCPServerName); removeError != nil {
+		return "", removeError
+	}
+	// A table written by hand in another form, a quoted key for one, is not
+	// matched; say so rather than report it removed.
+	if content, readError := os.ReadFile(path); readError == nil && strings.Contains(string(content), supportMCPServerName) {
+		return path + " still names " + supportMCPServerName + " in a form this could not match: remove that table by hand.", nil
+	}
+	return "", nil
 }
 
 // unregisterMCPCursorServer removes one server from Cursor's config, keeping
@@ -892,8 +921,10 @@ func runSupportDisconnect(command *cobra.Command, _ []string) error {
 			return confirmError
 		}
 	}
-	if unregisterError := unregisterSupportMCPClient(clientName); unregisterError != nil {
-		return fmt.Errorf("removing %s from %s: %w", supportMCPServerName, clientName, unregisterError)
+	remaining, unregisterError := unregisterSupportMCPClient(clientName)
+	if unregisterError != nil {
+		return fmt.Errorf("removing %s from %s (the token file was kept, so run disconnect again once it is fixed): %w",
+			supportMCPServerName, clientName, unregisterError)
 	}
 	path, pathError := supportTokenFile(clientName)
 	if pathError != nil {
@@ -903,7 +934,11 @@ func runSupportDisconnect(command *cobra.Command, _ []string) error {
 		return fmt.Errorf("removing %s: %w", path, removeError)
 	}
 	out := command.OutOrStdout()
-	_, _ = fmt.Fprintf(out, "Disconnected %s from the Support MCP server: removed %s and its %s registration.\n", clientName, path, supportMCPServerName)
+	if remaining != "" {
+		_, _ = fmt.Fprintf(out, "Removed %s. %s\n", path, remaining)
+	} else {
+		_, _ = fmt.Fprintf(out, "Disconnected %s from the Support MCP server: removed %s and its %s registration.\n", clientName, path, supportMCPServerName)
+	}
 	_, _ = fmt.Fprintln(out, "The token still works until it expires: revoke it under Agent access on support.ankra.app.")
 	if clientName != mcpClientClaudeCode {
 		_, _ = fmt.Fprintf(out, "Remove the %s line from your shell profile too.\n", supportMCPTokenEnvironment)

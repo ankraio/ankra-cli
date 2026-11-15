@@ -542,3 +542,94 @@ func TestRemoveTOMLSectionKeepsEveryOtherLine(t *testing.T) {
 		t.Error("a missing table was reported found")
 	}
 }
+
+func TestSupportDisconnectSaysWhenTheClaudeRegistrationIsNotGone(t *testing.T) {
+	environment := stubSupportEnvironment(t, false)
+	tokenFile := filepath.Join(environment.home, ".ankra", "support", "claude-code.json")
+	connect := func() {
+		t.Helper()
+		if _, executeError := environment.connect(t, supportTestReadToken+"\n", "--client", "claude-code", "--token-stdin"); executeError != nil {
+			t.Fatalf("connect failed: %v", executeError)
+		}
+	}
+
+	connect()
+	runMCPClientCommand = func(string, ...string) ([]byte, error) { return []byte("permission denied"), errors.New("exit 1") }
+	_, refusedError := executeCommand("support", "disconnect", "--client", "claude-code", "--yes")
+	if refusedError == nil || !strings.Contains(refusedError.Error(), "permission denied") {
+		t.Errorf("a failed removal was reported as done: %v", refusedError)
+	}
+	if _, statError := os.Stat(tokenFile); statError != nil {
+		t.Errorf("the token file was removed although the registration remains: %v", statError)
+	}
+
+	runMCPClientCommand = func(string, ...string) ([]byte, error) {
+		return []byte("No MCP server found with name: ankra-support"), errors.New("exit 1")
+	}
+	if _, executeError := executeCommand("support", "disconnect", "--client", "claude-code", "--yes"); executeError != nil {
+		t.Errorf("a registration that is already gone failed disconnect: %v", executeError)
+	}
+
+	runMCPClientCommand = func(string, ...string) ([]byte, error) { return nil, nil }
+	connect()
+	lookMCPClientCommand = func(string) (string, error) { return "", errors.New("not found") }
+	output, executeError := executeCommand("support", "disconnect", "--client", "claude-code", "--yes")
+	if executeError != nil {
+		t.Fatalf("disconnect failed: %v", executeError)
+	}
+	if !strings.Contains(output, "not on PATH") || !strings.Contains(output, "claude mcp remove --scope user ankra-support") ||
+		strings.Contains(output, "Disconnected") {
+		t.Errorf("output does not say the registration was not checked: %s", output)
+	}
+}
+
+func TestRegisterMCPCursorServerAcceptsANullConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp.json")
+	if writeError := os.WriteFile(path, []byte("null\n"), 0o600); writeError != nil {
+		t.Fatal(writeError)
+	}
+	if registerError := registerMCPCursorServer(path, supportMCPServerName, "https://support.ankra.app/mcp", supportMCPTokenEnvironment); registerError != nil {
+		t.Fatalf("register failed: %v", registerError)
+	}
+	if content, _ := os.ReadFile(path); !strings.Contains(string(content), supportMCPServerName) {
+		t.Errorf("config = %s", content)
+	}
+}
+
+func TestLastSupportEventDataJoinsDataLines(t *testing.T) {
+	stream := []byte("event: message\ndata: {\"jsonrpc\":\"2.0\",\ndata: \"id\":1}\n\nevent: message\ndata: {\"id\":2,\ndata: \"result\":{}}\n\n")
+	if got, want := string(lastSupportEventData(stream)), "{\"id\":2,\n\"result\":{}}"; got != want {
+		t.Errorf("last event data = %q, want %q", got, want)
+	}
+}
+
+func TestSupportConnectSaysTheClaudeRegistrationWasRemovedWhenTheAddFails(t *testing.T) {
+	environment := stubSupportEnvironment(t, false)
+	environment.commands.failAdd = true
+	_, executeError := environment.connect(t, supportTestReadToken+"\n", "--client", "claude-code", "--token-stdin")
+	if executeError == nil || strings.Contains(executeError.Error(), "nothing was changed") ||
+		!strings.Contains(executeError.Error(), "was removed before the new one could be added") {
+		t.Errorf("error = %v", executeError)
+	}
+	if _, statError := os.Stat(filepath.Join(environment.home, ".ankra", "support", "claude-code.json")); !errors.Is(statError, os.ErrNotExist) {
+		t.Errorf("the token file was not put back: %v", statError)
+	}
+}
+
+func TestSupportDisconnectCodexSaysWhenATableCouldNotBeMatched(t *testing.T) {
+	environment := stubSupportEnvironment(t, false)
+	if _, executeError := environment.connect(t, supportTestReadToken+"\n", "--client", "codex", "--token-stdin"); executeError != nil {
+		t.Fatalf("connect failed: %v", executeError)
+	}
+	codexPath := filepath.Join(environment.home, ".codex", "config.toml")
+	if writeError := os.WriteFile(codexPath, []byte("[mcp_servers.\"ankra-support\"]\nurl = \"x\"\n"), 0o600); writeError != nil {
+		t.Fatal(writeError)
+	}
+	output, executeError := executeCommand("support", "disconnect", "--client", "codex", "--yes")
+	if executeError != nil {
+		t.Fatalf("disconnect failed: %v", executeError)
+	}
+	if !strings.Contains(output, "remove that table by hand") || strings.Contains(output, "Disconnected") {
+		t.Errorf("output = %s", output)
+	}
+}

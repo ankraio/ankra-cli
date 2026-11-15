@@ -519,6 +519,9 @@ func readCursorMCPServers(path string) (map[string]any, map[string]any, error) {
 		if decodeError := json.Unmarshal(content, &document); decodeError != nil {
 			return nil, nil, fmt.Errorf("%s is not valid JSON, so it was left alone: %w", path, decodeError)
 		}
+		if document == nil {
+			document = map[string]any{}
+		}
 	case !errors.Is(readError, os.ErrNotExist):
 		return nil, nil, readError
 	}

@@ -22,6 +22,7 @@ var cmdHTTPClients = map[string]string{
 	"clone.go:httpDownloadClient":                        "a remote cluster YAML and its files, at URLs the user gives",
 	"login_github_oidc.go:githubIDTokenHTTPClient":       "GitHub's ID token endpoint, at the URL the Actions runner gives",
 	"migrate_modules_install.go:newModuleDownloadClient": "migration module release downloads",
+	"support_mcp.go:supportHTTPClient":                   "the Ankra Support service (support.ankra.app): its MCP endpoint and /v1/me, as the person's Support token",
 	"targets_register.go:currentHostAgentHost":           "ankra-host-agent release downloads (--release-url)",
 	"upgrade.go:runUpgrade":                              "GitHub releases of the CLI",
 }
