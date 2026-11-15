@@ -423,15 +423,19 @@ server (MCP revision `2026-07-28`), reports read-only or read/write and the expi
 ```bash
 ankra support connect --client claude-code          # or cursor, codex; --no-browser prints the address
 pbpaste | ankra support connect --client codex --token-stdin
-export ANKRA_SUPPORT_MCP_TOKEN="$(ankra support token --client cursor)"   # Cursor and Codex read this
+ANKRA_SUPPORT_MCP_TOKEN="$(ankra support token --client codex)" codex      # Cursor and Codex read this
 ankra support disconnect --client cursor            # then revoke the token under Agent access
 ```
 
 - Never put the token in a flag, a client config or a chat. Claude Code gets the headers helper
-  `ankra support token --client claude-code --headers`. Cursor and Codex read `ANKRA_SUPPORT_MCP_TOKEN`.
+  `ankra support token --client claude-code --headers`. Cursor and Codex read `ANKRA_SUPPORT_MCP_TOKEN`:
+  set it for the client's own launch, as above, rather than exporting it from a shell profile, where
+  every program those shells start can read it.
 - The server has no OAuth, so a client that offers to "authenticate" it gets a 404. Use `connect`.
 - When the token expires, `ankra support token` exits 6 and the agent's Support tools stop. Create a
-  new token and run `connect` again, which replaces it. `disconnect` cannot revoke on the server.
+  new token and run `connect` again, which replaces it. If the server does not report the expiry,
+  `connect` says so and assumes 24 hours, the longest Support issues. `disconnect` cannot revoke on
+  the server.
 - A hand-made setup (`~/.ankra/support/token` and an `ankra-support` registration) is taken over the
   first time `connect` runs.
 
