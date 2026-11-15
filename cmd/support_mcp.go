@@ -40,7 +40,10 @@ const (
 	supportAccessReadOnly      = "read-only"
 	supportAccessReadWrite     = "read/write"
 	supportRequestLimit        = 30 * time.Second
-	supportResponseLimit       = 1 << 20
+	// supportTokenLongestLife is the longest Support mints a token for, the
+	// expiry assumed when the server does not say.
+	supportTokenLongestLife = 24 * time.Hour
+	supportResponseLimit    = 1 << 20
 )
 
 // supportWriteTools are the tools the server offers only to a token with
@@ -58,12 +61,15 @@ var supportVerifiedClientVersions = map[string]string{
 
 // supportStoredToken is the file `ankra support connect` leaves behind.
 type supportStoredToken struct {
-	Token       string `json:"token"`
-	ServerURL   string `json:"server_url"`
-	ExpiresAt   string `json:"expires_at,omitempty"`
-	Access      string `json:"access"`
-	Kind        string `json:"kind,omitempty"`
-	ConnectedAt string `json:"connected_at"`
+	Token     string `json:"token"`
+	ServerURL string `json:"server_url"`
+	ExpiresAt string `json:"expires_at"`
+	// ExpiryAssumed is set when the server did not say when the token
+	// expires, and ExpiresAt is the longest it can live.
+	ExpiryAssumed bool   `json:"expiry_assumed,omitempty"`
+	Access        string `json:"access"`
+	Kind          string `json:"kind,omitempty"`
+	ConnectedAt   string `json:"connected_at"`
 }
 
 // supportConnectResult is what -o json prints. It never carries the token.
@@ -72,7 +78,8 @@ type supportConnectResult struct {
 	ServerURL      string   `json:"server_url" yaml:"server_url"`
 	Access         string   `json:"access" yaml:"access"`
 	Kind           string   `json:"kind,omitempty" yaml:"kind,omitempty"`
-	ExpiresAt      string   `json:"expires_at,omitempty" yaml:"expires_at,omitempty"`
+	ExpiresAt      string   `json:"expires_at" yaml:"expires_at"`
+	ExpiryAssumed  bool     `json:"expiry_assumed,omitempty" yaml:"expiry_assumed,omitempty"`
 	Tools          []string `json:"tools" yaml:"tools"`
 	TokenFile      string   `json:"token_file" yaml:"token_file"`
 	Registered     string   `json:"registered" yaml:"registered"`
@@ -114,9 +121,11 @@ reports whether it is read-only or read/write and when it expires.
 
   - Claude Code gets a headers helper, 'ankra support token --headers', so it
     reads the token on each request.
-  - Cursor and Codex read ANKRA_SUPPORT_MCP_TOKEN, so add this to your shell
-    profile:
-      export ANKRA_SUPPORT_MCP_TOKEN="$(ankra support token --client cursor)"
+  - Cursor and Codex read ANKRA_SUPPORT_MCP_TOKEN. Set it only for the client
+    when you start it:
+      ANKRA_SUPPORT_MCP_TOKEN="$(ankra support token --client codex)" codex
+    or export it from your shell profile, which every program those shells
+    start can then read.
 
 Run connect again with a new token when it expires. A token from an earlier
 manual setup in ~/.ankra/support/token is picked up the first time.`,
@@ -203,9 +212,14 @@ func runSupportConnect(command *cobra.Command, _ []string) error {
 		}
 	}
 
+	connectedAt := time.Now().UTC()
+	expiresAt, isExpiryAssumed := check.ExpiresAt, check.ExpiresAt == ""
+	if isExpiryAssumed {
+		expiresAt = connectedAt.Add(supportTokenLongestLife).Format(time.RFC3339)
+	}
 	stored := supportStoredToken{
-		Token: token, ServerURL: serverURL, ExpiresAt: check.ExpiresAt, Access: check.Access, Kind: check.Kind,
-		ConnectedAt: time.Now().UTC().Format(time.RFC3339),
+		Token: token, ServerURL: serverURL, ExpiresAt: expiresAt, ExpiryAssumed: isExpiryAssumed, Access: check.Access, Kind: check.Kind,
+		ConnectedAt: connectedAt.Format(time.RFC3339),
 	}
 	previousContent, previousExists := readSupportStoredTokenFile(clientName)
 	tokenFile, storeError := writeSupportStoredToken(clientName, stored)
@@ -228,7 +242,7 @@ func runSupportConnect(command *cobra.Command, _ []string) error {
 	}
 
 	result := supportConnectResult{
-		Client: clientName, ServerURL: serverURL, Access: check.Access, Kind: check.Kind, ExpiresAt: check.ExpiresAt,
+		Client: clientName, ServerURL: serverURL, Access: check.Access, Kind: check.Kind, ExpiresAt: expiresAt, ExpiryAssumed: isExpiryAssumed,
 		Tools: check.Tools, TokenFile: tokenFile, Registered: supportRegistrationPlace(clientName),
 		RevisionCheck: supportClientRevisionCheck(clientName), MigratedLegacy: isLegacy,
 	}
@@ -522,10 +536,11 @@ func printSupportConnected(out io.Writer, result supportConnectResult) {
 		who = result.Kind + " token"
 	}
 	_, _ = fmt.Fprintf(out, "  Access: %s %s, tools %s.\n", result.Access, who, strings.Join(result.Tools, ", "))
-	if result.ExpiresAt != "" {
-		_, _ = fmt.Fprintf(out, "  Expires %s. Run connect again with a new token to renew it.\n", result.ExpiresAt)
+	if result.ExpiryAssumed {
+		_, _ = fmt.Fprintf(out, "  The server did not say when it expires, so it is used until %s, 24 hours from now and the longest\n"+
+			"  Support issues a token for; it may stop working sooner. Run connect again with a new token to renew it.\n", result.ExpiresAt)
 	} else {
-		_, _ = fmt.Fprintln(out, "  Its expiry could not be read; it lasts at most 24 hours. Run connect again with a new token to renew it.")
+		_, _ = fmt.Fprintf(out, "  Expires %s. Run connect again with a new token to renew it.\n", result.ExpiresAt)
 	}
 	_, _ = fmt.Fprintf(out, "  Registered in: %s\n", result.Registered)
 	_, _ = fmt.Fprintf(out, "  Stored in %s, readable only by you. It was not printed or written to the client's config.\n", result.TokenFile)
@@ -534,8 +549,14 @@ func printSupportConnected(out io.Writer, result supportConnectResult) {
 		_, _ = fmt.Fprintf(out, "  Took the token from your earlier manual setup in %s.\n", filepath.Dir(supportLegacyTokenPath()))
 	}
 	if result.Environment != "" {
-		_, _ = fmt.Fprintf(out, "\n%s reads the token from %s. Add this to your shell profile, then restart it:\n  export %s=\"$(ankra support token --client %s)\"\n",
-			result.Client, result.Environment, result.Environment, result.Client)
+		launch := "codex"
+		if result.Client == mcpClientCursor {
+			launch = "cursor ."
+		}
+		_, _ = fmt.Fprintf(out, "\n%s reads the token from %s. Set it only for the client, when you start it:\n  %s=\"$(ankra support token --client %s)\" %s\n",
+			result.Client, result.Environment, result.Environment, result.Client, launch)
+		_, _ = fmt.Fprintf(out, "Or add this to your shell profile, so every shell has it (every program those shells start can then read it):\n"+
+			"  export %s=\"$(ankra support token --client %s)\"\n", result.Environment, result.Client)
 	}
 }
 
@@ -805,8 +826,14 @@ func unregisterSupportMCPClient(clientName string) (string, error) {
 	}
 	// A table written by hand in another form, a quoted key for one, is not
 	// matched; say so rather than report it removed.
-	if content, readError := os.ReadFile(path); readError == nil && strings.Contains(string(content), supportMCPServerName) {
-		return path + " still names " + supportMCPServerName + " in a form this could not match: remove that table by hand.", nil
+	content, readError := os.ReadFile(path)
+	if readError != nil {
+		return "", nil
+	}
+	for _, line := range strings.Split(string(content), "\n") {
+		if isTOMLTableHeader(line) && strings.Contains(tomlHeaderOf(line), supportMCPServerName) {
+			return path + " still has a " + supportMCPServerName + " table in a form this could not match: remove it by hand.", nil
+		}
 	}
 	return "", nil
 }
@@ -890,13 +917,16 @@ func runSupportToken(command *cobra.Command, _ []string) error {
 	if readError != nil {
 		return withExitCode(exitAuth, readError)
 	}
-	if stored.ExpiresAt != "" {
-		expiresAt, parseError := time.Parse(time.RFC3339, stored.ExpiresAt)
-		if parseError == nil && !time.Now().Before(expiresAt) {
-			return withExitCode(exitAuth, fmt.Errorf(
-				"the Support MCP token for %s expired at %s: create a new one under Agent access on support.ankra.app and run 'ankra support connect --client %s'",
-				clientName, stored.ExpiresAt, clientName))
-		}
+	expiresAt, parseError := time.Parse(time.RFC3339, stored.ExpiresAt)
+	if parseError != nil {
+		return withExitCode(exitAuth, fmt.Errorf(
+			"the Support MCP token for %s has no expiry that can be read (%q), so it is not used: run 'ankra support connect --client %s'",
+			clientName, stored.ExpiresAt, clientName))
+	}
+	if !time.Now().Before(expiresAt) {
+		return withExitCode(exitAuth, fmt.Errorf(
+			"the Support MCP token for %s expired at %s: create a new one under Agent access on support.ankra.app and run 'ankra support connect --client %s'",
+			clientName, stored.ExpiresAt, clientName))
 	}
 	if asHeaders, _ := command.Flags().GetBool("headers"); asHeaders {
 		return json.NewEncoder(command.OutOrStdout()).Encode(map[string]string{"Authorization": "Bearer " + stored.Token})

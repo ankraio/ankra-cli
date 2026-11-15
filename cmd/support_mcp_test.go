@@ -30,6 +30,13 @@ type fakeSupportServer struct {
 	lock               sync.Mutex
 	methods            []string
 	answerToolsAsEvent bool
+	refuseIdentity     bool
+}
+
+func (fake *fakeSupportServer) refuseIdentityReads() {
+	fake.lock.Lock()
+	defer fake.lock.Unlock()
+	fake.refuseIdentity = true
 }
 
 // calledMethods answers the MCP methods the server was sent, in order.
@@ -55,6 +62,13 @@ func newFakeSupportServer(t *testing.T) *fakeSupportServer {
 			return
 		}
 		if request.URL.Path == "/v1/me" {
+			fake.lock.Lock()
+			isRefused := fake.refuseIdentity
+			fake.lock.Unlock()
+			if isRefused {
+				response.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 			_ = json.NewEncoder(response).Encode(map[string]any{"actor": map[string]any{"kind": "staff", "expires_at": supportTestExpiry}, "csrf": ""})
 			return
 		}
@@ -629,7 +643,63 @@ func TestSupportDisconnectCodexSaysWhenATableCouldNotBeMatched(t *testing.T) {
 	if executeError != nil {
 		t.Fatalf("disconnect failed: %v", executeError)
 	}
-	if !strings.Contains(output, "remove that table by hand") || strings.Contains(output, "Disconnected") {
+	if !strings.Contains(output, "remove it by hand") || strings.Contains(output, "Disconnected") {
 		t.Errorf("output = %s", output)
+	}
+}
+
+func TestSupportConnectAssumesTheLongestLifeWhenTheServerDoesNotSayAndEnforcesIt(t *testing.T) {
+	environment := stubSupportEnvironment(t, false)
+	environment.server.refuseIdentityReads()
+	output, executeError := environment.connect(t, supportTestReadToken+"\n", "--client", "codex", "--token-stdin")
+	if executeError != nil {
+		t.Fatalf("connect failed: %v", executeError)
+	}
+	if !strings.Contains(output, "did not say when it expires") || !strings.Contains(output, "may stop working sooner") {
+		t.Errorf("output does not say the expiry is assumed: %s", output)
+	}
+	stored, readError := readSupportStoredToken("codex")
+	if readError != nil || !stored.ExpiryAssumed {
+		t.Fatalf("stored = %+v (%v)", stored, readError)
+	}
+	expiresAt, parseError := time.Parse(time.RFC3339, stored.ExpiresAt)
+	if parseError != nil || expiresAt.After(time.Now().Add(supportTokenLongestLife+time.Minute)) || expiresAt.Before(time.Now().Add(supportTokenLongestLife-time.Minute)) {
+		t.Errorf("expires_at = %q, want 24 hours from now", stored.ExpiresAt)
+	}
+
+	stored.ExpiresAt = time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)
+	if _, writeError := writeSupportStoredToken("codex", *stored); writeError != nil {
+		t.Fatal(writeError)
+	}
+	if _, tokenError := executeCommand("support", "token", "--client", "codex"); exitCodeFor(tokenError) != exitAuth {
+		t.Errorf("an assumed expiry that has passed: exit %d (%v), want %d", exitCodeFor(tokenError), tokenError, exitAuth)
+	}
+}
+
+func TestSupportTokenRefusesAStoredTokenWithoutAnExpiry(t *testing.T) {
+	stubSupportEnvironment(t, false)
+	if _, writeError := writeSupportStoredToken("cursor", supportStoredToken{Token: supportTestReadToken}); writeError != nil {
+		t.Fatal(writeError)
+	}
+	output, executeError := executeCommand("support", "token", "--client", "cursor")
+	if exitCodeFor(executeError) != exitAuth || !strings.Contains(executeError.Error(), "ankra support connect --client cursor") {
+		t.Errorf("exit %d (%v), want %d", exitCodeFor(executeError), executeError, exitAuth)
+	}
+	assertNoSupportSecret(t, "the output", output)
+}
+
+func TestSupportDisconnectCodexIgnoresOtherMentionsOfTheServer(t *testing.T) {
+	environment := stubSupportEnvironment(t, false)
+	if _, executeError := environment.connect(t, supportTestReadToken+"\n", "--client", "codex", "--token-stdin"); executeError != nil {
+		t.Fatalf("connect failed: %v", executeError)
+	}
+	codexPath := filepath.Join(environment.home, ".codex", "config.toml")
+	content, _ := os.ReadFile(codexPath)
+	if writeError := os.WriteFile(codexPath, append([]byte("# ankra-support is set up by ankra support connect\n"), content...), 0o600); writeError != nil {
+		t.Fatal(writeError)
+	}
+	output, executeError := executeCommand("support", "disconnect", "--client", "codex", "--yes")
+	if executeError != nil || !strings.Contains(output, "Disconnected") || strings.Contains(output, "by hand") {
+		t.Errorf("disconnect = %v: %s", executeError, output)
 	}
 }
