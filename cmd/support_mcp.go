@@ -214,6 +214,13 @@ func runSupportConnect(command *cobra.Command, _ []string) error {
 	}
 	if storeError != nil {
 		restoreSupportStoredTokenFile(clientName, previousContent, previousExists)
+		if clientName == mcpClientClaudeCode {
+			// Claude Code cannot add a server under a name it already has, so the
+			// earlier registration was removed first and cannot be put back.
+			return fmt.Errorf("connecting %s failed and the token file was put back, but any earlier %s registration in Claude Code "+
+				"was removed before the new one could be added: run connect again once this is fixed: %w",
+				clientName, supportMCPServerName, storeError)
+		}
 		return fmt.Errorf("connecting %s (nothing was changed): %w", clientName, storeError)
 	}
 	if isLegacy && clientName == mcpClientClaudeCode {
@@ -793,7 +800,15 @@ func unregisterSupportMCPClient(clientName string) (string, error) {
 	if clientName == mcpClientCursor {
 		return "", unregisterMCPCursorServer(path, supportMCPServerName)
 	}
-	return "", unregisterMCPCodexServer(path, supportMCPServerName)
+	if removeError := unregisterMCPCodexServer(path, supportMCPServerName); removeError != nil {
+		return "", removeError
+	}
+	// A table written by hand in another form, a quoted key for one, is not
+	// matched; say so rather than report it removed.
+	if content, readError := os.ReadFile(path); readError == nil && strings.Contains(string(content), supportMCPServerName) {
+		return path + " still names " + supportMCPServerName + " in a form this could not match: remove that table by hand.", nil
+	}
+	return "", nil
 }
 
 // unregisterMCPCursorServer removes one server from Cursor's config, keeping

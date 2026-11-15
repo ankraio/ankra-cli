@@ -602,3 +602,34 @@ func TestLastSupportEventDataJoinsDataLines(t *testing.T) {
 		t.Errorf("last event data = %q, want %q", got, want)
 	}
 }
+
+func TestSupportConnectSaysTheClaudeRegistrationWasRemovedWhenTheAddFails(t *testing.T) {
+	environment := stubSupportEnvironment(t, false)
+	environment.commands.failAdd = true
+	_, executeError := environment.connect(t, supportTestReadToken+"\n", "--client", "claude-code", "--token-stdin")
+	if executeError == nil || strings.Contains(executeError.Error(), "nothing was changed") ||
+		!strings.Contains(executeError.Error(), "was removed before the new one could be added") {
+		t.Errorf("error = %v", executeError)
+	}
+	if _, statError := os.Stat(filepath.Join(environment.home, ".ankra", "support", "claude-code.json")); !errors.Is(statError, os.ErrNotExist) {
+		t.Errorf("the token file was not put back: %v", statError)
+	}
+}
+
+func TestSupportDisconnectCodexSaysWhenATableCouldNotBeMatched(t *testing.T) {
+	environment := stubSupportEnvironment(t, false)
+	if _, executeError := environment.connect(t, supportTestReadToken+"\n", "--client", "codex", "--token-stdin"); executeError != nil {
+		t.Fatalf("connect failed: %v", executeError)
+	}
+	codexPath := filepath.Join(environment.home, ".codex", "config.toml")
+	if writeError := os.WriteFile(codexPath, []byte("[mcp_servers.\"ankra-support\"]\nurl = \"x\"\n"), 0o600); writeError != nil {
+		t.Fatal(writeError)
+	}
+	output, executeError := executeCommand("support", "disconnect", "--client", "codex", "--yes")
+	if executeError != nil {
+		t.Fatalf("disconnect failed: %v", executeError)
+	}
+	if !strings.Contains(output, "remove that table by hand") || strings.Contains(output, "Disconnected") {
+		t.Errorf("output = %s", output)
+	}
+}
