@@ -86,7 +86,7 @@ exits 3 saying so and everything else works as before.
 | Projects (scope beneath the organisation) | `ankra project list\|current\|switch\|create\|get\|rename\|delete\|members\|move`, global `--project`, `ankra cost ... --all-projects`, `ankra cost object project`, `ankra org usage --group-by project` | `ankra-security`, `ankra-platform-principles` |
 | Credentials | `ankra credentials ...` | `ankra-security` |
 | Audit trail (who did what, agents included) | `ankra org audit-logs list\|export`, `ankra cluster audit-logs [cluster]` (CLI v0.73.0) | `ankra-security` |
-| Connecting an AI client or Slack | `ankra mcp connect --client claude-code\|cursor\|codex`, `ankra mcp token`, `ankra slack connect\|status` | below |
+| Connecting an AI client or Slack | `ankra mcp connect --client claude-code\|cursor\|codex`, `ankra mcp token`, `ankra support connect\|token\|disconnect` (the Ankra Support MCP server), `ankra slack connect\|status` | below |
 | Vulnerabilities, CVEs, compliance | `ankra security overview\|findings\|clusters\|compliance\|dispositions ...` | `ankra-security` |
 | Backup vaults, object storage | `ankra backup vaults ...`, `ankra bucket ...` | `ankra-backups` |
 | Protecting and restoring a stack's data | `ankra cluster stacks protect\|unprotect\|restore-points\|data ...`, `ankra backup restore-points ...`, `ankra runs ...` | `ankra-backups` |
@@ -409,6 +409,31 @@ ankra support close <ticket-id>
 
 Every request is reviewed by Ankra AI before it reaches the team; `--force` on `create` submits a
 flagged request anyway. Attach the evidence (operations output, logs) rather than describing it.
+
+### Connecting a coding agent to Ankra Support (staff and customers)
+
+`support.ankra.app/mcp` is the Ankra Support MCP server, separate from the platform one that
+`ankra mcp connect` sets up. Customers reach their own workspace's conversations; Ankra staff also
+reach the queue and private staff notes. It takes a bearer token minted only in the browser: sign in
+at support.ankra.app and open **Agent access** (1 to 24 hours, read-only or read/write, shown once).
+One command does the rest: it opens the page, reads the token at a hidden prompt, checks it with the
+server (MCP revision `2026-07-28`), reports read-only or read/write and the expiry, stores it in
+`~/.ankra/support/<client>.json` (0600) and registers the server as `ankra-support`.
+
+```bash
+ankra support connect --client claude-code          # or cursor, codex; --no-browser prints the address
+pbpaste | ankra support connect --client codex --token-stdin
+export ANKRA_SUPPORT_MCP_TOKEN="$(ankra support token --client cursor)"   # Cursor and Codex read this
+ankra support disconnect --client cursor            # then revoke the token under Agent access
+```
+
+- Never put the token in a flag, a client config or a chat. Claude Code gets the headers helper
+  `ankra support token --client claude-code --headers`. Cursor and Codex read `ANKRA_SUPPORT_MCP_TOKEN`.
+- The server has no OAuth, so a client that offers to "authenticate" it gets a 404. Use `connect`.
+- When the token expires, `ankra support token` exits 6 and the agent's Support tools stop. Create a
+  new token and run `connect` again, which replaces it. `disconnect` cannot revoke on the server.
+- A hand-made setup (`~/.ankra/support/token` and an `ankra-support` registration) is taken over the
+  first time `connect` runs.
 
 ## Cloud cost
 
