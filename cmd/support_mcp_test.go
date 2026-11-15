@@ -591,7 +591,7 @@ func TestSupportDisconnectSaysWhenTheClaudeRegistrationIsNotGone(t *testing.T) {
 	if executeError != nil {
 		t.Fatalf("disconnect failed: %v", executeError)
 	}
-	if !strings.Contains(output, "not on PATH") || !strings.Contains(output, "claude mcp remove --scope user ankra-support") ||
+	if !strings.Contains(output, "Disconnect is incomplete") || !strings.Contains(output, "claude mcp remove --scope user ankra-support") ||
 		strings.Contains(output, "Disconnected") {
 		t.Errorf("output does not say the registration was not checked: %s", output)
 	}
