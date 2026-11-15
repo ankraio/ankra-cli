@@ -327,33 +327,40 @@ func writeMCPStoredToken(clientName string, stored mcpStoredToken) (string, erro
 	if pathError != nil {
 		return "", pathError
 	}
-	directory := filepath.Dir(path)
-	if makeError := os.MkdirAll(directory, 0o700); makeError != nil {
-		return "", makeError
-	}
-	if permissionError := os.Chmod(directory, 0o700); permissionError != nil {
-		return "", permissionError
-	}
 	encoded, encodeError := json.Marshal(stored)
 	if encodeError != nil {
 		return "", encodeError
 	}
-	temporary, createError := os.CreateTemp(directory, clientName+".*.tmp")
-	if createError != nil {
-		return "", createError
-	}
-	defer func() { _ = os.Remove(temporary.Name()) }()
-	if _, writeError := temporary.Write(encoded); writeError != nil {
-		_ = temporary.Close()
+	if writeError := writePrivateFile(path, encoded); writeError != nil {
 		return "", writeError
 	}
-	if closeError := temporary.Close(); closeError != nil {
-		return "", closeError
-	}
-	if renameError := os.Rename(temporary.Name(), path); renameError != nil {
-		return "", renameError
-	}
 	return path, nil
+}
+
+// writePrivateFile replaces path in one step with content only this user can
+// read, in a directory only this user can enter. The temporary file is 0600
+// from the moment it exists, so the content is never readable by anyone else.
+func writePrivateFile(path string, content []byte) error {
+	directory := filepath.Dir(path)
+	if makeError := os.MkdirAll(directory, 0o700); makeError != nil {
+		return makeError
+	}
+	if permissionError := os.Chmod(directory, 0o700); permissionError != nil {
+		return permissionError
+	}
+	temporary, createError := os.CreateTemp(directory, filepath.Base(path)+".*.tmp")
+	if createError != nil {
+		return createError
+	}
+	defer func() { _ = os.Remove(temporary.Name()) }()
+	if _, writeError := temporary.Write(content); writeError != nil {
+		_ = temporary.Close()
+		return writeError
+	}
+	if closeError := temporary.Close(); closeError != nil {
+		return closeError
+	}
+	return os.Rename(temporary.Name(), path)
 }
 
 // readMCPStoredTokenFile answers the token file's bytes as they are, readable
@@ -482,30 +489,55 @@ func shellQuoteMCP(value string) string {
 // registerMCPCursor merges the server into Cursor's config, keeping everything
 // else in it. Cursor expands ${env:NAME} in a header value.
 func registerMCPCursor(path string, serverURL string) error {
+	return registerMCPCursorServer(path, mcpServerName, serverURL, mcpTokenEnvironment)
+}
+
+// registerMCPCursorServer merges one server into Cursor's config under
+// serverName, sending the bearer token Cursor reads from environment.
+func registerMCPCursorServer(path string, serverName string, serverURL string, environment string) error {
+	document, servers, readError := readCursorMCPServers(path)
+	if readError != nil {
+		return readError
+	}
+	servers[serverName] = map[string]any{
+		"url":     serverURL,
+		"headers": map[string]string{"Authorization": "Bearer ${env:" + environment + "}"},
+	}
+	document["mcpServers"] = servers
+	return writeCursorMCPDocument(path, document)
+}
+
+// readCursorMCPServers reads Cursor's config and its mcpServers object, both
+// empty when the file is missing or blank. A file that is not JSON, or whose
+// mcpServers is not an object, is refused so it is never overwritten.
+func readCursorMCPServers(path string) (map[string]any, map[string]any, error) {
 	document := map[string]any{}
 	content, readError := os.ReadFile(path)
 	switch {
 	case readError == nil && len(bytes.TrimSpace(content)) == 0:
 	case readError == nil:
 		if decodeError := json.Unmarshal(content, &document); decodeError != nil {
-			return fmt.Errorf("%s is not valid JSON, so it was left alone: %w", path, decodeError)
+			return nil, nil, fmt.Errorf("%s is not valid JSON, so it was left alone: %w", path, decodeError)
+		}
+		if document == nil {
+			document = map[string]any{}
 		}
 	case !errors.Is(readError, os.ErrNotExist):
-		return readError
+		return nil, nil, readError
 	}
 	servers := map[string]any{}
 	if existing, isPresent := document["mcpServers"]; isPresent && existing != nil {
 		existingServers, isObject := existing.(map[string]any)
 		if !isObject {
-			return fmt.Errorf("%s has an mcpServers that is not an object, so it was left alone", path)
+			return nil, nil, fmt.Errorf("%s has an mcpServers that is not an object, so it was left alone", path)
 		}
 		servers = existingServers
 	}
-	servers[mcpServerName] = map[string]any{
-		"url":     serverURL,
-		"headers": map[string]string{"Authorization": "Bearer ${env:" + mcpTokenEnvironment + "}"},
-	}
-	document["mcpServers"] = servers
+	return document, servers, nil
+}
+
+// writeCursorMCPDocument writes Cursor's config back, indented as Cursor does.
+func writeCursorMCPDocument(path string, document map[string]any) error {
 	encoded, encodeError := json.MarshalIndent(document, "", "  ")
 	if encodeError != nil {
 		return encodeError
@@ -518,14 +550,20 @@ func registerMCPCursor(path string, serverURL string) error {
 // the rest of the file is left byte for byte, comments included, which a
 // decode and encode would not do.
 func registerMCPCodex(path string, serverURL string) error {
+	return registerMCPCodexServer(path, mcpServerName, serverURL, mcpTokenEnvironment)
+}
+
+// registerMCPCodexServer adds or updates the [mcp_servers.<serverName>] table,
+// with Codex reading the bearer token from environment.
+func registerMCPCodexServer(path string, serverName string, serverURL string, environment string) error {
 	content, readError := os.ReadFile(path)
 	if readError != nil && !errors.Is(readError, os.ErrNotExist) {
 		return readError
 	}
-	header := "[mcp_servers." + mcpServerName + "]"
+	header := "[mcp_servers." + serverName + "]"
 	keys := []tomlKeyValue{
 		{Key: "url", Line: fmt.Sprintf("url = %q\n", serverURL)},
-		{Key: "bearer_token_env_var", Line: fmt.Sprintf("bearer_token_env_var = %q\n", mcpTokenEnvironment)},
+		{Key: "bearer_token_env_var", Line: fmt.Sprintf("bearer_token_env_var = %q\n", environment)},
 	}
 	updated, isFound := setTOMLSectionKeys(string(content), header, keys)
 	if !isFound {

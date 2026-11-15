@@ -32,7 +32,10 @@ flagged request anyway.
   ankra support list
   ankra support get <ticket-id>
   ankra support comment <ticket-id> --message "Any update?"
-  ankra support close <ticket-id>`,
+  ankra support close <ticket-id>
+
+To give Claude Code, Cursor or Codex the Support MCP server at
+support.ankra.app/mcp (staff and customers), see 'ankra support connect'.`,
 }
 
 var supportCreateCmd = &cobra.Command{
