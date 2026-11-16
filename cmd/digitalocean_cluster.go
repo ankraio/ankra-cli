@@ -657,7 +657,7 @@ func init() {
 	digitaloceanCreateCmd.Flags().Int("worker-count", 1, "Number of worker nodes")
 	digitaloceanCreateCmd.Flags().String("worker-size", "", "Worker droplet size (server default: s-2vcpu-4gb)")
 	digitaloceanCreateCmd.Flags().String("distribution", "kubeadm", "Kubernetes distribution: kubeadm (default, vanilla upstream Kubernetes with Cilium) or k3s")
-	digitaloceanCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see `ankra cluster kubeadm-versions` or `ankra cluster k3s-versions`)")
+	digitaloceanCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see 'ankra cluster kubeadm-versions' or 'ankra cluster k3s-versions')")
 	digitaloceanCreateCmd.Flags().String("etcd-topology", "stacked", "etcd topology for kubeadm clusters: stacked (on control plane) or external (dedicated VMs)")
 	digitaloceanCreateCmd.Flags().Int("etcd-node-count", 3, "Number of dedicated etcd nodes when --etcd-topology=external (3 or 5)")
 	digitaloceanCreateCmd.Flags().String("etcd-size", "", "Droplet size for dedicated etcd nodes when --etcd-topology=external (server default: s-2vcpu-4gb)")

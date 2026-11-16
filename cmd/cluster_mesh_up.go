@@ -329,7 +329,7 @@ func waitForMeshMembersReady(cmd *cobra.Command, meshID string, deadline time.Ti
 
 func init() {
 	clusterMeshUpCmd.Flags().BoolVar(&clusterMeshUpRenumber, "renumber-pods", false,
-		"Ask `up` to move every colliding cluster after the first onto a fresh pod range (the platform refuses that move while it is redesigned, so the flag has no effect for now)")
+		"Ask 'up' to move every colliding cluster after the first onto a fresh pod range (the platform refuses that move while it is redesigned, so the flag has no effect for now)")
 	clusterMeshUpCmd.Flags().BoolVar(&clusterMeshUpPlan, "plan", false,
 		"Print what one pass would do and change nothing")
 	clusterMeshUpCmd.Flags().DurationVar(&clusterMeshUpWait, "wait", 45*time.Minute,
