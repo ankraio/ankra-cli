@@ -65,7 +65,7 @@ var clusterPlaygroundPlansCmd = &cobra.Command{
 			_, _ = fmt.Fprintf(writer, "%-8s  %2d vCPU / %2.0f GB RAM / %3d GB storage  %10s%s\n",
 				plan.ID, plan.Vcpus, plan.MemoryGB, plan.StorageGB, price, availability)
 		}
-		_, _ = fmt.Fprintf(writer, "\nCreate it with: ankra cluster playground create\n")
+		_, _ = fmt.Fprintf(writer, "\nCreate one with: ankra cluster playground create --size <id>\n")
 		return nil
 	},
 }
