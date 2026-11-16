@@ -47,12 +47,12 @@ func (mock *clusterRenameMock) RenameCluster(_ context.Context, clusterID string
 		return nil, mock.renameError
 	}
 	return &client.ClusterRenameResult{ClusterID: clusterID, Name: newName, PreviousName: mock.cluster.Name,
-		IacDirectory: "clusters/" + mock.cluster.Name + "-qa234i7ojs", Changed: newName != mock.cluster.Name}, nil
+		IacDirectory: "clusters/" + mock.cluster.Name + "-k4m8t2x6pd", Changed: newName != mock.cluster.Name}, nil
 }
 
 func newClusterRenameMock() *clusterRenameMock {
 	return &clusterRenameMock{cluster: client.ClusterListItem{
-		ID: "22de7a2c-a671-4e7b-b6db-b32d03490a08", Name: "socloud-cheap"}}
+		ID: "0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e", Name: "web-staging"}}
 }
 
 func runClusterRenameCommand(t *testing.T, mock APIClient, arguments ...string) (string, error) {
@@ -65,19 +65,19 @@ func runClusterRenameCommand(t *testing.T, mock APIClient, arguments ...string) 
 func TestClusterRenameRenamesTheClusterByName(t *testing.T) {
 	mock := newClusterRenameMock()
 
-	output, runError := runClusterRenameCommand(t, mock, "socloud-cheap", "socloud-dev")
+	output, runError := runClusterRenameCommand(t, mock, "web-staging", "web-dev")
 	if runError != nil {
 		t.Fatalf("expected success, got %v", runError)
 	}
-	want := clusterRenameCall{clusterID: mock.cluster.ID, newName: "socloud-dev"}
+	want := clusterRenameCall{clusterID: mock.cluster.ID, newName: "web-dev"}
 	if len(mock.calls) != 1 || mock.calls[0] != want {
 		t.Fatalf("calls = %+v, want one %+v", mock.calls, want)
 	}
 	for _, line := range []string{
-		"Cluster 'socloud-cheap' renamed to 'socloud-dev'.",
-		"GitOps files stay in clusters/socloud-cheap-qa234i7ojs.",
-		"Update metadata.name to 'socloud-dev'",
-		"'ankra cluster kubeconfig add socloud-dev'",
+		"Cluster 'web-staging' renamed to 'web-dev'.",
+		"GitOps files stay in clusters/web-staging-k4m8t2x6pd.",
+		"Update metadata.name to 'web-dev'",
+		"'ankra cluster kubeconfig add web-dev'",
 	} {
 		if !strings.Contains(output, line) {
 			t.Errorf("output missing %q:\n%s", line, output)
@@ -89,7 +89,7 @@ func TestClusterRenameRenamesTheClusterByName(t *testing.T) {
 func TestClusterRenameAcceptsAClusterIDAndRendersJSON(t *testing.T) {
 	mock := newClusterRenameMock()
 
-	output, runError := runClusterRenameCommand(t, mock, mock.cluster.ID, "socloud-dev", "-o", "json")
+	output, runError := runClusterRenameCommand(t, mock, mock.cluster.ID, "web-dev", "-o", "json")
 	if runError != nil {
 		t.Fatalf("expected success, got %v", runError)
 	}
@@ -97,19 +97,41 @@ func TestClusterRenameAcceptsAClusterIDAndRendersJSON(t *testing.T) {
 	if decodeError := json.Unmarshal([]byte(output), &decoded); decodeError != nil {
 		t.Fatalf("output is not JSON: %v\n%s", decodeError, output)
 	}
-	if decoded.ClusterID != mock.cluster.ID || decoded.Name != "socloud-dev" || decoded.PreviousName != "socloud-cheap" ||
+	if decoded.ClusterID != mock.cluster.ID || decoded.Name != "web-dev" || decoded.PreviousName != "web-staging" ||
 		!decoded.Changed {
 		t.Fatalf("json = %+v", decoded)
 	}
 }
 
+// -o yaml uses the keys -o json uses, so a script that reads one format reads
+// the other by the same names.
+func TestClusterRenameYAMLUsesTheJSONKeys(t *testing.T) {
+	mock := newClusterRenameMock()
+
+	output, runError := runClusterRenameCommand(t, mock, "web-staging", "web-dev", "-o", "yaml")
+	if runError != nil {
+		t.Fatalf("expected success, got %v", runError)
+	}
+	for _, line := range []string{
+		"cluster_id: " + mock.cluster.ID,
+		"\nname: web-dev",
+		"previous_name: web-staging",
+		"iac_directory: clusters/web-staging-k4m8t2x6pd",
+		"changed: true",
+	} {
+		if !strings.Contains(output, line) {
+			t.Errorf("yaml output lacks %q:\n%s", line, output)
+		}
+	}
+}
+
 // A name the platform would refuse is a usage error, and nothing is sent.
 func TestClusterRenameRefusesABadNameBeforeWriting(t *testing.T) {
-	for _, name := range []string{"Socloud-Dev", "socloud_dev", "socloud.dev", "socloud-", "1socloud",
+	for _, name := range []string{"Web-Dev", "web_dev", "web.dev", "web-", "1web",
 		strings.Repeat("a", 54)} {
 		t.Run(name, func(subtest *testing.T) {
 			mock := newClusterRenameMock()
-			_, runError := runClusterRenameCommand(subtest, mock, "socloud-cheap", name)
+			_, runError := runClusterRenameCommand(subtest, mock, "web-staging", name)
 			if exitCodeFor(runError) != exitUsage {
 				subtest.Fatalf("exit = %d (%v), want usage", exitCodeFor(runError), runError)
 			}
@@ -126,7 +148,7 @@ func TestClusterRenameReturnsThePlatformsRefusal(t *testing.T) {
 	mock := newClusterRenameMock()
 	mock.renameError = errors.New("Cluster with this name already exists. Please choose a different name.")
 
-	_, runError := runClusterRenameCommand(t, mock, "socloud-cheap", "socloud-dev")
+	_, runError := runClusterRenameCommand(t, mock, "web-staging", "web-dev")
 	if runError == nil || !strings.Contains(runError.Error(), "already exists") {
 		t.Fatalf("expected the platform's refusal, got %v", runError)
 	}
@@ -136,7 +158,7 @@ func TestClusterRenameReturnsThePlatformsRefusal(t *testing.T) {
 func TestClusterRenameUnknownClusterIsNotFound(t *testing.T) {
 	mock := newClusterRenameMock()
 
-	_, runError := runClusterRenameCommand(t, mock, "no-such-cluster", "socloud-dev")
+	_, runError := runClusterRenameCommand(t, mock, "no-such-cluster", "web-dev")
 	if exitCodeFor(runError) != exitNotFound {
 		t.Fatalf("exit = %d (%v), want not found", exitCodeFor(runError), runError)
 	}
@@ -150,23 +172,23 @@ func TestClusterRenameUnknownClusterIsNotFound(t *testing.T) {
 // selection is left alone.
 func TestFollowRenameInSelectionUpdatesOnlyTheRenamedCluster(t *testing.T) {
 	withTempHome(t)
-	selected := client.ClusterListItem{ID: "22de7a2c-a671-4e7b-b6db-b32d03490a08", Name: "socloud-cheap"}
+	selected := client.ClusterListItem{ID: "0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e", Name: "web-staging"}
 	if saveError := saveSelectedCluster(selected); saveError != nil {
 		t.Fatalf("saving the selection: %v", saveError)
 	}
 
-	if note, warning := followRenameInSelection("another-cluster-id", "socloud-dev"); note != "" || warning != "" {
+	if note, warning := followRenameInSelection("another-cluster-id", "web-dev"); note != "" || warning != "" {
 		t.Fatalf("another cluster's rename touched the selection: %q %q", note, warning)
 	}
-	if reloaded, _ := loadSelectedCluster(); reloaded.Name != "socloud-cheap" {
+	if reloaded, _ := loadSelectedCluster(); reloaded.Name != "web-staging" {
 		t.Fatalf("selection = %q, want unchanged", reloaded.Name)
 	}
 
-	if note, warning := followRenameInSelection(selected.ID, "socloud-dev"); !strings.Contains(note, "socloud-dev") || warning != "" {
+	if note, warning := followRenameInSelection(selected.ID, "web-dev"); !strings.Contains(note, "web-dev") || warning != "" {
 		t.Fatalf("note = %q, warning = %q; want a note naming the new name", note, warning)
 	}
 	reloaded, loadError := loadSelectedCluster()
-	if loadError != nil || reloaded.ID != selected.ID || reloaded.Name != "socloud-dev" {
+	if loadError != nil || reloaded.ID != selected.ID || reloaded.Name != "web-dev" {
 		t.Fatalf("selection = %+v (%v), want the renamed cluster under its new name", reloaded, loadError)
 	}
 }
@@ -178,7 +200,7 @@ func TestFollowRenameInSelectionWarnsWhenTheSelectionCannotBeSaved(t *testing.T)
 		t.Skip("a read-only file does not stop root from writing it")
 	}
 	withTempHome(t)
-	selected := client.ClusterListItem{ID: "22de7a2c-a671-4e7b-b6db-b32d03490a08", Name: "socloud-cheap"}
+	selected := client.ClusterListItem{ID: "0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e", Name: "web-staging"}
 	if saveError := saveSelectedCluster(selected); saveError != nil {
 		t.Fatalf("saving the selection: %v", saveError)
 	}
@@ -191,8 +213,8 @@ func TestFollowRenameInSelectionWarnsWhenTheSelectionCannotBeSaved(t *testing.T)
 	}
 	t.Cleanup(func() { _ = os.Chmod(path, 0600) })
 
-	note, warning := followRenameInSelection(selected.ID, "socloud-dev")
-	if note != "" || !strings.Contains(warning, "ankra cluster select socloud-dev") {
+	note, warning := followRenameInSelection(selected.ID, "web-dev")
+	if note != "" || !strings.Contains(warning, "ankra cluster select web-dev") {
 		t.Fatalf("note = %q, warning = %q; want a warning naming the fix", note, warning)
 	}
 }
@@ -201,10 +223,10 @@ func TestFollowRenameInSelectionWarnsWhenTheSelectionCannotBeSaved(t *testing.T)
 func TestClusterRenameTakesTheClusterFromTheFlag(t *testing.T) {
 	mock := newClusterRenameMock()
 
-	if _, runError := runClusterRenameCommand(t, mock, "--cluster", "socloud-cheap", "socloud-dev"); runError != nil {
+	if _, runError := runClusterRenameCommand(t, mock, "--cluster", "web-staging", "web-dev"); runError != nil {
 		t.Fatalf("expected success, got %v", runError)
 	}
-	want := clusterRenameCall{clusterID: mock.cluster.ID, newName: "socloud-dev"}
+	want := clusterRenameCall{clusterID: mock.cluster.ID, newName: "web-dev"}
 	if len(mock.calls) != 1 || mock.calls[0] != want {
 		t.Fatalf("calls = %+v, want one %+v", mock.calls, want)
 	}
