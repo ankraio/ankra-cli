@@ -663,7 +663,7 @@ func init() {
 	upcloudCreateCmd.Flags().Int("worker-count", 1, "Number of worker nodes")
 	upcloudCreateCmd.Flags().String("worker-plan", "", "Worker plan (server default: PREMIUM-2xCPU-4GB)")
 	upcloudCreateCmd.Flags().String("distribution", "kubeadm", "Kubernetes distribution: kubeadm (default, vanilla upstream Kubernetes with Cilium) or k3s")
-	upcloudCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see `ankra cluster kubeadm-versions` or `ankra cluster k3s-versions`)")
+	upcloudCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see 'ankra cluster kubeadm-versions' or 'ankra cluster k3s-versions')")
 	upcloudCreateCmd.Flags().String("etcd-topology", "stacked", "etcd topology for kubeadm clusters: stacked (on control planes) or external (dedicated VMs)")
 	upcloudCreateCmd.Flags().Int("etcd-node-count", 3, "Number of dedicated etcd nodes when --etcd-topology=external (3 or 5)")
 	upcloudCreateCmd.Flags().String("etcd-plan", "", "Plan for dedicated etcd nodes when --etcd-topology=external (server default: PREMIUM-2xCPU-4GB)")
