@@ -67,7 +67,7 @@ var summaryFutureFields = map[string]any{
 	"scope":         map[string]any{"kind": "organisation"},
 	"by_credential": []any{map[string]any{"credential_id": "c-1", "monthly_cost_estimate_cents": 1200}},
 	"by_project":    []any{map[string]any{"project": "web", "monthly_cost_estimate_cents": 800}},
-	"clusters":      []any{map[string]any{"cluster_id": "11111111-1111-4111-8111-111111111111", "fully_priced": true}},
+	"clusters":      []any{map[string]any{"cluster_id": "0b7c4d0c-1111-4111-8111-111111111111", "fully_priced": true}},
 }
 
 var savingsFutureFields = map[string]any{

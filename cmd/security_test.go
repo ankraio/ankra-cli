@@ -420,7 +420,7 @@ func securityClusterPage(totalPages int, clusters ...client.SecurityClusterPostu
 
 // A case variant on the first page must not win over the exact name on a later one.
 func TestSecurityAllProjectsClusterNameReadsEveryPage(t *testing.T) {
-	const exactID = "11111111-1111-4111-8111-111111111111"
+	const exactID = "0b7c4d0c-1111-4111-8111-111111111111"
 	mock := &securityScopeMock{securityMock: securityMock{}, clusterPages: map[int]*client.SecurityClusterList{
 		1: securityClusterPage(2, client.SecurityClusterPosture{ClusterID: "22222222-2222-4222-8222-222222222222", ClusterName: "EDGE"}),
 		2: securityClusterPage(2, client.SecurityClusterPosture{ClusterID: exactID, ClusterName: "edge"}),
@@ -439,7 +439,7 @@ func TestSecurityAllProjectsClusterNameReadsEveryPage(t *testing.T) {
 func TestSecurityAllProjectsSameClusterNameInTwoProjectsIsAmbiguous(t *testing.T) {
 	mock := &securityScopeMock{securityMock: securityMock{}, clusterPages: map[int]*client.SecurityClusterList{
 		1: securityClusterPage(1,
-			client.SecurityClusterPosture{ClusterID: "11111111-1111-4111-8111-111111111111", ClusterName: "edge"},
+			client.SecurityClusterPosture{ClusterID: "0b7c4d0c-1111-4111-8111-111111111111", ClusterName: "edge"},
 			client.SecurityClusterPosture{ClusterID: "22222222-2222-4222-8222-222222222222", ClusterName: "edge"}),
 	}}
 	cmd := &cobra.Command{}

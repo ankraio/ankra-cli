@@ -46,7 +46,7 @@ func newApplicationRegistryGetCommand() *cobra.Command {
 Reports the stored declaration, whether it is one at all, the host and project
 it resolves to, and the image repository each component is expected to publish
 to - so you can compare them against where your builds actually push.`,
-		Example: "  ankra application registry get 23298741-6a5a-401a-a681-66f31fbdebe1",
+		Example: "  ankra application registry get 0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -92,7 +92,7 @@ that credential - private, or public with --project-public - when the
 credential may create projects; otherwise the declaration is refused with the
 project and host named, instead of being accepted for every later build to
 fail against. Without --admin-credential the project is not checked.`,
-		Example: `  ankra application registry set 23298741-6a5a-401a-a681-66f31fbdebe1 \
+		Example: `  ankra application registry set 0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e \
     --url oci://artifact.example.com/commerce --credential example-harbor
 
   ankra application registry set <application-id> \
@@ -205,7 +205,7 @@ func newApplicationRegistryClearCommand() *cobra.Command {
 
 Clears the declaration, so the application publishes into - and is read back
 from - the organisation's provisioned registry project again.`,
-		Example: "  ankra application registry clear 23298741-6a5a-401a-a681-66f31fbdebe1",
+		Example: "  ankra application registry clear 0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {

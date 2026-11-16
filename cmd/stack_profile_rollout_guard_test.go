@@ -56,7 +56,7 @@ func TestStackProfilesRolloutDoesNotAskForOneStack(t *testing.T) {
 func TestStackProfilesRolloutDryRunListsWhatEachStackWouldLose(t *testing.T) {
 	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
 	mock := newRolloutMock()
-	mock.extraLiveMembers = map[string][]string{"11111111-1111-1111-1111-111111111111": {"addon/team-exporter"}}
+	mock.extraLiveMembers = map[string][]string{"0b7c4d0c-1111-1111-1111-111111111111": {"addon/team-exporter"}}
 	mock.unlistableCluster = "22222222-2222-2222-2222-222222222222"
 	output, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--all", "--dry-run")
 	if executeError != nil {
@@ -115,7 +115,7 @@ func TestStackProfilesRolloutInPlaceReportsAndConfirmsARefusedRemoval(t *testing
 func TestStackProfilesRolloutViaApplyRefusesUnconfirmedRemovals(t *testing.T) {
 	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
 	mock := newRolloutMock()
-	mock.extraLiveMembers = map[string][]string{"11111111-1111-1111-1111-111111111111": {"manifest/team-config"}}
+	mock.extraLiveMembers = map[string][]string{"0b7c4d0c-1111-1111-1111-111111111111": {"manifest/team-config"}}
 	output, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--cluster", "prod-eu", "--via-apply")
 	if executeError == nil {
 		t.Fatal("an unconfirmed removal must fail the via-apply rollout")
@@ -138,7 +138,7 @@ func TestStackProfilesRolloutViaApplyRefusesUnconfirmedRemovals(t *testing.T) {
 
 	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
 	mock.applied = nil
-	mock.unlistableCluster = "11111111-1111-1111-1111-111111111111"
+	mock.unlistableCluster = "0b7c4d0c-1111-1111-1111-111111111111"
 	if _, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--cluster", "prod-eu", "--via-apply"); executeError == nil {
 		t.Fatal("unreadable members must fail the via-apply rollout")
 	}
@@ -189,7 +189,7 @@ func TestStackProfilesRolloutScopesRemovalConfirmationsToTheirCluster(t *testing
 	}
 	for index, clusterID := range mock.upgradeClusters {
 		confirmed := strings.Join(mock.upgraded[index].ConfirmedMemberRemovals, ",")
-		if clusterID == "11111111-1111-1111-1111-111111111111" && confirmed != "addon/team-exporter" {
+		if clusterID == "0b7c4d0c-1111-1111-1111-111111111111" && confirmed != "addon/team-exporter" {
 			t.Errorf("prod-eu's request carries %q, want its confirmation", confirmed)
 		}
 		if clusterID == "22222222-2222-2222-2222-222222222222" && confirmed != "" {

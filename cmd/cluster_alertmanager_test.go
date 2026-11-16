@@ -13,7 +13,7 @@ import (
 // Alertmanager silence tools (ankra-hq41xb.11), run through rootCmd against a
 // recording mock.
 
-const silenceTestID = "35833f27-aaed-47c3-956e-9b071140f062"
+const silenceTestID = "0b7c4d0d-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 type alertmanagerSilencesMock struct {
 	cliParityMock

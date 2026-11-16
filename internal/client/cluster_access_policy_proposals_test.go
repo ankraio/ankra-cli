@@ -147,7 +147,7 @@ func TestGetAndListClusterAccessPolicyProposals(t *testing.T) {
 // 404 that names the organisation searched says so, keeping its status so
 // the command still exits not-found.
 func TestClusterAccessPolicyProposalResponsesNameTheOrganisation(t *testing.T) {
-	organisation := `"organisation_id":"2f853b14-78b0-471a-937c-1ee13a08ddff","organisation_name":"Depict"`
+	organisation := `"organisation_id":"0b7c4d1c-5f6a-4b8c-9d0e-1f2a3b4c5d6e","organisation_name":"Depict"`
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/api/v1/org/cluster-access-policy/proposals/p-1":
@@ -163,11 +163,11 @@ func TestClusterAccessPolicyProposalResponsesNameTheOrganisation(t *testing.T) {
 	apiClient := &Client{BaseURL: server.URL, Token: "t", HTTP: server.Client()}
 
 	proposal, err := apiClient.GetClusterAccessPolicyProposal(context.Background(), "p-1")
-	if err != nil || proposal.Describe() != "Depict (2f853b14-78b0-471a-937c-1ee13a08ddff)" {
+	if err != nil || proposal.Describe() != "Depict (0b7c4d1c-5f6a-4b8c-9d0e-1f2a3b4c5d6e)" {
 		t.Fatalf("get = %+v, %v", proposal, err)
 	}
 	list, err := apiClient.ListClusterAccessPolicyProposals(context.Background(), "")
-	if err != nil || list.Describe() != "Depict (2f853b14-78b0-471a-937c-1ee13a08ddff)" || len(list.Proposals) != 0 {
+	if err != nil || list.Describe() != "Depict (0b7c4d1c-5f6a-4b8c-9d0e-1f2a3b4c5d6e)" || len(list.Proposals) != 0 {
 		t.Fatalf("list = %+v, %v", list, err)
 	}
 	_, err = apiClient.GetClusterAccessPolicyProposal(context.Background(), "a7aad9f0")

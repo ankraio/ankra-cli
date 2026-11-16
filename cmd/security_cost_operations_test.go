@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-const operationTestID = "5b1f0c7e-3a55-4d0b-9a57-0d5f3c1a2b3c"
+const operationTestID = "0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 func TestSecurityRemediationCommandsConfirmWritesAndRenderRuns(t *testing.T) {
 	organisationPromptsNotInteractive(t)

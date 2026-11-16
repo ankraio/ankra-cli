@@ -11,7 +11,7 @@ func TestInviteCarriesTheProjectGrantOnlyForAProjectMember(t *testing.T) {
 	testClient, platform := newRecordingClient(t, http.StatusOK, `{"success":true,"message":"Invitation sent"}`)
 	projectID := testProjectID
 	if _, err := testClient.InviteUserToOrganisation(InviteUserRequest{
-		OrganisationID: "3b7dccca-0788-4470-9910-19478ae345ae", InviteeEmail: "dev@example.com",
+		OrganisationID: "0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e", InviteeEmail: "dev@example.com",
 		Role: "project", ProjectID: &projectID, ProjectRoleSlug: "operator",
 	}); err != nil {
 		t.Fatalf("invite: %v", err)
@@ -21,7 +21,7 @@ func TestInviteCarriesTheProjectGrantOnlyForAProjectMember(t *testing.T) {
 		t.Fatalf("project invite body = %v", body)
 	}
 	if _, err := testClient.InviteUserToOrganisation(InviteUserRequest{
-		OrganisationID: "3b7dccca-0788-4470-9910-19478ae345ae", InviteeEmail: "dev@example.com", Role: "member",
+		OrganisationID: "0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e", InviteeEmail: "dev@example.com", Role: "member",
 	}); err != nil {
 		t.Fatal(err)
 	}

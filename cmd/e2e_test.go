@@ -5300,7 +5300,7 @@ func TestOrgCreateCommand(t *testing.T) {
 }
 
 func TestCredentialsGetCommand(t *testing.T) {
-	const credentialUUID = "11111111-2222-4333-8444-555555555555"
+	const credentialUUID = "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f"
 	mock := &credentialGetMock{
 		detail: &client.CredentialDetail{
 			ID:             credentialUUID,
@@ -5325,7 +5325,7 @@ func TestCredentialsGetCommand(t *testing.T) {
 }
 
 func TestCredentialsGetByNameResolvesToID(t *testing.T) {
-	const credentialUUID = "11111111-2222-4333-8444-555555555555"
+	const credentialUUID = "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f"
 	mock := &credentialGetMock{
 		detail: &client.CredentialDetail{
 			ID:             credentialUUID,

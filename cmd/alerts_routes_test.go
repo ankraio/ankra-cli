@@ -543,7 +543,7 @@ func TestAlertsRoutesPreviewRendersDeliveriesAndSuppressions(t *testing.T) {
 	mock := &notificationRoutesMock{preview: samplePreview()}
 	stdout, _, runError := runAlertsCommand(t, mock, "", "alerts", "routes", "preview",
 		"--kind", "alert_trigger_fired", "--severity", "critical",
-		"--alert-id", "cb91430a-e432-4df1-b654-68a566b5910a")
+		"--alert-id", "0b7c4d05-5f6a-4b8c-9d0e-1f2a3b4c5d6e")
 	if runError != nil {
 		t.Fatalf("alerts routes preview failed: %v", runError)
 	}
@@ -551,7 +551,7 @@ func TestAlertsRoutesPreviewRendersDeliveriesAndSuppressions(t *testing.T) {
 		t.Fatal("no preview request was sent")
 	}
 	if mock.previewRequest.AlertID == nil ||
-		*mock.previewRequest.AlertID != "cb91430a-e432-4df1-b654-68a566b5910a" {
+		*mock.previewRequest.AlertID != "0b7c4d05-5f6a-4b8c-9d0e-1f2a3b4c5d6e" {
 		t.Fatalf("the alert id must reach the API: %+v", mock.previewRequest)
 	}
 	for _, fragment := range []string{
@@ -598,7 +598,7 @@ func TestAlertsRoutesPreviewSurfacesApiFailure(t *testing.T) {
 	mock := &notificationRoutesMock{previewError: client.NewUnexpectedResponseError(404, "Alert not found")}
 	_, _, runError := runAlertsCommand(t, mock, "", "alerts", "routes", "preview",
 		"--kind", "alert_trigger_fired", "--severity", "critical",
-		"--alert-id", "cb91430a-e432-4df1-b654-68a566b5910a")
+		"--alert-id", "0b7c4d05-5f6a-4b8c-9d0e-1f2a3b4c5d6e")
 	if runError == nil {
 		t.Fatal("an API failure must surface")
 	}

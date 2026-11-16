@@ -29,11 +29,11 @@ const (
 	fakeServiceClusterID    = "c1a2b3c4-0000-4000-8000-000000000001"
 	fakeServiceApplication  = "0a000000-0000-4000-8000-000000000002"
 	fakeServiceInstanceID   = "c9b96bb8-0000-4000-8000-000000000003"
-	fakeServiceConsumerID   = "5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11"
+	fakeServiceConsumerID   = "0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f"
 	fakeServicePackageID    = "a5e62beb-cbe7-4340-9986-635e09cf086e"
-	fakeServiceReviewID     = "0b6f2a8e-3a1c-4b8e-9a51-2c7d4f1e9a20"
-	fakeServiceRetirementID = "7d3c1f0a-5b2e-4c9d-8e1f-0a2b3c4d5e6f"
-	fakeServiceOrganisation = "3b7dccca-0788-4470-9910-19478ae345ae"
+	fakeServiceReviewID     = "0b7c4d1b-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
+	fakeServiceRetirementID = "0b7c4d1a-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
+	fakeServiceOrganisation = "0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	// fakeMemberProfileID and its version are a stack profile this
 	// organisation owns, which init pins a package to.
 	fakeMemberProfileID        = "d1a90000-0000-4000-8000-000000000001"
@@ -146,7 +146,7 @@ func (platform *fakeServicesPlatform) instance() map[string]any {
 
 // fakeServiceOrphanConsumerID is a binding whose application was removed:
 // it no longer reads by id, but can still be removed at its revision.
-const fakeServiceOrphanConsumerID = "5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1cd0"
+const fakeServiceOrphanConsumerID = "0b7c4d19-0d7a-4c55-a6f4-2f1f4a9b1cd0"
 
 var fakeServiceBindingRevisions = map[string]string{fakeServiceConsumerID: "4", fakeServiceOrphanConsumerID: "2"}
 
@@ -405,7 +405,7 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 	case request.Method == http.MethodPost && path == admission+"/consumers":
 		var body client.ServiceConsumerRequest
 		_ = json.Unmarshal(bodyBytes, &body)
-		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"id": "5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c99",
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"id": "0b7c4d19-0d7a-4c55-a6f4-2f1f4a9b1c99",
 			"application_id": body.ApplicationID, "organisation_id": fakeServiceOrganisation, "cluster_id": body.ClusterID,
 			"namespace": body.Namespace, "region": "eu-north-1", "data_boundary": "eu", "policy_revision": 3, "binding_revision": 1,
 			"binding_kind": "planned", "installation_id": nil, "local_only": body.LocalOnly})
@@ -1423,7 +1423,7 @@ func TestServicesDeleteResumesAPendingRetirementAcrossPages(t *testing.T) {
 func TestServicesRetirementsListFollowsTheCursor(t *testing.T) {
 	platform := newFakeServicesPlatform(t)
 	second := fakeServiceRetirement("pending")
-	second["id"] = "7d3c1f0a-5b2e-4c9d-8e1f-0a2b3c4d5e70"
+	second["id"] = "0b7c4d1a-5b2e-4c9d-8e1f-0a2b3c4d5e70"
 	platform.pendingPages = [][]map[string]any{{fakeServiceRetirement("pending")}, {}, {second}}
 	stdout, _, runError := runServicesCommand(t, platform, "", "retirements", "list", "orders-db", "--state", "pending", "-o", "json")
 	if runError != nil {
@@ -1433,7 +1433,7 @@ func TestServicesRetirementsListFollowsTheCursor(t *testing.T) {
 	if decodeError := json.Unmarshal([]byte(stdout), &listed); decodeError != nil {
 		t.Fatalf("%v\n%s", decodeError, stdout)
 	}
-	if len(listed) != 2 || listed[1].ID != "7d3c1f0a-5b2e-4c9d-8e1f-0a2b3c4d5e70" {
+	if len(listed) != 2 || listed[1].ID != "0b7c4d1a-5b2e-4c9d-8e1f-0a2b3c4d5e70" {
 		t.Fatalf("expected both pages' retirements, got %+v", listed)
 	}
 	if listings := platform.requests(http.MethodGet, "/retirements"); len(listings) != 3 {
@@ -1729,7 +1729,7 @@ func TestServicesConsumersBindNamesAnExistingBinding(t *testing.T) {
 		`","namespace":"billing","allow_planned":true,"local_only":false,"expected_revision":0}` {
 		t.Fatalf("unexpected bind requests %+v", binds)
 	}
-	if !strings.Contains(stdout, "--consumer 5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c99") {
+	if !strings.Contains(stdout, "--consumer 0b7c4d19-0d7a-4c55-a6f4-2f1f4a9b1c99") {
 		t.Errorf("bind must print the consumer id setup takes:\n%s", stdout)
 	}
 

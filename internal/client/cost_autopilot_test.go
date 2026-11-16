@@ -20,7 +20,7 @@ const costAutopilotGolden = `{"is_set":true,` +
 	`"updated_at":"2026-09-20T10:00:00Z","environment_kinds":["production","staging","development","preview","unknown"],` +
 	`"tiers":[{"tier":"hands-off","name":"Hands-off","applies_to":"Production","does":"Nothing on its own.",` +
 	`"proposes":"Every change, for a person to approve.","rollback_window":"-"}],` +
-	`"clusters":[{"cluster_id":"11111111-1111-4111-8111-111111111111","cluster_name":"eu-production","environment":"production",` +
+	`"clusters":[{"cluster_id":"0b7c4d0c-1111-4111-8111-111111111111","cluster_name":"eu-production","environment":"production",` +
 	`"environment_kind":"production","override":null,` +
 	`"reason":"eu-production is Hands-off as a production cluster, so every change waits for a person.","source":"environment","tier":"hands-off"},` +
 	`{"cluster_id":"33333333-3333-4333-8333-333333333333","cluster_name":"staging-1","environment":"stage","environment_kind":"staging",` +

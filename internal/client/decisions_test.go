@@ -18,12 +18,12 @@ const (
 // decisionProposalJSON builds one DecisionProposal body in the shape the
 // cluster's openapi.json declares, every required member present.
 func decisionProposalJSON(id, kind, status, plan, extra string) string {
-	return `{"id":"` + id + `","area":"cost","kind":"` + kind + `","subject":{"cluster_id":"11111111-1111-4111-8111-111111111111"},` +
+	return `{"id":"` + id + `","area":"cost","kind":"` + kind + `","subject":{"cluster_id":"0b7c4d0c-1111-4111-8111-111111111111"},` +
 		`"summary":"Summary of ` + kind + `","plan":` + plan + `,"evidence":{},"status":"` + status + `","source":"surface",` +
 		`"created_by":null,"decided_by":null,"decided_at":null,"decision_note":null,"operation_id":null,"receipt":null,` +
 		`"dedupe_key":"` + kind + `:c1","executable":true,"expected_monthly_cents":null,"baseline_monthly_cents":null,` +
 		`"baseline_window":null,"measured_monthly_cents":null,"measured_at":null,"measurement_status":"not_applicable",` +
-		`"verify_until":null,"subject_cluster_id":"11111111-1111-4111-8111-111111111111","verification_status":"not_applicable",` +
+		`"verify_until":null,"subject_cluster_id":"0b7c4d0c-1111-4111-8111-111111111111","verification_status":"not_applicable",` +
 		`"verification_days":[],"rollback_of":null,"parent_id":null,"created_at":"2026-09-20T08:00:00Z",` +
 		`"updated_at":"2026-09-21T08:00:00Z","run_after":null` + extra + `}`
 }

@@ -37,7 +37,7 @@ func newApplicationCredentialGetCommand() *cobra.Command {
 	getCommand := &cobra.Command{
 		Use:     "get <application-id>",
 		Short:   "Show the GitHub credential an application is bound to",
-		Example: "  ankra application credential get 23298741-6a5a-401a-a681-66f31fbdebe1",
+		Example: "  ankra application credential get 0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -67,7 +67,7 @@ func newApplicationCredentialSetCommand() *cobra.Command {
 The credential must exist. Whether its App installation reaches the repository
 is reported in the answer (resolved / message) rather than refused, since a
 re-bind is usually how an application gets off an installation that cannot.`,
-		Example: "  ankra application credential set 67f4ba9c-2dbe-42e2-8e93-a3431bb464fb --credential github-app-acme",
+		Example: "  ankra application credential set 0b7c4d07-5f6a-4b8c-9d0e-1f2a3b4c5d6e --credential github-app-acme",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {

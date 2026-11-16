@@ -12,7 +12,7 @@ import (
 	"ankra/internal/client"
 )
 
-const costNamespacesClusterID = "1834920e-3001-4157-8938-33c447031033"
+const costNamespacesClusterID = "0b7c4d11-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 type costNamespacesMock struct {
 	baseMock

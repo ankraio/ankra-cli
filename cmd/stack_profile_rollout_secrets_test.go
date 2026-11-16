@@ -107,7 +107,7 @@ func TestStackProfilesRolloutViaApplyRefusesTargetsWithRecordedInputs(t *testing
 	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
 	mock := &secretExportMock{rolloutMock: newRolloutMock()}
 	mock.deployments = `{"current_version": 2, "result": [
-  {"id": "i-1", "target_cluster_id": "11111111-1111-1111-1111-111111111111", "cluster_name": "prod-eu", "stack_name": "hello-fleet", "stack_state": "up", "version": 1, "outdated": true, "created_at": "2026-09-10T19:49:37Z",
+  {"id": "i-1", "target_cluster_id": "0b7c4d0c-1111-1111-1111-111111111111", "cluster_name": "prod-eu", "stack_name": "hello-fleet", "stack_state": "up", "version": 1, "outdated": true, "created_at": "2026-09-10T19:49:37Z",
    "parameters": [{"name": "hostname", "value": "shop.example.com"}]}
 ]}`
 	_, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--cluster", "prod-eu", "--via-apply")

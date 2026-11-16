@@ -11,7 +11,7 @@ import (
 	"ankra/internal/client"
 )
 
-const summaryTestID = "11111111-1111-4111-8111-111111111111"
+const summaryTestID = "0b7c4d0c-1111-4111-8111-111111111111"
 
 type profileSummaryMock struct {
 	baseMock

@@ -11,7 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const objectCostTestClusterID = "1834920e-3001-4157-8938-33c447031033"
+const objectCostTestClusterID = "0b7c4d11-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 // TestGetObjectCost_ReadsEachKindsRoute pins the route of every kind and
 // that the namespace and stack segments are path-escaped, so a name with a
@@ -31,10 +31,10 @@ func TestGetObjectCost_ReadsEachKindsRoute(t *testing.T) {
 			"/api/v1/org/cloud-cost/objects/namespace/" + objectCostTestClusterID + "/a%2Fb"},
 		{"stack escaped", ObjectCostKindStack, []string{objectCostTestClusterID, "web app/v2?x#y"},
 			"/api/v1/org/cloud-cost/objects/stack/" + objectCostTestClusterID + "/web%20app%2Fv2%3Fx%23y"},
-		{"application", ObjectCostKindApplication, []string{"2b8c7c1e-7d6a-4f0e-9d3c-0c5a1b2c3d4e"},
-			"/api/v1/org/cloud-cost/objects/application/2b8c7c1e-7d6a-4f0e-9d3c-0c5a1b2c3d4e"},
-		{"credential", ObjectCostKindCredential, []string{"9f1d2e3c-4b5a-4968-8776-655443322110"},
-			"/api/v1/org/cloud-cost/objects/credential/9f1d2e3c-4b5a-4968-8776-655443322110"},
+		{"application", ObjectCostKindApplication, []string{"0b7c4d13-5f6a-4b8c-9d0e-1f2a3b4c5d6e"},
+			"/api/v1/org/cloud-cost/objects/application/0b7c4d13-5f6a-4b8c-9d0e-1f2a3b4c5d6e"},
+		{"credential", ObjectCostKindCredential, []string{"0b7c4d14-5f6a-4b8c-9d0e-1f2a3b4c5d6e"},
+			"/api/v1/org/cloud-cost/objects/credential/0b7c4d14-5f6a-4b8c-9d0e-1f2a3b4c5d6e"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

@@ -238,7 +238,7 @@ func TestClusterExportPrintsAndWritesTheYAML(t *testing.T) {
 }
 
 func TestHeldUpdatesTakeSendsTheFingerprint(t *testing.T) {
-	notificationID := "0b6f1c1e-7c0e-4b7e-9a57-0d5f3c1a2b3c"
+	notificationID := "0b7c4d0f-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	path := "/api/v1/org/clusters/" + testClusterID + "/held-platform-updates/" + notificationID + "/take"
 	recorder := newClusterParityServer(t, map[string]string{
 		"POST " + path: `{"cluster_id":"c1","notification_id":"n1","taken":[{"stack":"platform","member_kind":"addon","member":"cert-manager","pin_kind":"chart_version","image":"","running":"1.15.0","pinned":"1.16.1","reason":"production"}],"kept":[{"stack":"platform","member_kind":"addon","member":"traefik","pin_kind":"chart_version","image":"","running":"30.0.0","pinned":"31.0.0","reason":"customer_version"}]}`,
@@ -259,7 +259,7 @@ func TestHeldUpdatesTakeSendsTheFingerprint(t *testing.T) {
 }
 
 func TestHeldUpdatesTakeOnAChangedCardSaysNothingWasTaken(t *testing.T) {
-	notificationID := "0b6f1c1e-7c0e-4b7e-9a57-0d5f3c1a2b3c"
+	notificationID := "0b7c4d0f-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	path := "/api/v1/org/clusters/" + testClusterID + "/held-platform-updates/" + notificationID + "/take"
 	recorder := newClusterParityServer(t, map[string]string{"POST " + path: `{"detail":"The card changed since it was read"}`})
 	recorder.statuses["POST "+path] = http.StatusConflict

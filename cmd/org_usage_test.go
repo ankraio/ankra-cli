@@ -536,9 +536,9 @@ func TestOrgUsageByInstanceTellsSameNamedInstancesApart(t *testing.T) {
 	first := usageLineFixture("service_storage_byte_hours", "byte_hours", int64Pointer(20_000_000_000), "partial", "included", "pilot", nil)
 	first["instance_id"], first["instance_name"] = "c9b96bb8-0000-4000-8000-000000000003", "orders-db"
 	second := usageLineFixture("service_storage_byte_hours", "byte_hours", nil, "unknown", "included", "pilot", nil)
-	second["instance_id"], second["instance_name"] = "7d3c1f0a-0000-4000-8000-000000000004", "orders-db"
+	second["instance_id"], second["instance_name"] = "0b7c4d1a-0000-4000-8000-000000000004", "orders-db"
 	unique := usageLineFixture("service_instance_seconds", "seconds", int64Pointer(60), "complete", "included", "pilot", nil)
-	unique["instance_id"], unique["instance_name"] = "5b1f0c7e-0000-4000-8000-000000000005", "app-cache"
+	unique["instance_id"], unique["instance_name"] = "0b7c4d19-0000-4000-8000-000000000005", "app-cache"
 	platform := newUsageFakePlatform(t, http.StatusOK, usageReportFixture("instance", "month", first, second, unique))
 	stdout, _, runError := runOrgUsageCommand(t, platform, "--group-by", "instance")
 	if runError != nil {
@@ -551,10 +551,10 @@ func TestOrgUsageByInstanceTellsSameNamedInstancesApart(t *testing.T) {
 	if row := usageRowFor(t, output, "orders-db (c9b96bb8)"); !strings.Contains(row, ">= 20.0 GB-hours") || !strings.Contains(row, "included (pilot)") {
 		t.Errorf("the first orders-db should read its own quantity: %q", row)
 	}
-	if row := usageRowFor(t, output, "orders-db (7d3c1f0a)"); !strings.Contains(row, "not measured") {
+	if row := usageRowFor(t, output, "orders-db (0b7c4d1a)"); !strings.Contains(row, "not measured") {
 		t.Errorf("the second orders-db should read its own quantity: %q", row)
 	}
-	if row := usageRowFor(t, output, "app-cache"); strings.Contains(row, "(5b1f0c7e)") || !strings.Contains(row, "1 minute") {
+	if row := usageRowFor(t, output, "app-cache"); strings.Contains(row, "(0b7c4d19)") || !strings.Contains(row, "1 minute") {
 		t.Errorf("a name no other instance has needs no id: %q", row)
 	}
 }

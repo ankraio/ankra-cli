@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	costObjectClusterID     = "1834920e-3001-4157-8938-33c447031033"
+	costObjectClusterID     = "0b7c4d11-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	costObjectStagingID     = "5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
-	costObjectApplicationID = "2b8c7c1e-7d6a-4f0e-9d3c-0c5a1b2c3d4e"
+	costObjectApplicationID = "0b7c4d13-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 )
 
 type costObjectMock struct {
@@ -165,7 +165,7 @@ func TestCostObjectClusterPriced(t *testing.T) {
 func TestCostObjectFloorNamesTheClusterThatContributedNothing(t *testing.T) {
 	document := `{
   "kind": "credential",
-  "object": {"id": "9f1d2e3c-4b5a-4968-8776-655443322110", "name": "aws-prod", "cluster_id": null, "cluster_name": null},
+  "object": {"id": "0b7c4d14-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "name": "aws-prod", "cluster_id": null, "cluster_name": null},
   "currency": "eur",
   "priced": true, "unpriced_reason": null,
   "monthly_cents": 50000, "idle_pct": 20, "share_of_fleet_pct": 10, "confidence": "medium",
@@ -180,12 +180,12 @@ func TestCostObjectFloorNamesTheClusterThatContributedNothing(t *testing.T) {
   "snapshot_stale_after_hours": 26
 }`
 	output, runError := runCostObjectCommand(t, &costObjectMock{projection: decodeObjectCost(t, document)},
-		"cost", "object", "credential", "9f1d2e3c-4b5a-4968-8776-655443322110")
+		"cost", "object", "credential", "0b7c4d14-5f6a-4b8c-9d0e-1f2a3b4c5d6e")
 	if runError != nil {
 		t.Fatalf("run: %v", runError)
 	}
 	for _, want := range []string{
-		"Cost of credential aws-prod (9f1d2e3c-4b5a-4968-8776-655443322110), in EUR",
+		"Cost of credential aws-prod (0b7c4d14-5f6a-4b8c-9d0e-1f2a3b4c5d6e), in EUR",
 		"Monthly run rate:  at least €500.00 (a floor: coverage is incomplete)",
 		"Coverage:          incomplete, so the monthly figure is a floor",
 		"Contributed nothing: staging-eu (not priced: no cost snapshot in the last 26 hours)",
@@ -443,7 +443,7 @@ func TestCostObjectTrendScalesWithoutOverflow(t *testing.T) {
 func flaggedCredentialProjection() string {
 	return `{
   "kind": "credential",
-  "object": {"id": "9f1d2e3c-4b5a-4968-8776-655443322110", "name": "aws-prod", "cluster_id": null, "cluster_name": null},
+  "object": {"id": "0b7c4d14-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "name": "aws-prod", "cluster_id": null, "cluster_name": null},
   "currency": "usd",
   "priced": true, "unpriced_reason": null,
   "monthly_cents": 70000, "idle_pct": 20, "share_of_fleet_pct": 10, "confidence": "medium",
@@ -466,7 +466,7 @@ func flaggedCredentialProjection() string {
 // one stays under "Contributed nothing", and the general sentence is gone.
 func TestCostObjectFloorNamesThePartlyPricedCluster(t *testing.T) {
 	output, runError := runCostObjectCommand(t, &costObjectMock{projection: decodeObjectCost(t, flaggedCredentialProjection())},
-		"cost", "object", "credential", "9f1d2e3c-4b5a-4968-8776-655443322110")
+		"cost", "object", "credential", "0b7c4d14-5f6a-4b8c-9d0e-1f2a3b4c5d6e")
 	if runError != nil {
 		t.Fatalf("run: %v", runError)
 	}
@@ -508,7 +508,7 @@ func TestCostObjectFloorFromAnOlderPlatformKeepsTheGeneralSentence(t *testing.T)
 		t.Fatalf("fixture still carries a per-cluster flag:\n%s", document)
 	}
 	output, runError := runCostObjectCommand(t, &costObjectMock{projection: decodeObjectCost(t, document)},
-		"cost", "object", "credential", "9f1d2e3c-4b5a-4968-8776-655443322110")
+		"cost", "object", "credential", "0b7c4d14-5f6a-4b8c-9d0e-1f2a3b4c5d6e")
 	if runError != nil {
 		t.Fatalf("run: %v", runError)
 	}
@@ -527,7 +527,7 @@ func TestCostObjectFloorFromAnOlderPlatformKeepsTheGeneralSentence(t *testing.T)
 func TestCostObjectStructuredOutputKeepsTheClusterFlags(t *testing.T) {
 	document := flaggedCredentialProjection()
 	output, runError := runCostObjectCommand(t, &costObjectMock{projection: decodeObjectCost(t, document)},
-		"cost", "object", "credential", "9f1d2e3c-4b5a-4968-8776-655443322110", "-o", "json")
+		"cost", "object", "credential", "0b7c4d14-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "-o", "json")
 	if runError != nil {
 		t.Fatalf("run: %v", runError)
 	}
@@ -552,7 +552,7 @@ func TestCostObjectFloorWithFlagsButNoClusterToName(t *testing.T) {
 	document = strings.Replace(document, `"priced": false, "monthly_cents": null, "confidence": null, "coverage_incomplete": null}`,
 		`"priced": true, "monthly_cents": 1000, "confidence": "low", "coverage_incomplete": false}`, 1)
 	output, runError := runCostObjectCommand(t, &costObjectMock{projection: decodeObjectCost(t, document)},
-		"cost", "object", "credential", "9f1d2e3c-4b5a-4968-8776-655443322110")
+		"cost", "object", "credential", "0b7c4d14-5f6a-4b8c-9d0e-1f2a3b4c5d6e")
 	if runError != nil {
 		t.Fatalf("run: %v", runError)
 	}

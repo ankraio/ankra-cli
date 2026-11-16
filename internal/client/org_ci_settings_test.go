@@ -104,7 +104,7 @@ func TestOrganisationCISettingsLaneParity(t *testing.T) {
 // that catches the omission is one that asserts the whole record.
 func TestGetOrganisationCISettingsDecodesEveryField(t *testing.T) {
 	const productionShape = `{
-		"ci_cluster_id": "858f9fb3-b2d1-4568-86e4-600de3944130",
+		"ci_cluster_id": "0b7c4d27-5f6a-4b8c-9d0e-1f2a3b4c5d6e",
 		"ci_cluster_name": "launch-week-2026",
 		"ci_build_fallback": "platform_builders",
 		"ci_max_parallel_runs": 4,
@@ -129,7 +129,7 @@ func TestGetOrganisationCISettingsDecodesEveryField(t *testing.T) {
 	if getError != nil {
 		t.Fatalf("GetOrganisationCISettings error = %v", getError)
 	}
-	if settings.ClusterID == nil || *settings.ClusterID != "858f9fb3-b2d1-4568-86e4-600de3944130" {
+	if settings.ClusterID == nil || *settings.ClusterID != "0b7c4d27-5f6a-4b8c-9d0e-1f2a3b4c5d6e" {
 		t.Errorf("ClusterID = %v", settings.ClusterID)
 	}
 	if settings.ClusterName == nil || *settings.ClusterName != "launch-week-2026" {
@@ -314,7 +314,7 @@ func TestOrganisationCISettingsRelaysBothRefusalShapes(t *testing.T) {
 // whole record is asserted.
 func TestGetOrganisationCICapacityDecodesEveryField(t *testing.T) {
 	const platformShape = `{
-		"cluster_id": "858f9fb3-b2d1-4568-86e4-600de3944130",
+		"cluster_id": "0b7c4d27-5f6a-4b8c-9d0e-1f2a3b4c5d6e",
 		"cluster_name": "build-01",
 		"ci_worker_count": 32,
 		"is_live_resize_supported": true,
@@ -341,7 +341,7 @@ func TestGetOrganisationCICapacityDecodesEveryField(t *testing.T) {
 	if seenMethod != http.MethodGet || seenPath != "/api/v1/org/ci-settings/capacity" {
 		t.Errorf("request = %s %s", seenMethod, seenPath)
 	}
-	clusterID := "858f9fb3-b2d1-4568-86e4-600de3944130"
+	clusterID := "0b7c4d27-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	clusterName := "build-01"
 	expected := OrganisationCICapacity{
 		ClusterID:                       &clusterID,

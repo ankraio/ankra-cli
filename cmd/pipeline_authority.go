@@ -214,7 +214,7 @@ func newPipelineAuthorityDismissCommand() *cobra.Command {
 		Long: `Decline a pending request with a reason the run's check run and run page then
 show. Requires pipelines.manage and a human actor: a service-account token is
 refused. A request already approved, dismissed or superseded answers 409.`,
-		Example: `  ankra pipeline authority dismiss 0b8f6c2e-0000-4000-8000-000000000001 --reason "use the shared cache size"`,
+		Example: `  ankra pipeline authority dismiss 0b7c4d01-5f6a-4b8c-9d0e-1f2a3b4c5d6e --reason "use the shared cache size"`,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -386,7 +386,7 @@ the cluster the volume lives on, and when it lapses the organisation's cache
 retention. A cache is scoped to the default branch or to every other branch;
 the two never share a volume. Requires pipelines.read.`,
 		Example: `  ankra pipeline caches --application my-app
-  ankra pipeline caches --repository 5f0c1d6e-0000-4000-8000-000000000001 -o json`,
+  ankra pipeline caches --repository 0b7c4d04-5f6a-4b8c-9d0e-1f2a3b4c5d6e -o json`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			cursor, limit, pageError := pipelinePageFlags(command)

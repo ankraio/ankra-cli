@@ -57,7 +57,7 @@ that mode means for rollbacks.
 To see what the next deploy of specific images would do, use
 'ankra application provenance verify'.`,
 		Example: `  ankra application provenance get shop
-  ankra application provenance get 23298741-6a5a-401a-a681-66f31fbdebe1 -o json`,
+  ankra application provenance get 0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e -o json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {

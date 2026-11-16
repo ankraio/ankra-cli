@@ -74,7 +74,7 @@ func (m *clusterUpgradeMock) UpgradeAwsK8sVersion(clusterID, targetVersion strin
 }
 
 func TestClusterUpgrade_DispatchesByKind(t *testing.T) {
-	const clusterID = "62f4559a-a44d-46d7-aab3-a57c9dd6b4c6"
+	const clusterID = "0b7c4d0e-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	const targetVersion = "v1.36.1+k3s1"
 
 	cases := []struct {
@@ -132,7 +132,7 @@ func TestClusterUpgrade_DispatchesByKind(t *testing.T) {
 }
 
 func TestClusterUpgrade_ForcePropagates(t *testing.T) {
-	const clusterID = "62f4559a-a44d-46d7-aab3-a57c9dd6b4c6"
+	const clusterID = "0b7c4d0e-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 	for _, force := range []bool{false, true} {
 		mock := &clusterUpgradeMock{

@@ -37,7 +37,7 @@ jobs:
         run: curl -fsSL https://get.ankra.io | sh      # or your usual install step
       - name: Sign in to Ankra
         env:
-          ANKRA_ORG: 3b7dccca-0788-4470-9910-19478ae345ae   # your organisation id
+          ANKRA_ORG: 0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e   # your organisation id
         run: ankra login --github-oidc
       - run: ankra cluster list
 ```

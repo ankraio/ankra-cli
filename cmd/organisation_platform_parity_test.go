@@ -545,7 +545,7 @@ func TestSecurityEvidenceSubmitThatStaysUploadedExitsNonZero(t *testing.T) {
 	}
 }
 
-const serviceCredentialFamilyID = "5b1f0c7e-3a55-4d0b-9a57-0d5f3c1a2b3c"
+const serviceCredentialFamilyID = "0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 const serviceCredentialFamilyJSON = `{"id":"` + serviceCredentialFamilyID + `","name":"orders-db-password","created_at":"2026-11-01T10:00:00Z","active_value_id":null}`
 

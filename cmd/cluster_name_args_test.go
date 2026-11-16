@@ -15,7 +15,7 @@ import (
 // treats every other argument as a cluster name. Every command test that
 // passes a cluster argument uses it: a placeholder like "cluster-1" is a NAME
 // now, and sends the command to the cluster listing instead (ankra-aprvp).
-const testClusterID = "62f4559a-a44d-46d7-aab3-a57c9dd6b4c6"
+const testClusterID = "0b7c4d0e-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 // clusterArgMock answers the cluster listing that resolveClusterArg pages
 // through, and records the ids the commands under test forward to the API.
@@ -74,7 +74,7 @@ func withClusterArgMock(t *testing.T, mock *clusterArgMock) {
 
 func newClusterArgMock() *clusterArgMock {
 	return &clusterArgMock{clusters: []client.ClusterListItem{
-		{ID: "11111111-2222-4333-8444-555555555555", Name: "other"},
+		{ID: "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f", Name: "other"},
 		{ID: testClusterID, Name: "prod-eu"},
 	}}
 }
@@ -182,11 +182,11 @@ func TestClusterMeshReadinessResolvesEveryArgumentAndLabelsWhatWasTyped(t *testi
 
 	output := captureStdout(t, func() {
 		if err := clusterMeshReadinessCmd.RunE(clusterMeshReadinessCmd,
-			[]string{"prod-eu", "11111111-2222-4333-8444-555555555555"}); err != nil {
+			[]string{"prod-eu", "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f"}); err != nil {
 			t.Fatalf("readiness by name failed: %v", err)
 		}
 	})
-	want := []string{testClusterID, "11111111-2222-4333-8444-555555555555"}
+	want := []string{testClusterID, "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f"}
 	if len(mock.readinessRequested) != 2 ||
 		mock.readinessRequested[0] != want[0] || mock.readinessRequested[1] != want[1] {
 		t.Errorf("every argument must resolve, requested %v want %v", mock.readinessRequested, want)
@@ -240,7 +240,7 @@ func TestEveryClusterArgumentAdvertisesTheName(t *testing.T) {
 func TestResolveClusterArgRefusesAnAmbiguousName(t *testing.T) {
 	withClusterArgMock(t, &clusterArgMock{clusters: []client.ClusterListItem{
 		{ID: testClusterID, Name: "Prod-EU"},
-		{ID: "11111111-2222-4333-8444-555555555555", Name: "prod-eu"},
+		{ID: "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f", Name: "prod-eu"},
 	}})
 
 	_, err := resolveClusterArg("PROD-eu")
@@ -258,7 +258,7 @@ func TestResolveClusterArgRefusesAnAmbiguousName(t *testing.T) {
 // case-insensitive twin rather than being reported as ambiguous.
 func TestResolveClusterArgPrefersTheExactName(t *testing.T) {
 	withClusterArgMock(t, &clusterArgMock{clusters: []client.ClusterListItem{
-		{ID: "11111111-2222-4333-8444-555555555555", Name: "PROD-EU"},
+		{ID: "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f", Name: "PROD-EU"},
 		{ID: testClusterID, Name: "prod-eu"},
 	}})
 
@@ -344,7 +344,7 @@ func TestUnresolvedClusterNameExitsNotFoundLikeTheIDPath(t *testing.T) {
 			// by case.
 			mock: &clusterArgMock{clusters: []client.ClusterListItem{
 				{ID: testClusterID, Name: "Prod-EU"},
-				{ID: "11111111-2222-4333-8444-555555555555", Name: "PROD-eu"},
+				{ID: "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f", Name: "PROD-eu"},
 			}},
 			argument: "prod-eu",
 			wantCode: exitUsage,

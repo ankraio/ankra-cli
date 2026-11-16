@@ -187,7 +187,7 @@ var clusterOperationsHoldSetCmd = withClusterArgument(clusterMustBeNamed, &cobra
 or shortens the hold to the new duration; both are audited.
 
 Examples:
-  ankra cluster operations hold set 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 --for 4h --reason "k3s hop failed, manual rollback"`,
+  ankra cluster operations hold set 0b7c4d0e-5f6a-4b8c-9d0e-1f2a3b4c5d6e --for 4h --reason "k3s hop failed, manual rollback"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		duration, _ := cmd.Flags().GetDuration("for")
@@ -317,7 +317,7 @@ This is an Ankra staff operation: set ANKRA_STAFF_SESSION and pass the cluster
 by id. It asks for confirmation unless --yes is given.
 
 Examples:
-  ankra cluster upgrade rollback-record 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 v1.34.5+k3s1 --reason "cp-0 rolled back (tier 1)"`,
+  ankra cluster upgrade rollback-record 0b7c4d0e-5f6a-4b8c-9d0e-1f2a3b4c5d6e v1.34.5+k3s1 --reason "cp-0 rolled back (tier 1)"`,
 	Args:        cobra.ExactArgs(2),
 	Annotations: map[string]string{annotationRequiresAuth: "false", annotationClusterIDOnly: staffClusterIDOnlyReason},
 	RunE: func(cmd *cobra.Command, args []string) error {

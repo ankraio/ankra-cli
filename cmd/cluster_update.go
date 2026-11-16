@@ -84,7 +84,7 @@ cluster on its own (never on production), so a relabel aimed at the wrong
 cluster could switch that on for a production cluster.`,
 	Example: `  ankra cluster update so-infrastructure --environment development
   ankra cluster update --cluster eu-qa-01 --environment eu-qa --criticality staging
-  ankra cluster update 3d0e2935-963b-4c7b-a494-b7266776ec68 --environment production -o json`,
+  ankra cluster update 0b7c4d10-5f6a-4b8c-9d0e-1f2a3b4c5d6e --environment production -o json`,
 	// The cluster argument may be left out for --cluster, which the run
 	// reads itself, by name or id, as it always has; named nowhere, the
 	// resolver refuses before the run (clusterMustBeNamed).

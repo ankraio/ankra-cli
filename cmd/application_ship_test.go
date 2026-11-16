@@ -653,7 +653,7 @@ func TestApplicationShipWithAMatchingNameAdoptsThatApplication(t *testing.T) {
 	fastShipPolling(t)
 	mockClient := newApplicationShipMock()
 	mockClient.listApplicationsPayloads = [][]byte{
-		[]byte(`{"result":[{"id":"` + testApplicationID + `","name":"shop","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"},{"id":"11111111-2222-4333-8444-555566667777","name":"pulsecheck","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"}],"pagination":{"total_pages":1}}`),
+		[]byte(`{"result":[{"id":"` + testApplicationID + `","name":"shop","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"},{"id":"0b7c4d0c-2222-4333-8444-555566667777","name":"pulsecheck","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"}],"pagination":{"total_pages":1}}`),
 	}
 	mockClient.applicationDetailPayloads = [][]byte{
 		[]byte(`{"id":"` + testApplicationID + `","name":"shop","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main","pull_request_url":"https://github.com/acme/shop/pull/1","pull_request_merged_at":"2026-09-01T10:00:00Z"}`),
@@ -677,7 +677,7 @@ func TestApplicationShipRefusesAMultiApplicationRepositoryWithoutAName(t *testin
 	fastShipPolling(t)
 	mockClient := newApplicationShipMock()
 	mockClient.listApplicationsPayloads = [][]byte{
-		[]byte(`{"result":[{"id":"` + testApplicationID + `","name":"shipfortune","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"},{"id":"11111111-2222-4333-8444-555566667777","name":"pulsecheck","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"}],"pagination":{"total_pages":1}}`),
+		[]byte(`{"result":[{"id":"` + testApplicationID + `","name":"shipfortune","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"},{"id":"0b7c4d0c-2222-4333-8444-555566667777","name":"pulsecheck","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"}],"pagination":{"total_pages":1}}`),
 	}
 	_, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
 	if executeError == nil {

@@ -172,7 +172,7 @@ func TestGetClusterAccessPolicyReadsThePolicy(t *testing.T) {
 // made in the wrong organisation can be told from the right one.
 func TestGetClusterAccessPolicyReadsTheOrganisation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		_, _ = writer.Write([]byte(`{"policy":{"creator_grant_role":"view","max_grant_role":"edit","elevated_max_ttl_seconds":null,"require_reason_from_role":null,"is_configured":true},"organisation_id":"2f853b14-78b0-471a-937c-1ee13a08ddff","organisation_name":"Depict"}`))
+		_, _ = writer.Write([]byte(`{"policy":{"creator_grant_role":"view","max_grant_role":"edit","elevated_max_ttl_seconds":null,"require_reason_from_role":null,"is_configured":true},"organisation_id":"0b7c4d1c-5f6a-4b8c-9d0e-1f2a3b4c5d6e","organisation_name":"Depict"}`))
 	}))
 	defer server.Close()
 	apiClient := &Client{BaseURL: server.URL, Token: "t", HTTP: server.Client()}
@@ -180,7 +180,7 @@ func TestGetClusterAccessPolicyReadsTheOrganisation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if read.OrganisationID != "2f853b14-78b0-471a-937c-1ee13a08ddff" || read.Describe() != "Depict (2f853b14-78b0-471a-937c-1ee13a08ddff)" ||
+	if read.OrganisationID != "0b7c4d1c-5f6a-4b8c-9d0e-1f2a3b4c5d6e" || read.Describe() != "Depict (0b7c4d1c-5f6a-4b8c-9d0e-1f2a3b4c5d6e)" ||
 		read.Policy.MaxGrantRole != "edit" {
 		t.Fatalf("read = %+v (%q)", read, read.Describe())
 	}

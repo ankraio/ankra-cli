@@ -44,7 +44,7 @@ host, list the pages your organisation has published, and unpublish them.
 
   ankra canvas publish report.html --title "Q3 report"
   ankra canvas list
-  ankra canvas unpublish 3f0a2f7e-0000-4000-8000-000000000001
+  ankra canvas unpublish 0b7c4d0a-5f6a-4b8c-9d0e-1f2a3b4c5d6e
 
 Anyone holding the URL can open the page, so publish nothing you would not
 hand to that audience. Pages are static snapshots, expire after a retention
@@ -55,8 +55,8 @@ The saved canvases behind the portal's canvas pages are a separate library:
 'revisions' and 'comments' read its history and its comment threads.
 
   ankra canvas library
-  ankra canvas get 3f0a2f7e-0000-4000-8000-000000000001 --content > report.html
-  ankra canvas comments list 3f0a2f7e-0000-4000-8000-000000000001`,
+  ankra canvas get 0b7c4d0a-5f6a-4b8c-9d0e-1f2a3b4c5d6e --content > report.html
+  ankra canvas comments list 0b7c4d0a-5f6a-4b8c-9d0e-1f2a3b4c5d6e`,
 }
 
 var canvasPublishCmd = &cobra.Command{

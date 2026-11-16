@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	aiTaskTestID   = "0b8f6c2e-0000-4000-8000-000000000001"
+	aiTaskTestID   = "0b7c4d01-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	aiTaskTestPath = "/api/v1/org/ai-tasks/" + aiTaskTestID
 	aiTaskTestBody = `{"id":"` + aiTaskTestID + `","name":"Nightly cost review","goal_prompt":"Review spend",
 		"trigger":{"kind":"cron","cron_expression":"0 6 * * *"},"tool_profile":"read_only","autonomy_level":"propose",
@@ -190,7 +190,7 @@ func TestAITasksRunsListsWithTheLimit(t *testing.T) {
 }
 
 func TestAITaskTemplatesListAndHire(t *testing.T) {
-	const clusterID = "1fa7c8a4-5e42-4fd5-abff-15500899eda4"
+	const clusterID = "0b7c4d03-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	server, calls := serveDocuments(t, map[string]documentRoute{
 		"GET /api/v1/org/ai-tasks/templates": {http.StatusOK,
 			`{"templates":[{"id":"reviewer","name":"Reviewer","category":"board","autonomy_level":"propose","hired":false,"tagline":"Reviews tickets"}]}`},
@@ -254,7 +254,7 @@ func TestAIConditionsListAndGet(t *testing.T) {
 }
 
 func TestAIPlaybooksAdoptAndRetireAskFirst(t *testing.T) {
-	const playbookID = "5f0c1d6e-0000-4000-8000-000000000001"
+	const playbookID = "0b7c4d04-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	playbook := func(status string) string {
 		return `{"id":"` + playbookID + `","name":"Restart crash loop","version":2,"condition_kind":"crash_loop","status":"` +
 			status + `","risk_class":"low","clean_runs":4,"platform_template":false}`

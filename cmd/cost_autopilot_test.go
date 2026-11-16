@@ -85,7 +85,7 @@ func runCostAutopilotCommand(t *testing.T, mock APIClient, input string, args ..
 
 const (
 	autopilotStagingID = "33333333-3333-4333-8333-333333333333"
-	autopilotProdID    = "11111111-1111-4111-8111-111111111111"
+	autopilotProdID    = "0b7c4d0c-1111-4111-8111-111111111111"
 	autopilotUserID    = "77777777-7777-4777-8777-777777777777"
 )
 

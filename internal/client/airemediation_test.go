@@ -22,7 +22,7 @@ func TestGetAIRemediationPolicy_ReadsTheSavedPolicy(t *testing.T) {
 			"autonomy_level":           "auto",
 			"tier_overrides":           map[string]string{"apply_stack_changes": "auto"},
 			"slack_webhook_id":         "0b4f1b9e-0000-4000-8000-000000000001",
-			"approver_user_ids":        []string{"11111111-0000-4000-8000-000000000001"},
+			"approver_user_ids":        []string{"0b7c4d0c-0000-4000-8000-000000000001"},
 			"max_actions_per_incident": 7,
 			"cooldown_minutes":         15,
 			"cluster_allow_list":       []string{"22222222-0000-4000-8000-000000000002"},

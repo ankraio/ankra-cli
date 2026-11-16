@@ -47,7 +47,7 @@ func newManifestAddonGetCommand() *cobra.Command {
 		Use:     "get <addon-id>",
 		Short:   "Show a published manifest add-on",
 		Long:    "Show a published manifest add-on: its catalog entry, published versions, and what it declares.",
-		Example: "  ankra application manifest-addon get 8f2c1b90-4d6e-4a11-9c33-2f7a5b0e91d4",
+		Example: "  ankra application manifest-addon get 0b7c4d09-5f6a-4b8c-9d0e-1f2a3b4c5d6e",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {

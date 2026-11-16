@@ -84,7 +84,7 @@ The project id is required: it is not derivable from the key, and every
 resource Ankra creates is scoped to that one project.
 
 Examples:
-  ankra credentials scaleway create --name scw-production --project-id 11111111-2222-3333-4444-555555555555 --access-key SCWXXXXXXXXXXXXXXXXX`,
+  ankra credentials scaleway create --name scw-production --project-id 0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e --access-key SCWXXXXXXXXXXXXXXXXX`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		projectID, _ := cmd.Flags().GetString("project-id")

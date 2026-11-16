@@ -67,7 +67,7 @@ func TestEveryCostResponseKeepsTheResponseDocument(t *testing.T) {
 	}))
 	defer server.Close()
 	apiClient := New("test-token", server.URL)
-	const id = "11111111-1111-4111-8111-111111111111"
+	const id = "0b7c4d0c-1111-4111-8111-111111111111"
 
 	type carrier interface{ ResponseDocument() RawDocument }
 	reads := map[string]func() (carrier, error){
