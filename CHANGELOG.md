@@ -1,6 +1,12 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.78.0 - 2026-11-16
+
+Rename a cluster in place, mint and revoke alert ingest credentials, and turn
+CI playgrounds off or choose how long an idle one is kept, all from the
+terminal. Help and output text is corrected where it described behaviour the
+platform no longer has. Nothing is removed: every existing command, flag, exit
+code and `-o json` key is unchanged, so scripts need no change.
 
 ### Added
 
