@@ -98,7 +98,7 @@ func (m *terminalMock) GetTerminalTranscript(sessionID string, afterSequence int
 func TestOrgTerminalSessionSaysTheTranscriptWasPruned(t *testing.T) {
 	prunedAt := "2026-11-27T06:00:00Z"
 	mock := &terminalMock{session: &client.TerminalSession{
-		ID: "11111111-2222-4333-8444-555555555555", UserEmail: "ops@example.com",
+		ID: "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f", UserEmail: "ops@example.com",
 		Namespace: "payments", PodName: "api-6d8f9c7b5-x2kq9", ContainerName: "api", Shell: "/bin/sh",
 		StartedAt: "2026-08-28T22:00:00Z", RecordedBytes: 4096, TranscriptPrunedAt: &prunedAt,
 	}}
@@ -108,7 +108,7 @@ func TestOrgTerminalSessionSaysTheTranscriptWasPruned(t *testing.T) {
 		_ = orgTerminalSessionCmd.Flags().Set("show-input", "false")
 	})
 
-	output, err := executeCommand("org", "terminal-session", "11111111-2222-4333-8444-555555555555", "--transcript", "--show-input")
+	output, err := executeCommand("org", "terminal-session", "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f", "--transcript", "--show-input")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/pflag"
 )
 
-const domainTestClusterID = "3f0a2f7e-0000-4000-8000-0000000000aa"
+const domainTestClusterID = "0b7c4d0a-0000-4000-8000-0000000000aa"
 
 // clusterDomainMock records which DNS-zone verb the command reached for, so
 // the tests can prove the plain lookup never mutates.

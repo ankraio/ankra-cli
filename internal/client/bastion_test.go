@@ -157,7 +157,7 @@ func TestUpdateHetznerBastionInstanceType_InvalidStateSurfacesDetail(t *testing.
 // renders the failure fields only when the loop actually wrote them.
 func TestGetHetznerBastionHealth_ReturnsTheRecordedVerdict(t *testing.T) {
 	expectedResponse := BastionHealthResult{
-		ResourceID:          "11111111-1111-1111-1111-111111111111",
+		ResourceID:          "0b7c4d0c-1111-1111-1111-111111111111",
 		Kind:                "hetzner_bastion",
 		Provider:            "hetzner",
 		State:               "offline",
@@ -253,7 +253,7 @@ func TestDiagnoseHetznerBastion_ReturnsTheReport(t *testing.T) {
 	expectedResponse := BastionDiagnoseResult{
 		OperationID: "22222222-2222-2222-2222-222222222222",
 		StepID:      "33333333-3333-3333-3333-333333333333",
-		ResourceID:  "11111111-1111-1111-1111-111111111111",
+		ResourceID:  "0b7c4d0c-1111-1111-1111-111111111111",
 		JobName:     "hetzner_bastion_diagnose",
 		Status:      "completed",
 		Completed:   true,

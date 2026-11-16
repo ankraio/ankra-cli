@@ -484,8 +484,8 @@ func TestOrgAccessPolicyGetWarnsWhenItCannotCheckForAProposal(t *testing.T) {
 // applied.
 func TestOrgAccessPolicyCommandsNameTheOrganisation(t *testing.T) {
 	depictName := "Depict"
-	depict := client.ClusterAccessPolicyOrganisation{OrganisationID: "2f853b14-78b0-471a-937c-1ee13a08ddff", OrganisationName: &depictName}
-	const depictLine = "Depict (2f853b14-78b0-471a-937c-1ee13a08ddff)"
+	depict := client.ClusterAccessPolicyOrganisation{OrganisationID: "0b7c4d1c-5f6a-4b8c-9d0e-1f2a3b4c5d6e", OrganisationName: &depictName}
+	const depictLine = "Depict (0b7c4d1c-5f6a-4b8c-9d0e-1f2a3b4c5d6e)"
 	live := defaultLivePolicy()
 	pending := proposalFixture(client.ProposalStatusPending, live,
 		client.ProposedClusterAccessPolicy{CreatorGrantRole: "view", MaxGrantRole: "edit"})

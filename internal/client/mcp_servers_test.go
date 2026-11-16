@@ -67,7 +67,7 @@ func TestListMCPServers_ReadsTheListing(t *testing.T) {
 			t.Errorf("path = %s, want /api/v1/org/mcp-servers", r.URL.Path)
 		}
 		jsonResponse(t, w, http.StatusOK, []map[string]any{{
-			"id":                "11111111-2222-3333-4444-555555555555",
+			"id":                "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e",
 			"name":              "sentry",
 			"transport":         "http",
 			"enabled":           true,
@@ -112,7 +112,7 @@ func TestCreateMCPServer_SendsTheFullRegistration(t *testing.T) {
 			t.Fatalf("request body is not json: %v", unmarshalError)
 		}
 		jsonResponse(t, w, http.StatusCreated, map[string]any{
-			"id":              "11111111-2222-3333-4444-555555555555",
+			"id":              "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e",
 			"organisation_id": "org-1",
 			"name":            "sentry",
 			"transport":       "http",
@@ -140,7 +140,7 @@ func TestCreateMCPServer_SendsTheFullRegistration(t *testing.T) {
 	if createError != nil {
 		t.Fatalf("CreateMCPServer: %v", createError)
 	}
-	if server.ID != "11111111-2222-3333-4444-555555555555" || server.Name != "sentry" {
+	if server.ID != "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e" || server.Name != "sentry" {
 		t.Errorf("server = %+v", server)
 	}
 	if receivedBody["name"] != "sentry" || receivedBody["adapter_key"] != "sentry" {
@@ -194,7 +194,7 @@ func TestGetMCPServer_MapsMissingServersToTheTypedError(t *testing.T) {
 	}
 	testClient := newTestClient(t, handler)
 
-	_, getError := testClient.GetMCPServer(context.Background(), "11111111-2222-3333-4444-555555555555")
+	_, getError := testClient.GetMCPServer(context.Background(), "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e")
 	if !errors.Is(getError, ErrMCPServerNotFound) {
 		t.Fatalf("error = %v, want ErrMCPServerNotFound", getError)
 	}
@@ -209,7 +209,7 @@ func TestUpdateMCPServer_SendsAnExplicitNullToClearTheAllowList(t *testing.T) {
 		raw, _ := io.ReadAll(r.Body)
 		receivedRaw = string(raw)
 		jsonResponse(t, w, http.StatusOK, map[string]any{
-			"id": "11111111-2222-3333-4444-555555555555", "name": "sentry",
+			"id": "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "name": "sentry",
 			"transport": "http", "url": "https://mcp.sentry.dev/mcp",
 			"enabled": true, "permission_tier": "read_only",
 			"created_at": "2026-08-22T10:00:00Z", "updated_at": "2026-08-22T10:05:00Z",
@@ -219,7 +219,7 @@ func TestUpdateMCPServer_SendsAnExplicitNullToClearTheAllowList(t *testing.T) {
 
 	var cleared []string
 	_, updateError := testClient.UpdateMCPServer(context.Background(),
-		"11111111-2222-3333-4444-555555555555", MCPServerUpdate{AllowedTools: &cleared})
+		"0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e", MCPServerUpdate{AllowedTools: &cleared})
 	if updateError != nil {
 		t.Fatalf("UpdateMCPServer: %v", updateError)
 	}
@@ -236,17 +236,17 @@ func TestSetMCPServerEnabled_PostsToTheEnableRoute(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Errorf("method = %s, want POST", r.Method)
 		}
-		wantPath := "/api/v1/org/mcp-servers/11111111-2222-3333-4444-555555555555/enable"
+		wantPath := "/api/v1/org/mcp-servers/0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e/enable"
 		if r.URL.Path != wantPath {
 			t.Errorf("path = %s, want %s", r.URL.Path, wantPath)
 		}
 		jsonResponse(t, w, http.StatusOK, map[string]any{
-			"server_id": "11111111-2222-3333-4444-555555555555", "status": "enabled"})
+			"server_id": "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "status": "enabled"})
 	}
 	testClient := newTestClient(t, handler)
 
 	result, enableError := testClient.SetMCPServerEnabled(context.Background(),
-		"11111111-2222-3333-4444-555555555555", true)
+		"0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e", true)
 	if enableError != nil {
 		t.Fatalf("SetMCPServerEnabled: %v", enableError)
 	}
@@ -257,17 +257,17 @@ func TestSetMCPServerEnabled_PostsToTheEnableRoute(t *testing.T) {
 
 func TestSetMCPServerEnabled_PostsToTheDisableRoute(t *testing.T) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		wantPath := "/api/v1/org/mcp-servers/11111111-2222-3333-4444-555555555555/disable"
+		wantPath := "/api/v1/org/mcp-servers/0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e/disable"
 		if r.URL.Path != wantPath {
 			t.Errorf("path = %s, want %s", r.URL.Path, wantPath)
 		}
 		jsonResponse(t, w, http.StatusOK, map[string]any{
-			"server_id": "11111111-2222-3333-4444-555555555555", "status": "disabled"})
+			"server_id": "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "status": "disabled"})
 	}
 	testClient := newTestClient(t, handler)
 
 	result, disableError := testClient.SetMCPServerEnabled(context.Background(),
-		"11111111-2222-3333-4444-555555555555", false)
+		"0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e", false)
 	if disableError != nil {
 		t.Fatalf("SetMCPServerEnabled: %v", disableError)
 	}
@@ -282,7 +282,7 @@ func TestGrantMCPTool_SendsToolAndRole(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Errorf("method = %s, want POST", r.Method)
 		}
-		wantPath := "/api/v1/org/mcp-servers/11111111-2222-3333-4444-555555555555/grants"
+		wantPath := "/api/v1/org/mcp-servers/0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e/grants"
 		if r.URL.Path != wantPath {
 			t.Errorf("path = %s, want %s", r.URL.Path, wantPath)
 		}
@@ -292,7 +292,7 @@ func TestGrantMCPTool_SendsToolAndRole(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusCreated, map[string]any{
 			"id":                "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-			"org_mcp_server_id": "11111111-2222-3333-4444-555555555555",
+			"org_mcp_server_id": "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e",
 			"tool_name":         "get_issue",
 			"allowed_to_role":   "member",
 			"created_at":        "2026-08-22T10:00:00Z",
@@ -301,7 +301,7 @@ func TestGrantMCPTool_SendsToolAndRole(t *testing.T) {
 	testClient := newTestClient(t, handler)
 
 	grant, grantError := testClient.GrantMCPTool(context.Background(),
-		"11111111-2222-3333-4444-555555555555", "get_issue", "member")
+		"0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "get_issue", "member")
 	if grantError != nil {
 		t.Fatalf("GrantMCPTool: %v", grantError)
 	}
@@ -318,7 +318,7 @@ func TestRevokeMCPToolGrant_DeletesTheToolRolePath(t *testing.T) {
 		if r.Method != http.MethodDelete {
 			t.Errorf("method = %s, want DELETE", r.Method)
 		}
-		wantPath := "/api/v1/org/mcp-servers/11111111-2222-3333-4444-555555555555/grants/get_issue/member"
+		wantPath := "/api/v1/org/mcp-servers/0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e/grants/get_issue/member"
 		if r.URL.Path != wantPath {
 			t.Errorf("path = %s, want %s", r.URL.Path, wantPath)
 		}
@@ -327,7 +327,7 @@ func TestRevokeMCPToolGrant_DeletesTheToolRolePath(t *testing.T) {
 	testClient := newTestClient(t, handler)
 
 	result, revokeError := testClient.RevokeMCPToolGrant(context.Background(),
-		"11111111-2222-3333-4444-555555555555", "get_issue", "member")
+		"0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "get_issue", "member")
 	if revokeError != nil {
 		t.Fatalf("RevokeMCPToolGrant: %v", revokeError)
 	}
@@ -425,7 +425,7 @@ func TestDeleteMCPServer_AcceptsAnEmpty204Response(t *testing.T) {
 	testClient := newTestClient(t, handler)
 
 	result, deleteError := testClient.DeleteMCPServer(context.Background(),
-		"11111111-2222-3333-4444-555555555555")
+		"0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e")
 	if deleteError != nil {
 		t.Fatalf("DeleteMCPServer: %v, want an empty 204 to be success", deleteError)
 	}
@@ -456,7 +456,7 @@ func TestGetMCPServer_RefusesAnEmpty200Body(t *testing.T) {
 	testClient := newTestClient(t, handler)
 
 	_, getError := testClient.GetMCPServer(context.Background(),
-		"11111111-2222-3333-4444-555555555555")
+		"0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e")
 	if getError == nil || !strings.Contains(getError.Error(), "empty body") {
 		t.Fatalf("error = %v, want a loud refusal - an empty read decoded as a zero-valued server would turn no answer into a negative one", getError)
 	}

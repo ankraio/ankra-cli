@@ -205,7 +205,7 @@ func TestOpenPodTerminalRoundTrip(t *testing.T) {
 		}
 	})
 	apiClient := New("secret-token", server.URL)
-	apiClient.SetOrganisationOverride("11111111-2222-4333-8444-555555555555")
+	apiClient.SetOrganisationOverride("0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -263,7 +263,7 @@ func TestOpenPodTerminalRoundTrip(t *testing.T) {
 	if seenRequest.Header.Get("Authorization") != "Bearer secret-token" {
 		t.Errorf("authorization = %q", seenRequest.Header.Get("Authorization"))
 	}
-	if seenRequest.Header.Get(orgOverrideHeader) != "11111111-2222-4333-8444-555555555555" {
+	if seenRequest.Header.Get(orgOverrideHeader) != "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f" {
 		t.Errorf("organisation override was not sent: %q", seenRequest.Header.Get(orgOverrideHeader))
 	}
 	if seenRequest.URL.Path != "/api/v1/clusters/cluster-1/kubernetes/pod/terminal" {

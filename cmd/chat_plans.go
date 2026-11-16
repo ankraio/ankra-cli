@@ -133,10 +133,10 @@ Exit codes: 0 when every step completed (or the plan was handed to the chat
 session that proposed it, which runs the steps), 8 when steps still need
 --acknowledge, 3 when the plan is not found, 1 when the plan could not be
 approved or a step failed.`,
-		Example: `  ankra chat plans approve 6f1c2f9e-6d5a-4a1e-9f0b-6d4c2b8a1e77
+		Example: `  ankra chat plans approve 0b7c4d0b-5f6a-4b8c-9d0e-1f2a3b4c5d6e
 
   # Accept the two steps the refusal named as high-risk or irreversible
-  ankra chat plans approve 6f1c2f9e-6d5a-4a1e-9f0b-6d4c2b8a1e77 --acknowledge 2,4`,
+  ankra chat plans approve 0b7c4d0b-5f6a-4b8c-9d0e-1f2a3b4c5d6e --acknowledge 2,4`,
 		Args: cobra.ExactArgs(1),
 		RunE: runChatPlanApprove,
 	}

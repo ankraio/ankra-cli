@@ -279,7 +279,7 @@ wins over the document. A trigger is written whole, so --cron, --timezone and
 --alert need --trigger beside them. The cluster an agent is scoped to is set
 when it is created or hired and cannot be changed afterwards.`
 		writeCommand.Example = `  ankra ai tasks update "Nightly cost review" --autonomy-level propose
-  ankra ai tasks update 0b8f6c2e-0000-4000-8000-000000000001 --enabled=false`
+  ankra ai tasks update 0b7c4d01-5f6a-4b8c-9d0e-1f2a3b4c5d6e --enabled=false`
 		writeCommand.Args = cobra.ExactArgs(1)
 	}
 	writeCommand.RunE = func(command *cobra.Command, arguments []string) error {

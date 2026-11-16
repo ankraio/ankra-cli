@@ -263,7 +263,7 @@ func newClusterAlertmanagerSilencesExpireCommand() *cobra.Command {
 muted notify again. 'list' shows the ids. The command asks first (--yes
 skips, declining exits 4); a silence Alertmanager does not have exits 3.
 
-  ankra cluster alertmanager silences expire 35833f27-aaed-47c3-956e-9b071140f062 --yes`,
+  ankra cluster alertmanager silences expire 0b7c4d0d-5f6a-4b8c-9d0e-1f2a3b4c5d6e --yes`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			silenceID := strings.TrimSpace(args[0])

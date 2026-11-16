@@ -22,7 +22,7 @@ const (
 	fakeServiceOtherInstanceID = "c9b96bb8-0000-4000-8000-0000000000a1"
 	// fakeServiceStagingConsumerID is the application's second consumer of
 	// the service, in its staging environment.
-	fakeServiceStagingConsumerID = "5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c22"
+	fakeServiceStagingConsumerID = "0b7c4d19-0d7a-4c55-a6f4-2f1f4a9b1c22"
 )
 
 // The platform's own sentences (cluster serviceruntime disconnection.go and
@@ -510,7 +510,7 @@ func TestServicesDisconnectChoosesOneApplicationEnvironment(t *testing.T) {
 // through the listing, which carries no disconnections).
 func TestServicesDisconnectSaysWhenTheApplicationIsAlreadyBeingDisconnected(t *testing.T) {
 	platform := newFakeServicesPlatform(t)
-	_, _, runError := runServicesCommand(t, platform, "", "disconnect", "orders-db", "--consumer", "5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1cff", "--yes")
+	_, _, runError := runServicesCommand(t, platform, "", "disconnect", "orders-db", "--consumer", "0b7c4d19-0d7a-4c55-a6f4-2f1f4a9b1cff", "--yes")
 	if runError == nil || exitCodeFor(runError) != exitNotFound {
 		t.Fatalf("a consumer the service does not have must be not found, got %v", runError)
 	}
@@ -518,10 +518,10 @@ func TestServicesDisconnectSaysWhenTheApplicationIsAlreadyBeingDisconnected(t *t
 	platform = newFakeServicesPlatform(t)
 	platform.extraConsumers = nil
 	platform.instanceDisconnections = map[string]any{"state": "known", "items": []any{map[string]any{
-		"id": "d15c0000-0000-4000-8000-0000000000aa", "consumer_id": "5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1cff",
+		"id": "d15c0000-0000-4000-8000-0000000000aa", "consumer_id": "0b7c4d19-0d7a-4c55-a6f4-2f1f4a9b1cff",
 		"application_id": fakeServiceApplication, "cluster_id": fakeServiceClusterID, "namespace": "orders-old",
 		"phase": "draining", "requested_at": "2026-11-01T09:00:00Z", "phase_changed_at": "2026-11-01T09:00:00Z", "keeps_connection_secret": true}}}
-	_, _, runError = runServicesCommand(t, platform, "", "disconnect", "orders-db", "--consumer", "5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1cff", "--yes")
+	_, _, runError = runServicesCommand(t, platform, "", "disconnect", "orders-db", "--consumer", "0b7c4d19-0d7a-4c55-a6f4-2f1f4a9b1cff", "--yes")
 	if runError == nil || !strings.Contains(runError.Error(), "is already being disconnected") ||
 		!strings.Contains(runError.Error(), "namespace orders-old, phase draining") {
 		t.Fatalf("expected the disconnection in progress to be named, got %v", runError)
@@ -620,10 +620,10 @@ func TestServicesDisconnectPrintsUnknownValuesAsSent(t *testing.T) {
 func TestServicesGetShowsDisconnectionsInProgress(t *testing.T) {
 	platform := newFakeServicesPlatform(t)
 	platform.instanceDisconnections = map[string]any{"state": "known", "items": []any{
-		map[string]any{"id": "d15c0000-0000-4000-8000-0000000000aa", "consumer_id": "5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1cff",
+		map[string]any{"id": "d15c0000-0000-4000-8000-0000000000aa", "consumer_id": "0b7c4d19-0d7a-4c55-a6f4-2f1f4a9b1cff",
 			"application_id": fakeServiceApplication, "cluster_id": fakeServiceClusterID, "namespace": "orders-old",
 			"phase": "draining", "requested_at": "2026-11-01T09:00:00Z", "phase_changed_at": "2026-11-01T09:00:05Z", "keeps_connection_secret": true},
-		map[string]any{"id": "d15c0000-0000-4000-8000-0000000000bb", "consumer_id": "5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1cee",
+		map[string]any{"id": "d15c0000-0000-4000-8000-0000000000bb", "consumer_id": "0b7c4d19-0d7a-4c55-a6f4-2f1f4a9b1cee",
 			"application_id": fakeServiceApplication, "cluster_id": fakeServiceClusterID, "namespace": "orders-qa",
 			"phase": "settling", "requested_at": "2026-11-01T08:00:00Z", "phase_changed_at": "2026-11-01T08:30:00Z", "keeps_connection_secret": false},
 	}}
@@ -632,7 +632,7 @@ func TestServicesGetShowsDisconnectionsInProgress(t *testing.T) {
 		t.Fatal(runError)
 	}
 	for _, expected := range []string{"  Disconnecting:",
-		"5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1cff  application storefront, cluster", "namespace orders-old (disconnection d15c0000-0000-4000-8000-0000000000aa, confirmed 2026-11-01T09:00:00Z)",
+		"0b7c4d19-0d7a-4c55-a6f4-2f1f4a9b1cff  application storefront, cluster", "namespace orders-old (disconnection d15c0000-0000-4000-8000-0000000000aa, confirmed 2026-11-01T09:00:00Z)",
 		"Phase:    draining since 2026-11-01T09:00:05Z",
 		"Waiting:  Ankra keeps the connection Secret until no pod and no deployed workload reads it",
 		"Secret:   kept: every deploy of the application renders it again",

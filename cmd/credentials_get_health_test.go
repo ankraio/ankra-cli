@@ -40,7 +40,7 @@ func serveCredentialAndCoverage(t *testing.T, detailBody string, coverageBody st
 	})
 }
 
-const credentialDetailIdentifier = "11111111-1111-4111-8111-111111111111"
+const credentialDetailIdentifier = "0b7c4d0c-1111-4111-8111-111111111111"
 
 // runCredentialsGet drives the get command and captures what it printed; the
 // command prints with fmt.Printf like the rest of this package, so stdout is

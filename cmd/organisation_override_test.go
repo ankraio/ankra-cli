@@ -9,7 +9,7 @@ import (
 
 func TestResolveOrgFlagToID(t *testing.T) {
 	orgs := []client.OrganisationSummary{
-		{OrganisationID: "11111111-1111-1111-1111-111111111111", Name: strPtrCmd("Acme Corp"), UserCurrent: true},
+		{OrganisationID: "0b7c4d0c-1111-1111-1111-111111111111", Name: strPtrCmd("Acme Corp"), UserCurrent: true},
 		{OrganisationID: "22222222-2222-2222-2222-222222222222", Name: strPtrCmd("Beta Inc")},
 	}
 
@@ -21,7 +21,7 @@ func TestResolveOrgFlagToID(t *testing.T) {
 	}{
 		{name: "exact id", value: "22222222-2222-2222-2222-222222222222", want: "22222222-2222-2222-2222-222222222222"},
 		{name: "name match", value: "Beta Inc", want: "22222222-2222-2222-2222-222222222222"},
-		{name: "name case insensitive", value: "acme corp", want: "11111111-1111-1111-1111-111111111111"},
+		{name: "name case insensitive", value: "acme corp", want: "0b7c4d0c-1111-1111-1111-111111111111"},
 		{name: "unknown", value: "Nope", wantErr: true},
 	}
 
@@ -56,7 +56,7 @@ func TestResolveOrgFlagToIDAmbiguous(t *testing.T) {
 
 func TestResolveOrganisationReference(t *testing.T) {
 	orgs := []client.OrganisationSummary{
-		{OrganisationID: "11111111-1111-1111-1111-111111111111", Name: strPtrCmd("Acme Corp"), Slug: strPtrCmd("acme-corp")},
+		{OrganisationID: "0b7c4d0c-1111-1111-1111-111111111111", Name: strPtrCmd("Acme Corp"), Slug: strPtrCmd("acme-corp")},
 		{OrganisationID: "22222222-2222-2222-2222-222222222222", Name: strPtrCmd("Beta Inc"), Slug: strPtrCmd("beta-inc")},
 	}
 
@@ -67,8 +67,8 @@ func TestResolveOrganisationReference(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "exact id", value: "22222222-2222-2222-2222-222222222222", want: "22222222-2222-2222-2222-222222222222"},
-		{name: "exact slug", value: "acme-corp", want: "11111111-1111-1111-1111-111111111111"},
-		{name: "slug case insensitive", value: "ACME-CORP", want: "11111111-1111-1111-1111-111111111111"},
+		{name: "exact slug", value: "acme-corp", want: "0b7c4d0c-1111-1111-1111-111111111111"},
+		{name: "slug case insensitive", value: "ACME-CORP", want: "0b7c4d0c-1111-1111-1111-111111111111"},
 		{name: "name match", value: "Beta Inc", want: "22222222-2222-2222-2222-222222222222"},
 		{name: "unknown", value: "nope", wantErr: true},
 	}
@@ -102,14 +102,14 @@ func TestResolveOrganisationReferenceAmbiguousSlug(t *testing.T) {
 
 func TestResolveOrgFlagToIDBySlug(t *testing.T) {
 	orgs := []client.OrganisationSummary{
-		{OrganisationID: "11111111-1111-1111-1111-111111111111", Name: strPtrCmd("Acme Corp"), Slug: strPtrCmd("acme-corp")},
+		{OrganisationID: "0b7c4d0c-1111-1111-1111-111111111111", Name: strPtrCmd("Acme Corp"), Slug: strPtrCmd("acme-corp")},
 	}
 	setMockClient(t, &orgListMock{organisations: orgs})
 	got, err := resolveOrgFlagToID("acme-corp")
 	if err != nil {
 		t.Fatalf("resolveOrgFlagToID(slug) error = %v", err)
 	}
-	if got != "11111111-1111-1111-1111-111111111111" {
+	if got != "0b7c4d0c-1111-1111-1111-111111111111" {
 		t.Errorf("resolveOrgFlagToID(slug) = %q, want the matching id", got)
 	}
 }
@@ -119,7 +119,7 @@ func TestResolveOrgFlagToIDBySlug(t *testing.T) {
 // generic failure code.
 func TestOrgSwitchUnknownExitsNotFound(t *testing.T) {
 	orgs := []client.OrganisationSummary{
-		{OrganisationID: "11111111-1111-1111-1111-111111111111", Name: strPtrCmd("Acme Corp"), UserCurrent: true},
+		{OrganisationID: "0b7c4d0c-1111-1111-1111-111111111111", Name: strPtrCmd("Acme Corp"), UserCurrent: true},
 	}
 	setMockClient(t, &orgListMock{organisations: orgs})
 
@@ -138,7 +138,7 @@ func TestOrgSwitchUnknownExitsNotFound(t *testing.T) {
 // disambiguate with an ID.
 func TestOrgSwitchAmbiguousExitsUsage(t *testing.T) {
 	orgs := []client.OrganisationSummary{
-		{OrganisationID: "11111111-1111-1111-1111-111111111111", Name: strPtrCmd("Shared Name")},
+		{OrganisationID: "0b7c4d0c-1111-1111-1111-111111111111", Name: strPtrCmd("Shared Name")},
 		{OrganisationID: "22222222-2222-2222-2222-222222222222", Name: strPtrCmd("Shared Name")},
 	}
 	setMockClient(t, &orgListMock{organisations: orgs})

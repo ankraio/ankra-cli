@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	resolveTestCredentialID   = "ebe7ee12-f294-4d80-956b-f107c30b2f3d"
+	resolveTestCredentialID   = "0b7c4d16-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	resolveTestCredentialName = "ankra-harbor-app-dc62ed4f"
 )
 
@@ -61,7 +61,7 @@ func (m *helmCredentialResolveMock) DeleteHelmRegistryCredential(credentialName 
 func newHelmCredentialResolveMock() *helmCredentialResolveMock {
 	return &helmCredentialResolveMock{
 		credentials: []client.HelmCredentialListItem{
-			{ID: "4793065f-1278-4ae2-bc4e-b87467b2ba92", Name: "ankra-harbor-app-7da15f97"},
+			{ID: "0b7c4d17-5f6a-4b8c-9d0e-1f2a3b4c5d6e", Name: "ankra-harbor-app-7da15f97"},
 			{ID: resolveTestCredentialID, Name: resolveTestCredentialName},
 		},
 	}
@@ -96,7 +96,7 @@ func TestResolveHelmCredentialNameResolvesAnIDToItsName(t *testing.T) {
 
 func TestResolveHelmCredentialNameKeepsANameShapedLikeAUUID(t *testing.T) {
 	mock := newHelmCredentialResolveMock()
-	uuidShapedName := "11111111-2222-4333-8444-555555555555"
+	uuidShapedName := "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f"
 	mock.credentials = append(mock.credentials, client.HelmCredentialListItem{
 		ID: "9f0c1e2d-3b4a-4c5d-8e6f-70a1b2c3d4e5", Name: uuidShapedName,
 	})

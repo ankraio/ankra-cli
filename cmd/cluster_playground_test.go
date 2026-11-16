@@ -491,7 +491,7 @@ func TestPlaygroundPlansNeverAsksForACardOnTheBillingPage(t *testing.T) {
 func TestPlaygroundCommandsResolveAClusterName(t *testing.T) {
 	mock := &playgroundMock{
 		clusters: []client.ClusterListItem{
-			{ID: "11111111-2222-4333-8444-555555555555", Name: "other"},
+			{ID: "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f", Name: "other"},
 			{ID: playgroundTestClusterID, Name: "playground"},
 		},
 		status:        &client.PlaygroundStatus{ClusterID: playgroundTestClusterID, Phase: "ready", ExpiresAt: "2026-08-14T09:00:00Z"},

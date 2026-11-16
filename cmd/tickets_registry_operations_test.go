@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	ticketOperationTestID  = "5b1f0c7e-3a55-4d0b-9a57-0d5f3c1a2b3c"
+	ticketOperationTestID  = "0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	operationTestTicket    = `{"id":"` + ticketOperationTestID + `","ticket_number":42,"status":"open","plan_status":"drafted","assignee_agent_name":"sre","workspace_id":null}`
 	ticketSyncTestPath     = "/api/v1/org/ai-tickets/sync/connections"
 	ticketSyncTestDocument = `{"id":"` + ticketOperationTestID + `","name":"jira","provider":"jira","config":{"base_url":"https://example.atlassian.net","project_key":"OPS"},

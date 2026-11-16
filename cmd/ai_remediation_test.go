@@ -65,7 +65,7 @@ func savedPolicy() *client.AIRemediationPolicy {
 			"delete_cluster":      "never",
 		},
 		SlackWebhookID:        &webhookID,
-		ApproverUserIDs:       []string{"11111111-0000-4000-8000-000000000001"},
+		ApproverUserIDs:       []string{"0b7c4d0c-0000-4000-8000-000000000001"},
 		MaxActionsPerIncident: 7,
 		CooldownMinutes:       15,
 		UpdatedAt:             &updatedAt,

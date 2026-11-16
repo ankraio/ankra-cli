@@ -68,7 +68,7 @@ of them.`,
 	Example: `  ankra secrets adopt db-password --cluster prod -n app --name db-credentials --key password
   ankra secrets adopt grafana-admin --cluster prod -n monitoring --name grafana --key admin-password \
     --hint "Grafana admin login" --strip-trailing-newline
-  ankra secrets adopt ci-token --cluster 5f0c3b8e-1d2a-4c6b-9e7f-0a1b2c3d4e5f -n ci --name runner --key token -o json`,
+  ankra secrets adopt ci-token --cluster 0b7c4d22-5f6a-4b8c-9d0e-1f2a3b4c5d6e -n ci --name runner --key token -o json`,
 	Args: secretsAdoptArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		request, clusterReference, buildError := secretsAdoptRequestFromFlags(cmd, args[0])

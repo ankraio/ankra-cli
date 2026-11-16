@@ -72,7 +72,7 @@ generated credentials, for every engine) and connection: its endpoints, the
 Secret holding its credentials, and how each consumer receives them.
 Credential values are never shown; they stay in the cluster.`,
 		Example: `  ankra services packages list
-  ankra services setup orders-db --package postgresql --cluster prod --consumer 5b1f0c7e-...
+  ankra services setup orders-db --package postgresql --cluster prod --consumer 0b7c4d19-...
   ankra services list
   ankra services get orders-db
   ankra services disconnect orders-db --application storefront

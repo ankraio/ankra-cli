@@ -57,7 +57,7 @@ func runRepositories(t *testing.T, credentialID string) string {
 }
 
 const coveredBody = `{
-  "credential": {"id":"11111111-1111-4111-8111-111111111111","name":"github-app-example",
+  "credential": {"id":"0b7c4d0c-1111-4111-8111-111111111111","name":"github-app-example",
     "provider":"github","state":"up","available":true,"account_login":"example-org",
     "app_backed":true,"syncing":false},
   "coverage": "complete",
@@ -73,7 +73,7 @@ const coveredBody = `{
 
 // The reported failure: required repositories the installation cannot see.
 const incompleteBody = `{
-  "credential": {"id":"11111111-1111-4111-8111-111111111111","name":"github-app-example",
+  "credential": {"id":"0b7c4d0c-1111-4111-8111-111111111111","name":"github-app-example",
     "provider":"github","state":"up","available":true,"app_backed":true,"syncing":false},
   "coverage": "incomplete",
   "coverage_message": "This credential cannot reach every repository Ankra needs from it.",
@@ -88,7 +88,7 @@ const incompleteBody = `{
 
 // The listing itself failed. Null, not an empty array.
 const unknownBody = `{
-  "credential": {"id":"11111111-1111-4111-8111-111111111111","name":"github-app-example",
+  "credential": {"id":"0b7c4d0c-1111-4111-8111-111111111111","name":"github-app-example",
     "provider":"github","state":"up","available":true,"app_backed":true,"syncing":false},
   "coverage": "unknown",
   "coverage_message": "Whether this credential covers what Ankra needs could not be established.",
@@ -104,7 +104,7 @@ const unknownBody = `{
 // An installation that genuinely reaches nothing. Empty array, not null - the
 // opposite fact from unknownBody, and it must not render the same way.
 const reachesNothingBody = `{
-  "credential": {"id":"11111111-1111-4111-8111-111111111111","name":"github-app-example",
+  "credential": {"id":"0b7c4d0c-1111-4111-8111-111111111111","name":"github-app-example",
     "provider":"github","state":"up","available":true,"app_backed":true,"syncing":false},
   "coverage": "incomplete",
   "coverage_message": "This credential cannot reach every repository Ankra needs from it.",
@@ -119,7 +119,7 @@ const reachesNothingBody = `{
 
 func TestCredentialRepositoriesReportsCoverageAndBothSets(t *testing.T) {
 	serveCoverage(t, coveredBody)
-	output := runRepositories(t, "11111111-1111-4111-8111-111111111111")
+	output := runRepositories(t, "0b7c4d0c-1111-4111-8111-111111111111")
 
 	for _, want := range []string{"complete", "example-org/one", "example-org/two", "Required by Ankra"} {
 		if !strings.Contains(output, want) {
@@ -130,7 +130,7 @@ func TestCredentialRepositoriesReportsCoverageAndBothSets(t *testing.T) {
 
 func TestCredentialRepositoriesNamesWhatIsRequiredButUnreachable(t *testing.T) {
 	serveCoverage(t, incompleteBody)
-	output := runRepositories(t, "11111111-1111-4111-8111-111111111111")
+	output := runRepositories(t, "0b7c4d0c-1111-4111-8111-111111111111")
 
 	if !strings.Contains(output, "Required but NOT reachable") {
 		t.Fatalf("output = %q, want the unreachable section", output)
@@ -145,7 +145,7 @@ func TestCredentialRepositoriesNamesWhatIsRequiredButUnreachable(t *testing.T) {
 // effectively did.
 func TestCredentialRepositoriesSeparatesAnUnreadListingFromAnEmptyOne(t *testing.T) {
 	serveCoverage(t, unknownBody)
-	unread := runRepositories(t, "11111111-1111-4111-8111-111111111111")
+	unread := runRepositories(t, "0b7c4d0c-1111-4111-8111-111111111111")
 
 	if !strings.Contains(unread, "could not be read") {
 		t.Fatalf("output = %q, want the unread listing named as such", unread)
@@ -158,7 +158,7 @@ func TestCredentialRepositoriesSeparatesAnUnreadListingFromAnEmptyOne(t *testing
 	}
 
 	serveCoverage(t, reachesNothingBody)
-	empty := runRepositories(t, "11111111-1111-4111-8111-111111111111")
+	empty := runRepositories(t, "0b7c4d0c-1111-4111-8111-111111111111")
 
 	if !strings.Contains(empty, "reaches no repository at all") {
 		t.Fatalf("output = %q, want an empty set stated plainly", empty)

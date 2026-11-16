@@ -34,7 +34,7 @@ func TestBuildStackReadsApplications(t *testing.T) {
 			},
 			map[string]interface{}{
 				"name":                    "rendered",
-				"platform_application_id": "11111111-1111-4111-8111-111111111111",
+				"platform_application_id": "0b7c4d0c-1111-4111-8111-111111111111",
 			},
 		},
 	}, directory)

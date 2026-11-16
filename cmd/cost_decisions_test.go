@@ -141,7 +141,7 @@ const (
 	decisionsWave2ID   = "5a2b9c6d-0e1f-4a3b-8c5d-6e7f8091a2b3"
 	decisionsWasteID   = "2d9e6f3a-7b8c-4d0e-9f2a-3b4c5d6e7f80"
 	decisionsOrphanID  = "3e0f7a4b-8c9d-4e1f-8a3b-4c5d6e7f8091"
-	decisionsClusterID = "11111111-1111-4111-8111-111111111111"
+	decisionsClusterID = "0b7c4d0c-1111-4111-8111-111111111111"
 	decisionsOtherID   = "22222222-2222-4222-8222-222222222222"
 	decisionsOperation = "99999999-9999-4999-8999-999999999999"
 )

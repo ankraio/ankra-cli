@@ -193,7 +193,7 @@ func (m *ticketsMock) DecideTicket(ticketID string, decision client.TicketDecisi
 	return &decided, nil
 }
 
-const ticketsTestID = "c5bde475-eda1-4067-9c08-83c2aff6cdb0"
+const ticketsTestID = "0b7c4d24-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 func blockedTicketWithChoice() client.Ticket {
 	agent := "DevOps"
@@ -217,7 +217,7 @@ func blockedTicketWithChoice() client.Ticket {
 func TestTicketsListShowsWhatEachTicketWaitsOn(t *testing.T) {
 	investigating := blockedTicketWithChoice()
 	investigating.TicketNumber = 9
-	investigating.ID = "d0ce0e4b-ebf6-493c-a608-17b9d29420b3"
+	investigating.ID = "0b7c4d25-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	investigating.Status = "investigating"
 	investigating.DecisionRequest = nil
 	mock := &ticketsMock{tickets: []client.Ticket{blockedTicketWithChoice(), investigating}}

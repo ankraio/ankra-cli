@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	otherOrgClusterID = "11111111-1111-1111-1111-111111111111"
+	otherOrgClusterID = "0b7c4d0c-1111-1111-1111-111111111111"
 	selectedOrgID     = "org-depict"
 	owningOrgID       = "org-ankra"
 )

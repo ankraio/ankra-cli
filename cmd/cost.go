@@ -162,7 +162,7 @@ var costClusterCmd = &cobra.Command{
 	Short: "A cluster's cost estimate: totals, component breakdown, namespace allocation and readiness",
 	Args:  cobra.ExactArgs(1),
 	Example: `  ankra cost cluster prod-eu
-  ankra cost cluster 1834920e-3001-4157-8938-33c447031033 -o json`,
+  ankra cost cluster 0b7c4d11-5f6a-4b8c-9d0e-1f2a3b4c5d6e -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, err := resolveClusterID(args[0])
 		if err != nil {

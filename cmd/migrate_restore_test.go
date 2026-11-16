@@ -237,7 +237,7 @@ func resetMigrateRestoreFlags() {
 	}
 }
 
-const migrateRestoreTestCluster = "11111111-1111-4111-8111-111111111111"
+const migrateRestoreTestCluster = "0b7c4d0c-1111-4111-8111-111111111111"
 
 func readyVault(name string) client.BackupVault {
 	return client.BackupVault{ID: "22222222-2222-4222-8222-22222222222" + name[len(name)-1:], Name: name, Status: "ready"}

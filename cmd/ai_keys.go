@@ -331,7 +331,7 @@ Asks for confirmation unless --yes is passed.
 
 ` + personalAIKeyReferenceHelp,
 	Example: `  ankra ai keys remove work
-  ankra ai keys remove 3f0c9e4e-5b7a-4d0e-9a51-2a6a1f0b8c11 --yes`,
+  ankra ai keys remove 0b7c4d02-5f6a-4b8c-9d0e-1f2a3b4c5d6e --yes`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		key, resolveError := findPersonalAIKey(args[0])

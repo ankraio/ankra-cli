@@ -93,13 +93,13 @@ func fleetCostFixture() *client.FleetCloudCost {
 			{Provider: "aws", ClusterCount: 1, MonthlyCostEstimateCents: 24200, MonthToDateCents: 11000, ProjectedMonthEndCents: 21500},
 		},
 		TopClusters: []client.FleetClusterCost{
-			{ClusterID: "11111111-1111-4111-8111-111111111111", ClusterName: "prod-eu", Provider: "hetzner",
+			{ClusterID: "0b7c4d0c-1111-4111-8111-111111111111", ClusterName: "prod-eu", Provider: "hetzner",
 				MonthlyCostEstimateCents: 40000, MonthToDateCents: 20000, ProjectedMonthEndCents: 43000, ConfidenceLevel: "high"},
 		},
 	}
 }
 
-const costClusterID = "1834920e-3001-4157-8938-33c447031033"
+const costClusterID = "0b7c4d11-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 func TestCostSummaryRendersTotalsProvidersAndTopClusters(t *testing.T) {
 	output, executeError := runCostCommand(t, &costMock{fleet: fleetCostFixture()}, "cost", "summary")
@@ -155,13 +155,13 @@ func cloudSavingsFixture() *client.CloudSavings {
 	startCron := "0 7 * * 1-5"
 	staging := "staging"
 	scannedAt := "2026-09-17T22:00:00"
-	bestProd := "right_size_idle:11111111-1111-4111-8111-111111111111"
+	bestProd := "right_size_idle:0b7c4d0c-1111-4111-8111-111111111111"
 	return &client.CloudSavings{
 		Currency:                 "eur",
 		GeneratedAt:              "2026-09-18T06:00:00Z",
 		TotalMonthlySavingsCents: 43800 + 60000 + 12857,
 		Recommendations: []client.CloudSavingsRecommendation{
-			{ID: bestProd, Kind: "right_size_idle", ClusterID: "11111111-1111-4111-8111-111111111111", ClusterName: "prod-eu",
+			{ID: bestProd, Kind: "right_size_idle", ClusterID: "0b7c4d0c-1111-4111-8111-111111111111", ClusterName: "prod-eu",
 				Provider: "hetzner", MonthlySavingsCents: 43800, MonthlyCostCents: 200000, SharePercent: 22,
 				Evidence: client.CloudSavingsEvidence{IdleMonthlyCents: &idle}},
 			{ID: "reduce_unallocated:22222222-2222-4222-8222-222222222222", Kind: "reduce_unallocated",
@@ -175,7 +175,7 @@ func cloudSavingsFixture() *client.CloudSavings {
 					StopCron: &stopCron, StartCron: &startCron}},
 		},
 		Breakdowns: []client.CloudSavingsBreakdown{
-			{ClusterID: "11111111-1111-4111-8111-111111111111", ClusterName: "prod-eu", Provider: "hetzner", MonthlyCents: 200000,
+			{ClusterID: "0b7c4d0c-1111-4111-8111-111111111111", ClusterName: "prod-eu", Provider: "hetzner", MonthlyCents: 200000,
 				Components:       []client.CloudSavingsComponent{{Key: "compute_on_demand", Label: "Compute (on-demand)", MonthlyCents: 180000}},
 				IdleMonthlyCents: 43800, UnallocatedMonthlyCents: 10000, BestRecommendationID: &bestProd,
 				TopNamespaces: []client.CloudSavingsNamespace{}},

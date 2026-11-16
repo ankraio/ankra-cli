@@ -399,7 +399,7 @@ func TestKubeconfigAddTreatsUUIDFlagAsID(t *testing.T) {
 	withKubeconfigMock(t, kubeconfigMock{})
 	path := filepath.Join(t.TempDir(), "config")
 	resetKubeconfigFlags(path)
-	const clusterUUID = "11111111-1111-1111-1111-111111111111"
+	const clusterUUID = "0b7c4d0c-1111-1111-1111-111111111111"
 	kubeconfigClusterFlag = clusterUUID
 
 	var out bytes.Buffer
@@ -427,7 +427,7 @@ func TestKubeconfigAddUUIDResolvesOwningOrg(t *testing.T) {
 	// UUID input resolves the cluster via GetClusterByID, so the exec args
 	// pin the *owning* organisation from the backend — a diverged local
 	// selection must not win, and the context gets the real cluster name.
-	const clusterUUID = "11111111-1111-1111-1111-111111111111"
+	const clusterUUID = "0b7c4d0c-1111-1111-1111-111111111111"
 	withKubeconfigMock(t, kubeconfigMock{
 		byIDCluster: client.ClusterListItem{ID: clusterUUID, Name: "prod-cluster", OrganisationID: "org-owner"},
 	})
@@ -480,7 +480,7 @@ func TestKubeconfigAddUUIDFallbackEmbedsSelectedOrg(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "config")
 	resetKubeconfigFlags(path)
-	const clusterUUID = "11111111-1111-1111-1111-111111111111"
+	const clusterUUID = "0b7c4d0c-1111-1111-1111-111111111111"
 	kubeconfigClusterFlag = clusterUUID
 
 	var out bytes.Buffer
@@ -512,7 +512,7 @@ func TestKubeconfigAddUUIDFallbackEmbedsOrgOverride(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "config")
 	resetKubeconfigFlags(path)
-	const clusterUUID = "11111111-1111-1111-1111-111111111111"
+	const clusterUUID = "0b7c4d0c-1111-1111-1111-111111111111"
 	kubeconfigClusterFlag = clusterUUID
 
 	var out bytes.Buffer
@@ -585,7 +585,7 @@ func TestResolveGatewayClusterIDAcceptsNamesAndIDs(t *testing.T) {
 		t.Fatalf("name resolves to id: got %q err=%v", id, err)
 	}
 
-	const clusterUUID = "11111111-1111-1111-1111-111111111111"
+	const clusterUUID = "0b7c4d0c-1111-1111-1111-111111111111"
 	if id, _, err := resolveGatewayClusterID(clusterUUID, nil); err != nil || id != clusterUUID {
 		t.Fatalf("uuid passes through: got %q err=%v", id, err)
 	}

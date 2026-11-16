@@ -93,7 +93,7 @@ const (
 	costBudgetFleetID     = "1c8d5e2f-6a7b-4c9d-8e1f-2a3b4c5d6e7f"
 	costBudgetStageID     = "2d9e6f3a-7b8c-4d0e-9f2a-3b4c5d6e7f80"
 	costBudgetGoneID      = "3e0f7a4b-8c9d-4e1f-8a3b-4c5d6e7f8091"
-	costBudgetClusterUUID = "11111111-1111-4111-8111-111111111111"
+	costBudgetClusterUUID = "0b7c4d0c-1111-4111-8111-111111111111"
 )
 
 // costBudgetsFixture is the budgets list as the platform sends it: a cluster

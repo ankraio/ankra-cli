@@ -343,7 +343,7 @@ func TestDescribeKubeletConfigRefusesAnotherKind(t *testing.T) {
 
 func TestExecutionInitiatorNamesWhatThePlatformSays(t *testing.T) {
 	member := "alex@example.com"
-	userID := "11111111-1111-1111-1111-111111111111"
+	userID := "0b7c4d0c-1111-1111-1111-111111111111"
 	for _, testCase := range []struct {
 		execution client.ExecutionSummary
 		want      string

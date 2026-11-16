@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-const secretSlotTestID = "0b6f2c1e-3c44-4b9e-9a51-2f1f6f0f9a10"
+const secretSlotTestID = "0b7c4d21-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 func secretSlotTestBody(label, createdVia string) map[string]any {
 	return map[string]any{

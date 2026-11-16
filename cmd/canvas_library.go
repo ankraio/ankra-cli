@@ -248,8 +248,8 @@ func newCanvasGetCommand() *cobra.Command {
 		Short: "Show a saved canvas",
 		Long: `Show a saved canvas and its draft revision. --content prints only the draft's
 content, so it can be written to a file; -o json prints the whole document.`,
-		Example: `  ankra canvas get 3f0a2f7e-0000-4000-8000-000000000001
-  ankra canvas get 3f0a2f7e-0000-4000-8000-000000000001 --content > report.html`,
+		Example: `  ankra canvas get 0b7c4d0a-5f6a-4b8c-9d0e-1f2a3b4c5d6e
+  ankra canvas get 0b7c4d0a-5f6a-4b8c-9d0e-1f2a3b4c5d6e --content > report.html`,
 		Args: cobra.ExactArgs(1),
 		RunE: canvasLibraryRun("get canvas", func(ctx context.Context, command *cobra.Command, arguments []string, format outputFormat) error {
 			payload, getError := apiClient.GetCanvas(ctx, arguments[0])
@@ -378,8 +378,8 @@ func newCanvasUpdateCommand() *cobra.Command {
 		Long: `Change a canvas's title, its visibility, or both. --visibility private keeps
 the canvas to its owner; organisation lets every member read it. Only the
 owner can change a canvas.`,
-		Example: `  ankra canvas update 3f0a2f7e-0000-4000-8000-000000000001 --title "Q3 report (final)"
-  ankra canvas update 3f0a2f7e-0000-4000-8000-000000000001 --visibility organisation`,
+		Example: `  ankra canvas update 0b7c4d0a-5f6a-4b8c-9d0e-1f2a3b4c5d6e --title "Q3 report (final)"
+  ankra canvas update 0b7c4d0a-5f6a-4b8c-9d0e-1f2a3b4c5d6e --visibility organisation`,
 		Args: cobra.ExactArgs(1),
 		RunE: canvasLibraryRun("update canvas", func(ctx context.Context, command *cobra.Command, arguments []string, format outputFormat) error {
 			var request client.UpdateCanvasRequest
@@ -617,8 +617,8 @@ func newCanvasCommentsCommand() *cobra.Command {
 		Short: "Comment on a canvas",
 		Long: `Add a comment to a canvas. --reply-to answers another comment, and --element
 or --revision anchor the comment to one element or one revision.`,
-		Example: `  ankra canvas comments add 3f0a2f7e-0000-4000-8000-000000000001 "The Q3 total looks low"
-  ankra canvas comments add 3f0a2f7e-0000-4000-8000-000000000001 "Fixed in revision 4" --reply-to <comment-id>`,
+		Example: `  ankra canvas comments add 0b7c4d0a-5f6a-4b8c-9d0e-1f2a3b4c5d6e "The Q3 total looks low"
+  ankra canvas comments add 0b7c4d0a-5f6a-4b8c-9d0e-1f2a3b4c5d6e "Fixed in revision 4" --reply-to <comment-id>`,
 		Args: cobra.ExactArgs(2),
 		RunE: canvasLibraryRun("add canvas comment", func(ctx context.Context, command *cobra.Command, arguments []string, format outputFormat) error {
 			request := client.CreateCanvasCommentRequest{Body: strings.TrimSpace(arguments[1])}

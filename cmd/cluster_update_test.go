@@ -58,7 +58,7 @@ func (mock *clusterUpdateMock) SetClusterEnvironment(_ context.Context, clusterI
 
 func newClusterUpdateMock() *clusterUpdateMock {
 	return &clusterUpdateMock{cluster: client.ClusterListItem{
-		ID: "3d0e2935-963b-4c7b-a494-b7266776ec68", Name: "so-infrastructure"}}
+		ID: "0b7c4d10-5f6a-4b8c-9d0e-1f2a3b4c5d6e", Name: "so-infrastructure"}}
 }
 
 func runClusterUpdateCommand(t *testing.T, mock APIClient, arguments ...string) (string, error) {

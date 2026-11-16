@@ -1,5 +1,13 @@
 # Ankra CLI Changelog
 
+## v0.78.1 - 2026-11-16
+
+Help text only. No command, flag, exit code or output key changes.
+
+### Fixed
+
+- **Every id in a help example is made up.** Examples on about forty commands showed ids that had been pasted from live output instead of example values. All of them are replaced with ids of one recognisable made-up form (`0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e` and its variants), in `--help`, in the generated reference, in `docs/github-actions-oidc.md` and in the tests that used the same ids. A test now fails the build when a command file carries any other id.
+
 ## v0.78.0 - 2026-11-16
 
 Rename a cluster in place, mint and revoke alert ingest credentials, and turn

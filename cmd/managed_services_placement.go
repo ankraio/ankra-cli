@@ -473,7 +473,7 @@ func newServicesConsumersGetCommand() *cobra.Command {
 		Long: `Show a consumer binding resolved as setup would resolve it: the cluster's
 declared region and data boundary, the policy and binding revisions, and the
 application installation it binds (none for a planned binding).`,
-		Example: "  ankra services consumers get 5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11",
+		Example: "  ankra services consumers get 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -657,8 +657,8 @@ application or cluster has since been removed can still be unbound, but it can
 no longer be read by id: pass --revision with the revision 'ankra services
 consumers list --application <application>' shows. Asks first; --yes skips the
 question.`,
-		Example: "  ankra services consumers unbind 5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11\n" +
-			"  ankra services consumers unbind 5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11 --revision 3 --yes",
+		Example: "  ankra services consumers unbind 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f\n" +
+			"  ankra services consumers unbind 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f --revision 3 --yes",
 		Args: cobra.ExactArgs(1),
 		RunE: runServicesConsumersUnbind,
 	}

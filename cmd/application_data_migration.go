@@ -73,8 +73,8 @@ func newApplicationDataMigrationGetCommand() *cobra.Command {
 	getCommand := &cobra.Command{
 		Use:   "get <application> <run-id>",
 		Short: "Show one data migration run step by step",
-		Example: `  ankra application data-migration get shop 6b257030-1d8f-4a9d-92a3-88f346f248bf
-  ankra application data-migration get shop 6b257030-1d8f-4a9d-92a3-88f346f248bf -o yaml`,
+		Example: `  ankra application data-migration get shop 0b7c4d08-5f6a-4b8c-9d0e-1f2a3b4c5d6e
+  ankra application data-migration get shop 0b7c4d08-5f6a-4b8c-9d0e-1f2a3b4c5d6e -o yaml`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -115,8 +115,8 @@ before the cutover (nothing at a vendor changed yet), after the window closed,
 for a finished run, and while a rollback is already requested or running.
 
 Requires permission to deploy applications on the run's cluster.`,
-		Example: `  ankra application data-migration rollback shop 6b257030-1d8f-4a9d-92a3-88f346f248bf
-  ankra application data-migration rollback shop 6b257030-1d8f-4a9d-92a3-88f346f248bf --yes -o json`,
+		Example: `  ankra application data-migration rollback shop 0b7c4d08-5f6a-4b8c-9d0e-1f2a3b4c5d6e
+  ankra application data-migration rollback shop 0b7c4d08-5f6a-4b8c-9d0e-1f2a3b4c5d6e --yes -o json`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {

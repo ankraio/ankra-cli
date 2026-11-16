@@ -55,7 +55,7 @@ func (mock *applicationLookupMock) ListApplicationsRaw(_ context.Context, page i
 	if mock.endless {
 		if page == 1 {
 			return applicationListingPagePayload(9999,
-				[2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", "commerce"}), nil
+				[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"}), nil
 		}
 		return applicationListingPagePayload(9999,
 			[2]string{"3cd57498-062c-4dd8-878a-cd0372e5fcf6", "commerce-filler"}), nil
@@ -111,7 +111,7 @@ func applicationListingPagePayload(totalPages int, applications ...[2]string) js
 
 func TestResolveApplicationIDPassesAUUIDStraightThrough(t *testing.T) {
 	mock := &applicationLookupMock{listError: errors.New("listing must not be called for a uuid")}
-	const applicationID = "23298741-6a5a-401a-a681-66f31fbdebe1"
+	const applicationID = "0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 	resolved, resolveError := resolveApplicationID(context.Background(), mock, applicationID)
 
@@ -129,7 +129,7 @@ func TestResolveApplicationIDPassesAUUIDStraightThrough(t *testing.T) {
 func TestResolveApplicationIDResolvesAName(t *testing.T) {
 	mock := &applicationLookupMock{listPayload: applicationListingPayload(
 		[2]string{"3cd57498-062c-4dd8-878a-cd0372e5fcf6", "commerce-api"},
-		[2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", "commerce"},
+		[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"},
 	)}
 
 	resolved, resolveError := resolveApplicationID(context.Background(), mock, "commerce")
@@ -137,7 +137,7 @@ func TestResolveApplicationIDResolvesAName(t *testing.T) {
 	if resolveError != nil {
 		t.Fatalf("resolving a name printed by `list`: %v", resolveError)
 	}
-	if resolved != "23298741-6a5a-401a-a681-66f31fbdebe1" {
+	if resolved != "0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e" {
 		t.Fatalf("resolved to the wrong application: %q", resolved)
 	}
 	if !mock.requested {
@@ -155,7 +155,7 @@ func TestResolveApplicationIDStopsAfterOnePageWhenThatIsTheWholeListing(t *testi
 	// Paging past the exact match would spend a round-trip per command on
 	// every org that fits in one page, which is nearly all of them.
 	mock := &applicationLookupMock{pagePayloads: []json.RawMessage{
-		applicationListingPagePayload(1, [2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", "commerce"}),
+		applicationListingPagePayload(1, [2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"}),
 	}}
 
 	if _, resolveError := resolveApplicationID(context.Background(), mock, "commerce"); resolveError != nil {
@@ -180,7 +180,7 @@ func TestResolveApplicationIDPagesUntilItFindsTheExactMatch(t *testing.T) {
 	}
 	mock := &applicationLookupMock{pagePayloads: []json.RawMessage{
 		applicationListingPagePayload(2, firstPage...),
-		applicationListingPagePayload(2, [2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", "commerce"}),
+		applicationListingPagePayload(2, [2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"}),
 	}}
 
 	resolved, resolveError := resolveApplicationID(context.Background(), mock, "commerce")
@@ -188,7 +188,7 @@ func TestResolveApplicationIDPagesUntilItFindsTheExactMatch(t *testing.T) {
 	if resolveError != nil {
 		t.Fatalf("an exact match on a later page must still resolve: %v", resolveError)
 	}
-	if resolved != "23298741-6a5a-401a-a681-66f31fbdebe1" {
+	if resolved != "0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e" {
 		t.Fatalf("resolved to the wrong application: %q", resolved)
 	}
 	if len(mock.pagesAsked) != 2 || mock.pagesAsked[0] != 1 || mock.pagesAsked[1] != 2 {
@@ -202,7 +202,7 @@ func TestResolveApplicationIDReportsAnAmbiguousNameFoundAcrossPages(t *testing.T
 	// the first one seen would act on an application the user did not name.
 	mock := &applicationLookupMock{pagePayloads: []json.RawMessage{
 		applicationListingPagePayload(2, [2]string{"aaaaaaaa-062c-4dd8-878a-cd0372e5fcf6", "commerce"}),
-		applicationListingPagePayload(2, [2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", "commerce"}),
+		applicationListingPagePayload(2, [2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"}),
 	}}
 
 	_, resolveError := resolveApplicationID(context.Background(), mock, "commerce")
@@ -211,7 +211,7 @@ func TestResolveApplicationIDReportsAnAmbiguousNameFoundAcrossPages(t *testing.T
 		t.Fatal("a name shared across pages must be reported as ambiguous")
 	}
 	if !strings.Contains(resolveError.Error(), "aaaaaaaa-062c-4dd8-878a-cd0372e5fcf6") ||
-		!strings.Contains(resolveError.Error(), "23298741-6a5a-401a-a681-66f31fbdebe1") {
+		!strings.Contains(resolveError.Error(), "0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e") {
 		t.Fatalf("the error must list both candidate ids, got: %v", resolveError)
 	}
 }
@@ -219,7 +219,7 @@ func TestResolveApplicationIDReportsAnAmbiguousNameFoundAcrossPages(t *testing.T
 func TestResolveApplicationIDPrefersTheExactNameOverACaseVariant(t *testing.T) {
 	mock := &applicationLookupMock{listPayload: applicationListingPayload(
 		[2]string{"aaaaaaaa-062c-4dd8-878a-cd0372e5fcf6", "Commerce"},
-		[2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", "commerce"},
+		[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"},
 	)}
 
 	resolved, resolveError := resolveApplicationID(context.Background(), mock, "commerce")
@@ -227,7 +227,7 @@ func TestResolveApplicationIDPrefersTheExactNameOverACaseVariant(t *testing.T) {
 	if resolveError != nil {
 		t.Fatalf("an exact name match must win outright: %v", resolveError)
 	}
-	if resolved != "23298741-6a5a-401a-a681-66f31fbdebe1" {
+	if resolved != "0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e" {
 		t.Fatalf("expected the exact match, got %q", resolved)
 	}
 }
@@ -237,7 +237,7 @@ func TestResolveApplicationIDMatchesCaseInsensitivelyWhenNoExactMatchExists(t *t
 	// who types the case they remember should not be told the application
 	// does not exist when exactly one case variant does.
 	mock := &applicationLookupMock{listPayload: applicationListingPayload(
-		[2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", "Commerce"},
+		[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "Commerce"},
 	)}
 
 	resolved, resolveError := resolveApplicationID(context.Background(), mock, "commerce")
@@ -245,14 +245,14 @@ func TestResolveApplicationIDMatchesCaseInsensitivelyWhenNoExactMatchExists(t *t
 	if resolveError != nil {
 		t.Fatalf("a unique case-insensitive match must resolve: %v", resolveError)
 	}
-	if resolved != "23298741-6a5a-401a-a681-66f31fbdebe1" {
+	if resolved != "0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e" {
 		t.Fatalf("resolved to the wrong application: %q", resolved)
 	}
 }
 
 func TestResolveApplicationIDExplainsAnUnknownName(t *testing.T) {
 	mock := &applicationLookupMock{listPayload: applicationListingPayload(
-		[2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", "commerce"},
+		[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"},
 	)}
 
 	_, resolveError := resolveApplicationID(context.Background(), mock, "commerc")
@@ -268,7 +268,7 @@ func TestResolveApplicationIDExplainsAnUnknownName(t *testing.T) {
 func TestResolveApplicationIDReportsAnAmbiguousName(t *testing.T) {
 	mock := &applicationLookupMock{listPayload: applicationListingPayload(
 		[2]string{"aaaaaaaa-062c-4dd8-878a-cd0372e5fcf6", "commerce"},
-		[2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", "commerce"},
+		[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"},
 	)}
 
 	_, resolveError := resolveApplicationID(context.Background(), mock, "commerce")
@@ -277,7 +277,7 @@ func TestResolveApplicationIDReportsAnAmbiguousName(t *testing.T) {
 		t.Fatal("an ambiguous name must be reported, not resolved to an arbitrary application")
 	}
 	if !strings.Contains(resolveError.Error(), "aaaaaaaa-062c-4dd8-878a-cd0372e5fcf6") ||
-		!strings.Contains(resolveError.Error(), "23298741-6a5a-401a-a681-66f31fbdebe1") {
+		!strings.Contains(resolveError.Error(), "0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e") {
 		t.Fatalf("the error must list the candidate ids, got: %v", resolveError)
 	}
 }
@@ -326,7 +326,7 @@ func TestApplicationBranchesResolvesAName(t *testing.T) {
 	// The customer-visible shape of PLA-786: `application branches commerce`
 	// answered 500 because "commerce" was interpolated into the request path.
 	mock := &applicationLookupMock{listPayload: applicationListingPayload(
-		[2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", "commerce"},
+		[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"},
 	)}
 
 	_, executeError := runApplicationCommand(t, mock, "branches", "commerce")
@@ -334,7 +334,7 @@ func TestApplicationBranchesResolvesAName(t *testing.T) {
 	if executeError != nil {
 		t.Fatalf("branches by name: %v", executeError)
 	}
-	if mock.branchesID != "23298741-6a5a-401a-a681-66f31fbdebe1" {
+	if mock.branchesID != "0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e" {
 		t.Fatalf("the request must carry the resolved id, got %q", mock.branchesID)
 	}
 }
@@ -379,7 +379,7 @@ func TestResolveApplicationIDRefusesAnEmptyReference(t *testing.T) {
 	// `delete --yes`, act on it.
 	for _, reference := range []string{"", "   "} {
 		mock := &applicationLookupMock{listPayload: applicationListingPayload(
-			[2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", ""},
+			[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", ""},
 		)}
 
 		resolved, resolveError := resolveApplicationID(context.Background(), mock, reference)
@@ -399,7 +399,7 @@ func TestResolveApplicationIDRefusesAnEmptyReference(t *testing.T) {
 
 func TestApplicationBranchesRefusesAnEmptyArgument(t *testing.T) {
 	mock := &applicationLookupMock{listPayload: applicationListingPayload(
-		[2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", ""},
+		[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", ""},
 	)}
 
 	_, executeError := runApplicationCommand(t, mock, "branches", "")
@@ -418,7 +418,7 @@ func TestApplicationPublishedAddonResolvesAName(t *testing.T) {
 	// lookup from the shared factory. Pin that down, because reading the diff
 	// alone cannot tell the difference between "inherited" and "missed".
 	mock := &applicationLookupMock{listPayload: applicationListingPayload(
-		[2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", "commerce"},
+		[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"},
 	)}
 
 	_, executeError := runApplicationCommand(t, mock, "published-addon", "commerce")
@@ -426,7 +426,7 @@ func TestApplicationPublishedAddonResolvesAName(t *testing.T) {
 	if executeError != nil {
 		t.Fatalf("published-addon by name: %v", executeError)
 	}
-	if mock.publishedAddonID != "23298741-6a5a-401a-a681-66f31fbdebe1" {
+	if mock.publishedAddonID != "0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e" {
 		t.Fatalf("the request must carry the resolved id, got %q", mock.publishedAddonID)
 	}
 }
@@ -436,7 +436,7 @@ func TestResolveApplicationIDClassifiesAnUnknownNameAsNotFound(t *testing.T) {
 	// exitCodeFor maps to exitNotFound. A name that does not exist has to
 	// tell a script the same thing rather than the generic failure code.
 	mock := &applicationLookupMock{listPayload: applicationListingPayload(
-		[2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", "commerce"},
+		[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"},
 	)}
 
 	_, resolveError := resolveApplicationID(context.Background(), mock, "commerc")
@@ -452,7 +452,7 @@ func TestResolveApplicationIDClassifiesAnUnknownNameAsNotFound(t *testing.T) {
 func TestResolveApplicationIDClassifiesAnAmbiguousNameAsAUsageError(t *testing.T) {
 	mock := &applicationLookupMock{listPayload: applicationListingPayload(
 		[2]string{"aaaaaaaa-062c-4dd8-878a-cd0372e5fcf6", "commerce"},
-		[2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", "commerce"},
+		[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"},
 	)}
 
 	_, resolveError := resolveApplicationID(context.Background(), mock, "commerce")
@@ -480,7 +480,7 @@ func TestApplicationEnvSecretsChecksTheKeyBeforeResolvingTheApplication(t *testi
 		{verb: "delete", arguments: []string{"--yes"}},
 	} {
 		mock := &applicationLookupMock{listPayload: applicationListingPayload(
-			[2]string{"23298741-6a5a-401a-a681-66f31fbdebe1", "commerce"},
+			[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"},
 		)}
 		arguments := append([]string{"env-secrets", testCase.verb, "commerce", "bad key"},
 			testCase.arguments...)

@@ -268,7 +268,7 @@ secret, because the next delivery of those resources would fail.
 Needs the secrets.manage permission, which the organisation owner and admin
 roles hold; without it the command names the permission and exits 7.`,
 	Example: `  ankra secrets delete ci-token
-  ankra secrets delete 0b6f2c1e-3c44-4b9e-9a51-2f1f6f0f9a10 --yes`,
+  ankra secrets delete 0b7c4d21-5f6a-4b8c-9d0e-1f2a3b4c5d6e --yes`,
 	Args: func(_ *cobra.Command, args []string) error {
 		if len(args) != 1 {
 			return withExitCode(exitUsage, errors.New("delete takes exactly one secret name or id"))

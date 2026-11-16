@@ -13,7 +13,7 @@ func TestListAlertmanagerSilencesSendsStateAndLocation(t *testing.T) {
 		"alertmanager": map[string]any{"namespace": "monitoring", "service": "alertmanager-operated", "port": 9093},
 		"state":        "all",
 		"silences": []map[string]any{{
-			"id": "35833f27-aaed-47c3-956e-9b071140f062", "state": "active",
+			"id": "0b7c4d0d-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "state": "active",
 			"matchers":  []map[string]any{{"name": "alertname", "value": "KubeVersionMismatch", "is_regex": false}},
 			"starts_at": "2026-08-15T11:59:00Z", "ends_at": "2026-08-29T12:00:00Z",
 			"created_by": "ankra-api:auth0|abc", "comment": "version alignment",
@@ -64,17 +64,17 @@ func TestCreateAlertmanagerSilenceSendsTheBody(t *testing.T) {
 
 func TestExpireAlertmanagerSilenceDeletesTheSilence(t *testing.T) {
 	recorder, handler := recordAlertsRequest(t, http.StatusOK, map[string]any{
-		"silence_id": "35833f27-aaed-47c3-956e-9b071140f062", "expired": true,
+		"silence_id": "0b7c4d0d-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "expired": true,
 		"alertmanager": map[string]any{"namespace": "custom", "service": "am", "port": 9094},
 	})
 	testClient := newTestClient(t, handler)
-	expired, expireError := testClient.ExpireAlertmanagerSilence(silenceTestClusterID, "35833f27-aaed-47c3-956e-9b071140f062",
+	expired, expireError := testClient.ExpireAlertmanagerSilence(silenceTestClusterID, "0b7c4d0d-5f6a-4b8c-9d0e-1f2a3b4c5d6e",
 		AlertmanagerLocation{Namespace: "custom", Service: "am", Port: 9094})
 	if expireError != nil {
 		t.Fatalf("ExpireAlertmanagerSilence: %v", expireError)
 	}
 	recorder.assert(t, http.MethodDelete,
-		"/api/v1/clusters/"+silenceTestClusterID+"/alertmanager/silences/35833f27-aaed-47c3-956e-9b071140f062")
+		"/api/v1/clusters/"+silenceTestClusterID+"/alertmanager/silences/0b7c4d0d-5f6a-4b8c-9d0e-1f2a3b4c5d6e")
 	if recorder.query != "namespace=custom&port=9094&service=am" {
 		t.Errorf("query = %q", recorder.query)
 	}
@@ -89,7 +89,7 @@ func TestAlertmanagerSilenceRefusalsKeepTheirClass(t *testing.T) {
 		"scope_type": "cluster", "scope_id": silenceTestClusterID,
 	})
 	testClient := newTestClient(t, handler)
-	_, expireError := testClient.ExpireAlertmanagerSilence(silenceTestClusterID, "35833f27-aaed-47c3-956e-9b071140f062",
+	_, expireError := testClient.ExpireAlertmanagerSilence(silenceTestClusterID, "0b7c4d0d-5f6a-4b8c-9d0e-1f2a3b4c5d6e",
 		AlertmanagerLocation{})
 	var denied *PermissionDeniedError
 	if !errors.As(expireError, &denied) || denied.Permission != "alerts.write" {

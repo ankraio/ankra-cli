@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	testClusterUUID     = "62f4559a-a44d-46d7-aab3-a57c9dd6b4c6"
+	testClusterUUID     = "0b7c4d0e-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	testRestorePointID  = "0b2f1c3d-4e5a-4b6c-8d7e-9f0a1b2c3d4e"
 	testStackRestoreURL = "/api/v1/org/clusters/imported/" + testClusterUUID + "/stacks/shop/restore-points"
 )

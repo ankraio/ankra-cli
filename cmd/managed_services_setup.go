@@ -277,7 +277,7 @@ placement policy. Parameters (--param) default to the package's defaults;
 
 Confirming starts the deployment; it is not proof that the service is ready.
 Follow it with 'ankra services get <name>'.`,
-		Example: `  ankra services setup orders-db --package postgresql --cluster prod --consumer 5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11
+		Example: `  ankra services setup orders-db --package postgresql --cluster prod --consumer 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f
   ankra services setup orders-db --package postgresql@1.0.0 --consumer <id> --param storage_gib=20 --param instances=3
   ankra services setup orders-db --package postgresql --consumer <id> --review-only
   ankra services setup orders-db --package postgresql --consumer <id> --yes -o json`,
@@ -554,7 +554,7 @@ func newServicesReviewsGetCommand() *cobra.Command {
 	getCommand := &cobra.Command{
 		Use:     "get <review-id>",
 		Short:   "Show one of your setup reviews",
-		Example: "  ankra services reviews get 0b6f2a8e-3a1c-4b8e-9a51-2c7d4f1e9a20",
+		Example: "  ankra services reviews get 0b7c4d1b-5f6a-4b8c-9d0e-1f2a3b4c5d6e",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -587,8 +587,8 @@ The review is shown and confirmed after a yes at the prompt, or with --yes.
 review whose digest differs is refused, because it is not the plan you saw.
 Without --digest the digest of the review shown is the one confirmed. A
 review that already expired needs a new 'ankra services setup'.`,
-		Example: "  ankra services reviews confirm 0b6f2a8e-3a1c-4b8e-9a51-2c7d4f1e9a20 --digest sha256:4e86...\n" +
-			"  ankra services reviews confirm 0b6f2a8e-3a1c-4b8e-9a51-2c7d4f1e9a20 --digest sha256:4e86... --yes",
+		Example: "  ankra services reviews confirm 0b7c4d1b-5f6a-4b8c-9d0e-1f2a3b4c5d6e --digest sha256:4e86...\n" +
+			"  ankra services reviews confirm 0b7c4d1b-5f6a-4b8c-9d0e-1f2a3b4c5d6e --digest sha256:4e86... --yes",
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {

@@ -11,7 +11,7 @@ import (
 	"ankra/internal/client"
 )
 
-const testPlanID = "6f1c2f9e-6d5a-4a1e-9f0b-6d4c2b8a1e77"
+const testPlanID = "0b7c4d0b-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 const chatPlanBody = `{"plan_id":"` + testPlanID + `","title":"Scale the shop","summary":"Two steps.",
 	"risk_aggregate":"high","status":"proposed","conversation_id":"conversation-1","expires_in_seconds":600,

@@ -232,7 +232,7 @@ such as an unattached volume, is deleted only with written consent
 		long: `Start the cleanup of one open cloud-waste finding and print the operation
 that does it. Needs billing.manage. It asks first; --yes skips the question
 and is required when there is no terminal to ask on.`,
-		example: `  ankra cost waste resolve 4f1c0c7e-3a55-4d0b-9a57-0d5f3c1a2b3c --yes
+		example: `  ankra cost waste resolve 0b7c4d15-5f6a-4b8c-9d0e-1f2a3b4c5d6e --yes
   ankra cost waste resolve <finding-id> --consent delete_unattached_volume_acknowledged --yes`,
 		arguments: cobra.ExactArgs(1),
 		invoke: func(command *cobra.Command, arguments []string) (json.RawMessage, error) {

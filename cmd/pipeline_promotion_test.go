@@ -16,7 +16,7 @@ func TestPipelineRunDetailPrintsThePromotionDecision(t *testing.T) {
 		"head_sha":"abc","queued_at":"2026-10-10T10:00:00Z","steps":[],
 		"promotion_outcome":"promoted",
 		"promotion_message":"Promoted: a pull request run already built, scanned and tested exactly this tree, so its image was published instead of rebuilt.",
-		"promoted_from_run_id":"11111111-1111-1111-1111-111111111111","promoted_from_run_number":8,
+		"promoted_from_run_id":"0b7c4d0c-1111-1111-1111-111111111111","promoted_from_run_number":8,
 		"head_tree_sha":"7777777777777777777777777777777777777777"}`
 	var detail client.PipelineRunDetail
 	if decodeError := json.Unmarshal([]byte(body), &detail); decodeError != nil {
