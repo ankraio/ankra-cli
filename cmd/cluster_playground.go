@@ -65,19 +65,7 @@ var clusterPlaygroundPlansCmd = &cobra.Command{
 			_, _ = fmt.Fprintf(writer, "%-8s  %2d vCPU / %2.0f GB RAM / %3d GB storage  %10s%s\n",
 				plan.ID, plan.Vcpus, plan.MemoryGB, plan.StorageGB, price, availability)
 		}
-		if catalog.Quota.LimitMiB > 0 {
-			_, _ = fmt.Fprintf(writer, "\nMemory budget: %d of %d GB used by paid playgrounds (the free trial does not count).\n",
-				catalog.Quota.UsedMiB/1024, catalog.Quota.LimitMiB/1024)
-			_, _ = fmt.Fprintf(writer, "Need more? ankra org limits request --kind playground-memory --gb <n> --justification \"...\"\n")
-		}
 		_, _ = fmt.Fprintf(writer, "\nOrder one with: ankra cluster playground create --size <id>\n")
-		if !catalog.OrganisationHasPaidPlan {
-			_, _ = fmt.Fprintf(writer,
-				"Paid sizes need a billing plan - choose one on the billing page first.\n")
-		} else if catalog.RequiresPaymentCard() && !catalog.OrganisationHasPaymentCard {
-			_, _ = fmt.Fprintf(writer,
-				"Paid sizes need a payment card on file - add one on the billing page first.\n")
-		}
 		return nil
 	},
 }
@@ -97,7 +85,8 @@ var clusterPlaygroundResizeCmd = withClusterArgument(clusterMustBeNamed, &cobra.
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if clusterPlaygroundResizeSize == "" {
-			return fmt.Errorf("--size is required; list sizes with `ankra cluster playground plans`")
+			return fmt.Errorf("--size is required: name the Ankra Cloud plan to move to; " +
+				"a plan this playground cannot move to is refused with the plans it can")
 		}
 		clusterID, err := resolveClusterArg(args[0])
 		if err != nil {
@@ -108,12 +97,12 @@ var clusterPlaygroundResizeCmd = withClusterArgument(clusterMustBeNamed, &cobra.
 			return fmt.Errorf("resizing the playground: %w", err)
 		}
 		writer := cmd.OutOrStdout()
-		_, _ = fmt.Fprintf(writer, "Playground resized.\n")
+		_, _ = fmt.Fprintf(writer, "Playground resize started: Ankra Cloud restarts the server on the new plan.\n")
 		_, _ = fmt.Fprintf(writer, "  Cluster ID: %s\n", result.ClusterID)
 		_, _ = fmt.Fprintf(writer, "  Size:       %s (%d vCPU / %.0f GB)\n",
 			result.Plan.DisplayName, result.Plan.Vcpus, result.Plan.MemoryGB)
 		if result.Plan.PriceMonthlyCents > 0 {
-			_, _ = fmt.Fprintf(writer, "  Price:      %s%.2f/mo (billed pro-rata across the change)\n",
+			_, _ = fmt.Fprintf(writer, "  Price:      %s%.2f/mo (Ankra Cloud bills it to your Ankra Cloud account from the change)\n",
 				currencySymbol(result.Plan.Currency), float64(result.Plan.PriceMonthlyCents)/100)
 		}
 		return nil

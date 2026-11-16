@@ -224,8 +224,11 @@ carry permissions you lack, and creating one needs members.manage.
 The global --project <slug|name|id> pins the token to that project: it then
 acts only there and cannot be pointed elsewhere. A token with MCP scopes is
 always pinned - to the project you pass, else to the project you are acting
-in; a REST token created without --project follows its owner's current
-project and honours --project / ANKRA_PROJECT per command.
+in; a REST token created without --project acts in the organisation's
+default project (a project-only member's token: the first project they reach),
+never in the project its owner switches to, and reaches another project only
+through the X-Ankra-Project-Id header, which --project / ANKRA_PROJECT send
+per command.
 
 The token value is shown once.`,
 	Example: `  ankra tokens create laptop --expires 2026-12-31T00:00:00Z

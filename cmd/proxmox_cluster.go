@@ -399,7 +399,7 @@ func init() {
 	proxmoxCreateCmd.Flags().StringSlice("placement-nodes", nil, "Two or more host nodes for host-spread placement (comma-separated or repeated; optional)")
 	proxmoxCreateCmd.Flags().String("bridge", "", "Network bridge for cluster VMs (required; see `ankra cluster proxmox bridges`)")
 	proxmoxCreateCmd.Flags().String("storage", "", "Storage for VM disks (default local-lvm; see `ankra cluster proxmox storages`)")
-	proxmoxCreateCmd.Flags().String("template", "", "VM template name (optional; the first available template on the node is used when omitted)")
+	proxmoxCreateCmd.Flags().String("template", "", "VM template name (optional). Omitted, Ankra clones its own template, ankra-ubuntu-24-04, which saving the Proxmox credential builds, and refuses the create when that template is not on the node; it never picks one of your own templates unless you name it")
 	proxmoxCreateCmd.Flags().String("bastion-instance-type", "", "Bastion instance-size preset (server default: px-small)")
 	proxmoxCreateCmd.Flags().Int("control-plane-count", 1, "Number of control plane nodes")
 	proxmoxCreateCmd.Flags().String("control-plane-instance-type", "", "Control plane instance-size preset (server default: px-medium)")

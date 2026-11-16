@@ -119,7 +119,8 @@ only by you, and is not written into the agent's config:
       export ANKRA_MCP_TOKEN="$(ankra mcp token --client cursor)"
 
 Reads are the place to start; give an agent --write when you want it to act,
-for example to open a fix pull request. Writes still ask for confirmation.`,
+for example to open a fix pull request. Ankra does not ask before a write runs:
+the token's scope is the approval, so only your coding agent can ask you first.`,
 	Example: `  ankra mcp connect --client claude-code
   ankra mcp connect --client cursor --project platform-team
   ankra mcp connect --client codex --write --expires-days 30 --skills`,

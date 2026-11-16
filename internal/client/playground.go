@@ -1,8 +1,7 @@
 package client
 
-// Playground: a real, writable vcluster Ankra provisions for the
-// organisation on its shared playground host. Every organisation may hold
-// one.
+// Playground: a real, writable Kubernetes cluster Ankra creates for the
+// organisation on Ankra Cloud. Every organisation may hold one.
 
 import (
 	"bytes"
@@ -138,9 +137,9 @@ func (e *PlaygroundExistsError) Unwrap() error {
 // CreatePlayground provisions the organisation's playground at the given
 // size; an empty planID orders the free trial. A 409 means one already
 // exists and comes back as a *PlaygroundExistsError naming it; a 503 means
-// the shared host is at capacity; a 402 means a paid size needs a billing
-// plan. Every refusal carries the server's detail text through the shared
-// unexpected-response error.
+// the playground cannot be created right now; a 402 means the organisation's
+// Ankra Cloud account needs a payment method first. Every refusal carries the
+// server's detail text through the shared unexpected-response error.
 func (c *Client) CreatePlayground(planID string) (*CreatePlaygroundResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/playground", c.BaseURL)
 	var body any
@@ -207,9 +206,11 @@ type ResizePlaygroundResult struct {
 	Plan      PlaygroundOrderedPlan `json:"plan"`
 }
 
-// ResizePlayground changes a paid playground to another paid size in place:
-// only the namespace quota and the price change (billed pro-rata across the
-// change), nothing deployed inside is touched.
+// ResizePlayground moves a playground's server to another Ankra Cloud plan in
+// place. Ankra Cloud stops the server, moves it to the new plan and starts it
+// again, and bills the new plan to the organisation's Ankra Cloud account from
+// the change. A trial keeps its size, and a plan the playground cannot move
+// to is refused with the plans it can.
 func (c *Client) ResizePlayground(clusterID string, planID string) (*ResizePlaygroundResult, error) {
 	url := fmt.Sprintf("%s/api/v1/org/clusters/playground/%s/resize",
 		c.BaseURL, neturl.PathEscape(clusterID))

@@ -431,10 +431,11 @@ This is a teardown, not a power-off:
 
   - all cloud resources are released (servers, networks, SSH keys);
   - every stack resource on the cluster is uninstalled;
-  - on hetzner, ovh, upcloud, digitalocean, scaleway, ankracloud and aws the cluster's
-    persistent volumes (the cloud volumes its CSI driver provisioned) are
-    deleted with it, and the data on them. The command names them first and
-    deletes them only when you accept that: answer the prompt on a terminal,
+  - on hetzner, ovh, upcloud, digitalocean, scaleway, ankracloud, aws and proxmox
+    the cluster's persistent volumes (the cloud volumes or, on proxmox, the
+    disks its CSI driver provisioned) are deleted with it, and the data on
+    them. The command names them first and deletes them only when you accept
+    that: answer the prompt on a terminal,
     or pass --accept-volume-data-loss (--yes does not imply it). A cluster
     whose retention_policy is retain (aws, scaleway, ankracloud) keeps its volumes, which
     keep billing in your cloud account.
