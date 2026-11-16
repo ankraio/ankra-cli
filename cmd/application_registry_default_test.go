@@ -4,8 +4,8 @@ import "testing"
 
 func TestRegistryHostOfImageURL(t *testing.T) {
 	for input, expected := range map[string]string{
-		"oci://artifact.smartoptics.dev/smart-hub-images":     "artifact.smartoptics.dev",
-		"artifact.smartoptics.dev/smart-hub-images/smart-hub": "artifact.smartoptics.dev",
+		"oci://artifact.example-org.dev/workspace-images":     "artifact.example-org.dev",
+		"artifact.example-org.dev/workspace-images/workspace": "artifact.example-org.dev",
 		"registry.ankra.cloud/org-08267821/beads-ui":          "registry.ankra.cloud",
 		"https://artifact.example.com/commerce":               "artifact.example.com",
 		"http://artifact.example.com/commerce":                "artifact.example.com",

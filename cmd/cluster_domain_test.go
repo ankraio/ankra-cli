@@ -208,8 +208,8 @@ func TestRunClusterDomain_ReportsThePreviewDomainAsThePublicDomain(t *testing.T)
 	// the generated ankra.cc zone is only the row behind it.
 	mock := &clusterDomainMock{zone: client.ClusterDNSZoneResponse{
 		Success: true, FQDN: "41k4sso94j.qh4thi04cs.ankra.cc", State: "active",
-		PublicDomain: "smartoptics.dev", PublicDomainSource: clusterPublicDomainSourcePreviewDomain,
-		PublicDomainPublishedZone: "smartoptics.dev"}}
+		PublicDomain: "example-org.dev", PublicDomainSource: clusterPublicDomainSourcePreviewDomain,
+		PublicDomainPublishedZone: "example-org.dev"}}
 
 	output, executeError := runClusterDomain(t, mock, domainTestClusterID)
 	if executeError != nil {
@@ -218,7 +218,7 @@ func TestRunClusterDomain_ReportsThePreviewDomainAsThePublicDomain(t *testing.T)
 	if !strings.Contains(output, "Domain: 41k4sso94j.qh4thi04cs.ankra.cc") {
 		t.Errorf("the generated zone must still be reported:\n%s", output)
 	}
-	if !strings.Contains(output, "Public domain: smartoptics.dev") {
+	if !strings.Contains(output, "Public domain: example-org.dev") {
 		t.Errorf("the public domain must be reported:\n%s", output)
 	}
 	if !strings.Contains(output, "${{ ankra.cluster_domain }}") || !strings.Contains(output, "custom DNS zone") {
@@ -246,14 +246,14 @@ func TestRunClusterDomain_ReportsThePublicDomainOnAClusterWithoutAZone(t *testin
 	// the preview domain from this cluster: hostnames still have a home.
 	mock := &clusterDomainMock{zone: client.ClusterDNSZoneResponse{
 		Success: true, State: clusterDomainStateNone,
-		PublicDomain: "smartoptics.dev", PublicDomainSource: clusterPublicDomainSourcePreviewDomain,
-		PublicDomainPublishedZone: "smartoptics.dev"}}
+		PublicDomain: "example-org.dev", PublicDomainSource: clusterPublicDomainSourcePreviewDomain,
+		PublicDomainPublishedZone: "example-org.dev"}}
 
 	output, executeError := runClusterDomain(t, mock, domainTestClusterID)
 	if executeError != nil {
 		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
 	}
-	if !strings.Contains(output, "Domain: (none)") || !strings.Contains(output, "Public domain: smartoptics.dev") {
+	if !strings.Contains(output, "Domain: (none)") || !strings.Contains(output, "Public domain: example-org.dev") {
 		t.Errorf("both the missing zone and the public domain must be reported:\n%s", output)
 	}
 }

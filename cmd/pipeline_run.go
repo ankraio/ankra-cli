@@ -1408,8 +1408,8 @@ func pipelineRunSupersessionPhrase(run client.PipelineRun) string {
 // error_class null" with nothing saying whether that was the concurrency
 // policy, a queue watchdog, a person in the portal or the platform - and with
 // several sessions and webhooks acting on one repository, that is the
-// difference between "expected" and "something is wrong" (PLA-866 ask j,
-// Smartoptics). The platform now records the actor and a reason code, and this
+// difference between "expected" and "something is wrong" (PLA-866 ask j, a
+// customer). The platform now records the actor and a reason code, and this
 // is where a reader of `ankra pipeline get` sees them.
 //
 // A superseded run prints nothing here: printPipelineRunSupersession already
@@ -1475,7 +1475,7 @@ func optionalPipelineRunField(field *string) string {
 // It was on the wire from the start and only `-o json` ever showed it, so a
 // caller reading the run the way a caller does - `ankra pipeline get <run>` -
 // saw the message alone. For a platform-builders build that message used to be
-// a fragment of the BuildKit transcript, and Smartoptics spent a day auditing
+// a fragment of the BuildKit transcript, and a customer spent a day auditing
 // their own Dockerfiles over a 401 from their own Harbor because nothing on
 // the run said registry_push_failed (PLA-851, ankra-edt1b).
 //

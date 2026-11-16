@@ -9,7 +9,7 @@ import "testing"
 // organisation. These pin the three cases apart (PLA-773).
 func TestDecodeOrganisationPreviewSettingsSeparatesNullFromAbsent(t *testing.T) {
 	checked, decodeError := decodeOrganisationPreviewSettings(
-		[]byte(`{"demo_base_domain":"smartoptics.dev","demo_preview_dns_warning":null}`))
+		[]byte(`{"demo_base_domain":"example-org.dev","demo_preview_dns_warning":null}`))
 	if decodeError != nil {
 		t.Fatalf("unexpected error: %v", decodeError)
 	}
@@ -21,7 +21,7 @@ func TestDecodeOrganisationPreviewSettingsSeparatesNullFromAbsent(t *testing.T) 
 	}
 
 	silent, decodeError := decodeOrganisationPreviewSettings(
-		[]byte(`{"demo_base_domain":"smartoptics.dev"}`))
+		[]byte(`{"demo_base_domain":"example-org.dev"}`))
 	if decodeError != nil {
 		t.Fatalf("unexpected error: %v", decodeError)
 	}
@@ -30,7 +30,7 @@ func TestDecodeOrganisationPreviewSettingsSeparatesNullFromAbsent(t *testing.T) 
 	}
 
 	warned, decodeError := decodeOrganisationPreviewSettings(
-		[]byte(`{"demo_base_domain":"smartoptics.dev","demo_preview_dns_warning":"hostnames do not resolve"}`))
+		[]byte(`{"demo_base_domain":"example-org.dev","demo_preview_dns_warning":"hostnames do not resolve"}`))
 	if decodeError != nil {
 		t.Fatalf("unexpected error: %v", decodeError)
 	}
