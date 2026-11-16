@@ -11,9 +11,12 @@ import (
 var clusterPlaygroundCmd = &cobra.Command{
 	Use:   "playground",
 	Short: "Create, inspect and destroy your organisation's playground",
-	Long: "The playground is a real, writable Kubernetes environment Ankra provisions for you - " +
-		"a virtual cluster on Ankra's own infrastructure, with the agent already installed. " +
-		"Every organisation may hold one; it expires after a period of inactivity.",
+	Long: "The playground is a real, writable Kubernetes cluster Ankra creates for your organisation " +
+		"on Ankra Cloud, with the Ankra agent already installed. Every organisation may hold one. " +
+		"With a payment method on the organisation's Ankra Cloud account, Ankra Cloud bills the " +
+		"playground to that account. Without one, the account gets a free trial while Ankra Cloud " +
+		"still offers it one, and Ankra Cloud deletes the trial when it ends unless a payment method " +
+		"is added first.",
 }
 
 var clusterPlaygroundCreateSize string
@@ -21,9 +24,8 @@ var clusterPlaygroundCreateSize string
 var clusterPlaygroundCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create your organisation's playground",
-	Long: "Create the organisation's playground, optionally at a paid size from " +
-		"`ankra cluster playground plans`. Without --size the free trial is created. " +
-		"Provisioning runs in the background: poll " +
+	Long: "Create the organisation's playground on Ankra Cloud, at the size " +
+		"`ankra cluster playground plans` lists. Provisioning runs in the background: poll " +
 		"`ankra cluster playground status <cluster_id>` until the phase reaches ready.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		result, err := apiClient.CreatePlayground(clusterPlaygroundCreateSize)
@@ -41,8 +43,10 @@ var clusterPlaygroundCreateCmd = &cobra.Command{
 var clusterPlaygroundPlansCmd = &cobra.Command{
 	Use:   "plans",
 	Short: "List the playground sizes you can order",
-	Long: "List every playground size with its monthly price and whether the pool can place " +
-		"it right now. Order one with `ankra cluster playground create --size <id>`.",
+	Long: "List the size a new playground is created at; create it with " +
+		"`ankra cluster playground create`. The sizes an existing playground can move to are " +
+		"Ankra Cloud plans this list does not show: `ankra cluster playground resize` names them " +
+		"when it refuses a size.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		catalog, err := apiClient.ListPlaygroundPlans()
 		if err != nil {
@@ -82,10 +86,14 @@ var clusterPlaygroundResizeSize string
 
 var clusterPlaygroundResizeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "resize <cluster_id|name>",
-	Short: "Resize a paid playground to another size",
-	Long: "Change a paid playground to another paid size in place: only the namespace quota and " +
-		"the monthly price change (the month is billed pro-rata across the change), nothing you " +
-		"deployed is touched. The free trial cannot be resized - order a paid size instead.",
+	Short: "Move a playground to another Ankra Cloud plan",
+	Long: "Move the playground's server to another Ankra Cloud plan in place. Ankra Cloud stops the " +
+		"server, moves it to the new plan and starts it again, so nothing on the playground answers " +
+		"for a few minutes (Ankra Cloud allows up to 30). Ankra Cloud bills the new plan to your " +
+		"Ankra Cloud account from the change. A plan the playground cannot move to is refused with " +
+		"the plans it can. A free trial keeps its size: add a payment method to your Ankra Cloud " +
+		"account and it becomes an ordinary playground you can resize. Requires permission to " +
+		"manage the organisation's billing.",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if clusterPlaygroundResizeSize == "" {
@@ -261,7 +269,7 @@ func init() {
 	clusterPlaygroundCreateCmd.Flags().StringVar(&clusterPlaygroundCreateSize, "size", "",
 		"size to order, from `ankra cluster playground plans` (default: the free trial)")
 	clusterPlaygroundResizeCmd.Flags().StringVar(&clusterPlaygroundResizeSize, "size", "",
-		"the new size, from `ankra cluster playground plans`")
+		"the Ankra Cloud plan to move to, for example starter-4c-8g")
 	clusterPlaygroundDestroyCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
 	registerStructuredOutputFlags(clusterPlaygroundStatusCmd, clusterPlaygroundDestroyCmd)
 	clusterPlaygroundCmd.AddCommand(clusterPlaygroundCreateCmd)

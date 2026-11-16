@@ -4599,7 +4599,7 @@ someone, and `helm credentials` accepts the id its own listing prints.
   prints.** The listing leads with an ID column, but the platform addresses a
   credential by name, so the obvious next command - `helm credentials get
   <id>` - answered a bare `404 Not Found` that read as "credentials are
-  write-only" (reported by Smartoptics, PLA-825). A canonical uuid is now
+  write-only" (reported by a customer, PLA-825). A canonical uuid is now
   looked up in the listing and the credential's name is used; a name still
   goes straight through. An id the listing does not hold exits 3 and points
   at `ankra helm credentials list`, the same way a missing name does.

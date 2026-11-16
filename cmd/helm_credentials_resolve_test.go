@@ -70,11 +70,11 @@ func newHelmCredentialResolveMock() *helmCredentialResolveMock {
 func TestResolveHelmCredentialNamePassesANameThroughWithoutListing(t *testing.T) {
 	mock := newHelmCredentialResolveMock()
 
-	resolved, resolveError := resolveHelmCredentialName(mock, "smartoptics-harbor-robot-admin")
+	resolved, resolveError := resolveHelmCredentialName(mock, "example-org-harbor-robot-admin")
 	if resolveError != nil {
 		t.Fatalf("unexpected error: %v", resolveError)
 	}
-	if resolved != "smartoptics-harbor-robot-admin" {
+	if resolved != "example-org-harbor-robot-admin" {
 		t.Errorf("expected the name to pass through unchanged, got %q", resolved)
 	}
 	if mock.listCalls != 0 {
