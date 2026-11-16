@@ -1393,7 +1393,7 @@ func cloudSavingsStaleHeading(thresholds client.CloudSavingsThresholds) string {
 }
 
 func init() {
-	costSettingsSetCmd.Flags().String("currency", "", "Display currency: usd, eur or gbp")
+	costSettingsSetCmd.Flags().String("currency", "", "Display currency: usd, eur, gbp, sek, nok, dkk, chf, pln, czk, jpy, cad, aud or inr")
 	costSettingsSetCmd.Flags().Float64("discount", 0, "Effective discount in percent (0-100), applied on top of list prices; 10 means 10%")
 	costSettingsSetCmd.Flags().Bool("include-egress", false, "Whether figures should include a network egress estimate once egress is metered (stored, not metered yet: no figure includes it today; --include-egress=false clears it)")
 	costSettingsSetCmd.Flags().String("analysed-cluster-limit", "", "How many of the costliest priced clusters the savings model analyses (1-50), or default for the platform's 8")
