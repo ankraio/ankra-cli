@@ -19,11 +19,11 @@ var clusterNamePattern = regexp.MustCompile(`^[a-z]([-a-z0-9]*[a-z0-9])?$`)
 
 // clusterRenameOutput is the structured (-o json/yaml) shape of a rename.
 type clusterRenameOutput struct {
-	ClusterID    string `json:"cluster_id"`
-	Name         string `json:"name"`
-	PreviousName string `json:"previous_name"`
-	IacDirectory string `json:"iac_directory"`
-	Changed      bool   `json:"changed"`
+	ClusterID    string `json:"cluster_id" yaml:"cluster_id"`
+	Name         string `json:"name" yaml:"name"`
+	PreviousName string `json:"previous_name" yaml:"previous_name"`
+	IacDirectory string `json:"iac_directory" yaml:"iac_directory"`
+	Changed      bool   `json:"changed" yaml:"changed"`
 }
 
 var clusterRenameCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
@@ -62,9 +62,9 @@ cluster, cannot be renamed yet; the platform refuses and changes nothing.
 The name must be 1 to 53 lowercase letters, digits and hyphens, starting with
 a letter and ending with a letter or digit, and no other cluster in the
 organisation may have it.`,
-	Example: `  ankra cluster rename socloud-cheap socloud-dev
-  ankra cluster rename --cluster socloud-cheap socloud-dev
-  ankra cluster rename 22de7a2c-a671-4e7b-b6db-b32d03490a08 socloud-dev -o json`,
+	Example: `  ankra cluster rename web-staging web-dev
+  ankra cluster rename --cluster web-staging web-dev
+  ankra cluster rename 0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e web-dev -o json`,
 	// The cluster may be given with --cluster instead of the argument. A
 	// rename never falls back to the cluster selected with 'ankra cluster
 	// select': that selection is shared by every shell on the machine, and a

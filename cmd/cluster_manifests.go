@@ -467,7 +467,7 @@ func parseManifestsUpgradeFlags(cmd *cobra.Command) (manifestsUpgradeFlags, erro
 
 func init() {
 	clusterManifestsUpgradeCmd.Flags().String("from-file", "", "Path to manifest YAML file (REPLACES the entire manifest)")
-	clusterManifestsUpgradeCmd.Flags().String("manifest", "", "Use `-` to read manifest YAML from stdin (REPLACES the entire manifest)")
+	clusterManifestsUpgradeCmd.Flags().String("manifest", "", "Use '-' to read manifest YAML from stdin (REPLACES the entire manifest)")
 	clusterManifestsUpgradeCmd.Flags().String("namespace", "", "Change the manifest's namespace")
 	clusterManifestsUpgradeCmd.Flags().StringArray("set", nil, "In-place edit of the manifest YAML, e.g. --set 'spec.template.spec.containers[name=app].image=nginx:1.27' (MUTATES existing content; repeatable, comma-separated)")
 	clusterManifestsUpgradeCmd.Flags().StringArray("set-string", nil, "Like --set but always treats the value as a string")

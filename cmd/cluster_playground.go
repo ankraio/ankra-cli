@@ -65,7 +65,7 @@ var clusterPlaygroundPlansCmd = &cobra.Command{
 			_, _ = fmt.Fprintf(writer, "%-8s  %2d vCPU / %2.0f GB RAM / %3d GB storage  %10s%s\n",
 				plan.ID, plan.Vcpus, plan.MemoryGB, plan.StorageGB, price, availability)
 		}
-		_, _ = fmt.Fprintf(writer, "\nOrder one with: ankra cluster playground create --size <id>\n")
+		_, _ = fmt.Fprintf(writer, "\nCreate one with: ankra cluster playground create --size <id>\n")
 		return nil
 	},
 }
@@ -256,7 +256,7 @@ var clusterPlaygroundDestroyCmd = withClusterArgument(clusterMustBeNamed, &cobra
 
 func init() {
 	clusterPlaygroundCreateCmd.Flags().StringVar(&clusterPlaygroundCreateSize, "size", "",
-		"size to order, from `ankra cluster playground plans` (default: the free trial)")
+		"size to create at (default: the size 'ankra cluster playground plans' lists)")
 	clusterPlaygroundResizeCmd.Flags().StringVar(&clusterPlaygroundResizeSize, "size", "",
 		"the Ankra Cloud plan to move to, for example starter-4c-8g")
 	clusterPlaygroundDestroyCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")

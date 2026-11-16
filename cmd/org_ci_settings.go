@@ -256,10 +256,10 @@ pipeline asks for.
 
 --auto-playground is true by default: a run whose largest step no node of the
 pipeline cluster can hold moves to a short-lived CI playground on Ankra Cloud
-instead of failing. A CI playground on a paid plan is billed by the minute and
-is torn down once it has been idle for --playground-idle-minutes (5 by
-default, 0 to 1440). Set --auto-playground=false to keep every run on the
-pipeline cluster.
+instead of failing. A CI playground on a paid plan is billed for the time it
+exists and is torn down once it has been idle for --playground-idle-minutes
+(5 by default, 0 to 1440). Set --auto-playground=false to keep every run on
+the pipeline cluster.
 
 One thing 'get' shows has no flag here and never will:
 platform_builds_enabled, printed as "Platform builds enabled". It is Ankra's
@@ -615,10 +615,10 @@ func init() {
 	// sent unless the flag is passed.
 	orgCISettingsSetCmd.Flags().Bool("auto-playground", true,
 		"Move a run whose largest step no node of the pipeline cluster can hold to a short-lived CI playground "+
-			"on Ankra Cloud, which can be billed by the minute; =false keeps every run on the pipeline cluster")
+			"on Ankra Cloud, which can be billed for the time it exists; =false keeps every run on the pipeline cluster")
 	orgCISettingsSetCmd.Flags().Int("playground-idle-minutes", client.CIPlaygroundIdleMinutesDefault,
 		"How many minutes an idle CI playground on a paid plan is kept before it is torn down (0-1440); "+
-			"it is billed by the minute while it is kept")
+			"it is billed for as long as it is kept")
 	// Both directions of drift are fatal: walking the field map catches a
 	// field with no usage string, the count check catches a usage string
 	// naming a flag that writes nothing.

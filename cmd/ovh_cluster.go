@@ -974,7 +974,7 @@ func init() {
 	ovhCreateCmd.Flags().Int("worker-count", 1, "Number of worker nodes")
 	ovhCreateCmd.Flags().String("worker-flavor-id", "", "Worker instance flavor (server default: b3-16)")
 	ovhCreateCmd.Flags().String("distribution", "kubeadm", "Kubernetes distribution: kubeadm (default, vanilla upstream Kubernetes with Cilium) or k3s")
-	ovhCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see `ankra cluster kubeadm-versions` or `ankra cluster k3s-versions`)")
+	ovhCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see 'ankra cluster kubeadm-versions' or 'ankra cluster k3s-versions')")
 	ovhCreateCmd.Flags().String("etcd-topology", "stacked", "etcd topology for kubeadm clusters: stacked (on control planes) or external (dedicated VMs)")
 	ovhCreateCmd.Flags().Int("etcd-node-count", 3, "Number of dedicated etcd nodes when --etcd-topology=external (3 or 5)")
 	ovhCreateCmd.Flags().String("etcd-flavor-id", "", "Instance flavor for dedicated etcd nodes when --etcd-topology=external (server default: b3-16)")

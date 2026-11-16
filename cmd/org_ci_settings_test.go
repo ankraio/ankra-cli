@@ -942,15 +942,19 @@ func TestRunOrgCISettingsGet_OlderPlatformShowsNoPlaygroundLines(t *testing.T) {
 }
 
 // Both flags can cost money, so the one sentence `set --help` shows for each
-// has to say so.
+// has to say so. Neither names a billing unit: the unit is Ankra Cloud's to
+// state, and a copy of it here goes stale when Ankra Cloud changes it.
 func TestOrgCISettingsSetHelp_SaysACIPlaygroundCanBeBilled(t *testing.T) {
 	for _, flagName := range []string{"auto-playground", "playground-idle-minutes"} {
 		registered := orgCISettingsSetCmd.Flags().Lookup(flagName)
 		if registered == nil {
 			t.Fatalf("--%s is not registered", flagName)
 		}
-		if !strings.Contains(registered.Usage, "billed by the minute") {
+		if !strings.Contains(registered.Usage, "billed") {
 			t.Errorf("--%s help must say what it costs, got %q", flagName, registered.Usage)
+		}
+		if strings.Contains(registered.Usage, "by the minute") {
+			t.Errorf("--%s help must not name a billing unit, got %q", flagName, registered.Usage)
 		}
 	}
 }
