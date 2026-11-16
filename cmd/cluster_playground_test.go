@@ -129,9 +129,11 @@ func TestPlaygroundPlansListsSizesWithPricesAndAvailability(t *testing.T) {
 		plansCatalog: &client.PlaygroundPlanCatalog{
 			DefaultPlanID: "trial",
 			Currency:      "eur",
-			// No paid billing plan: the listing must say so instead of
-			// letting the order fail at the end.
+			// Neither the billing plan nor the memory budget decides what a
+			// playground on Ankra Cloud can be ordered at, so the listing
+			// must not print a line about either.
 			OrganisationHasPaidPlan: false,
+			Quota:                   client.PlaygroundMemoryQuota{LimitMiB: 8192},
 			Plans: []client.PlaygroundPlan{
 				{ID: "trial", DisplayName: "Trial", Vcpus: 1, MemoryGB: 2, StorageGB: 20, PriceMonthlyCents: 0, Currency: "eur", Available: true},
 				{ID: "small", DisplayName: "Small", Vcpus: 2, MemoryGB: 4, StorageGB: 50, PriceMonthlyCents: 1350, Currency: "eur", Available: true},
@@ -147,9 +149,14 @@ func TestPlaygroundPlansListsSizesWithPricesAndAvailability(t *testing.T) {
 	}
 	output := buffer.String()
 	for _, expected := range []string{"trial", "free", "small", "€13.50/mo", "large", "at capacity right now",
-		"create --size", "billing plan"} {
+		"create --size"} {
 		if !strings.Contains(output, expected) {
 			t.Errorf("expected %q in the listing, got: %s", expected, output)
+		}
+	}
+	for _, unexpected := range []string{"billing plan", "Memory budget", "playground-memory"} {
+		if strings.Contains(output, unexpected) {
+			t.Errorf("did not expect %q in the listing, got: %s", unexpected, output)
 		}
 	}
 }
@@ -177,18 +184,27 @@ func TestPlaygroundResizePassesTheSizeAndPrintsTheOutcome(t *testing.T) {
 		t.Errorf("resize call = %q, want "+playgroundTestClusterID+":medium", mock.resizeRequested)
 	}
 	output := buffer.String()
-	for _, expected := range []string{"Medium", "€28.80/mo", "pro-rata"} {
+	for _, expected := range []string{"resize started", "Medium", "€28.80/mo", "bills it to your Ankra Cloud account from the change"} {
 		if !strings.Contains(output, expected) {
 			t.Errorf("expected %q in output, got: %s", expected, output)
 		}
 	}
+	if strings.Contains(output, "pro-rata") {
+		t.Errorf("Ankra Cloud does not bill a resize pro-rata, got: %s", output)
+	}
 }
 
+// `plans` lists what a new playground is created at, not the plans an
+// existing one can move to, so the refusal must not send the reader there.
 func TestPlaygroundResizeRequiresTheSizeFlag(t *testing.T) {
 	withPlaygroundMock(t, &playgroundMock{})
 	clusterPlaygroundResizeSize = ""
-	if err := clusterPlaygroundResizeCmd.RunE(clusterPlaygroundResizeCmd, []string{playgroundTestClusterID}); err == nil {
+	err := clusterPlaygroundResizeCmd.RunE(clusterPlaygroundResizeCmd, []string{playgroundTestClusterID})
+	if err == nil {
 		t.Fatal("resize without --size must refuse")
+	}
+	if strings.Contains(err.Error(), "playground plans") {
+		t.Errorf("the refusal points at `plans`, which does not list resize sizes: %v", err)
 	}
 }
 
@@ -427,22 +443,20 @@ func TestPlaygroundDestroySurfacesTheServerError(t *testing.T) {
 	}
 }
 
-// A custom plan is invoiced against its agreement rather than collected by
-// Stripe, so the order gate never asks for a card and the listing must not
-// either. Every other plan still says so - including against a server too old
-// to send the field, where an absent answer is not an exemption.
-func TestPlaygroundPlansAsksForACardOnlyWhereStripeCollects(t *testing.T) {
+// A playground on Ankra Cloud is paid for through the organisation's Ankra
+// Cloud account, never through a card on Ankra's own billing page, so the
+// listing asks for no card whatever the billing plan answers.
+func TestPlaygroundPlansNeverAsksForACardOnTheBillingPage(t *testing.T) {
 	requiresCard := true
 	exemptFromCard := false
 
 	for _, testCase := range []struct {
 		name          string
 		requiresField *bool
-		wantCardLine  bool
 	}{
-		{name: "custom plan", requiresField: &exemptFromCard, wantCardLine: false},
-		{name: "Stripe-collected plan", requiresField: &requiresCard, wantCardLine: true},
-		{name: "server predating the field", requiresField: nil, wantCardLine: true},
+		{name: "custom plan", requiresField: &exemptFromCard},
+		{name: "Stripe-collected plan", requiresField: &requiresCard},
+		{name: "server predating the field", requiresField: nil},
 	} {
 		withPlaygroundMock(t, &playgroundMock{
 			plansCatalog: &client.PlaygroundPlanCatalog{
@@ -464,9 +478,8 @@ func TestPlaygroundPlansAsksForACardOnlyWhereStripeCollects(t *testing.T) {
 		}
 		output := buffer.String()
 		clusterPlaygroundPlansCmd.SetOut(nil)
-		if hasCardLine := strings.Contains(output, "payment card on file"); hasCardLine != testCase.wantCardLine {
-			t.Errorf("%s: card line present = %v, want %v; output: %s",
-				testCase.name, hasCardLine, testCase.wantCardLine, output)
+		if strings.Contains(output, "payment card on file") {
+			t.Errorf("%s: the listing asks for a card on the billing page; output: %s", testCase.name, output)
 		}
 	}
 }

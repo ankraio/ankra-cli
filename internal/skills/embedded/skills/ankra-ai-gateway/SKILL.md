@@ -77,7 +77,7 @@ ankra application pull-request-reviews <application-id>  # what the review poste
 - **Talk to it with `@ankraai`** in a pull request comment (needs **Mention replies**). A mention
   always runs, even on a draft or past the per-pull-request cap.
 - A skipped review says why on the **Ankra AI review** check run (switched off, draft, out-of-scope
-  branch, budget reached). Two budgets apply: **Auto reviews / PR** (default 5) on the repository
+  branch, budget reached). Two budgets apply: **Auto reviews / PR** (default 3) on the repository
   rule, and **Max runs per day** under the application's AI settings.
 - Per-application lanes (branch patterns, ignore paths, budgets, instructions) are
   `ankra application ai-config`, keyed by repository.
