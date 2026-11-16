@@ -48,8 +48,9 @@ var clusterStacksShowDraftCmd = &cobra.Command{
 		if selectError != nil {
 			return selectError
 		}
-		// A stack that is only a draft can list with no draft id, and then
-		// the listing is the draft: its deploy posts that same object.
+		// The listing elides the draft's bodies, so the draft is read in
+		// full. deploy-draft posts this same read for a stack that is only
+		// a draft (ankra-3g40f8.6), so what is shown is what deploys.
 		if document.DraftID() != "" {
 			draft, readError := readListedStackDraft(cmd, cluster.ID, document)
 			if readError != nil {

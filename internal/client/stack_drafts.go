@@ -17,10 +17,14 @@ package client
 //
 // That write is NOT partial. Members the request omits are deleted from the
 // stack, so the request has to carry the draft's content exactly. The CLI
-// therefore never re-models it: the listing's stack object is kept as raw
-// JSON and posted back unchanged except for the one member the write
-// refuses. Anything the CLI does not understand survives precisely because
-// the CLI does not touch it - the alternative, decoding into a struct, is
+// therefore never re-models it: the draft read's stack object
+// (GetClusterStackDraft) is kept as raw JSON and posted back unchanged except
+// for the one member the write refuses. It is the read, not the listing's
+// entry, because the listing elides every member's body (manifest_base64,
+// from_file, an add-on's configuration), and posting those nulls refused the
+// deploy or deployed the stack without them (ankra-3g40f8.6). Anything the
+// CLI does not understand survives precisely because the CLI does not touch
+// it - the alternative, decoding into a struct, is
 // how encrypted_paths would have been dropped on the way through, and a
 // stack that deploys without its SOPS declaration is the corruption this
 // design exists to make impossible.
@@ -45,7 +49,7 @@ type ClusterStackDocument map[string]json.RawMessage
 // stackDocumentRenderOnlyMember is the one member the listing renders and
 // the stack-write spec parser refuses: a resource's live state, whose
 // accepted values are creating/updating/stopping/up/down. Every member of a
-// draft-only stack renders state "draft", so posting the listing object back
+// draft-only stack renders state "draft", so posting the stack object back
 // unedited is a 422 on the first manifest.
 //
 // It is the ONLY member that has to go. The parser reads members by name and
@@ -394,13 +398,13 @@ func (c *Client) DeployClusterStackDraft(ctx context.Context, clusterID string, 
 // leave a draft bound to a live stack. The create-stack write above refuses
 // it - the stack exists - so it could only be deployed from the builder,
 // which promotes it through PATCH /stacks/{stack_name} with the draft's id.
-// This is that write. Two things differ from the draft-only deploy:
+// This is that write. Like the draft-only deploy, its content comes from the
+// draft read, not the listing: the listing elides manifest bodies and add-on
+// values, and the update write does not reload the draft's rows, so an elided
+// body would deploy the LIVE body under the draft's name and then close the
+// draft as if its change had shipped. One thing differs from the draft-only
+// deploy:
 //
-//   - The content comes from the draft read, not the listing. The listing
-//     elides manifest bodies and add-on values, and the update write - unlike
-//     the create write - does not reload the draft's rows, so an elided body
-//     would deploy the LIVE body under the draft's name and then close the
-//     draft as if its change had shipped.
 //   - The write is partial. A draft of a deployed stack holds only the
 //     members it changes; a full write deletes every member a request omits,
 //     so promoting the draft whole would delete the stack's untouched members.

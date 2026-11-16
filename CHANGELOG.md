@@ -1,5 +1,11 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`ankra cluster stacks deploy-draft` deploys what a draft-only stack's draft holds.** For a stack that exists only as a draft, the command posted the stack listing's copy of it, and the listing leaves out every member's body: a manifest's content and file path, and an add-on's values and values file. The platform then refused the deploy and kept the draft, or deployed the stack with its files moved to the default paths. The command now reads the draft in full first, as it already did for the draft of a stack that is deployed, and deploys that. A draft that was discarded or deployed since the stack was listed is reported with exit code 3 and nothing is deployed. No flag, exit code or `-o json` key changes.
+
 ## v0.78.0 - 2026-11-16
 
 Rename a cluster in place, mint and revoke alert ingest credentials, and turn
