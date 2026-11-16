@@ -17,8 +17,9 @@ import (
 // whether the Ankra-operated build cluster stays available when that cluster
 // cannot build, how much of the run and step schedulers the organisation may
 // occupy, which images its steps may name and which private networks they may
-// reach, how long artifacts, caches and run history survive, and which image
-// findings block a publish.
+// reach, how long artifacts, caches and run history survive, which image
+// findings block a publish, and whether a run too large for the pipeline
+// cluster may move to a CI playground.
 //
 // Every field the platform stores is carried, so `-o json` is the whole
 // record rather than a subset a reader would have to know was incomplete.
@@ -65,6 +66,14 @@ type OrganisationCISettings struct {
 	AlwaysRunStages        []string `json:"ci_always_run_stages,omitempty" yaml:"ci_always_run_stages,omitempty"`
 	FullRunOnDefaultBranch *bool    `json:"ci_full_run_on_default_branch,omitempty" yaml:"ci_full_run_on_default_branch,omitempty"`
 	SkipMarkers            string   `json:"ci_skip_markers,omitempty" yaml:"ci_skip_markers,omitempty"`
+	// AutoPlayground and PlaygroundIdleMinutes are the CI playground: whether
+	// a run whose largest step no node of the pipeline cluster can hold moves
+	// to a short-lived Ankra Cloud cluster Ankra builds for it (true by
+	// default), and how many minutes an idle one on a paid plan is kept
+	// before it is torn down (0-1440, 5 by default). Both are absent from a
+	// platform that predates them rather than reading as false and zero.
+	AutoPlayground        *bool `json:"ci_auto_playground,omitempty" yaml:"ci_auto_playground,omitempty"`
+	PlaygroundIdleMinutes *int  `json:"ci_playground_idle_minutes,omitempty" yaml:"ci_playground_idle_minutes,omitempty"`
 	// PlatformBuildsEnabled reports whether Ankra has granted the organisation
 	// the platform-builders capability that gates the Ankra-operated build
 	// lane. It is Ankra's grant rather than a setting, so the platform refuses
@@ -104,6 +113,16 @@ const (
 	CISkipMarkersExceptDefaultBranch = "except_default_branch"
 	// CISkipMarkersNever ignores every marker.
 	CISkipMarkersNever = "never"
+)
+
+// The CI playground idle time, mirroring enginekit/cisettings: how many
+// minutes an idle CI playground on a paid plan is kept before it is torn
+// down. Zero tears it down as soon as its last run concludes; a day is the
+// most an idle one may keep billing.
+const (
+	CIPlaygroundIdleMinutesMin     = 0
+	CIPlaygroundIdleMinutesMax     = 1440
+	CIPlaygroundIdleMinutesDefault = 5
 )
 
 // The image-gate vocabulary, mirroring enginekit/trivygate. The stored values
