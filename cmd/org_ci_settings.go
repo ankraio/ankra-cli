@@ -233,6 +233,8 @@ pipeline cluster with an empty value:
   ankra org ci-settings set --ignore-unfixed=false
   ankra org ci-settings set --always-run-stage security-scan --always-run-stage lint
   ankra org ci-settings set --full-run-on-default-branch --skip-markers never
+  ankra org ci-settings set --auto-playground=false
+  ankra org ci-settings set --playground-idle-minutes 30
 
 --always-run-stage, --full-run-on-default-branch and --skip-markers are the
 safety net around path filters. An always-run stage (and every stage it
@@ -251,6 +253,13 @@ restriction, or no private egress beyond the public internet.
 default, letting a gate stage leave findings with no available fix out of its
 verdict; set it to false and every unfixed finding blocks, whatever any
 pipeline asks for.
+
+--auto-playground is true by default: a run whose largest step no node of the
+pipeline cluster can hold moves to a short-lived CI playground on Ankra Cloud
+instead of failing. A CI playground on a paid plan is billed by the minute and
+is torn down once it has been idle for --playground-idle-minutes (5 by
+default, 0 to 1440). Set --auto-playground=false to keep every run on the
+pipeline cluster.
 
 One thing 'get' shows has no flag here and never will:
 platform_builds_enabled, printed as "Platform builds enabled". It is Ankra's
@@ -273,7 +282,8 @@ Requires organisation admin. A member's attempt is refused with exit code 7.`,
 					"--max-parallel-runs, --max-parallel-steps, --allowed-image-prefix, "+
 					"--egress-allowed-cidr, --artifact-retention-days, --cache-retention-days, "+
 					"--run-retention-days, --image-gate, --ignore-unfixed, --always-run-stage, "+
-					"--full-run-on-default-branch or --skip-markers"))
+					"--full-run-on-default-branch, --skip-markers, --auto-playground or "+
+					"--playground-idle-minutes"))
 		}
 
 		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
@@ -418,6 +428,25 @@ func organisationCISettingsChanges(cmd *cobra.Command) (map[string]any, error) {
 		}
 	}
 
+	if cmd.Flags().Changed("auto-playground") {
+		// Presence from Changed, as for --ignore-unfixed: =false is a write.
+		autoPlayground, _ := cmd.Flags().GetBool("auto-playground")
+		changes["ci_auto_playground"] = autoPlayground
+	}
+
+	if cmd.Flags().Changed("playground-idle-minutes") {
+		idleMinutes, _ := cmd.Flags().GetInt("playground-idle-minutes")
+		// Checked here as well as on the platform so an out-of-range value is
+		// a usage error that names the bounds before anything is sent. Zero
+		// is a real value (tear the playground down as soon as it is idle),
+		// so it is sent, not dropped.
+		if idleMinutes < client.CIPlaygroundIdleMinutesMin || idleMinutes > client.CIPlaygroundIdleMinutesMax {
+			return nil, withExitCode(exitUsage, fmt.Errorf("--playground-idle-minutes must be between %d and %d",
+				client.CIPlaygroundIdleMinutesMin, client.CIPlaygroundIdleMinutesMax))
+		}
+		changes["ci_playground_idle_minutes"] = idleMinutes
+	}
+
 	return changes, nil
 }
 
@@ -461,6 +490,14 @@ func renderOrganisationCISettings(cmd *cobra.Command, settings *client.Organisat
 	}
 
 	_, _ = fmt.Fprintf(out, "Build fallback:          %s\n", settings.BuildFallback)
+	// Absent from a platform that predates CI playgrounds, which then prints
+	// no line rather than a "no" it never said.
+	if settings.AutoPlayground != nil {
+		_, _ = fmt.Fprintf(out, "CI playground:           %s\n", yesNo(*settings.AutoPlayground))
+	}
+	if settings.PlaygroundIdleMinutes != nil {
+		_, _ = fmt.Fprintf(out, "Playground idle time:    %d minutes\n", *settings.PlaygroundIdleMinutes)
+	}
 	_, _ = fmt.Fprintf(out, "Max parallel runs:       %d\n", settings.MaxParallelRuns)
 	_, _ = fmt.Fprintf(out, "Max parallel steps:      %d\n", settings.MaxParallelSteps)
 	if len(settings.AllowedImagePrefixes) == 0 {
@@ -574,6 +611,14 @@ func init() {
 		"Run every stage on a push to a repository's default branch, setting path filters aside; =false applies them")
 	orgCISettingsSetCmd.Flags().String("skip-markers", "",
 		"Where a [skip ci] marker in a pushed commit skips the run: everywhere, except_default_branch (default) or never")
+	// The defaults shown are Ankra's own, as for --ignore-unfixed; neither is
+	// sent unless the flag is passed.
+	orgCISettingsSetCmd.Flags().Bool("auto-playground", true,
+		"Move a run whose largest step no node of the pipeline cluster can hold to a short-lived CI playground "+
+			"on Ankra Cloud, which can be billed by the minute; =false keeps every run on the pipeline cluster")
+	orgCISettingsSetCmd.Flags().Int("playground-idle-minutes", client.CIPlaygroundIdleMinutesDefault,
+		"How many minutes an idle CI playground on a paid plan is kept before it is torn down (0-1440); "+
+			"it is billed by the minute while it is kept")
 	// Both directions of drift are fatal: walking the field map catches a
 	// field with no usage string, the count check catches a usage string
 	// naming a flag that writes nothing.

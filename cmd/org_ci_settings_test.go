@@ -803,3 +803,154 @@ func TestRunOrgCISettingsGet_OlderPlatformShowsNoSafetyNetLines(t *testing.T) {
 		}
 	}
 }
+
+// CI playgrounds are on by default and can be billed, so turning them off has
+// to reach the body as an explicit false, and the idle time as its number:
+// zero included, since zero tears a playground down as soon as it is idle.
+// Both flags default to Ankra's own values, so a write that read the value
+// instead of Changed would also send them unasked; the build-fallback test
+// above catches that.
+func TestRunOrgCISettingsSet_WritesTheCIPlaygroundSettings(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		args        []string
+		wantAuto    bool
+		wantMinutes int
+	}{
+		"off, kept warm for half an hour": {
+			args:     []string{"--auto-playground=false", "--playground-idle-minutes", "30"},
+			wantAuto: false, wantMinutes: 30,
+		},
+		"on, torn down as soon as idle": {
+			args:     []string{"--auto-playground", "--playground-idle-minutes", "0"},
+			wantAuto: true, wantMinutes: 0,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			mock := &orgCISettingsMock{settings: defaultCISettings()}
+			args := append([]string{"org", "ci-settings", "set"}, testCase.args...)
+			output, executeError := runOrgCISettings(t, mock, args...)
+			if executeError != nil {
+				t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+			}
+			if len(mock.updateSeen) != 1 {
+				t.Fatalf("expected exactly one write, got %d", len(mock.updateSeen))
+			}
+			changes := mock.updateSeen[0]
+			if len(changes) != 2 {
+				t.Errorf("only the two playground settings may be written, got %v", changes)
+			}
+			if value, isPresent := changes["ci_auto_playground"]; !isPresent || value != testCase.wantAuto {
+				t.Errorf("ci_auto_playground = %v (present %v), want %v", value, isPresent, testCase.wantAuto)
+			}
+			if value, isPresent := changes["ci_playground_idle_minutes"]; !isPresent || value != testCase.wantMinutes {
+				t.Errorf("ci_playground_idle_minutes = %v (present %v), want %d",
+					value, isPresent, testCase.wantMinutes)
+			}
+		})
+	}
+}
+
+// The bounds are the platform's (0 to 1440 minutes); a value outside them is
+// a usage error naming them, and nothing is written.
+func TestRunOrgCISettingsSet_RefusesAPlaygroundIdleTimeOutsideTheBounds(t *testing.T) {
+	for _, minutes := range []string{"-1", "1441"} {
+		t.Run(minutes, func(t *testing.T) {
+			mock := &orgCISettingsMock{settings: defaultCISettings()}
+			_, executeError := runOrgCISettings(t, mock,
+				"org", "ci-settings", "set", "--playground-idle-minutes="+minutes)
+			if executeError == nil || exitCodeFor(executeError) != exitUsage {
+				t.Fatalf("expected a usage error, got %v", executeError)
+			}
+			if !strings.Contains(executeError.Error(), "--playground-idle-minutes must be between 0 and 1440") {
+				t.Errorf("error = %v, want the bounds named", executeError)
+			}
+			if len(mock.updateSeen) != 0 {
+				t.Errorf("expected no write, got %v", mock.updateSeen)
+			}
+		})
+	}
+}
+
+func TestRunOrgCISettingsGet_ShowsTheCIPlaygroundSettings(t *testing.T) {
+	settings := defaultCISettings()
+	settings.IsDefault = false
+	autoPlayground := false
+	idleMinutes := 30
+	settings.AutoPlayground = &autoPlayground
+	settings.PlaygroundIdleMinutes = &idleMinutes
+	mock := &orgCISettingsMock{settings: settings}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	for _, want := range []string{
+		"CI playground:           no",
+		"Playground idle time:    30 minutes",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("get output missing %q:\n%s", want, output)
+		}
+	}
+
+	jsonOutput, jsonError := runOrgCISettings(t, mock, "org", "ci-settings", "get", "-o", "json")
+	if jsonError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", jsonError, jsonOutput)
+	}
+	var decoded map[string]any
+	if decodeError := json.Unmarshal([]byte(jsonOutput), &decoded); decodeError != nil {
+		t.Fatalf("-o json must stay parseable: %v\n%s", decodeError, jsonOutput)
+	}
+	if value, isPresent := decoded["ci_auto_playground"]; !isPresent || value != false {
+		t.Errorf("ci_auto_playground = %v (present %v), want false", value, isPresent)
+	}
+	if value, isPresent := decoded["ci_playground_idle_minutes"]; !isPresent || value != float64(30) {
+		t.Errorf("ci_playground_idle_minutes = %v (present %v), want 30", value, isPresent)
+	}
+	if decoded["ci_build_fallback"] != client.CIBuildFallbackPlatformBuilders {
+		t.Errorf("the existing keys stay where they were: %s", jsonOutput)
+	}
+}
+
+// A platform that predates CI playgrounds sends neither field: `get` prints no
+// line for them and -o json leaves the keys out, rather than reading as "off"
+// and zero minutes.
+func TestRunOrgCISettingsGet_OlderPlatformShowsNoPlaygroundLines(t *testing.T) {
+	mock := &orgCISettingsMock{settings: defaultCISettings()}
+	output, executeError := runOrgCISettings(t, mock, "org", "ci-settings", "get")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	for _, unwanted := range []string{"CI playground", "Playground idle time"} {
+		if strings.Contains(output, unwanted) {
+			t.Errorf("a platform that sends neither must not show %q:\n%s", unwanted, output)
+		}
+	}
+
+	jsonOutput, jsonError := runOrgCISettings(t, mock, "org", "ci-settings", "get", "-o", "json")
+	if jsonError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", jsonError, jsonOutput)
+	}
+	var decoded map[string]any
+	if decodeError := json.Unmarshal([]byte(jsonOutput), &decoded); decodeError != nil {
+		t.Fatalf("-o json must stay parseable: %v\n%s", decodeError, jsonOutput)
+	}
+	for _, key := range []string{"ci_auto_playground", "ci_playground_idle_minutes"} {
+		if _, isPresent := decoded[key]; isPresent {
+			t.Errorf("an unreported %s must be absent, not invented: %s", key, jsonOutput)
+		}
+	}
+}
+
+// Both flags can cost money, so the one sentence `set --help` shows for each
+// has to say so.
+func TestOrgCISettingsSetHelp_SaysACIPlaygroundCanBeBilled(t *testing.T) {
+	for _, flagName := range []string{"auto-playground", "playground-idle-minutes"} {
+		registered := orgCISettingsSetCmd.Flags().Lookup(flagName)
+		if registered == nil {
+			t.Fatalf("--%s is not registered", flagName)
+		}
+		if !strings.Contains(registered.Usage, "billed by the minute") {
+			t.Errorf("--%s help must say what it costs, got %q", flagName, registered.Usage)
+		}
+	}
+}

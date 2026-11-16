@@ -165,6 +165,61 @@ func TestGetOrganisationCISettingsDecodesEveryField(t *testing.T) {
 	}
 }
 
+// The CI playground settings decode as the platform sends them, a false and a
+// zero included: "off" and "tear it down at once" are real answers, and a
+// field that decoded them as absent would hide a setting that can cost money.
+// A platform that predates them leaves both nil, and they stay out of the
+// re-encoded record instead of reading as false and zero.
+func TestGetOrganisationCISettingsDecodesTheCIPlaygroundSettings(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		body        string
+		wantAuto    *bool
+		wantMinutes *int
+	}{
+		"current platform, playgrounds off": {
+			body:        `{"ci_build_fallback": "none", "ci_auto_playground": false, "ci_playground_idle_minutes": 0}`,
+			wantAuto:    new(bool),
+			wantMinutes: new(int),
+		},
+		"older platform": {
+			body: `{"ci_build_fallback": "none"}`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			testClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				writer.WriteHeader(http.StatusOK)
+				_, _ = writer.Write([]byte(testCase.body))
+			})
+			settings, getError := testClient.GetOrganisationCISettings(context.Background())
+			if getError != nil {
+				t.Fatalf("GetOrganisationCISettings error = %v", getError)
+			}
+			if !reflect.DeepEqual(settings.AutoPlayground, testCase.wantAuto) {
+				t.Errorf("AutoPlayground = %v, want %v", settings.AutoPlayground, testCase.wantAuto)
+			}
+			if !reflect.DeepEqual(settings.PlaygroundIdleMinutes, testCase.wantMinutes) {
+				t.Errorf("PlaygroundIdleMinutes = %v, want %v", settings.PlaygroundIdleMinutes, testCase.wantMinutes)
+			}
+
+			encoded, encodeError := json.Marshal(settings)
+			if encodeError != nil {
+				t.Fatalf("encode: %v", encodeError)
+			}
+			var reencoded map[string]any
+			if decodeError := json.Unmarshal(encoded, &reencoded); decodeError != nil {
+				t.Fatalf("decode: %v", decodeError)
+			}
+			for _, key := range []string{"ci_auto_playground", "ci_playground_idle_minutes"} {
+				_, isPresent := reencoded[key]
+				if wantPresent := testCase.wantAuto != nil; isPresent != wantPresent {
+					t.Errorf("%s present = %v, want %v: %s", key, isPresent, wantPresent, encoded)
+				}
+			}
+		})
+	}
+}
+
 // A member changing the settings is refused by the admin gate. That is an RBAC
 // refusal - the caller's identity is fine, their role is not - so it must be
 // the exit-7 PermissionDeniedError, not the exit-6 "re-login" a bare 403
