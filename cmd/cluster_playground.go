@@ -256,7 +256,7 @@ var clusterPlaygroundDestroyCmd = withClusterArgument(clusterMustBeNamed, &cobra
 
 func init() {
 	clusterPlaygroundCreateCmd.Flags().StringVar(&clusterPlaygroundCreateSize, "size", "",
-		"size to create at, from `ankra cluster playground plans` (default: the size that list shows)")
+		"size to create at (default: the size 'ankra cluster playground plans' lists)")
 	clusterPlaygroundResizeCmd.Flags().StringVar(&clusterPlaygroundResizeSize, "size", "",
 		"the Ankra Cloud plan to move to, for example starter-4c-8g")
 	clusterPlaygroundDestroyCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
