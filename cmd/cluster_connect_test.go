@@ -90,6 +90,9 @@ func TestClusterConnectRegistersTheClusterAndPrintsTheInstallCommand(t *testing.
 	if !mock.waits[0] {
 		t.Fatal("the import was not waited for, and the platform returns the install command only with an applied write")
 	}
+	if !request.CreateOnly {
+		t.Fatal("the import was not marked create only, so the platform would update a cluster that took the name meanwhile")
+	}
 	for _, want := range []string{
 		clusterConnectSuccessLine,
 		"kubectl config current-context",
@@ -153,6 +156,54 @@ func TestClusterConnectRefusesANameThatIsTaken(t *testing.T) {
 		if !strings.Contains(runError.Error(), want) {
 			t.Errorf("refusal lacks %q: %v", want, runError)
 		}
+	}
+}
+
+// A cluster that takes the name after this command read it is refused by the
+// platform, which was asked to create only. The answer is the same refusal as
+// a name found taken up front (exit 8): it names the existing cluster and the
+// command that prints its install command, and nothing was changed.
+func TestClusterConnectRefusesANameTakenWhileItRan(t *testing.T) {
+	mock := &clusterConnectMock{applyError: &client.ClusterAlreadyExistsError{
+		StatusCode: 409, Message: "Cluster with this name already exists. Please choose a different name.",
+		ClusterID: clusterConnectTestClusterID, Name: "my-cluster",
+	}}
+
+	output, runError := runClusterConnectCommand(t, mock, "my-cluster")
+	if exitCodeFor(runError) != exitBlocked {
+		t.Fatalf("exit = %d (%v), want blocked", exitCodeFor(runError), runError)
+	}
+	if len(mock.requests) != 1 {
+		t.Fatalf("imports = %d, want the one the platform refused", len(mock.requests))
+	}
+	for _, want := range []string{
+		"already exists",
+		"(id " + clusterConnectTestClusterID + ")",
+		"nothing was changed",
+		"ankra cluster agent token --cluster my-cluster",
+	} {
+		if !strings.Contains(runError.Error(), want) {
+			t.Errorf("refusal lacks %q: %v", want, runError)
+		}
+	}
+	if strings.Contains(output, clusterConnectSuccessLine) {
+		t.Errorf("a refused create was reported as a registration:\n%s", output)
+	}
+}
+
+// A refusal that names no cluster still reads as a sentence: no empty id.
+func TestClusterConnectRefusalWithoutAnID(t *testing.T) {
+	mock := &clusterConnectMock{applyError: &client.ClusterAlreadyExistsError{StatusCode: 409, Message: "a cluster with this name already exists"}}
+
+	_, runError := runClusterConnectCommand(t, mock, "my-cluster")
+	if exitCodeFor(runError) != exitBlocked {
+		t.Fatalf("exit = %d (%v), want blocked", exitCodeFor(runError), runError)
+	}
+	if strings.Contains(runError.Error(), "(id") {
+		t.Fatalf("the refusal shows an id the platform did not give: %v", runError)
+	}
+	if !strings.Contains(runError.Error(), `a cluster named "my-cluster" already exists; nothing was changed`) {
+		t.Fatalf("refusal = %v", runError)
 	}
 }
 
