@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **Connect a cluster you already run with one command: `ankra cluster connect <name>`.** The command registers the cluster and prints the one Helm command that installs the Ankra agent, which connects the cluster to your organisation. Until now the only way to do this from the CLI was to write an ImportCluster file and run `ankra cluster apply -f <file> --wait`, while the portal's "Connect a cluster" page asks for nothing but a name. `--environment` says what the cluster is for and `--description` describes it; `-o json|yaml` prints `cluster_id`, `name` and `install_command` for a script. A name another cluster in the organisation already has is refused with exit 8 and nothing is changed, because the same request would otherwise update that cluster. The printed command carries the cluster's agent token, so treat it as a credential. `ankra cluster import <name>` is the same command. `ankra cluster apply` is unchanged and is still how you declare Stacks, add-ons or a GitOps repository on a cluster.
+
 ### Fixed
 
 - **`ankra security remediations list` shows batched fixes.** A pull request that fixes several of one application's findings at once, such as a base-image fix or a dependency bump, is now listed as one row, as the portal's Security > Fix activity lists it. Before, the command showed such runs only with `--application`. The columns and `-o json` keys are unchanged: a batched run has `finding_id` null and every finding it fixes in `finding_ids`, and `--finding` also matches a batched run that fixes that finding among others. The list is still the newest runs first, at most 100 (or `--limit`), so with batched runs in it an older run of one finding can fall past the end.
