@@ -15,10 +15,16 @@ import (
 const securityAPIPath = "/api/v1/org/security"
 
 // SecurityRemediationsOptions narrows a remediation run listing.
+//
+// IncludeBatched asks for the batched runs too: one pull request that fixes
+// several of one application's findings, which the platform answers with
+// finding_id null and every finding it fixes in finding_ids. Without it the
+// platform answers only runs of one finding, unless ApplicationID is set.
 type SecurityRemediationsOptions struct {
-	FindingID     string
-	ApplicationID string
-	Limit         int
+	FindingID      string
+	ApplicationID  string
+	IncludeBatched bool
+	Limit          int
 }
 
 // ListSecurityRemediations reads the organisation's remediation runs, newest
@@ -31,6 +37,9 @@ func (c *Client) ListSecurityRemediations(ctx context.Context, options SecurityR
 	}
 	if options.ApplicationID != "" {
 		query.Set("application_id", options.ApplicationID)
+	}
+	if options.IncludeBatched {
+		query.Set("include_batched", "true")
 	}
 	if options.Limit > 0 {
 		query.Set("limit", strconv.Itoa(options.Limit))
