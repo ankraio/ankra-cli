@@ -57,6 +57,9 @@ columns the second, followed by a one-line summary and, for each failed leg,
 its message and the last lines of its test log (--logs prints the whole
 tail). Any other matrix prints as a table.
 
+Test environments are in closed beta and need Ankra Cloud to be on for the
+organisation; ask Ankra support to turn it on.
+
 A leg the platform has not started yet, held back by the organisation's
 concurrency cap, shows as queued.
 

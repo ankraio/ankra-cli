@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -22,7 +23,7 @@ func TestSecurityRemediationCommandsConfirmWritesAndRenderRuns(t *testing.T) {
 	if runError != nil || !strings.Contains(stdout, "run-1") || !strings.Contains(stdout, "https://github.com/acme/shop/pull/7") {
 		t.Fatalf("list: stdout %q, error %v", stdout, runError)
 	}
-	if query := (*calls)[0].query; query != "finding_id=f-1&project_id=all" {
+	if query := (*calls)[0].query; query != "finding_id=f-1&include_batched=true&project_id=all" {
 		t.Errorf("list query = %q", query)
 	}
 	stdout, _, runError = runDocumentCommand(t, server, newSecurityRemediationsCommand(), "", "list", "-o", "json")
@@ -41,6 +42,59 @@ func TestSecurityRemediationCommandsConfirmWritesAndRenderRuns(t *testing.T) {
 	_, _, missingError := runDocumentCommand(t, server, newSecurityRemediationsCommand(), "", "get", "unknown-run")
 	if exitCodeFor(missingError) != exitNotFound {
 		t.Errorf("get of an unknown run: error %v (exit %d), want not found", missingError, exitCodeFor(missingError))
+	}
+}
+
+// TestSecurityRemediationsListIncludesBatchedRuns pins that the list asks for
+// batched runs, with --finding and without, as Security > Fix activity does,
+// and that a batched run (finding_id null, several finding_ids) is one more row
+// with the columns and -o json keys of a run of one finding.
+func TestSecurityRemediationsListIncludesBatchedRuns(t *testing.T) {
+	const single = `{"id":"run-1","kind":"image_rebuild","status":"verifying","title":"Bump nginx","finding_id":"f-1",
+		"finding_ids":["f-1"],"application_name":"shop","repository":"acme/shop","branch":"ankra/security/4f1c/nginx",
+		"pull_request_url":"https://github.com/acme/shop/pull/7","started_by":"person","attempts":1,"max_attempts":3,
+		"created_at":"2026-11-10T00:00:00Z"}`
+	const batched = `{"id":"run-2","kind":"dependency_bump","status":"working","title":"Bump three packages","finding_id":null,
+		"finding_ids":["f-1","f-2","f-3"],"application_name":"shop","repository":"acme/shop","branch":"ankra/security/shop/deps",
+		"pull_request_url":"https://github.com/acme/shop/pull/8","started_by":"ankra","attempts":0,"max_attempts":2,
+		"created_at":"2026-11-11T00:00:00Z"}`
+	server, calls := serveDocuments(t, map[string]documentRoute{
+		"GET /api/v1/org/security/remediations": {http.StatusOK, `{"result":[` + batched + `,` + single + `]}`},
+	})
+
+	stdout, _, runError := runDocumentCommand(t, server, newSecurityRemediationsCommand(), "", "list", "--all-projects")
+	if runError != nil {
+		t.Fatalf("list: %v", runError)
+	}
+	if query := (*calls)[0].query; query != "include_batched=true&project_id=all" {
+		t.Errorf("list query = %q, want the batched runs asked for", query)
+	}
+	for _, want := range []string{"run-1", "run-2", "dependency_bump", "https://github.com/acme/shop/pull/7", "https://github.com/acme/shop/pull/8"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("list table is missing %q:\n%s", want, stdout)
+		}
+	}
+
+	stdout, _, runError = runDocumentCommand(t, server, newSecurityRemediationsCommand(), "", "list", "--finding", "f-2", "-o", "json")
+	if runError != nil {
+		t.Fatalf("list --finding -o json: %v", runError)
+	}
+	if query := (*calls)[1].query; !strings.HasPrefix(query, "finding_id=f-2&include_batched=true") {
+		t.Errorf("list --finding query = %q, want the batched runs asked for", query)
+	}
+	var listing struct {
+		Result []map[string]any `json:"result"`
+	}
+	if decodeError := json.Unmarshal([]byte(stdout), &listing); decodeError != nil || len(listing.Result) != 2 {
+		t.Fatalf("list -o json: %v, stdout %q", decodeError, stdout)
+	}
+	findingID, hasFindingID := listing.Result[0]["finding_id"]
+	findingIDs, _ := listing.Result[0]["finding_ids"].([]any)
+	if !hasFindingID || findingID != nil || len(findingIDs) != 3 {
+		t.Errorf("batched run in -o json = %v, want finding_id null and three finding_ids", listing.Result[0])
+	}
+	if listing.Result[1]["finding_id"] != "f-1" {
+		t.Errorf("run of one finding in -o json = %v, want its finding_id kept", listing.Result[1])
 	}
 }
 

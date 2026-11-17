@@ -16,6 +16,9 @@ func TestSecurityAndCostOperationRoutesSendTheContract(t *testing.T) {
 		{"remediations list", func(c *Client) (json.RawMessage, error) {
 			return c.ListSecurityRemediations(ctx, SecurityRemediationsOptions{FindingID: "f-1", ApplicationID: "a-1", Limit: 5})
 		}, "GET " + security + "/remediations?application_id=a-1&finding_id=f-1&limit=5", ""},
+		{"remediations list with batched runs", func(c *Client) (json.RawMessage, error) {
+			return c.ListSecurityRemediations(ctx, SecurityRemediationsOptions{FindingID: "f-1", IncludeBatched: true})
+		}, "GET " + security + "/remediations?finding_id=f-1&include_batched=true", ""},
 		{"remediation get", func(c *Client) (json.RawMessage, error) { return c.GetSecurityRemediation(ctx, "run/1") },
 			"GET " + security + "/remediations/run%2F1", ""},
 		{"remediation start", func(c *Client) (json.RawMessage, error) { return c.StartSecurityRemediations(ctx, "f-1") },

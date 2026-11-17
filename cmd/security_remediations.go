@@ -99,10 +99,12 @@ means clean.`,
 		use:     "list",
 		aliases: []string{"ls"},
 		short:   "List remediation runs, newest first",
-		long: `List the organisation's remediation runs newest first (at most 100). Without
---application only runs of one finding are listed; with it the application's
-batched runs are listed too, and --finding then also matches a batched run
-that fixes the finding.`,
+		long: `List the organisation's remediation runs newest first (at most 100). A pull
+request that fixes several of one application's findings at once, such as a
+base-image fix or a dependency bump, is a batched run and is listed as one
+row. In -o json its finding_id is null and finding_ids lists every finding it
+fixes. --finding also matches a batched run that fixes the finding among
+others.`,
 		example: `  ankra security remediations list
   ankra security remediations list --finding 0b7c4d15-5f6a-4b8c-9d0e-1f2a3b4c5d6e -o json`,
 		arguments: cobra.NoArgs,
@@ -113,7 +115,11 @@ that fixes the finding.`,
 			if limit < 0 || limit > 100 {
 				return nil, withExitCode(exitUsage, fmt.Errorf("--limit is between 1 and 100, or 0 for the platform's default"))
 			}
-			options := client.SecurityRemediationsOptions{FindingID: strings.TrimSpace(findingID), Limit: limit}
+			// Batched runs are always asked for, as Security > Fix activity
+			// lists them: they are added rows with the same keys, so no row the
+			// list already showed changes.
+			options := client.SecurityRemediationsOptions{FindingID: strings.TrimSpace(findingID), Limit: limit,
+				IncludeBatched: true}
 			if strings.TrimSpace(applicationReference) != "" {
 				applicationID, resolveError := resolveApplicationID(command.Context(), apiClient, strings.TrimSpace(applicationReference))
 				if resolveError != nil {
@@ -143,8 +149,8 @@ that fixes the finding.`,
 			return nil
 		},
 	})
-	listCommand.Flags().String("finding", "", "Only runs that fix this finding (its id)")
-	listCommand.Flags().String("application", "", "Only this application's runs, batched ones included (name or id)")
+	listCommand.Flags().String("finding", "", "Only runs that fix this finding (its id), batched runs included")
+	listCommand.Flags().String("application", "", "Only this application's runs (name or id)")
 	listCommand.Flags().Int("limit", 0, "How many runs to list (1 to 100; the platform's default when omitted)")
 	registerSecurityProjectScopeFlag(listCommand)
 
