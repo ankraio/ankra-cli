@@ -1,5 +1,11 @@
 # Ankra CLI Changelog
 
+## Unreleased
+
+### Added
+
+- **Connect a cluster you already run with one command: `ankra cluster connect <name>`.** The command registers the cluster and prints the one Helm command that installs the Ankra agent, which connects the cluster to your organisation. Until now the only way to do this from the CLI was to write an ImportCluster file and run `ankra cluster apply -f <file> --wait`, while the portal's "Connect a cluster" page asks for nothing but a name. `--environment` says what the cluster is for and `--description` describes it; `-o json|yaml` prints `cluster_id`, `name` and `install_command` for a script. A name another cluster in the organisation already has is refused with exit 8 and nothing is changed, because the same request would otherwise update that cluster. The printed command carries the cluster's agent token, so treat it as a credential. `ankra cluster import <name>` is the same command. `ankra cluster apply` is unchanged and is still how you declare Stacks, add-ons or a GitOps repository on a cluster.
+
 ## v0.78.1 - 2026-11-16
 
 Help text only. No command, flag, exit code or output key changes.

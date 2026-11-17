@@ -356,6 +356,7 @@
     "ankra cluster baseline",
     "ankra cluster clear",
     "ankra cluster clone",
+    "ankra cluster connect",
     "ankra cluster control-plane-heal get",
     "ankra cluster control-plane-heal set",
     "ankra cluster cordon",
