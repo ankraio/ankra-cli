@@ -49,7 +49,7 @@ package when `go.mod` or `go.sum` changes) and lints those same packages,
 and a red test blocks the commit. Please don't bypass it with
 `--no-verify`. `ankra/cmd` is the exception: building it (for its tests or for
 the linter) needs more than 12 GiB, so the hook leaves it to CI's
-`lint-test-build`, which tests and lints the whole module on every push.
+`lint` and `test` jobs, which lint and test the whole module on every push.
 `ANKRA_PRECOMMIT_FULL=1 git commit` runs `go test ./...` and
 `golangci-lint run ./...` locally instead, on a machine with the memory for it.
 

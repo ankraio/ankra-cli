@@ -87,18 +87,17 @@ func runClusterConnect(cmd *cobra.Command, args []string) error {
 		return withExitCode(exitUsage, errors.New("--timeout must be longer than zero, for example 2m"))
 	}
 
-	// The platform's import updates a cluster that already has the name, and
-	// its body has no way to ask for a create only, so a taken name is refused
-	// here before anything is sent. This read and the write are two requests:
-	// the platform refuses a cluster that appears after its own lookup, and a
-	// cluster created between this read and that lookup is reported below
-	// (clusterConnectWithoutCommandError). Closing that last gap is the
-	// platform's to do (ankra-82nvpx).
+	// The platform's import updates a cluster that already has the name
+	// unless the request says create_only, and a platform from before that
+	// field ignores it. So a taken name is refused here before anything is
+	// sent, whatever the platform's age, and the request asks for a create
+	// only as well: a cluster created between this read and the write is then
+	// refused by the platform itself (ankra-82nvpx). Only on a platform that
+	// ignores the field can such a cluster still take the request, and that
+	// is reported below (clusterConnectWithoutCommandError).
 	existing, lookupError := apiClient.GetCluster(name)
 	if lookupError == nil {
-		return withExitCode(exitBlocked, fmt.Errorf(
-			"a cluster named %q already exists (id %s); nothing was changed. To print its agent install command: ankra cluster agent token --cluster %s",
-			name, existing.ID, shellWordOrQuoted(name)))
+		return clusterConnectNameTakenError(name, existing.ID)
 	}
 	if !errors.Is(lookupError, client.ErrClusterNotFound) {
 		return fmt.Errorf("could not check whether a cluster named %q already exists, so nothing was sent and nothing was changed; try again: %w",
@@ -110,6 +109,7 @@ func runClusterConnect(cmd *cobra.Command, args []string) error {
 		Description: strings.TrimSpace(description),
 		Environment: environment,
 		Spec:        client.CreateResourceSpec{Stacks: []client.Stack{}},
+		CreateOnly:  true,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -117,6 +117,10 @@ func runClusterConnect(cmd *cobra.Command, args []string) error {
 	// answer to a write it has applied.
 	response, submitted, connectError := apiClient.ApplyCluster(ctx, request, true)
 	if connectError != nil {
+		var alreadyExists *client.ClusterAlreadyExistsError
+		if errors.As(connectError, &alreadyExists) {
+			return clusterConnectNameTakenError(name, alreadyExists.ClusterID)
+		}
 		return asyncWriteError(fmt.Sprintf("connecting cluster %q", name), true, connectError)
 	}
 	if response == nil {
@@ -150,18 +154,35 @@ func runClusterConnect(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// clusterConnectNameTakenError is the refusal of a name a cluster already
+// has (exit 8), whether this command's own read found it or the platform
+// refused the create. Nothing was written in either case. clusterID is the
+// existing cluster's, and may be empty when the platform did not say.
+func clusterConnectNameTakenError(name string, clusterID string) error {
+	identity := ""
+	if clusterID != "" {
+		identity = " (id " + clusterID + ")"
+	}
+	return withExitCode(exitBlocked, fmt.Errorf(
+		"a cluster named %q already exists%s; nothing was changed. To print its agent install command: ankra cluster agent token --cluster %s",
+		name, identity, shellWordOrQuoted(name)))
+}
+
 // clusterConnectWithoutCommandError is the answer to a connect the platform
 // took without returning the install command.
 //
 // The platform returns the command only from the call that creates the
 // cluster. So an applied write without one means a cluster of this name was
-// created after this command read the name, and the platform applied the
-// request to that cluster instead: the message says so rather than calling
-// the cluster registered. A write the platform queued instead of applying
-// (submitted) has no answer yet, and a write whose commit to the cluster's
-// GitOps repository is waiting answers with that notice in place of the
-// result, so neither is described as more than it is. In every case the
-// cluster's own token command prints the install command.
+// created after this command read the name, and a platform from before
+// create_only applied the request to that cluster instead: the message says
+// so rather than calling the cluster registered. A platform that knows the
+// field refuses that write, which is clusterConnectNameTakenError instead.
+//
+// A write the platform queued instead of applying (submitted) has no answer
+// yet, and a write whose commit to the cluster's GitOps repository is waiting
+// answers with that notice in place of the result, so neither is described
+// as more than it is. In every case the cluster's own token command prints
+// the install command.
 func clusterConnectWithoutCommandError(name string, submitted bool, response *client.ImportResponse) error {
 	tokenCommand := "ankra cluster agent token --cluster " + shellWordOrQuoted(name)
 	operationID := response.OperationID
