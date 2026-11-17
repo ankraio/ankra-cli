@@ -102,6 +102,9 @@ func parseAsyncWriteResponse(
 	if refusal := memberRemovalUnconfirmedFromBody(response.StatusCode, responseBody); refusal != nil {
 		return nil, refusal
 	}
+	if refusal := clusterAlreadyExistsFromBody(response.StatusCode, responseBody); refusal != nil {
+		return nil, refusal
+	}
 	if refusal := detailedWriteRefusal(response.StatusCode, responseBody); refusal != nil {
 		return nil, refusal
 	}
