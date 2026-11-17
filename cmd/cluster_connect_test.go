@@ -237,14 +237,29 @@ func TestClusterConnectPrintsTheInstallCommandOnOneLine(t *testing.T) {
 	}
 }
 
-// A cluster the platform registered without answering a command is reported,
-// with the command that prints it.
-func TestClusterConnectSaysHowToGetACommandThePlatformDidNotReturn(t *testing.T) {
+// The platform returns the install command only from the call that creates
+// the cluster. An applied write without one means a cluster of this name was
+// created between the name check and the write: the command says that, does
+// not call the cluster registered, and names the command that prints the
+// existing cluster's install command.
+func TestClusterConnectReportsAClusterCreatedWhileItRan(t *testing.T) {
 	mock := &clusterConnectMock{response: &client.ImportResponse{Name: "my-cluster", ClusterId: clusterConnectTestClusterID}}
 
-	_, runError := runClusterConnectCommand(t, mock, "my-cluster")
-	if runError == nil || !strings.Contains(runError.Error(), "ankra cluster agent token --cluster my-cluster") {
-		t.Fatalf("expected the way to print the command, got %v", runError)
+	output, runError := runClusterConnectCommand(t, mock, "my-cluster")
+	if runError == nil {
+		t.Fatalf("expected an error, got output:\n%s", output)
+	}
+	for _, want := range []string{
+		"was created while this command ran",
+		"instead of registering a new one",
+		"ankra cluster agent token --cluster my-cluster",
+	} {
+		if !strings.Contains(runError.Error(), want) {
+			t.Errorf("error lacks %q: %v", want, runError)
+		}
+	}
+	if strings.Contains(output, "is registered") {
+		t.Errorf("an update of another cluster was reported as a registration:\n%s", output)
 	}
 }
 
@@ -281,5 +296,31 @@ func TestClusterConnectDeadlineIsAWaitTimeout(t *testing.T) {
 	_, runError := runClusterConnectCommand(t, mock, "my-cluster")
 	if exitCodeFor(runError) != exitWaitTimeout {
 		t.Fatalf("exit = %d (%v), want the wait timeout", exitCodeFor(runError), runError)
+	}
+}
+
+// A reply that is only the notice of a waiting GitOps commit says nothing
+// about whether this call created the cluster, so the command claims neither:
+// it repeats the notice and names the command that prints the install command.
+func TestClusterConnectRepeatsAWaitingGitOpsCommit(t *testing.T) {
+	mock := &clusterConnectMock{response: &client.ImportResponse{GitPushDeferred: true,
+		GitPushMessage: "The change is saved; the commit to Git is waiting on the background sync."}}
+
+	output, runError := runClusterConnectCommand(t, mock, "my-cluster")
+	if runError == nil {
+		t.Fatalf("expected an error, got output:\n%s", output)
+	}
+	for _, want := range []string{
+		"the commit to Git is waiting on the background sync",
+		"ankra cluster agent token --cluster my-cluster",
+	} {
+		if !strings.Contains(runError.Error(), want) {
+			t.Errorf("error lacks %q: %v", want, runError)
+		}
+	}
+	for _, unwanted := range []string{"was created while this command ran", "is registered"} {
+		if strings.Contains(runError.Error(), unwanted) || strings.Contains(output, unwanted) {
+			t.Errorf("a waiting commit was reported as %q: %v\n%s", unwanted, runError, output)
+		}
 	}
 }

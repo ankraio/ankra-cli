@@ -87,8 +87,13 @@ func runClusterConnect(cmd *cobra.Command, args []string) error {
 		return withExitCode(exitUsage, errors.New("--timeout must be longer than zero, for example 2m"))
 	}
 
-	// The platform's import updates a cluster that already has the name, so a
-	// taken name is refused here: a connect only ever registers a new cluster.
+	// The platform's import updates a cluster that already has the name, and
+	// its body has no way to ask for a create only, so a taken name is refused
+	// here before anything is sent. This read and the write are two requests:
+	// the platform refuses a cluster that appears after its own lookup, and a
+	// cluster created between this read and that lookup is reported below
+	// (clusterConnectWithoutCommandError). Closing that last gap is the
+	// platform's to do (ankra-82nvpx).
 	existing, lookupError := apiClient.GetCluster(name)
 	if lookupError == nil {
 		return withExitCode(exitBlocked, fmt.Errorf(
@@ -118,7 +123,7 @@ func runClusterConnect(cmd *cobra.Command, args []string) error {
 	}
 	installCommand := strings.Join(strings.Fields(response.ImportCommand), " ")
 	if installCommand == "" {
-		return clusterConnectWithoutCommandError(name, submitted, response.OperationID)
+		return clusterConnectWithoutCommandError(name, submitted, response)
 	}
 
 	output := clusterConnectOutput{ClusterID: response.ClusterId, Name: name, InstallCommand: installCommand}
@@ -145,14 +150,32 @@ func runClusterConnect(cmd *cobra.Command, args []string) error {
 }
 
 // clusterConnectWithoutCommandError is the answer to a connect the platform
-// took without returning the install command: it queued the write instead of
-// applying it (submitted), or its reply left the command out. Either way the
-// cluster's own token command prints it once the cluster is registered.
-func clusterConnectWithoutCommandError(name string, submitted bool, operationID string) error {
+// took without returning the install command.
+//
+// The platform returns the command only from the call that creates the
+// cluster. So an applied write without one means a cluster of this name was
+// created after this command read the name, and the platform applied the
+// request to that cluster instead: the message says so rather than calling
+// the cluster registered. A write the platform queued instead of applying
+// (submitted) has no answer yet, and a write whose commit to the cluster's
+// GitOps repository is waiting answers with that notice in place of the
+// result, so neither is described as more than it is. In every case the
+// cluster's own token command prints the install command.
+func clusterConnectWithoutCommandError(name string, submitted bool, response *client.ImportResponse) error {
 	tokenCommand := "ankra cluster agent token --cluster " + shellWordOrQuoted(name)
+	operationID := response.OperationID
+	if response.GitPushDeferred {
+		notice := strings.TrimSpace(response.GitPushMessage)
+		if notice == "" {
+			notice = "the commit to the cluster's GitOps repository is waiting on the background sync"
+		}
+		return fmt.Errorf("the platform took the request for cluster %q, but its reply carried no install command: %s. "+
+			"To print the cluster's install command: %s", name, strings.TrimSuffix(notice, "."), tokenCommand)
+	}
 	if !submitted {
-		return fmt.Errorf("cluster %q was registered, but the platform returned no install command; print it with: %s",
-			name, tokenCommand)
+		return fmt.Errorf("a cluster named %q was created while this command ran, so the platform applied this request to that cluster "+
+			"instead of registering a new one, and returned no install command. The request declared nothing on the cluster. "+
+			"To print that cluster's install command: %s", name, tokenCommand)
 	}
 	follow := ""
 	if operationID != "" {
