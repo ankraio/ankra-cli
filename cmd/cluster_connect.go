@@ -101,7 +101,8 @@ func runClusterConnect(cmd *cobra.Command, args []string) error {
 			name, existing.ID, shellWordOrQuoted(name)))
 	}
 	if !errors.Is(lookupError, client.ErrClusterNotFound) {
-		return fmt.Errorf("checking whether a cluster named %q already exists: %w", name, lookupError)
+		return fmt.Errorf("could not check whether a cluster named %q already exists, so nothing was sent and nothing was changed; try again: %w",
+			name, lookupError)
 	}
 
 	request := client.CreateImportClusterRequest{

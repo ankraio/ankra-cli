@@ -19,6 +19,11 @@ const (
 		"--set config.token=example-agent-token --namespace=ankra --create-namespace"
 )
 
+// clusterConnectSuccessLine opens the output of a connect that registered the
+// cluster. A test that must not see a success checks for this line, not for
+// the words "is registered": an error may rightly say "once it is registered".
+const clusterConnectSuccessLine = "Cluster 'my-cluster' is registered"
+
 type clusterConnectMock struct {
 	baseMock
 	existing    []client.ClusterListItem
@@ -86,7 +91,7 @@ func TestClusterConnectRegistersTheClusterAndPrintsTheInstallCommand(t *testing.
 		t.Fatal("the import was not waited for, and the platform returns the install command only with an applied write")
 	}
 	for _, want := range []string{
-		"Cluster 'my-cluster' is registered",
+		clusterConnectSuccessLine,
 		"kubectl config current-context",
 		clusterConnectTestInstallCommand,
 		"do not share it or commit it to Git",
@@ -157,8 +162,13 @@ func TestClusterConnectStopsWhenTheNameCannotBeChecked(t *testing.T) {
 	mock := &clusterConnectMock{lookupError: errors.New("the platform did not answer")}
 
 	_, runError := runClusterConnectCommand(t, mock, "my-cluster")
-	if runError == nil || !strings.Contains(runError.Error(), "the platform did not answer") {
-		t.Fatalf("expected the lookup failure, got %v", runError)
+	if runError == nil {
+		t.Fatal("expected the lookup failure, got none")
+	}
+	for _, want := range []string{"the platform did not answer", "nothing was sent and nothing was changed", "try again"} {
+		if !strings.Contains(runError.Error(), want) {
+			t.Errorf("error lacks %q: %v", want, runError)
+		}
 	}
 	if len(mock.requests) != 0 {
 		t.Fatalf("the cluster was imported without the name check: %+v", mock.requests)
@@ -258,7 +268,7 @@ func TestClusterConnectReportsAClusterCreatedWhileItRan(t *testing.T) {
 			t.Errorf("error lacks %q: %v", want, runError)
 		}
 	}
-	if strings.Contains(output, "is registered") {
+	if strings.Contains(output, clusterConnectSuccessLine) {
 		t.Errorf("an update of another cluster was reported as a registration:\n%s", output)
 	}
 }
@@ -283,7 +293,7 @@ func TestClusterConnectSaysWhatToDoWhenThePlatformQueuedTheWrite(t *testing.T) {
 			t.Errorf("error lacks %q: %v", want, runError)
 		}
 	}
-	if strings.Contains(output, "is registered") {
+	if strings.Contains(output, clusterConnectSuccessLine) {
 		t.Errorf("a queued write was reported as registered:\n%s", output)
 	}
 }
@@ -318,7 +328,7 @@ func TestClusterConnectRepeatsAWaitingGitOpsCommit(t *testing.T) {
 			t.Errorf("error lacks %q: %v", want, runError)
 		}
 	}
-	for _, unwanted := range []string{"was created while this command ran", "is registered"} {
+	for _, unwanted := range []string{"was created while this command ran", clusterConnectSuccessLine} {
 		if strings.Contains(runError.Error(), unwanted) || strings.Contains(output, unwanted) {
 			t.Errorf("a waiting commit was reported as %q: %v\n%s", unwanted, runError, output)
 		}
