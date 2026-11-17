@@ -128,14 +128,15 @@ func newOSPatchesCommand(provider string, label string, hasLane bool, hasNodePol
 	command := &cobra.Command{
 		Use:   "os-patches",
 		Short: fmt.Sprintf("Roll OS security patches across a %s cluster, one host at a time", label),
-		Long: `Unattended upgrades hold back the packages whose maintainer scripts restart
-networking in place; the rolling OS patch lane installs them instead, one
-host at a time, drained and returned to service before the next.
+		Long: `On a host whose OS updates are automatic, unattended upgrades hold back the
+packages whose maintainer scripts restart networking in place; the rolling OS
+patch lane installs them instead, one host at a time, drained and returned to
+service before the next.
 
   status       the policy, the newest run host by host, the last dry run
   plan         the dry run: what each host would install
   run          start the rolling patch (asks first)
-  policy set   change the maintenance window and the opt-in
+  policy set   change the maintenance window and the OS updates mode
   node-policy  write or remove the node OS update hold by hand`,
 	}
 
@@ -301,9 +302,21 @@ func newOSPatchesPolicyCommand(provider string) *cobra.Command {
 		Use:   "set <cluster_id|name>",
 		Short: "Change the OS patch policy; a setting not named is kept",
 		Long: `Change the cluster's OS patch policy. Only the flags passed are changed.
-Turning the policy off also removes the node OS update hold from every host,
-and is refused while a run or a node OS policy operation is in flight.
-Needs clusters.write.
+
+--enable chooses the automatic OS updates mode for the cluster: Ankra starts
+the rolling run on its own inside the maintenance window, no sooner than
+--cadence-days after the last run. --disable chooses the advisory mode: the
+control planes, the bastion and every node group without a mode of its own
+become advisory, and Ankra starts no run on them on its own. --disable does
+not switch OS patching off: a node group set to automatic stays automatic and
+keeps its hold, the daily dry run goes on, and a person can still start a run
+with 'run'.
+
+Making hosts advisory removes the node OS update hold from them, so unattended
+upgrades install the held packages again. That change is refused while a run
+or a node OS policy operation is in flight. To clear the cluster's mode, or to
+give a node group a mode of its own, use the API or Ankra's AI. Needs
+clusters.write.
 
   ankra cluster hetzner os-patches policy set prod --enable --window-days sat,sun --window-start-hour 2 --window-duration-hours 4
   ankra cluster hetzner os-patches policy set prod --disable`,
@@ -332,8 +345,8 @@ Needs clusters.write.
 			return writeDocument(cmd.OutOrStdout(), "OS patch policy updated", policy)
 		},
 	})
-	set.Flags().Bool("enable", false, "Turn the rolling OS patch policy on")
-	set.Flags().Bool("disable", false, "Turn the rolling OS patch policy off")
+	set.Flags().Bool("enable", false, "Choose the automatic OS updates mode for the cluster")
+	set.Flags().Bool("disable", false, "Choose the advisory OS updates mode for the cluster (does not switch patching off)")
 	set.Flags().StringSlice("window-days", nil, "Days the maintenance window opens (mon,tue,...)")
 	set.Flags().Int("window-start-hour", 0, "Hour of the day (UTC, 0-23) the window opens")
 	set.Flags().Int("window-duration-hours", 0, "How many hours the window stays open")
@@ -359,7 +372,7 @@ upgrades away from the packages that restart networking - on the nodes named
 with --node, on every node with --all-nodes, and on the bastion with
 --include-bastion. The rolling OS patch lane writes and lifts it on its own;
 this is the by-hand route. Writing it is refused unless the cluster's OS
-patch policy is enabled; --revert removes it and is always allowed.
+updates are automatic; --revert removes it and is always allowed.
 
 The command asks first (--yes skips, declining exits 4). Needs
 clusters.operate.`,
