@@ -126,6 +126,10 @@ func (m baseMock) ListClusterGitopsPreservedPaths(context.Context, string) (*cli
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) CompleteClusterGitopsPreservedDiff(context.Context, string, string) (*client.GitopsPreservedDiffPage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ResolveClusterGitopsPreservedPath(context.Context, string, client.GitopsPreservedPathDecision) (*client.GitopsPreservedPathResolution, error) {
 	return nil, errors.New("not implemented")
 }

@@ -44,11 +44,12 @@ else
       *) tested+=("./$directory") ;;
     esac
   done < <(printf '%s\n' "$changed_files" | while IFS= read -r file; do
-    case "$file" in
-      "") ;;
-      */*) printf '%s\n' "${file%/*}" ;;
-      *) printf '.\n' ;;
-    esac
+    [ -z "$file" ] && continue
+    if [[ "$file" == */* ]]; then
+      printf '%s\n' "${file%/*}"
+    else
+      printf '.\n'
+    fi
   done | sort -u)
   if [ "${#tested[@]}" -gt 0 ]; then
     echo "Running tests for the changed packages: ${tested[*]}"
