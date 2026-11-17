@@ -269,7 +269,8 @@ that will never post again.
 Ankra's rule is **logic is open, authority is closed.** Anyone may change what a stage *runs* on any
 branch; the *protected sections* — `permissions`, `secrets`, `credentials`, `on.pull_request.fork_policy`,
 the `services` catalog, `defaults.network` above `egress-https`, and per stage: `network: services`,
-`runs_on`, `resources`, `timeout`, `cache`, `with`, gate/approval roles, `publish.promote_from`, `kind: external`, agent
+`runs_on` (`cluster`, `node_selector`, `tolerations`, `runtime_class`; not `arch`, a build target a pull
+request may change), `resources`, `timeout`, `cache`, `with`, gate/approval roles, `publish.promote_from`, `kind: external`, agent
 mode — come only from the **default-branch definition an administrator approved**. This is what stops
 a pull request from granting itself a credential or moving its own pod onto a privileged node pool.
 
@@ -502,6 +503,8 @@ environments".
 | `artifact_store_unavailable` | no ready backup vault | `ankra-backups` |
 | `image_gate_blocked` / `no_scan_results` | a finding at or above the gate / scan report never uploaded | fix or disposition in `ankra-security`; never treat `no_scan_results` as clean |
 | Exit 79, "no QEMU emulation registered" | pinned `build.platforms` on an arm64 cluster | drop `build.platforms` |
+| Step `infra_error`: `ErrImagePull: no matching manifest for linux/arm64/v8 in the manifest list entries` | the stage's `image` has no build for the CI cluster's architecture (an amd64-only image on an arm64 cluster, such as an Apple-silicon OrbStack one) | use a multi-arch image, or run the repository on a cluster whose nodes match: `ankra pipeline repositories set-cluster <repository-id> --cluster <cluster>` |
+| Step fails "the step can never be scheduled on this cluster: no node in the cluster matches the step's node selector", the stage sets `runs_on.arch` (or a `kubernetes.io/arch` node selector) | no node of that architecture in the cluster | drop `runs_on.arch`, or run on a cluster that has such nodes (`ankra pipeline repositories set-cluster`) |
 | `unknown command "pipeline"` | old CLI | `ankra --version`, `ankra upgrade` |
 | GitHub Actions: "The job was not started because an Actions budget is preventing further use" | GitHub's budget — irrelevant to Ankra | move the repository to Ankra Pipelines (decision table); do not treat it as billing |
 

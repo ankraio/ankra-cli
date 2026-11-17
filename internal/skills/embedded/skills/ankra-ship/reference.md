@@ -82,7 +82,7 @@ runs without when their own path filter left them out), `paths` (affected-only: 
 `artifacts` (`name`, `paths`, `retention_days`), `test_results` (`junit`|`go-test`|`pytest`|`playwright`;
 every test's outcome recorded, `ankra pipeline tests <run>`), `outputs`, `timeout` (default 30m, max 6h), `resources.cpu|memory|gpu`
 (500m/1Gi default; ≤ 8 cores, 32Gi, 4 GPUs; requests = limits), `runs_on.cluster|node_selector|
-tolerations|runtime_class|arch` (all protected), `network`, `shm_size` (64Mi), `working_directory`,
+tolerations|runtime_class|arch` (protected, except `arch`: a build target a pull request may change), `network`, `shm_size` (64Mi), `working_directory`,
 `allow_failure`, `continue_on_error`, `retry` (accepted, not applied), `environment`.
 
 Path filters, three shapes:
