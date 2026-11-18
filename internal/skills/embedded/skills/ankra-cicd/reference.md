@@ -425,7 +425,8 @@ Resolution order: stage `network` → `defaults.network` → kind default.
 
 Protected sections (the hash a human approves): `permissions`, `secrets`, `credentials`,
 `on.pull_request.fork_policy`, `defaults.network` above `egress-https`, the `services` catalog, and
-per stage: `network` above `egress-https`, `runs_on.*`, `resources.*`, `timeout`, `cache`, `with`,
+per stage: `network` above `egress-https`, `runs_on.cluster|node_selector|tolerations|runtime_class`
+(not `runs_on.arch`: a build target, so a pull request may change it), `resources.*`, `timeout`, `cache`, `with`,
 `gate.approval_roles`/`require_stages`, `publish.promote_from`, `approval.roles`/`min_approvals`, `agent.mode: agent` and
 its tool profile, `kind: external`. Everything else is logic and runs as the head says.
 
