@@ -121,6 +121,9 @@ func runClusterConnect(cmd *cobra.Command, args []string) error {
 		if errors.As(connectError, &alreadyExists) {
 			return clusterConnectNameTakenError(name, alreadyExists.ClusterID)
 		}
+		if errors.Is(connectError, context.DeadlineExceeded) {
+			return clusterConnectTimeoutError(name, timeout, connectError)
+		}
 		return asyncWriteError(fmt.Sprintf("connecting cluster %q", name), true, connectError)
 	}
 	if response == nil {
@@ -136,6 +139,10 @@ func runClusterConnect(cmd *cobra.Command, args []string) error {
 		output.Name = response.Name
 	}
 	if rendered, renderError := renderStructured(cmd, output); rendered || renderError != nil {
+		if renderError == nil {
+			// On stderr, so stdout stays the one document a script reads.
+			printValidationWarnings(cmd.ErrOrStderr(), response.Warnings)
+		}
 		return renderError
 	}
 
@@ -158,14 +165,33 @@ func runClusterConnect(cmd *cobra.Command, args []string) error {
 // has (exit 8), whether this command's own read found it or the platform
 // refused the create. Nothing was written in either case. clusterID is the
 // existing cluster's, and may be empty when the platform did not say.
+//
+// The answer leads with choosing another name. The existing cluster's
+// install command carries that cluster's agent token, so run against a
+// different cluster it would connect that cluster under the existing name:
+// the command that prints it is offered only for the cluster the reader
+// already registered.
 func clusterConnectNameTakenError(name string, clusterID string) error {
 	identity := ""
 	if clusterID != "" {
 		identity = " (id " + clusterID + ")"
 	}
 	return withExitCode(exitBlocked, fmt.Errorf(
-		"a cluster named %q already exists%s; nothing was changed. To print its agent install command: ankra cluster agent token --cluster %s",
+		"a cluster named %q already exists%s; nothing was changed. To connect a different cluster, choose another name. "+
+			"If this is the cluster you already registered, print its install command with: ankra cluster agent token --cluster %s",
 		name, identity, shellWordOrQuoted(name)))
+}
+
+// clusterConnectTimeoutError is the answer to a connect the platform did not
+// answer within --timeout (exit 5, like every other waited write). The
+// request was sent, so the cluster may be registered all the same, and the
+// same connect run again would then be refused as a taken name: the message
+// says how to find out and how to print the install command.
+func clusterConnectTimeoutError(name string, timeout time.Duration, cause error) error {
+	return withExitCode(exitWaitTimeout, fmt.Errorf(
+		"connecting cluster %q: %w: the platform did not answer within %s, so the cluster may or may not be registered. "+
+			"Check with: ankra cluster list. If it is listed, print its install command with: ankra cluster agent token --cluster %s",
+		name, cause, timeout, shellWordOrQuoted(name)))
 }
 
 // clusterConnectWithoutCommandError is the answer to a connect the platform
@@ -197,7 +223,7 @@ func clusterConnectWithoutCommandError(name string, submitted bool, response *cl
 	if !submitted {
 		return fmt.Errorf("a cluster named %q was created while this command ran, so the platform applied this request to that cluster "+
 			"instead of registering a new one, and returned no install command. The request declared nothing on the cluster. "+
-			"To print that cluster's install command: %s", name, tokenCommand)
+			"To connect a different cluster, choose another name. To print that cluster's install command: %s", name, tokenCommand)
 	}
 	follow := ""
 	if operationID != "" {

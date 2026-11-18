@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -157,6 +158,21 @@ func TestClusterConnectRefusesANameThatIsTaken(t *testing.T) {
 			t.Errorf("refusal lacks %q: %v", want, runError)
 		}
 	}
+	assertClusterConnectSaysToChooseAnotherNameFirst(t, runError)
+}
+
+// A taken name is most often met by someone connecting a different cluster.
+// The existing cluster's install command would connect that cluster under
+// the existing name, so the answer says to choose another name before it
+// names the command that prints it.
+func assertClusterConnectSaysToChooseAnotherNameFirst(t *testing.T, runError error) {
+	t.Helper()
+	message := runError.Error()
+	another := strings.Index(message, "choose another name")
+	token := strings.Index(message, "ankra cluster agent token")
+	if another < 0 || token < 0 || another > token {
+		t.Errorf("the answer must say to choose another name before it names the token command: %v", runError)
+	}
 }
 
 // A cluster that takes the name after this command read it is refused by the
@@ -186,6 +202,7 @@ func TestClusterConnectRefusesANameTakenWhileItRan(t *testing.T) {
 			t.Errorf("refusal lacks %q: %v", want, runError)
 		}
 	}
+	assertClusterConnectSaysToChooseAnotherNameFirst(t, runError)
 	if strings.Contains(output, clusterConnectSuccessLine) {
 		t.Errorf("a refused create was reported as a registration:\n%s", output)
 	}
@@ -319,6 +336,7 @@ func TestClusterConnectReportsAClusterCreatedWhileItRan(t *testing.T) {
 			t.Errorf("error lacks %q: %v", want, runError)
 		}
 	}
+	assertClusterConnectSaysToChooseAnotherNameFirst(t, runError)
 	if strings.Contains(output, clusterConnectSuccessLine) {
 		t.Errorf("an update of another cluster was reported as a registration:\n%s", output)
 	}
@@ -350,13 +368,57 @@ func TestClusterConnectSaysWhatToDoWhenThePlatformQueuedTheWrite(t *testing.T) {
 }
 
 // A connect that outlives its deadline exits 5, the wait exit code, like
-// every other waited write.
+// every other waited write. The request was sent, so the answer does not say
+// the cluster was not registered: it says how to find out and how to print
+// the install command if it was.
 func TestClusterConnectDeadlineIsAWaitTimeout(t *testing.T) {
 	mock := &clusterConnectMock{applyError: context.DeadlineExceeded}
 
-	_, runError := runClusterConnectCommand(t, mock, "my-cluster")
+	output, runError := runClusterConnectCommand(t, mock, "my-cluster")
 	if exitCodeFor(runError) != exitWaitTimeout {
 		t.Fatalf("exit = %d (%v), want the wait timeout", exitCodeFor(runError), runError)
+	}
+	for _, want := range []string{
+		"may or may not be registered",
+		"ankra cluster list",
+		"ankra cluster agent token --cluster my-cluster",
+	} {
+		if !strings.Contains(runError.Error(), want) {
+			t.Errorf("error lacks %q: %v", want, runError)
+		}
+	}
+	if strings.Contains(output, clusterConnectSuccessLine) {
+		t.Errorf("an unanswered write was reported as a registration:\n%s", output)
+	}
+}
+
+// With -o json the platform's warnings are still shown, on stderr, and
+// stdout stays the one document a script reads.
+func TestClusterConnectStructuredOutputKeepsWarningsOnStderr(t *testing.T) {
+	mock := &clusterConnectMock{response: &client.ImportResponse{Name: "my-cluster", ClusterId: clusterConnectTestClusterID,
+		ImportCommand: clusterConnectTestInstallCommand,
+		Warnings:      []client.ValidationWarning{{Message: "an advisory finding of the write"}}}}
+	withTempHome(t)
+	setMockClient(t, mock)
+	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(stderr)
+	rootCmd.SetIn(strings.NewReader(""))
+	rootCmd.SetArgs([]string{"cluster", "connect", "my-cluster", "-o", "json"})
+	t.Cleanup(func() { resetTreeFlags(t, clusterConnectCmd) })
+
+	if runError := rootCmd.Execute(); runError != nil {
+		t.Fatalf("expected success, got %v", runError)
+	}
+	var decoded clusterConnectOutput
+	if decodeError := json.Unmarshal(stdout.Bytes(), &decoded); decodeError != nil {
+		t.Fatalf("stdout is not one JSON document: %v\n%s", decodeError, stdout.String())
+	}
+	if decoded.ClusterID != clusterConnectTestClusterID {
+		t.Fatalf("decoded = %+v", decoded)
+	}
+	if !strings.Contains(stderr.String(), "an advisory finding of the write") {
+		t.Errorf("the warning is not on stderr:\n%s", stderr.String())
 	}
 }
 
