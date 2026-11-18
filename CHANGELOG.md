@@ -1,6 +1,14 @@
 # Ankra CLI Changelog
 
-## Unreleased
+## v0.79.0 - 2026-11-18
+
+Connect a cluster you already run with one command,
+`ankra cluster connect`, which registers it and prints the agent install
+command. `ankra security remediations list` shows batched fixes,
+`ankra pipeline repositories connect --cluster` takes a cluster name, and
+several help texts now say what the platform does. Nothing is removed: every
+existing command, flag, exit code and `-o json` key is unchanged, so scripts
+need no change.
 
 ### Added
 
