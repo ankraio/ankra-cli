@@ -103,9 +103,10 @@ var orgCIPoolRemoveCmd = &cobra.Command{
 	Long: `Remove a cluster (name or id) from the organisation's CI pool.
 
 New runs stop going to it; runs already pinned to it finish there. Removing the
-organisation's pipeline cluster only drops its weight - it stays the primary
-member until the pipeline cluster itself is changed. Requires organisation
-admin.`,
+organisation's pipeline cluster (the primary) works the same way: the next
+member becomes the primary, preferring one whose agent runs pipeline steps, and
+removing the last CI cluster leaves the organisation with no pipeline cluster
+until one is chosen or added. Requires organisation admin.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterID(strings.TrimSpace(args[0]))
