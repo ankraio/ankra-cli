@@ -134,7 +134,10 @@ Ankra's, key by key, read from Git's version to Ankra's:
 A value the platform does not show is printed as (masked): seeing values needs
 permission to reveal secrets on the cluster (kubernetes.secrets_reveal), and
 some files show no values to anyone. The platform lists at most 50 differences
-per file; the total is always given.
+per file in the preview; the total is always given. --all reads every recorded
+difference through snapshot-bound pages, with the same masking. It returns no
+partial output if the file, rules or reveal permission changes. --all structured
+output contains complete structural metadata, without either file's content.
 
 The path is the full repository path, as 'ankra cluster gitops preserved list'
 prints it. The cluster is the --cluster flag or the currently selected cluster.`,
@@ -233,6 +236,21 @@ func runClusterGitopsPreservedShow(command *cobra.Command, arguments []string) e
 	if clusterError != nil {
 		return clusterError
 	}
+	all, _ := command.Flags().GetBool("all")
+	if all {
+		ctx, cancel := gitopsPreservedContext(command)
+		defer cancel()
+		complete, readError := apiClient.CompleteClusterGitopsPreservedDiff(ctx, cluster.ID, path)
+		if readError != nil {
+			return gitopsPreservedError(readError, cluster, path, false)
+		}
+		if format != outputDefault {
+			return encodeStructured(command.OutOrStdout(), format, complete)
+		}
+		_, _ = fmt.Fprintf(command.OutOrStdout(), "Complete preserved-file differences for %s on cluster '%s'\n", path, cluster.Name)
+		printGitopsPreservedDiff(command.OutOrStdout(), client.GitopsPreservedPathDiff{Status: complete.Status, Changes: complete.Changes, Total: complete.Total, ValuesWithheldReason: complete.ValuesWithheldReason}, complete.StructuralDiffValues)
+		return nil
+	}
 	listing, entry, findError := findGitopsPreservedPath(command, cluster, path)
 	if findError != nil {
 		return findError
@@ -324,6 +342,21 @@ func runClusterGitopsPreservedResolve(command *cobra.Command, arguments []string
 			*entry.ContentRedactedReason == client.GitopsPreservedRedactedSopsEncrypted:
 			return gitopsPreservedSealedError(cluster, path)
 		}
+		if entry.StructuralDiff.Truncated || entry.StructuralDiff.Total > len(entry.StructuralDiff.Changes) {
+			ctx, cancel := gitopsPreservedContext(command)
+			complete, readError := apiClient.CompleteClusterGitopsPreservedDiff(ctx, cluster.ID, path)
+			cancel()
+			if readError != nil {
+				return gitopsPreservedError(readError, cluster, path, false)
+			}
+			if complete.HeadContentHash != entry.HeadContentHash || complete.RenderContentHash != entry.RenderContentHash ||
+				preservedOptionalText(complete.HeadCommitSHA) != preservedOptionalText(entry.HeadCommitSHA) {
+				return fmt.Errorf("the preserved file changed after its preview was read; nothing was changed. Run the command again to review the current differences")
+			}
+			entry.StructuralDiff = client.GitopsPreservedPathDiff{Status: complete.Status, Changes: complete.Changes,
+				Total: complete.Total, ValuesWithheldReason: complete.ValuesWithheldReason}
+			listing.StructuralDiffValues = complete.StructuralDiffValues
+		}
 		if confirmError := confirmGitopsPreservedDecision(command, cluster, listing, entry, resolution); confirmError != nil {
 			return confirmError
 		}
@@ -341,6 +374,13 @@ func runClusterGitopsPreservedResolve(command *cobra.Command, arguments []string
 	}
 	printGitopsPreservedResolution(command.OutOrStdout(), result)
 	return nil
+}
+
+func preservedOptionalText(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 // gitopsPreservedDecisionFor builds the resolve body from the listed entry:
@@ -926,7 +966,11 @@ func printGitopsPreservedPath(out io.Writer, clusterName string, entry client.Gi
 		_, _ = fmt.Fprintf(out, "  Last keep-Git decision not imported: %s\n", refused)
 	}
 
-	diff := entry.StructuralDiff
+	printGitopsPreservedDiff(out, entry.StructuralDiff, diffValues)
+	_, _ = fmt.Fprintf(out, "\nDecide it:  ankra cluster gitops preserved resolve %s --keep git|ankra\n", entry.Path)
+}
+
+func printGitopsPreservedDiff(out io.Writer, diff client.GitopsPreservedPathDiff, diffValues string) {
 	_, _ = fmt.Fprintln(out)
 	switch diff.Status {
 	case client.GitopsPreservedDiffComputed:
@@ -955,7 +999,6 @@ func printGitopsPreservedPath(out io.Writer, clusterName string, entry client.Gi
 	if note := gitopsPreservedValuesNote(diffValues, diff); note != "" {
 		_, _ = fmt.Fprintf(out, "\n%s\n", note)
 	}
-	_, _ = fmt.Fprintf(out, "\nDecide it:  ankra cluster gitops preserved resolve %s --keep git|ankra\n", entry.Path)
 }
 
 // printGitopsPreservedResolution reports what the platform recorded and when
@@ -1076,6 +1119,7 @@ func printGitopsPreservedHint(out io.Writer, clusterID string) {
 }
 
 func init() {
+	clusterGitopsPreservedShowCmd.Flags().Bool("all", false, "Read every recorded structural difference; fail without partial output if the snapshot changes")
 	clusterGitopsPreservedResolveCmd.Flags().String("keep", "",
 		"Which version to keep: 'git' (import Git's version; the cluster changes to match it) or 'ankra' "+
 			"(write Ankra's version into Git; 'cluster' means the same)")
