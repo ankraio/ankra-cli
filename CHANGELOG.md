@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **Set an application's alerts from the CLI: `ankra application alerts list|create|update|delete`.** An application alert watches one environment and fires when the share of failed requests, the 95th percentile response time or the container restarts stay above a threshold for the minutes you choose, and sends to up to five of your alert destinations. `list` shows each alert's state as the platform reports it (firing since when, ok, unknown and why, not evaluated yet, or off), and the organisation alert rules that also watch the environment. `delete` names the alert and asks first; `--yes` skips the question.
+
 ### Fixed
 
 - **The bundled skills name `ankra cluster connect`.** `ankra-getting-started`, `ankra-cli` and `ankra-import-cluster` sent an assistant to an ImportCluster file to connect a cluster that already runs, even when there was nothing to declare on it. They now give `ankra cluster connect <name>` for that case, with the exit code a taken name gets, and keep the file for when stacks, add-ons or a GitOps repository go in with it. `ankra skills install` installs the updated skills.
