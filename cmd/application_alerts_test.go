@@ -122,6 +122,10 @@ const alertsTestListPayload = `{
   "answered_by_a_newer_platform": "kept"
 }`
 
+// alertsTestOwnOnlyListPayload is what the platform answers a list without
+// an environment: the application's own alerts, no organisation rule.
+const alertsTestOwnOnlyListPayload = `{"alerts": [` + alertsTestErrorsAlert + `], "truncated": false, "limit": 100, "covered_by_organisation_rules": null}`
+
 const alertsTestAutoDeployPayload = `{"enabled": true, "branch": "main", "environments": [
   {"id": "5a1d7c3e-9b2f-4e6a-8c1d-2f3e4a5b6c7d", "name": "production", "role": "production", "enabled": true, "inherited": false, "branches": ["main"]},
   {"id": "6b2e8d4f-0c3a-4f7b-9d2e-3a4b5c6d7e8f", "name": "development", "role": "development", "enabled": true, "inherited": true, "branches": null}
@@ -498,19 +502,63 @@ func TestApplicationAlertsUpdateKeepsWhatIsNotChanged(t *testing.T) {
 	}
 }
 
-func TestApplicationAlertsUpdateRefusesWhatTheApplicationDidNotMake(t *testing.T) {
+// The platform keeps the stored severity when an update leaves it out, so
+// the CLI sends one only when --severity is given and never writes back the
+// severity it read.
+func TestApplicationAlertsUpdateSendsSeverityOnlyWhenGiven(t *testing.T) {
 	cases := map[string]struct {
-		alertID          string
-		expectedExitCode int
-		expectedText     string
+		arguments        []string
+		expectedSeverity any
+		expectedSent     bool
 	}{
-		"organisation rule": {alertsTestOrgRuleID, exitUsage, "is an organisation alert rule"},
-		"not on the list":   {"00000000-0000-4000-8000-000000000000", exitNotFound, "has no alert 00000000-0000-4000-8000-000000000000"},
+		"not given": {[]string{"--threshold", "2"}, nil, false},
+		"given":     {[]string{"--severity", "warning"}, "warning", true},
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
 			stub := newAlertsStub(t, map[string]alertsStubAnswer{
 				"GET " + alertsTestCollection: {http.StatusOK, alertsTestListPayload},
+				"PUT " + alertsTestErrorsPath: {http.StatusOK, alertsTestErrorsAlert},
+			})
+			arguments := append([]string{"update", testApplicationID, alertsTestErrorsID}, testCase.arguments...)
+
+			if _, executeError := runApplicationAlerts(t, stub, "", arguments...); executeError != nil {
+				t.Fatalf("alerts update error = %v", executeError)
+			}
+
+			requests := stub.sent(http.MethodPut, alertsTestErrorsPath)
+			if len(requests) != 1 {
+				t.Fatalf("update requests = %d, want 1", len(requests))
+			}
+			severity, isSent := requests[0].body["severity"]
+			if isSent != testCase.expectedSent || severity != testCase.expectedSeverity {
+				t.Errorf("severity = %v (sent %v), want %v (sent %v); body %v",
+					severity, isSent, testCase.expectedSeverity, testCase.expectedSent, requests[0].body)
+			}
+		})
+	}
+}
+
+func TestApplicationAlertsUpdateRefusesWhatTheApplicationDidNotMake(t *testing.T) {
+	cases := map[string]struct {
+		listPayload      string
+		alertID          string
+		expectedExitCode int
+		expectedText     string
+	}{
+		// The platform's list without an environment holds own alerts
+		// only, so this is what an organisation rule's id meets.
+		"organisation rule the list leaves out": {alertsTestOwnOnlyListPayload, alertsTestOrgRuleID, exitNotFound,
+			"has no alert " + alertsTestOrgRuleID + " of its own; 'ankra application alerts list " + testApplicationID +
+				"' lists them. An organisation alert rule is changed with 'ankra alerts rules' instead"},
+		"organisation rule on the list": {alertsTestListPayload, alertsTestOrgRuleID, exitUsage, "is an organisation alert rule"},
+		"not on the list": {alertsTestListPayload, "00000000-0000-4000-8000-000000000000", exitNotFound,
+			"has no alert 00000000-0000-4000-8000-000000000000 of its own"},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			stub := newAlertsStub(t, map[string]alertsStubAnswer{
+				"GET " + alertsTestCollection: {http.StatusOK, testCase.listPayload},
 			})
 
 			_, executeError := runApplicationAlerts(t, stub, "", "update", testApplicationID, testCase.alertID, "--threshold", "2")

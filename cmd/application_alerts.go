@@ -234,6 +234,10 @@ so is turning an alert off or on.
 				return findError
 			}
 
+			// The request is seeded from the current alert, except its
+			// severity: the platform keeps the stored severity when an
+			// update leaves it out, so it is sent only when --severity is
+			// given and the CLI never writes back a value it only read.
 			alertRequest := client.ApplicationAlertRequest{Name: current.Name}
 			if current.EnvironmentID != nil {
 				alertRequest.EnvironmentID = *current.EnvironmentID
@@ -391,6 +395,12 @@ func resolveApplicationAlertEnvironment(command *cobra.Command, applicationID st
 // with alertID, refusing an alert that is not there and an organisation rule
 // the application did not make. An application has at most 50 own alerts and
 // the list carries them first, so an own alert is always on it.
+//
+// The list read without an environment holds the application's own alerts
+// only: the platform reads the organisation rules only for one environment.
+// So an organisation rule's id, which 'list --environment' shows, arrives at
+// the not-found answer, and that answer says where such a rule is changed.
+// The !alert.Own branch stays for a platform that ever lists one here.
 func findOwnApplicationAlert(command *cobra.Command, applicationID string, applicationReference string, alertID string) (client.ApplicationAlert, error) {
 	list, listError := apiClient.ListApplicationAlerts(command.Context(), applicationID, "")
 	if listError != nil {
@@ -408,7 +418,8 @@ func findOwnApplicationAlert(command *cobra.Command, applicationID string, appli
 		return alert, nil
 	}
 	return client.ApplicationAlert{}, withExitCode(exitNotFound, fmt.Errorf(
-		"application %s has no alert %s; 'ankra application alerts list %s' lists them",
+		"application %s has no alert %s of its own; 'ankra application alerts list %s' lists them. "+
+			"An organisation alert rule is changed with 'ankra alerts rules' instead",
 		applicationReference, alertID, applicationReference))
 }
 
