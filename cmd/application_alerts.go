@@ -131,7 +131,7 @@ yet, or when the application already has 50 alerts.
 ` + applicationAlertConditionHelp,
 		Example: `  ankra application alerts create shop --name "Errors" --environment production \
     --metric failed_share_pct --threshold 5 --hold-minutes 10 \
-    --send-to 3f6c2a8e-1b4d-4c7a-9e2f-5d8b7a6c4e1f --severity critical`,
+    --send-to 0b7c4d01-5f6a-4b8c-9d0e-1f2a3b4c5d6e --severity critical`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			format, formatError := structuredFormatFromFlags(command)
@@ -207,8 +207,8 @@ so is turning an alert off or on.
 ` + applicationAlertConditionHelp + `
 
 --send-to replaces the whole list of destinations.`,
-		Example: `  ankra application alerts update shop 8d1e4f2a-6b3c-4d5e-9f7a-1c2b3d4e5f6a --threshold 2
-  ankra application alerts update shop 8d1e4f2a-6b3c-4d5e-9f7a-1c2b3d4e5f6a --metric p95_ms --threshold 800`,
+		Example: `  ankra application alerts update shop 0b7c4d02-5f6a-4b8c-9d0e-1f2a3b4c5d6e --threshold 2
+  ankra application alerts update shop 0b7c4d02-5f6a-4b8c-9d0e-1f2a3b4c5d6e --metric p95_ms --threshold 800`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			format, formatError := structuredFormatFromFlags(command)
@@ -309,8 +309,8 @@ The alert stops telling anyone, and it cannot be undone. The command names
 the alert and asks before it deletes it; --yes skips the question. To stop an
 alert for a while and keep it, turn it off with 'ankra alerts rules disable
 <alert-id>' instead.`,
-		Example: `  ankra application alerts delete shop 8d1e4f2a-6b3c-4d5e-9f7a-1c2b3d4e5f6a
-  ankra application alerts delete shop 8d1e4f2a-6b3c-4d5e-9f7a-1c2b3d4e5f6a --yes`,
+		Example: `  ankra application alerts delete shop 0b7c4d02-5f6a-4b8c-9d0e-1f2a3b4c5d6e
+  ankra application alerts delete shop 0b7c4d02-5f6a-4b8c-9d0e-1f2a3b4c5d6e --yes`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			format, formatError := structuredFormatFromFlags(command)
