@@ -150,8 +150,17 @@ ankra cluster playground destroy
 
 Everything below works against it, except the provider-specific lifecycle commands.
 
-**Adopting one that already exists** - write an ImportCluster YAML and apply it
-(`ankra-import-cluster`):
+**Adopting one that already exists** - with nothing to declare on it yet, one command
+registers it and prints the Helm command that installs the Ankra agent:
+
+```bash
+ankra cluster connect prod --environment production   # then run the printed helm command against the cluster
+ankra cluster agent status --cluster prod             # connected within about a minute
+```
+
+A name another cluster in the organisation already has is refused (exit 8) and nothing is
+changed. To declare stacks, add-ons or a GitOps repository in the same step, write an
+ImportCluster YAML and apply it instead (`ankra-import-cluster`):
 
 ```bash
 ankra cluster validate -f cluster.yaml

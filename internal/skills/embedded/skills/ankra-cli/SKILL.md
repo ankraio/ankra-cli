@@ -62,6 +62,7 @@ exits 3 saying so and everything else works as before.
 
 | Area | Entry point | Skill |
 |------|-------------|-------|
+| Connect a cluster you already run (nothing declared on it) | `ankra cluster connect <name> [--environment ...]` prints the agent install command | `ankra-getting-started`, `ankra-import-cluster` |
 | Clusters, stacks, addons, manifests, variables | `ankra cluster apply\|draft\|stacks\|addons\|manifests\|variables ...` | `ankra-import-cluster`, `ankra-stacks-addons` |
 | GitOps sync state and merge conflicts | `ankra cluster gitops status\|conflicts list\|resolve` | `ankra-gitops` |
 | Shipping code end to end | `ankra application ship\|add\|deploy\|deployments\|promote\|previews\|auto-deploy\|env-secrets\|demo ...` | `ankra-ship`, `ankra-applications` |
