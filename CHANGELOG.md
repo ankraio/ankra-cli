@@ -2,7 +2,16 @@
 
 ## Unreleased
 
+## v0.79.1 - 2026-11-18
+
+Inspect every recorded preserved-file difference with `--all`, and refuse a
+preserved-file decision when complete matching metadata cannot be read. The
+platform serving complete diff pages is required; default preview output and
+secret masking are unchanged.
+
 ### Fixed
+
+- **Read every recorded preserved-file difference with `ankra cluster gitops preserved show <path> --all`.** The default remains the 50-change preview. Complete inspection follows bounded pages, preserves secret masking and role checks, and returns no partial result if the file, rules or reveal permission changes. JSON and YAML contain structural metadata only. Resolving a truncated preview now reads the complete matching snapshot before confirmation, including with `--yes`; an incomplete or changed snapshot prevents the write. Requires a platform release that serves complete diff pages.
 
 - **The bundled skills name `ankra cluster connect`.** `ankra-getting-started`, `ankra-cli` and `ankra-import-cluster` sent an assistant to an ImportCluster file to connect a cluster that already runs, even when there was nothing to declare on it. They now give `ankra cluster connect <name>` for that case, with the exit code a taken name gets, and keep the file for when stacks, add-ons or a GitOps repository go in with it. `ankra skills install` installs the updated skills.
 
@@ -22,7 +31,6 @@ exit code and `-o json` key is unchanged.
 
 ### Fixed
 
-- **Read every recorded preserved-file difference with `ankra cluster gitops preserved show <path> --all`.** The default remains the 50-change preview. Complete inspection follows bounded pages, preserves secret masking and role checks, and returns no partial result if the file, rules or reveal permission changes. JSON and YAML contain structural metadata only. Resolving a truncated preview now reads the complete matching snapshot before confirmation, including with `--yes`; an incomplete or changed snapshot prevents the write. Requires a platform release that serves complete diff pages.
 - **`ankra security remediations list` shows batched fixes.** A pull request that fixes several of one application's findings at once, such as a base-image fix or a dependency bump, is now listed as one row, as the portal's Security > Fix activity lists it. Before, the command showed such runs only with `--application`. The columns and `-o json` keys are unchanged: a batched run has `finding_id` null and every finding it fixes in `finding_ids`, and `--finding` also matches a batched run that fixes that finding among others. The list is still the newest runs first, at most 100 (or `--limit`), so with batched runs in it an older run of one finding can fall past the end.
 - **`ankra cluster <provider> os-patches policy set` help says what `--enable` and `--disable` do.** It said they turn the rolling OS patch policy on and off, and that turning it off removes the node OS update hold from every host. Since OS updates modes, `--enable` chooses the automatic mode for the cluster and `--disable` the advisory mode: the control planes, the bastion and every node group without a mode of its own become advisory and lose the hold, a node group set to automatic stays automatic and keeps it, the daily dry run goes on, and a person can still start a run. The help also says that clearing the mode, or giving a node group its own, is done through the API or Ankra's AI. The `os-patches` and `os-patches node-policy` help use the same words: the hold applies where OS updates are automatic, and writing it by hand is refused unless the cluster's OS updates are automatic. Help text only: the flags send what they sent before.
 - **`ankra pipeline repositories connect --cluster` takes a cluster name.** It took only an id, so `--cluster mac-mini` was refused with "Cluster not found in this organisation"; it now looks the name up the way `ankra pipeline repositories set-cluster` does, and a name no cluster has fails with exit 3 before anything is connected. The bundled `ankra-cicd` and `ankra-ship` skills also stop listing `runs_on.arch` as a protected section: the platform treats it as a build target a pull request may change. `ankra-cicd` gains two troubleshooting rows, for an image with no build for the CI cluster's architecture and for a `runs_on.arch` no node in the cluster has.
