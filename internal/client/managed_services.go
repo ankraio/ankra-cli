@@ -285,7 +285,7 @@ type ServiceReviewRequest struct {
 	SecretReferences map[string]string `json:"secret_references"`
 	// SourceInstanceID creates the service from the archive of that
 	// PostgreSQL service instead of empty. SourceMoment, in RFC 3339,
-	// restores to that moment; without it the end of the archive.
+	// restores to that moment; without it the newest point its backups reach.
 	SourceInstanceID string `json:"source_instance_id,omitempty"`
 	SourceMoment     string `json:"source_moment,omitempty"`
 	// BackupVault names the backup vault the service backs up into.
@@ -376,8 +376,8 @@ type ServiceReviewSummary struct {
 }
 
 // ServiceReviewSource is the service a reviewed setup is created from: which
-// one, as of which moment in RFC 3339 (nil for the end of its archive), and
-// the sentence the platform asks the person to approve.
+// one, as of which moment in RFC 3339 (nil for the newest point its backups
+// reach), and the sentence the platform asks the person to approve.
 type ServiceReviewSource struct {
 	InstanceID   string  `json:"instance_id" yaml:"instance_id"`
 	InstanceName string  `json:"instance_name" yaml:"instance_name"`

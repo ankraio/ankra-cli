@@ -261,9 +261,9 @@ func checkServiceSetupAgainstContract(detail client.ServicePackageDetail, mode s
 	return nil
 }
 
-// serviceSourceEndOfArchive is how a restore without a moment is said: the
-// source's archive is replayed to its end.
-const serviceSourceEndOfArchive = "the end of its archive"
+// serviceSourceNewestPoint is how a restore without a moment is said: the
+// source's backups are replayed as far as they reach.
+const serviceSourceNewestPoint = "the newest point its backups reach"
 
 // printServiceReviewSource says which service a reviewed setup is created
 // from and as of when, then the sentence the platform asks the person to
@@ -272,7 +272,7 @@ func printServiceReviewSource(out io.Writer, source *client.ServiceReviewSource)
 	if source == nil {
 		return
 	}
-	asOf := serviceSourceEndOfArchive
+	asOf := serviceSourceNewestPoint
 	if source.Moment != nil && *source.Moment != "" {
 		asOf = *source.Moment
 	}
@@ -322,7 +322,7 @@ func checkServiceReviewSource(review client.ServiceReview, source client.Service
 		return withExitCode(exitBlocked, fmt.Errorf("the platform's plan creates the service from %s, not from %s (%s) - %s",
 			plan.Source.InstanceID, source.Name, source.ID, nothing))
 	}
-	planned := serviceSourceEndOfArchive
+	planned := serviceSourceNewestPoint
 	var plannedMoment *time.Time
 	if plan.Source.Moment != nil && *plan.Source.Moment != "" {
 		planned = *plan.Source.Moment
@@ -333,7 +333,7 @@ func checkServiceReviewSource(review client.ServiceReview, source client.Service
 		}
 		plannedMoment = &parsed
 	}
-	asked := serviceSourceEndOfArchive
+	asked := serviceSourceNewestPoint
 	if moment != nil {
 		asked = moment.Format(time.RFC3339Nano)
 	}

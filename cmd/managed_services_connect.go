@@ -38,7 +38,7 @@ Connecting is refused while the service is still being installed, while it is
 being retired, and when the service changed after this command read it: run
 the command again.
 
-A service created from another service's archive ('ankra services setup
+A service created from another service's backups ('ankra services setup
 --from') starts with no applications. This is how it gets them.
 
 A name that runs on more than one cluster needs --cluster.`,

@@ -70,7 +70,7 @@ func TestServicesSetupFromAnotherServiceSendsTheSourceAndTheMoment(t *testing.T)
 }
 
 // Without --at the request carries no moment at all, which the platform
-// reads as the end of the archive, and the plan says so.
+// reads as the newest point the backups reach, and the plan says so.
 func TestServicesSetupFromWithoutAMomentRestoresToTheEndOfTheArchive(t *testing.T) {
 	platform := newFakeServicesPlatform(t)
 	stdout, _, runError := runServicesCommand(t, platform, "",
@@ -82,8 +82,8 @@ func TestServicesSetupFromWithoutAMomentRestoresToTheEndOfTheArchive(t *testing.
 	if _, sent := prepared["source_moment"]; sent {
 		t.Errorf("no moment was named, yet source_moment was sent: %v", prepared["source_moment"])
 	}
-	if !strings.Contains(stdout, "as of the end of its archive") {
-		t.Errorf("the plan must say the archive is restored to its end:\n%s", stdout)
+	if !strings.Contains(stdout, "as of the newest point its backups reach") {
+		t.Errorf("the plan must say the backups are restored as far as they reach:\n%s", stdout)
 	}
 }
 
@@ -178,9 +178,9 @@ func TestServicesSetupFromNeverConfirmsAPlanThatIsNotTheOneAskedFor(t *testing.T
 		{"the plan names another moment", func(platform *fakeServicesPlatform) { platform.sourcePlanMoment = moment("2026-11-18T09:31:00Z") },
 			[]string{"--at", "2026-11-18T09:30:00Z"}, "as of 2026-11-18T09:31:00Z, not as of 2026-11-18T09:30:00Z"},
 		{"the plan names a moment and none was asked", func(platform *fakeServicesPlatform) { platform.sourcePlanMoment = moment("2026-11-18T09:30:00Z") },
-			nil, "as of 2026-11-18T09:30:00Z, not as of the end of its archive"},
+			nil, "as of 2026-11-18T09:30:00Z, not as of the newest point its backups reach"},
 		{"the plan drops the moment", func(platform *fakeServicesPlatform) { platform.sourcePlanMoment = moment("") },
-			[]string{"--at", "2026-11-18T09:30:00Z"}, "as of the end of its archive, not as of 2026-11-18T09:30:00Z"},
+			[]string{"--at", "2026-11-18T09:30:00Z"}, "as of the newest point its backups reach, not as of 2026-11-18T09:30:00Z"},
 		{"the plan's moment is not a time", func(platform *fakeServicesPlatform) { platform.sourcePlanMoment = moment("soon") },
 			[]string{"--at", "2026-11-18T09:30:00Z"}, "does not read as a time"},
 	}
