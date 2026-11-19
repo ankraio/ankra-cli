@@ -19,10 +19,11 @@
 # `ci-class: large` node, and debug info is not generated (nothing here reads
 # it), which takes the peak to about 13 GB.
 #
-# All steps of a run share the node its workspace is attached to, so lint and
-# test (20Gi each) run one after the other rather than side by side; checks
-# (4Gi) runs beside lint. test runs whether or not lint passed, so one run
-# reports both.
+# Each stage gets its own workspace, restored from its dependencies through
+# Ankra's artifact vault, so a small checkout cannot pin a later 20Gi stage
+# to a node with too little room. Lint and test still run one after the other;
+# checks (4Gi) runs beside lint. Test runs whether or not lint passed, so one
+# run reports both. Memory requirements and large-node restrictions remain.
 #
 # runs_on, resources, timeout, cache and credentials are protected sections:
 # they apply only once an organisation administrator has approved master's
@@ -46,8 +47,9 @@ concurrency:
   group: "${{ event.kind == 'pull_request' ? format('ankra-cli-pr-{0}', ankra.sha) : format('ankra-cli-{0}', ankra.ref) }}"
   cancel_in_progress: true
 workspace:
-  # Incident ankra-fkiaom: shared checkout can bind a node before a later
-  # 20Gi stage fits. The repair retains the existing resources and placement.
+  # The CI pool advertises step workspaces and has them enabled. The ready
+  # artifact vault hands checkout files and stage outputs between workspaces.
+  mode: "per_step"
   # The module cache, one build cache per stage (the race build of ankra/cmd
   # is several GiB) and the downloaded Go toolchain.
   size: "40Gi"
