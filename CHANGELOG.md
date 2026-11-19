@@ -2,12 +2,19 @@
 
 ## Unreleased
 
-## v0.79.1 - 2026-11-18
+## v0.80.0 - 2026-11-19
 
 Inspect every recorded preserved-file difference with `--all`, and refuse a
 preserved-file decision when complete matching metadata cannot be read. The
 platform serving complete diff pages is required; default preview output and
-secret masking are unchanged.
+secret masking are unchanged. Also adds application alert management, saved
+Overview layouts and per-environment provenance checks.
+
+### Added
+
+- **Set an application's alerts from the CLI: `ankra application alerts list|create|update|delete`.** An application alert watches one environment and fires when the share of failed requests, the 95th percentile response time or the container restarts stay above a threshold for the minutes you choose, and sends to up to five of your alert destinations. `list` shows each alert's state as the platform reports it (firing since when, ok, unknown and why, not evaluated yet, or off), and the organisation alert rules that also watch the environment. `delete` names the alert and asks first; `--yes` skips the question.
+- **Show and change an application's Overview layout from the CLI: `ankra application overview-layout show|versions|save|put-back|use-ankra`.** `show` says whether the Overview shows Ankra's own layout or a version the team saved, with who saved it and when and its cards in page order; `--content` prints the layout to edit. `save --file` saves a new version, `put-back` puts an earlier one back and `use-ankra` returns to Ankra's layout; each names the version it was made on with `--base`, and when the Overview changed since, nothing changes and the command says what it shows now.
+- **See the last provenance check of each environment, and check one environment now: `ankra application provenance checks` and `ankra application provenance verify --environment`.** `checks` prints one row for each installation of each environment: when it was last checked, who asked, the tag and the answer. An answer is verified, did not pass (with why), could not be checked (with why) or never checked, and never one said as another. `verify --environment production` checks what each installation of that environment runs and keeps each check; `verify --image` is unchanged.
 
 ### Fixed
 
@@ -27,6 +34,7 @@ exit code and `-o json` key is unchanged.
 
 ### Added
 
+- **`ankra cluster agent ci get` says where a run's workspace is kept.** A new line, `Run workspaces`, names where a new pipeline run's workspace comes from on the cluster: the storage class set for pipelines, the cluster's default StorageClass, or the disk of each run's node on a cluster with no StorageClass that creates volumes. When such a cluster's agent is too old to use the nodes' disks, the output says so and says to upgrade the agent. `Node-local storage` says whether the agent advertises it, and `-o json` carries `ci_storage_class_effective`, `ci_node_local_storage` and `supports_node_local_storage`.
 - **Connect a cluster you already run with one command: `ankra cluster connect <name>`.** The command registers the cluster and prints the one Helm command that installs the Ankra agent, which connects the cluster to your organisation. Until now the only way to do this from the CLI was to write an ImportCluster file and run `ankra cluster apply -f <file> --wait`, while the portal's "Connect a cluster" page asks for nothing but a name. `--environment` says what the cluster is for and `--description` describes it; `-o json|yaml` prints `cluster_id`, `name` and `install_command` for a script. A name another cluster in the organisation already has is refused with exit 8 and nothing is changed, because the same request would otherwise update that cluster. That holds for a cluster created while the command is running as well: the command asks the platform to create only, and the platform refuses the name instead of updating that cluster. The refusal says to choose another name to connect a different cluster, and names the command that prints the install command for a cluster you already registered. A connect the platform does not answer within `--timeout` exits 5 and says how to check whether the cluster was registered. The printed command carries the cluster's agent token, so treat it as a credential. `ankra cluster import <name>` is the same command. `ankra cluster apply` is unchanged and is still how you declare Stacks, add-ons or a GitOps repository on a cluster.
 
 ### Fixed

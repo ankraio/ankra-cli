@@ -134,7 +134,10 @@ it admits right now. The run reservation, image pre-pull and step workspaces
 modes are shown with whether the agent advertises each; a platform that
 predates a setting shows neither of its lines. The Ankra Workspace class is
 the storage class the cluster's Ankra Workspaces use, and says when they
-inherit it; a platform that predates it shows no such line.
+inherit it; a platform that predates it shows no such line. Run workspaces
+says where a new run's workspace is kept: the storage class set for
+pipelines, the cluster's default StorageClass, or the disk of each run's
+node on a cluster with no StorageClass that creates volumes.
 
 An agent that has not yet re-rendered its release reports pipeline steps as
 not advertised even with a non-zero worker count stored: the capability is
@@ -700,6 +703,7 @@ func printAgentCISettings(out io.Writer, settings *client.AgentCISettings, outco
 	_, _ = fmt.Fprintf(out, "  Pipeline-step workers: %d\n", settings.CIWorkerCount)
 	_, _ = fmt.Fprintf(out, "  Storage class:         %s\n", agentCIStorageClassLabel(settings.CIStorageClass))
 	printAgentCIAnkraWorkspaceStorageClass(out, settings)
+	printAgentCIRunWorkspaces(out, settings)
 	_, _ = fmt.Fprintf(out, "  Agent version:         %s\n", agentCIVersionLabel(settings.AgentVersion))
 	_, _ = fmt.Fprintf(out, "  Pipeline steps:        %s\n", agentCICapabilityLabel(settings.SupportsPipelineSteps))
 	if settings.UpdatedAt != nil && *settings.UpdatedAt != "" {
@@ -714,6 +718,9 @@ func printAgentCISettings(out io.Writer, settings *client.AgentCISettings, outco
 	printAgentCIPlacement(out, settings)
 	if outcomeSentence != "" {
 		_, _ = fmt.Fprintf(out, "\n%s\n", outcomeSentence)
+	}
+	if note := agentCIRunWorkspacesNote(settings); note != "" {
+		_, _ = fmt.Fprintf(out, "\n%s\n", note)
 	}
 	if note := agentCIRunReservationNote(settings); note != "" {
 		_, _ = fmt.Fprintf(out, "\n%s\n", note)
@@ -744,6 +751,79 @@ func printAgentCIAnkraWorkspaceStorageClass(out io.Writer, settings *client.Agen
 		storageClass = agentCIStorageClassLabel(settings.CIStorageClass) + " (inherited from the storage class)"
 	}
 	_, _ = fmt.Fprintf(out, "  Ankra Workspace class: %s\n", storageClass)
+}
+
+// agentCISetStorageClassSentence is the way to a StorageClass of the person's
+// own choosing, which every answer about a run's workspace ends on.
+const agentCISetStorageClassSentence = "set a StorageClass whose provisioner creates volumes: " +
+	"ankra cluster agent ci set --storage-class <class>"
+
+// printAgentCIRunWorkspaces says where a new run's workspace is kept on the
+// cluster and whether the agent can keep workspaces on its nodes' disks. The
+// stored storage class alone does not say it: with none stored the cluster's
+// default class decides, and a cluster with no class that creates volumes
+// keeps each workspace on the disk of the run's node. A platform that
+// predates the answer, or could not read the cluster's StorageClasses, sends
+// none, and the lines are left out rather than guessed.
+func printAgentCIRunWorkspaces(out io.Writer, settings *client.AgentCISettings) {
+	if settings.CINodeLocalStorage != nil && *settings.CINodeLocalStorage != "" {
+		_, _ = fmt.Fprintf(out, "  Run workspaces:        %s\n", agentCIRunWorkspacesLabel(settings))
+	}
+	if settings.SupportsNodeLocalStorage != nil {
+		_, _ = fmt.Fprintf(out, "  Node-local storage:    %s\n",
+			agentCICapabilityLabel(*settings.SupportsNodeLocalStorage))
+	}
+}
+
+// agentCIRunWorkspacesLabel puts the platform's verdict in plain words. A
+// verdict this build does not know is printed as the platform sent it.
+func agentCIRunWorkspacesLabel(settings *client.AgentCISettings) string {
+	effective := ""
+	if settings.CIStorageClassEffective != nil {
+		effective = *settings.CIStorageClassEffective
+	}
+	switch *settings.CINodeLocalStorage {
+	case client.AgentCINodeLocalStorageInEffect:
+		if effective == "" {
+			return "the disk of each run's node"
+		}
+		return "the disk of each run's node (StorageClass " + effective + ")"
+	case client.AgentCINodeLocalStorageAgentUnsupported:
+		return "no volume: nothing on the cluster creates one"
+	case client.AgentCINodeLocalStorageStorageClassSet:
+		if effective == "" {
+			return "the storage class set for pipelines"
+		}
+		return "StorageClass " + effective
+	case client.AgentCINodeLocalStorageDefaultStorageClass:
+		return "the cluster's default StorageClass"
+	case client.AgentCINodeLocalStorageUnknown:
+		return "not known: the cluster's StorageClasses have not been read yet"
+	default:
+		return *settings.CINodeLocalStorage
+	}
+}
+
+// agentCIRunWorkspacesNote says what the two answers that are not a
+// StorageClass mean and how to leave them: workspaces on the nodes' disks,
+// and a cluster on which a run's workspace gets no volume at all.
+func agentCIRunWorkspacesNote(settings *client.AgentCISettings) string {
+	if settings.CINodeLocalStorage == nil {
+		return ""
+	}
+	switch *settings.CINodeLocalStorage {
+	case client.AgentCINodeLocalStorageInEffect:
+		return "This cluster has no StorageClass Ankra may use that creates volumes, so its agent keeps each " +
+			"run's workspace as a directory on the disk of the node the run is placed on. To keep workspaces " +
+			"off the nodes, " + agentCISetStorageClassSentence + "."
+	case client.AgentCINodeLocalStorageAgentUnsupported:
+		return "This cluster has no StorageClass Ankra may use that creates volumes, and its agent does not " +
+			"keep each run's workspace on the disk of its node instead, so a run's workspace gets no volume " +
+			"and the run fails. Upgrade the agent (ankra cluster agent upgrade), or " +
+			agentCISetStorageClassSentence + "."
+	default:
+		return ""
+	}
 }
 
 // printAgentCIBuildAppArmorProfile renders the profile and whether the agent

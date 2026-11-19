@@ -134,27 +134,8 @@ func (c *Client) sendJSONThrough(ctx context.Context, httpClient *http.Client, m
 	if readError != nil {
 		return fmt.Errorf("read response: %w", readError)
 	}
-	if response.StatusCode == http.StatusUnauthorized {
-		return ErrUnauthorized
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		if denied := PermissionDeniedFromResponse(response.StatusCode, body); denied != nil {
-			return denied
-		}
-		if restricted := BillingRestrictedFromResponse(body); restricted != nil {
-			return restricted
-		}
-		if detail := detailFromBody(body); detail != "" {
-			return newBackendDetailError(response.StatusCode, detail)
-		}
-		unexpected := newUnexpectedResponseError("request failed", response.StatusCode, redactedBodyForError(body, 500))
-		if response.StatusCode == http.StatusConflict {
-			// Kept only for a 409, the one answer a caller reads as a
-			// document (ResolveCloudWasteBatch); every other body is
-			// dropped with the request.
-			unexpected.body = body
-		}
-		return unexpected
+	if responseError := errorFromResponse(response.StatusCode, body); responseError != nil {
+		return responseError
 	}
 	if target == nil {
 		return nil
@@ -163,6 +144,37 @@ func (c *Client) sendJSONThrough(ctx context.Context, httpClient *http.Client, m
 		return fmt.Errorf("parse response: %w", unmarshalError)
 	}
 	return nil
+}
+
+// errorFromResponse is the error sendJSON answers for a status that is not
+// 2xx, nil for a 2xx: ErrUnauthorized for a 401, the RBAC and billing
+// refusals, the backend's detail sentence, else the redacted body. A caller
+// that reads one refusal's body as a document of its own (the Overview
+// layout's 409) answers that one first and hands every other status here.
+func errorFromResponse(statusCode int, body []byte) error {
+	if statusCode == http.StatusUnauthorized {
+		return ErrUnauthorized
+	}
+	if statusCode >= 200 && statusCode < 300 {
+		return nil
+	}
+	if denied := PermissionDeniedFromResponse(statusCode, body); denied != nil {
+		return denied
+	}
+	if restricted := BillingRestrictedFromResponse(body); restricted != nil {
+		return restricted
+	}
+	if detail := detailFromBody(body); detail != "" {
+		return newBackendDetailError(statusCode, detail)
+	}
+	unexpected := newUnexpectedResponseError("request failed", statusCode, redactedBodyForError(body, 500))
+	if statusCode == http.StatusConflict {
+		// Kept only for a 409, the one answer a caller reads as a
+		// document (ResolveCloudWasteBatch); every other body is
+		// dropped with the request.
+		unexpected.body = body
+	}
+	return unexpected
 }
 
 // detailFromBody extracts the FastAPI `detail` string from a JSON error

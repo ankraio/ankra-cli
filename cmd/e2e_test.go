@@ -428,6 +428,26 @@ func (m baseMock) ResetApplicationAIConfig(requestContext context.Context, appli
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetApplicationOverviewLayout(requestContext context.Context, applicationID string) (*client.ApplicationOverviewLayout, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListApplicationOverviewLayoutVersions(requestContext context.Context, applicationID string, cursor string, limit int) (*client.ApplicationOverviewLayoutVersions, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SaveApplicationOverviewLayoutVersion(requestContext context.Context, applicationID string, content string, baseRevisionID *string) (*client.ApplicationOverviewLayout, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PutBackApplicationOverviewLayoutVersion(requestContext context.Context, applicationID string, revisionID string, baseRevisionID *string) (*client.ApplicationOverviewLayout, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UseAnkraApplicationOverviewLayout(requestContext context.Context, applicationID string, baseRevisionID *string) (*client.ApplicationOverviewLayout, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) PublishApplicationAddon(requestContext context.Context, applicationID string, publishRequest client.PublishApplicationAddonRequest) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
@@ -461,6 +481,22 @@ func (m baseMock) SetApplicationAutoDeploy(requestContext context.Context, appli
 }
 
 func (m baseMock) UpdateApplicationAutoDeploy(requestContext context.Context, applicationID string, autoDeployRequest client.SetApplicationAutoDeployRequest) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListApplicationAlerts(requestContext context.Context, applicationID string, environmentID string) (*client.ApplicationAlertList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateApplicationAlert(requestContext context.Context, applicationID string, alertRequest client.ApplicationAlertRequest) (*client.ApplicationAlert, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateApplicationAlert(requestContext context.Context, applicationID string, alertID string, alertRequest client.ApplicationAlertRequest) (*client.ApplicationAlert, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteApplicationAlert(requestContext context.Context, applicationID string, alertID string) (*client.ApplicationAlertDeleteResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -2182,6 +2218,14 @@ func (m baseMock) SetApplicationProvenancePolicy(context.Context, string, *strin
 }
 
 func (m baseMock) VerifyApplicationProvenance(context.Context, string, []string) (*client.ProvenanceVerification, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CheckApplicationProvenanceEnvironment(context.Context, string, string) (*client.ProvenanceEnvironmentCheck, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationProvenanceChecks(context.Context, string) (*client.ApplicationProvenanceChecks, error) {
 	return nil, errors.New("not implemented")
 }
 
