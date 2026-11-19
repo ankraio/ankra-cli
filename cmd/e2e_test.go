@@ -484,6 +484,22 @@ func (m baseMock) UpdateApplicationAutoDeploy(requestContext context.Context, ap
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListApplicationAlerts(requestContext context.Context, applicationID string, environmentID string) (*client.ApplicationAlertList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateApplicationAlert(requestContext context.Context, applicationID string, alertRequest client.ApplicationAlertRequest) (*client.ApplicationAlert, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateApplicationAlert(requestContext context.Context, applicationID string, alertID string, alertRequest client.ApplicationAlertRequest) (*client.ApplicationAlert, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteApplicationAlert(requestContext context.Context, applicationID string, alertID string) (*client.ApplicationAlertDeleteResult, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) StartApplicationPlatformBuild(requestContext context.Context, applicationID string, request client.StartApplicationPlatformBuildRequest) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
