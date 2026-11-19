@@ -760,6 +760,8 @@ type APIClient interface {
 	GetApplicationProvenancePolicy(ctx context.Context, applicationID string) (*client.ApplicationProvenancePolicy, error)
 	SetApplicationProvenancePolicy(ctx context.Context, applicationID string, mode *string) (*client.ApplicationProvenancePolicy, error)
 	VerifyApplicationProvenance(ctx context.Context, applicationID string, images []string) (*client.ProvenanceVerification, error)
+	CheckApplicationProvenanceEnvironment(ctx context.Context, applicationID string, environmentID string) (*client.ProvenanceEnvironmentCheck, error)
+	GetApplicationProvenanceChecks(ctx context.Context, applicationID string) (*client.ApplicationProvenanceChecks, error)
 	ListProvenanceKeys(ctx context.Context) (*client.ProvenanceSigningKeys, error)
 	RotateProvenanceKey(ctx context.Context) (*client.ProvenanceSigningKey, error)
 	RevokeProvenanceKey(ctx context.Context, keyID string, reason string) (*client.ProvenanceSigningKey, error)

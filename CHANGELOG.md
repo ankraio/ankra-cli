@@ -5,6 +5,7 @@
 ### Added
 
 - **Set an application's alerts from the CLI: `ankra application alerts list|create|update|delete`.** An application alert watches one environment and fires when the share of failed requests, the 95th percentile response time or the container restarts stay above a threshold for the minutes you choose, and sends to up to five of your alert destinations. `list` shows each alert's state as the platform reports it (firing since when, ok, unknown and why, not evaluated yet, or off), and the organisation alert rules that also watch the environment. `delete` names the alert and asks first; `--yes` skips the question.
+- **See the last provenance check of each environment, and check one environment now: `ankra application provenance checks` and `ankra application provenance verify --environment`.** `checks` prints one row for each installation of each environment: when it was last checked, who asked, the tag and the answer. An answer is verified, did not pass (with why), could not be checked (with why) or never checked, and never one said as another. `verify --environment production` checks what each installation of that environment runs and keeps each check; `verify --image` is unchanged.
 
 ### Fixed
 

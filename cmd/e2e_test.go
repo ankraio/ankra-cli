@@ -2201,6 +2201,14 @@ func (m baseMock) VerifyApplicationProvenance(context.Context, string, []string)
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) CheckApplicationProvenanceEnvironment(context.Context, string, string) (*client.ProvenanceEnvironmentCheck, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationProvenanceChecks(context.Context, string) (*client.ApplicationProvenanceChecks, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListProvenanceKeys(context.Context) (*client.ProvenanceSigningKeys, error) {
 	return nil, errors.New("not implemented")
 }
