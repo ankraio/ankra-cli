@@ -203,6 +203,10 @@ stages:
     needs:
       - "checkout"
       - "lint"
+    # Lint is an ordering dependency; tests consume the checkout, not lint's
+    # downloaded modules or caches. Their own declared cache remains separate.
+    workspace_from:
+      - "checkout"
     if: "${{ !cancelled() && needs.checkout.result == 'success' }}"
     runs_on: *ci_large
     resources:
