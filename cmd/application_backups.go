@@ -100,7 +100,10 @@ func newApplicationBackupsCommand() *cobra.Command {
 
 One row per cluster the application is deployed to: whether that deployment
 carries a database, whether its data is protected, when it was last backed up
-and when it is next scheduled.
+and when it is next scheduled, and what its backups keep: since when it is
+backed up, how long backups are kept, and how many are kept now with the
+oldest of them. -o json and -o yaml print the platform's answer as it was
+sent, the 'keeping' block of each deployment included.
 
 The verdict has three values and none of them is a boolean: 'unknown' means
 Ankra could not establish whether this deployment is protected, which is not
@@ -368,8 +371,94 @@ func printApplicationBackups(out io.Writer, backups *client.ApplicationBackups) 
 			_, _ = fmt.Fprintf(out, "    Next backup: %s\n",
 				optionalTimestampText(deployment.Posture.NextScheduledAt, "not scheduled"))
 		}
+		printApplicationBackupKeeping(out, deployment.Keeping)
 	}
 	printWarnings(out, backups.Warnings)
+}
+
+// keepingNotRead is what a keeping line says when Ankra could not read it.
+// It is never "none" or zero: an unread count is not an empty one.
+const keepingNotRead = "could not be read"
+
+// printApplicationBackupKeeping says what a deployment's backups keep: since
+// when it is backed up, how long backups are kept, how many are kept now and
+// the oldest of them. A deployment with no keeping block (no stack yet, or a
+// platform that does not send one) prints nothing, so the section reads as
+// it did before.
+func printApplicationBackupKeeping(out io.Writer, keeping *client.ApplicationBackupKeeping) {
+	if keeping == nil {
+		return
+	}
+	if keeping.State != "known" && keeping.State != "no_policy" {
+		for _, label := range []string{"Since:", "Kept for:", "Kept now:"} {
+			_, _ = fmt.Fprintf(out, "    %-12s %s\n", label, keepingNotRead)
+		}
+		return
+	}
+	_, _ = fmt.Fprintf(out, "    Since:       %s\n", describeKeepingProtectedSince(keeping))
+	_, _ = fmt.Fprintf(out, "    Kept for:    %s\n", describeKeepingPeriod(keeping))
+	_, _ = fmt.Fprintf(out, "    Kept now:    %s\n", describeKeptCount(keeping))
+	if keeping.KeptCount != nil && *keeping.KeptCount > 0 {
+		_, _ = fmt.Fprintf(out, "    Oldest kept: %s\n",
+			optionalTimestampText(keeping.OldestKeptAt, keepingNotRead))
+	}
+}
+
+// describeKeepingProtectedSince keeps "never backed up" apart from "cannot be
+// told": an older restore point that records no stack may be this one's.
+func describeKeepingProtectedSince(keeping *client.ApplicationBackupKeeping) string {
+	switch keeping.ProtectedSinceState {
+	case "known":
+		return optionalTimestampText(keeping.ProtectedSince, keepingNotRead)
+	case "none":
+		return "no backup has completed yet"
+	default:
+		return "cannot be told (an older backup does not record which stack it was taken from)"
+	}
+}
+
+// describeKeepingPeriod says how long the policy keeps backups, with the
+// policy itself when the platform sent it.
+func describeKeepingPeriod(keeping *client.ApplicationBackupKeeping) string {
+	if keeping.State == "no_policy" {
+		return "no backup policy, so nothing is kept on a schedule"
+	}
+	if keeping.KeepsEverything {
+		return "everything (no backup is expired)"
+	}
+	period := "less than a day, or a number of backups rather than days"
+	if keeping.KeepsDays != nil {
+		period = fmt.Sprintf("%d days", *keeping.KeepsDays)
+		if *keeping.KeepsDays == 1 {
+			period = "1 day"
+		}
+	}
+	if keeping.Policy != nil {
+		period += " (" + describeRetention(*keeping.Policy) + ")"
+	}
+	return period
+}
+
+// describeKeptCount says how many restore points are kept now, and how many
+// more carry the stack's name but cannot be told to be its own.
+func describeKeptCount(keeping *client.ApplicationBackupKeeping) string {
+	if keeping.KeptCount == nil {
+		return keepingNotRead
+	}
+	var count string
+	switch kept := *keeping.KeptCount; kept {
+	case 0:
+		count = "none"
+	case 1:
+		count = "1 backup"
+	default:
+		count = fmt.Sprintf("%d backups", kept)
+	}
+	if keeping.UnattributedKeptCount != nil && *keeping.UnattributedKeptCount > 0 {
+		count += fmt.Sprintf(", and %d more with this stack's name that do not record which stack they came from",
+			*keeping.UnattributedKeptCount)
+	}
+	return count
 }
 
 // describeDatabaseBackupSetting keeps an unreported setting apart from one
