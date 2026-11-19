@@ -46,6 +46,8 @@ concurrency:
   group: "${{ event.kind == 'pull_request' ? format('ankra-cli-pr-{0}', ankra.sha) : format('ankra-cli-{0}', ankra.ref) }}"
   cancel_in_progress: true
 workspace:
+  # Incident ankra-fkiaom: shared checkout can bind a node before a later
+  # 20Gi stage fits. The repair retains the existing resources and placement.
   # The module cache, one build cache per stage (the race build of ankra/cmd
   # is several GiB) and the downloaded Go toolchain.
   size: "40Gi"
