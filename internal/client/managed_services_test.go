@@ -330,9 +330,9 @@ func TestUnbindServiceConsumerLane(t *testing.T) {
 	}
 }
 
-// A review prepared from another service's backups carries the source and
-// the moment beside the fields every review sends, with an empty consumer
-// list, and connecting an application posts the binding and the generation
+// A review prepared from another service's backups carries the source, the
+// moment and the backup vault beside the fields every review sends, with an
+// empty consumer list, and connecting an application posts the binding and the generation
 // to the instance's consumers.
 func TestManagedServicesSourceAndConnectLaneParity(t *testing.T) {
 	var calls []recordedServiceCall
@@ -344,7 +344,7 @@ func TestManagedServicesSourceAndConnectLaneParity(t *testing.T) {
 	ctx := context.Background()
 	if _, prepareError := client.PrepareServiceReview(ctx, ServiceReviewRequest{PackageVersionID: "a5e62beb-cbe7-4340-9986-635e09cf086e",
 		Name: "orders-db-copy", Mode: "customer", Region: "eu-north-1", DataBoundary: "eu", ClusterID: testServiceClusterID,
-		SourceInstanceID: testServiceInstanceID, SourceMoment: "2026-11-18T09:30:00Z"}); prepareError != nil {
+		SourceInstanceID: testServiceInstanceID, SourceMoment: "2026-11-18T09:30:00Z", BackupVault: "production-backups"}); prepareError != nil {
 		t.Fatal(prepareError)
 	}
 	if _, connectError := client.ConnectServiceConsumer(ctx, testServiceInstanceID,
@@ -357,7 +357,7 @@ func TestManagedServicesSourceAndConnectLaneParity(t *testing.T) {
 			`{"package_version_id":"a5e62beb-cbe7-4340-9986-635e09cf086e","name":"orders-db-copy","mode":"customer",` +
 				`"region":"eu-north-1","data_boundary":"eu","cluster_id":"` + testServiceClusterID +
 				`","consumer_ids":[],"parameters":{},"secret_references":{},"source_instance_id":"` + testServiceInstanceID +
-				`","source_moment":"2026-11-18T09:30:00Z"}`},
+				`","source_moment":"2026-11-18T09:30:00Z","backup_vault":"production-backups"}`},
 		{http.MethodPost, admission + "/instances/" + testServiceInstanceID + "/consumers", "",
 			`{"consumer_id":"0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f","expected_generation":2}`},
 	}

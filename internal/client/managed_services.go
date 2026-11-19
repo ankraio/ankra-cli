@@ -288,7 +288,9 @@ type ServiceReviewRequest struct {
 	// restores to that moment; without it the newest point its backups reach.
 	SourceInstanceID string `json:"source_instance_id,omitempty"`
 	SourceMoment     string `json:"source_moment,omitempty"`
-	// BackupVault names the backup vault the service backs up into.
+	// BackupVault names the backup vault the service is backed up into, by
+	// its name. Left out, the platform uses the organisation's single
+	// verified vault, or, with a source, the vault that holds its backups.
 	BackupVault string `json:"backup_vault,omitempty"`
 }
 
@@ -373,6 +375,16 @@ type ServiceReviewSummary struct {
 	// Source is the service this one is created from. Absent for a service
 	// that starts empty, and on a platform that does not report it.
 	Source *ServiceReviewSource `json:"source,omitempty" yaml:"source,omitempty"`
+	// BackupVault is the backup vault the reviewed plan names. Absent when
+	// the plan names none, and on a platform that does not report it.
+	BackupVault *ServiceReviewBackupVault `json:"backup_vault,omitempty" yaml:"backup_vault,omitempty"`
+}
+
+// ServiceReviewBackupVault is the backup vault a reviewed setup is backed up
+// into: its name, and the sentence the platform asks the person to approve.
+type ServiceReviewBackupVault struct {
+	Name      string `json:"name" yaml:"name"`
+	Statement string `json:"statement" yaml:"statement"`
 }
 
 // ServiceReviewSource is the service a reviewed setup is created from: which

@@ -56,6 +56,10 @@ type serviceReviewPlanView struct {
 	// that starts empty carries none, and so does every plan of a platform
 	// from before services could be created from an archive.
 	Source *client.ServiceReviewSource `json:"source"`
+	// BackupVault is the backup vault the plan names: the one --backup-vault
+	// asked for, or the platform's own choice for a service created from
+	// another one. A plan that names none carries none.
+	BackupVault *client.ServiceReviewBackupVault `json:"backup_vault"`
 }
 
 func parseServiceReviewPlan(plan map[string]any) (serviceReviewPlanView, error) {
@@ -117,6 +121,7 @@ func printServiceReviewPlan(out io.Writer, names *serviceNames, packageLabel str
 				strings.Join(serviceSortedKeys(plan.SecretReferences), ", "))
 		}
 		printServiceReviewSource(out, plan.Source)
+		printServiceReviewBackupVault(out, plan.BackupVault)
 		if len(plan.Consumers) == 0 && plan.Source != nil {
 			_, _ = fmt.Fprintln(out, "  Consumers:      none ('ankra services connect' adds an application once the service runs)")
 		} else {
@@ -177,6 +182,7 @@ func printServiceReviewSummary(out io.Writer, names *serviceNames, review client
 		_, _ = fmt.Fprintf(out, "  Secret inputs:  %s\n", strings.Join(review.SecretInputs, ", "))
 	}
 	printServiceReviewSource(out, review.Source)
+	printServiceReviewBackupVault(out, review.BackupVault)
 	if len(review.Destinations) == 0 {
 		_, _ = fmt.Fprintln(out, "  Destinations:   none ('ankra services connect' adds an application once the service runs)")
 	} else {
@@ -280,6 +286,43 @@ func printServiceReviewSource(out io.Writer, source *client.ServiceReviewSource)
 	if source.Statement != "" {
 		_, _ = fmt.Fprintf(out, "                  %s\n", source.Statement)
 	}
+}
+
+// printServiceReviewBackupVault names the backup vault a reviewed setup is
+// backed up into, then the sentence the platform asks the person to approve.
+// It prints nothing for a plan that names no vault.
+func printServiceReviewBackupVault(out io.Writer, vault *client.ServiceReviewBackupVault) {
+	if vault == nil || vault.Name == "" {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "  Backup vault:   %s\n", vault.Name)
+	if vault.Statement != "" {
+		_, _ = fmt.Fprintf(out, "                  %s\n", vault.Statement)
+	}
+}
+
+// checkServiceReviewBackupVault refuses a review that would not back the
+// service up into the vault --backup-vault named. A platform from before a
+// setup could name its vault ignores the request field and plans without it;
+// confirming that plan would set up a service that is backed up somewhere
+// the person did not ask for, or nowhere. A plan that cannot be read is
+// refused too: it is not known to name the vault.
+func checkServiceReviewBackupVault(review client.ServiceReview, asked string) error {
+	nothing := fmt.Sprintf("nothing was set up, and review %s expires by itself in ten minutes", review.ID)
+	plan, parseError := parseServiceReviewPlan(review.Plan)
+	if parseError != nil {
+		return withExitCode(exitBlocked, fmt.Errorf("the platform's plan could not be read (%v), so it is not known to back the service up "+
+			"into the backup vault %s - %s", parseError, asked, nothing))
+	}
+	if plan.BackupVault == nil || plan.BackupVault.Name == "" {
+		return withExitCode(exitBlocked, fmt.Errorf("the platform's plan does not name the backup vault %s: this platform cannot name a "+
+			"setup's backup vault yet, and confirming the plan would not back the service up into it - %s", asked, nothing))
+	}
+	if plan.BackupVault.Name != asked {
+		return withExitCode(exitBlocked, fmt.Errorf("the platform's plan backs the service up into the backup vault %s, not into %s - %s",
+			plan.BackupVault.Name, asked, nothing))
+	}
+	return nil
 }
 
 // parseServiceSourceMoment reads --at: nil when it was not given, the moment
@@ -386,13 +429,21 @@ review names the source and the moment before anything is set up. The new
 service starts with no applications: connect them with 'ankra services
 connect' once it runs. --consumer is refused with --from.
 
+--backup-vault names the backup vault the service is backed up into ('ankra
+backup vaults list'). An organisation with more than one verified vault needs
+it, because the platform does not choose between them. A service created with
+--from is always backed up into the vault that holds the other service's
+backups, so there --backup-vault is accepted only when it names that vault.
+The review names the vault before anything is set up.
+
 Confirming starts the deployment; it is not proof that the service is ready.
 Follow it with 'ankra services get <name>'.`,
 		Example: `  ankra services setup orders-db --package postgresql --cluster prod --consumer 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f
   ankra services setup orders-db --package postgresql@1.0.0 --consumer <id> --param storage_gib=20 --param instances=3
   ankra services setup orders-db --package postgresql --consumer <id> --review-only
   ankra services setup orders-db --package postgresql --consumer <id> --yes -o json
-  ankra services setup orders-db-copy --package postgresql --cluster prod --from orders-db --at 2026-11-18T09:30:00Z`,
+  ankra services setup orders-db-copy --package postgresql --cluster prod --from orders-db --at 2026-11-18T09:30:00Z
+  ankra services setup orders-db --package postgresql --consumer <id> --backup-vault production-backups`,
 		Args: cobra.ExactArgs(1),
 		RunE: runServicesSetup,
 	}
@@ -406,6 +457,7 @@ Follow it with 'ankra services get <name>'.`,
 	setupCommand.Flags().StringArray("secret-reference", nil, "Secret input as name=<credential grant id> (repeatable); values are never accepted")
 	setupCommand.Flags().String("from", "", "Create the service from the backups of this PostgreSQL service (name or id)")
 	setupCommand.Flags().String("at", "", "With --from: the moment to restore to, in RFC 3339 (default: the newest point the other service's backups reach)")
+	setupCommand.Flags().String("backup-vault", "", "Backup vault the service is backed up into (name; 'ankra backup vaults list'); needed when the organisation has more than one verified vault")
 	setupCommand.Flags().Bool("review-only", false, "Prepare and show the review, but do not confirm it")
 	setupCommand.Flags().BoolP("yes", "y", false, "Confirm the reviewed plan without asking")
 	_ = setupCommand.MarkFlagRequired("package")
@@ -552,6 +604,9 @@ func runServicesSetup(command *cobra.Command, arguments []string) error {
 			reviewRequest.SourceMoment = sourceMoment.Format(time.RFC3339Nano)
 		}
 	}
+	backupVault, _ := command.Flags().GetString("backup-vault")
+	backupVault = strings.TrimSpace(backupVault)
+	reviewRequest.BackupVault = backupVault
 	review, prepareError := apiClient.PrepareServiceReview(ctx, reviewRequest)
 	if prepareError != nil {
 		return prepareError
@@ -559,6 +614,11 @@ func runServicesSetup(command *cobra.Command, arguments []string) error {
 	if source != nil {
 		if sourceError := checkServiceReviewSource(*review, *source, sourceMoment); sourceError != nil {
 			return sourceError
+		}
+	}
+	if backupVault != "" {
+		if vaultError := checkServiceReviewBackupVault(*review, backupVault); vaultError != nil {
+			return vaultError
 		}
 	}
 

@@ -137,6 +137,13 @@ type fakeServicesPlatform struct {
 	sourcePlanInstanceID string
 	sourcePlanMoment     *string
 	reviewHasSource      bool
+	// A prepare that names a backup vault answers a plan that names it, and
+	// one that names a source and no vault answers the vault that holds the
+	// source's backups (fakeServiceArchiveVault). vaultIgnored answers the
+	// plan of a platform from before a setup could name its vault, and
+	// planVaultName replaces the vault the plan names.
+	vaultIgnored  bool
+	planVaultName string
 	// connectConflict makes connecting an application answer the platform's
 	// 409 for a service that changed since it was read.
 	connectConflict bool
@@ -145,6 +152,34 @@ type fakeServicesPlatform struct {
 // fakeServiceSourceStatement is the sentence a plan carries for a service
 // created from another service's backups.
 const fakeServiceSourceStatement = "This service is created from the archive of the service orders-db. The service orders-db is not changed."
+
+// fakeServiceArchiveVault is the vault that holds the fake source's backups.
+const fakeServiceArchiveVault = "archive-backups"
+
+// planBackupVault is the backup vault of a prepared plan, as the platform
+// resolves it: the vault the request named, or the one that holds the
+// source's backups, each with its statement. Nil when the plan names none.
+func (platform *fakeServicesPlatform) planBackupVault(prepared client.ServiceReviewRequest) map[string]any {
+	if platform.vaultIgnored {
+		return nil
+	}
+	name := prepared.BackupVault
+	hasSource := prepared.SourceInstanceID != "" && !platform.sourceIgnored
+	if name == "" && hasSource {
+		name = fakeServiceArchiveVault
+	}
+	if name == "" {
+		return nil
+	}
+	if platform.planVaultName != "" {
+		name = platform.planVaultName
+	}
+	statement := "This service is backed up into the backup vault " + name + "."
+	if hasSource {
+		statement = "This service is backed up into the backup vault " + name + ", which holds the archive of the service orders-db."
+	}
+	return map[string]any{"name": name, "statement": statement}
+}
 
 // planSource is the source of a plan prepared with one, as the platform
 // resolves it: the instance and its name, the moment when one was named, and
@@ -396,6 +431,9 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 			plan["consumers"] = []any{}
 			plan["source"] = platform.planSource(prepared)
 		}
+		if vault := platform.planBackupVault(prepared); vault != nil {
+			review["plan"].(map[string]any)["backup_vault"] = vault
+		}
 		fakeServiceJSON(t, writer, http.StatusOK, review)
 	case request.Method == http.MethodGet && path == admission+"/reviews/"+fakeServiceReviewID:
 		summary := map[string]any{"id": fakeServiceReviewID, "package_version_id": fakeServicePackageID,
@@ -409,6 +447,9 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 			summary["destinations"] = []any{}
 			summary["source"] = map[string]any{"instance_id": fakeServiceInstanceID, "instance_name": "orders-db",
 				"moment": "2026-11-18T09:30:00Z", "statement": fakeServiceSourceStatement}
+			summary["backup_vault"] = map[string]any{"name": fakeServiceArchiveVault,
+				"statement": "This service is backed up into the backup vault " + fakeServiceArchiveVault +
+					", which holds the archive of the service orders-db."}
 		}
 		fakeServiceJSON(t, writer, http.StatusOK, summary)
 	case request.Method == http.MethodPost && path == admission+"/reviews/"+fakeServiceReviewID+"/confirm":

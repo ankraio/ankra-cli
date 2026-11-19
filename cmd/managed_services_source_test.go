@@ -220,6 +220,87 @@ func TestServicesSetupFromAcceptsThePlansSpellingOfTheMoment(t *testing.T) {
 	}
 }
 
+// --backup-vault sends the vault's name, and the plan shows the vault and the
+// sentence the platform asks the person to approve.
+func TestServicesSetupNamesTheBackupVault(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	stdout, _, runError := runServicesCommand(t, platform, "",
+		"setup", "orders-db", "--package", "postgresql", "--cluster", fakeServiceClusterID, "--consumer", fakeServiceConsumerID,
+		"--backup-vault", " production-backups ", "--yes")
+	if runError != nil {
+		t.Fatalf("setup --backup-vault: %v", runError)
+	}
+	if prepared := preparedServiceReview(t, platform); prepared["backup_vault"] != "production-backups" {
+		t.Errorf("prepare backup_vault = %v, want the name without the spaces around it", prepared["backup_vault"])
+	}
+	for _, expected := range []string{"Backup vault:   production-backups",
+		"This service is backed up into the backup vault production-backups."} {
+		if !strings.Contains(stdout, expected) {
+			t.Errorf("setup --backup-vault output lacks %q:\n%s", expected, stdout)
+		}
+	}
+	if confirms := platform.requests(http.MethodPost, "/reviews/"+fakeServiceReviewID+"/confirm"); len(confirms) != 1 {
+		t.Fatalf("expected one confirm, got %d", len(confirms))
+	}
+}
+
+// A service created from another one names no vault of its own: the plan
+// carries the vault that holds the other service's backups, and says so.
+func TestServicesSetupFromShowsTheVaultThatHoldsTheBackups(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	stdout, _, runError := runServicesCommand(t, platform, "",
+		"setup", "orders-db-copy", "--package", "postgresql", "--cluster", fakeServiceClusterID, "--from", "orders-db", "--yes")
+	if runError != nil {
+		t.Fatalf("setup --from: %v", runError)
+	}
+	if _, sent := preparedServiceReview(t, platform)["backup_vault"]; sent {
+		t.Errorf("no vault was named, yet backup_vault was sent")
+	}
+	for _, expected := range []string{"Backup vault:   " + fakeServiceArchiveVault, "which holds the archive of the service orders-db"} {
+		if !strings.Contains(stdout, expected) {
+			t.Errorf("setup --from output lacks %q:\n%s", expected, stdout)
+		}
+	}
+}
+
+// A plan that does not name the vault --backup-vault asked for is never
+// confirmed, and never offered for a later confirm: a platform from before a
+// setup could name its vault ignores the request field.
+func TestServicesSetupNeverConfirmsAPlanForAnotherBackupVault(t *testing.T) {
+	cases := []struct {
+		name      string
+		configure func(*fakeServicesPlatform)
+		arguments []string
+		message   string
+	}{
+		{"the platform ignores the vault", func(platform *fakeServicesPlatform) { platform.vaultIgnored = true },
+			nil, "cannot name a setup's backup vault yet"},
+		{"the platform ignores the vault, review only", func(platform *fakeServicesPlatform) { platform.vaultIgnored = true },
+			[]string{"--review-only"}, "cannot name a setup's backup vault yet"},
+		{"the plan names another vault", func(platform *fakeServicesPlatform) { platform.planVaultName = "staging-backups" },
+			nil, "into the backup vault staging-backups, not into production-backups"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			platform := newFakeServicesPlatform(t)
+			testCase.configure(platform)
+			arguments := append([]string{"setup", "orders-db", "--package", "postgresql", "--cluster", fakeServiceClusterID,
+				"--consumer", fakeServiceConsumerID, "--backup-vault", "production-backups", "--yes"}, testCase.arguments...)
+			stdout, stderr, runError := runServicesCommand(t, platform, "", arguments...)
+			if runError == nil || exitCodeFor(runError) != exitBlocked || !strings.Contains(runError.Error(), testCase.message) ||
+				!strings.Contains(runError.Error(), "nothing was set up") {
+				t.Fatalf("expected a blocked setup mentioning %q, got %v (exit %d)", testCase.message, runError, exitCodeFor(runError))
+			}
+			if confirms := platform.requests(http.MethodPost, "/confirm"); len(confirms) != 0 {
+				t.Fatalf("a plan for another backup vault was confirmed: %+v", confirms)
+			}
+			if strings.Contains(stdout+stderr, "ankra services reviews confirm") {
+				t.Errorf("a plan for another backup vault must not be offered for a later confirm:\n%s%s", stdout, stderr)
+			}
+		})
+	}
+}
+
 // A stored review created from another service says so when it is read and
 // when it is confirmed later, and its receipt names the connect command.
 func TestServicesReviewsShowTheSource(t *testing.T) {
@@ -230,7 +311,7 @@ func TestServicesReviewsShowTheSource(t *testing.T) {
 		t.Fatal(runError)
 	}
 	for _, expected := range []string{"Created from:   service orders-db (" + fakeServiceInstanceID + "), as of 2026-11-18T09:30:00Z",
-		fakeServiceSourceStatement, "Destinations:   none"} {
+		fakeServiceSourceStatement, "Backup vault:   " + fakeServiceArchiveVault, "Destinations:   none"} {
 		if !strings.Contains(stdout, expected) {
 			t.Errorf("reviews get lacks %q:\n%s", expected, stdout)
 		}
