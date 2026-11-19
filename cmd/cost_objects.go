@@ -70,6 +70,14 @@ estimated"); behind several clusters each count is one cluster's worst, so it
 is said per cluster. A platform that does not report the split says nothing
 about it, which is not "all measured".
 
+An application also prints its cost by environment when the platform serves
+it: each environment's monthly rate and the rows it is made of (workloads,
+database instances, storage, backups). A rate that is partial or unknown says
+why. A row that is part of the rate but has no amount of its own is "not
+known": its amount is in the part on no row, which gets its own line. Backups
+are "not priced": they are shown beside the rate and not added to it. Rows,
+environments and spend the platform cut short each say so.
+
 Pass -o json (or yaml) for the projection exactly as the platform serves it.`
 
 var costObjectCmd = &cobra.Command{
@@ -358,6 +366,7 @@ func renderObjectCost(out io.Writer, projection *client.ObjectCostProjection) {
 	renderObjectCostTrend(out, projection.Trend30d, currency)
 	renderObjectCostClusters(out, projection)
 	renderObjectCostNamespaces(out, projection)
+	renderObjectCostByEnvironment(out, projection)
 }
 
 // costObjectWaste is the open waste line: a count and its priced monthly
