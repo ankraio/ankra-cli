@@ -428,6 +428,26 @@ func (m baseMock) ResetApplicationAIConfig(requestContext context.Context, appli
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetApplicationOverviewLayout(requestContext context.Context, applicationID string) (*client.ApplicationOverviewLayout, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListApplicationOverviewLayoutVersions(requestContext context.Context, applicationID string, cursor string, limit int) (*client.ApplicationOverviewLayoutVersions, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SaveApplicationOverviewLayoutVersion(requestContext context.Context, applicationID string, content string, baseRevisionID *string) (*client.ApplicationOverviewLayout, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PutBackApplicationOverviewLayoutVersion(requestContext context.Context, applicationID string, revisionID string, baseRevisionID *string) (*client.ApplicationOverviewLayout, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UseAnkraApplicationOverviewLayout(requestContext context.Context, applicationID string, baseRevisionID *string) (*client.ApplicationOverviewLayout, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) PublishApplicationAddon(requestContext context.Context, applicationID string, publishRequest client.PublishApplicationAddonRequest) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
