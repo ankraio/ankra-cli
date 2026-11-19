@@ -14,6 +14,7 @@
 ### Fixed
 
 - **`ankra cluster stacks restore-points delete` ends its sentence once.** When the objects of a deleted restore point stay in the bucket, the line that says why no longer ends the platform's reason with two full stops.
+- **`ankra migrate export` and `ankra migrate up` work with MariaDB 11 images.** The official `mariadb:11` image ships only `mariadb` and `mariadb-dump`, not `mysql` and `mysqldump`, so the export stopped at its first step with `mysql: not found`. The export now uses `mariadb` and `mariadb-dump` when the database container has them, and `mysql` and `mysqldump` otherwise. The dump still carries stored procedures, functions, triggers and events.
 - **The bundled skills name `ankra cluster connect`.** `ankra-getting-started`, `ankra-cli` and `ankra-import-cluster` sent an assistant to an ImportCluster file to connect a cluster that already runs, even when there was nothing to declare on it. They now give `ankra cluster connect <name>` for that case, with the exit code a taken name gets, and keep the file for when stacks, add-ons or a GitOps repository go in with it. `ankra skills install` installs the updated skills.
 
 ## v0.79.0 - 2026-11-18

@@ -199,7 +199,7 @@ func TestExportDumpsEveryDatabaseServer(t *testing.T) {
 	if len(mysql.Artifacts) != 1 || mysql.Artifacts[0].Database != "shop" || mysql.Artifacts[0].Path != "mysql/shop.sql" {
 		t.Errorf("system schemas must be skipped, got %+v", mysql.Artifacts)
 	}
-	if got := callsContaining(fake.calls, "mysqldump"); len(got) != 1 || !strings.Contains(got[0], `value="$MARIADB_ROOT_PASSWORD"`) || !strings.Contains(got[0], `MYSQL_PWD="$value" exec mysqldump`) || !strings.HasSuffix(got[0], "--databases shop") {
+	if got := callsContaining(fake.calls, "mysqldump"); len(got) != 1 || !strings.Contains(got[0], `value="$MARIADB_ROOT_PASSWORD"`) || !strings.Contains(got[0], `MYSQL_PWD="$value" exec "$(command -v mariadb-dump || echo mysqldump)"`) || !strings.HasSuffix(got[0], "--databases shop") {
 		t.Errorf("mysqldump call = %v", got)
 	}
 
