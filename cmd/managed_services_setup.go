@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
@@ -51,6 +52,10 @@ type serviceReviewPlanView struct {
 		Region          string  `json:"region"`
 		DataBoundary    string  `json:"data_boundary"`
 	} `json:"consumers"`
+	// Source is the service this one is created from. A plan for a service
+	// that starts empty carries none, and so does every plan of a platform
+	// from before services could be created from an archive.
+	Source *client.ServiceReviewSource `json:"source"`
 }
 
 func parseServiceReviewPlan(plan map[string]any) (serviceReviewPlanView, error) {
@@ -111,7 +116,12 @@ func printServiceReviewPlan(out io.Writer, names *serviceNames, packageLabel str
 			_, _ = fmt.Fprintf(out, "  Secret inputs:  %s (credential references; no values)\n",
 				strings.Join(serviceSortedKeys(plan.SecretReferences), ", "))
 		}
-		_, _ = fmt.Fprintln(out, "  Consumers:")
+		printServiceReviewSource(out, plan.Source)
+		if len(plan.Consumers) == 0 && plan.Source != nil {
+			_, _ = fmt.Fprintln(out, "  Consumers:      none ('ankra services connect' adds an application once the service runs)")
+		} else {
+			_, _ = fmt.Fprintln(out, "  Consumers:")
+		}
 		for _, consumer := range plan.Consumers {
 			binding := consumer.BindingKind
 			if binding == "" {
@@ -166,7 +176,12 @@ func printServiceReviewSummary(out io.Writer, names *serviceNames, review client
 	} else {
 		_, _ = fmt.Fprintf(out, "  Secret inputs:  %s\n", strings.Join(review.SecretInputs, ", "))
 	}
-	_, _ = fmt.Fprintln(out, "  Destinations:")
+	printServiceReviewSource(out, review.Source)
+	if len(review.Destinations) == 0 {
+		_, _ = fmt.Fprintln(out, "  Destinations:   none ('ankra services connect' adds an application once the service runs)")
+	} else {
+		_, _ = fmt.Fprintln(out, "  Destinations:")
+	}
 	for _, destination := range review.Destinations {
 		_, _ = fmt.Fprintf(out, "    application %s, cluster %s, namespace %s\n",
 			names.application(destination.ApplicationID), names.cluster(destination.ClusterID), destination.Namespace)
@@ -246,6 +261,89 @@ func checkServiceSetupAgainstContract(detail client.ServicePackageDetail, mode s
 	return nil
 }
 
+// serviceSourceEndOfArchive is how a restore without a moment is said: the
+// source's archive is replayed to its end.
+const serviceSourceEndOfArchive = "the end of its archive"
+
+// printServiceReviewSource says which service a reviewed setup is created
+// from and as of when, then the sentence the platform asks the person to
+// approve. It prints nothing for a setup that starts empty.
+func printServiceReviewSource(out io.Writer, source *client.ServiceReviewSource) {
+	if source == nil {
+		return
+	}
+	asOf := serviceSourceEndOfArchive
+	if source.Moment != nil && *source.Moment != "" {
+		asOf = *source.Moment
+	}
+	_, _ = fmt.Fprintf(out, "  Created from:   service %s (%s), as of %s\n", source.InstanceName, source.InstanceID, asOf)
+	if source.Statement != "" {
+		_, _ = fmt.Fprintf(out, "                  %s\n", source.Statement)
+	}
+}
+
+// parseServiceSourceMoment reads --at: nil when it was not given, the moment
+// in UTC otherwise. A moment without --from is a usage error, and so is a
+// value that is not RFC 3339 with its zone, because a time without a zone
+// would restore to a moment the person did not mean.
+func parseServiceSourceMoment(value string, hasSource bool) (*time.Time, error) {
+	if value == "" {
+		return nil, nil
+	}
+	if !hasSource {
+		return nil, withExitCode(exitUsage, errors.New("--at needs --from: it is the moment another service's backups are restored to"))
+	}
+	moment, parseError := time.Parse(time.RFC3339, value)
+	if parseError != nil {
+		return nil, withExitCode(exitUsage, fmt.Errorf("--at %q: expected a time in RFC 3339 with its zone, for example 2026-11-18T09:30:00Z", value))
+	}
+	moment = moment.UTC()
+	return &moment, nil
+}
+
+// checkServiceReviewSource refuses a review that would not create the
+// service from the source and moment --from and --at named. A platform from
+// before services could be created from an archive ignores those request
+// fields and answers a plan for an empty service; confirming that plan would
+// set up a service without the data the person asked for. A plan that cannot
+// be read is refused too: it is not known to name the source.
+func checkServiceReviewSource(review client.ServiceReview, source client.ServiceInstance, moment *time.Time) error {
+	nothing := fmt.Sprintf("nothing was set up, and review %s expires by itself in ten minutes", review.ID)
+	plan, parseError := parseServiceReviewPlan(review.Plan)
+	if parseError != nil {
+		return withExitCode(exitBlocked, fmt.Errorf("the platform's plan could not be read (%v), so it is not known to create the service "+
+			"from %s - %s", parseError, source.Name, nothing))
+	}
+	if plan.Source == nil {
+		return withExitCode(exitBlocked, fmt.Errorf("the platform's plan does not create the service from %s: this platform cannot create "+
+			"a service from another service's backups yet, and confirming the plan would set up an empty service - %s", source.Name, nothing))
+	}
+	if plan.Source.InstanceID != source.ID {
+		return withExitCode(exitBlocked, fmt.Errorf("the platform's plan creates the service from %s, not from %s (%s) - %s",
+			plan.Source.InstanceID, source.Name, source.ID, nothing))
+	}
+	planned := serviceSourceEndOfArchive
+	var plannedMoment *time.Time
+	if plan.Source.Moment != nil && *plan.Source.Moment != "" {
+		planned = *plan.Source.Moment
+		parsed, momentError := time.Parse(time.RFC3339, *plan.Source.Moment)
+		if momentError != nil {
+			return withExitCode(exitBlocked, fmt.Errorf("the platform's plan restores %s as of %q, which does not read as a time - %s",
+				source.Name, planned, nothing))
+		}
+		plannedMoment = &parsed
+	}
+	asked := serviceSourceEndOfArchive
+	if moment != nil {
+		asked = moment.Format(time.RFC3339Nano)
+	}
+	if (moment == nil) != (plannedMoment == nil) || (moment != nil && !moment.Equal(*plannedMoment)) {
+		return withExitCode(exitBlocked, fmt.Errorf("the platform's plan restores %s as of %s, not as of %s - %s",
+			source.Name, planned, asked, nothing))
+	}
+	return nil
+}
+
 func newServicesSetupCommand() *cobra.Command {
 	setupCommand := &cobra.Command{
 		Use:     "setup <name>",
@@ -271,16 +369,30 @@ ankra*, cert-manager, ...); the platform refuses any other name when the
 review is prepared, before anything is stored.
 
 Every setup needs at least one consumer (--consumer, from 'ankra services
-consumers bind'). The region and data boundary default to the cluster's
-placement policy. Parameters (--param) default to the package's defaults;
-'ankra services packages get <package>' lists them with their bounds.
+consumers bind'), except a service created from another one with --from. The
+region and data boundary default to the cluster's placement policy. Parameters
+(--param) default to the package's defaults; 'ankra services packages get
+<package>' lists them with their bounds.
+
+--from creates a PostgreSQL service from the backups of another PostgreSQL
+service of the organisation, named by its name or id. The new service starts
+with the other's data as of --at (a time in RFC 3339, for example
+2026-11-18T09:30:00Z), or as of the newest point its backups reach when --at
+is left out. The moment must be inside the window Ankra can confirm from the
+other service's backups: the platform refuses any other moment, and a window
+it could not read. The other service is not changed and may be retired or on
+a cluster that no longer exists, as long as its backups are still kept. The
+review names the source and the moment before anything is set up. The new
+service starts with no applications: connect them with 'ankra services
+connect' once it runs. --consumer is refused with --from.
 
 Confirming starts the deployment; it is not proof that the service is ready.
 Follow it with 'ankra services get <name>'.`,
 		Example: `  ankra services setup orders-db --package postgresql --cluster prod --consumer 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f
   ankra services setup orders-db --package postgresql@1.0.0 --consumer <id> --param storage_gib=20 --param instances=3
   ankra services setup orders-db --package postgresql --consumer <id> --review-only
-  ankra services setup orders-db --package postgresql --consumer <id> --yes -o json`,
+  ankra services setup orders-db --package postgresql --consumer <id> --yes -o json
+  ankra services setup orders-db-copy --package postgresql --cluster prod --from orders-db --at 2026-11-18T09:30:00Z`,
 		Args: cobra.ExactArgs(1),
 		RunE: runServicesSetup,
 	}
@@ -292,6 +404,8 @@ Follow it with 'ankra services get <name>'.`,
 	setupCommand.Flags().String("data-boundary", "", "Data boundary (default: the cluster's placement policy)")
 	setupCommand.Flags().StringArray("param", nil, "Package parameter as name=value (repeatable)")
 	setupCommand.Flags().StringArray("secret-reference", nil, "Secret input as name=<credential grant id> (repeatable); values are never accepted")
+	setupCommand.Flags().String("from", "", "Create the service from the backups of this PostgreSQL service (name or id)")
+	setupCommand.Flags().String("at", "", "With --from: the moment to restore to, in RFC 3339 (default: the newest point the other service's backups reach)")
 	setupCommand.Flags().Bool("review-only", false, "Prepare and show the review, but do not confirm it")
 	setupCommand.Flags().BoolP("yes", "y", false, "Confirm the reviewed plan without asking")
 	_ = setupCommand.MarkFlagRequired("package")
@@ -324,7 +438,21 @@ func runServicesSetup(command *cobra.Command, arguments []string) error {
 			consumers = append(consumers, consumerID)
 		}
 	}
-	if len(consumers) == 0 {
+	sourceReference, _ := command.Flags().GetString("from")
+	sourceReference = strings.TrimSpace(sourceReference)
+	momentText, _ := command.Flags().GetString("at")
+	sourceMoment, momentError := parseServiceSourceMoment(strings.TrimSpace(momentText), sourceReference != "")
+	if momentError != nil {
+		return momentError
+	}
+	switch {
+	case sourceReference != "" && len(consumers) != 0:
+		return withExitCode(exitUsage, errors.New("--consumer cannot be used with --from: a service created from another service's "+
+			"backups starts with no applications; connect them with 'ankra services connect' once it runs"))
+	case sourceReference != "" && mode != "customer":
+		return withExitCode(exitUsage, errors.New("--from needs --mode customer: only a service that runs on your cluster can be "+
+			"created from another service's backups"))
+	case sourceReference == "" && len(consumers) == 0:
 		return withExitCode(exitUsage, errors.New("at least one --consumer is required: bind the application namespace that will use "+
 			"the service with 'ankra services consumers bind' and pass the id it prints"))
 	}
@@ -364,6 +492,16 @@ func runServicesSetup(command *cobra.Command, arguments []string) error {
 	if contractError := checkServiceSetupAgainstContract(*detail, mode, parameters, secretReferences); contractError != nil {
 		return contractError
 	}
+	// The source is looked up across the organisation, not on --cluster: that
+	// flag names where the new service runs, and the source may run elsewhere.
+	var source *client.ServiceInstance
+	if sourceReference != "" {
+		resolved, sourceError := resolveServiceInstanceOn(ctx, sourceReference, "", "pass the service id to --from instead")
+		if sourceError != nil {
+			return fmt.Errorf("--from: %w", sourceError)
+		}
+		source = resolved
+	}
 
 	clusterFlag, _ := command.Flags().GetString("cluster")
 	clusterID, clusterName, clusterError := resolveClusterForCmd(strings.TrimSpace(clusterFlag))
@@ -397,7 +535,7 @@ func runServicesSetup(command *cobra.Command, arguments []string) error {
 		region, dataBoundary = servicesUndeclaredLocation, servicesUndeclaredLocation
 	}
 
-	review, prepareError := apiClient.PrepareServiceReview(ctx, client.ServiceReviewRequest{
+	reviewRequest := client.ServiceReviewRequest{
 		PackageVersionID: versionID,
 		Name:             serviceName,
 		Mode:             mode,
@@ -407,9 +545,21 @@ func runServicesSetup(command *cobra.Command, arguments []string) error {
 		ConsumerIDs:      consumers,
 		Parameters:       parameters,
 		SecretReferences: secretReferences,
-	})
+	}
+	if source != nil {
+		reviewRequest.SourceInstanceID = source.ID
+		if sourceMoment != nil {
+			reviewRequest.SourceMoment = sourceMoment.Format(time.RFC3339Nano)
+		}
+	}
+	review, prepareError := apiClient.PrepareServiceReview(ctx, reviewRequest)
 	if prepareError != nil {
 		return prepareError
+	}
+	if source != nil {
+		if sourceError := checkServiceReviewSource(*review, *source, sourceMoment); sourceError != nil {
+			return sourceError
+		}
 	}
 
 	names := newServiceNames(command)
@@ -441,7 +591,7 @@ func runServicesSetup(command *cobra.Command, arguments []string) error {
 	if rendered, renderError := renderStructured(command, confirmed); rendered || renderError != nil {
 		return renderError
 	}
-	printServiceSetupReceipt(command.OutOrStdout(), serviceName, clusterName, *confirmed)
+	printServiceSetupReceipt(command.OutOrStdout(), serviceName, clusterName, *confirmed, source == nil)
 	return nil
 }
 
@@ -458,7 +608,11 @@ func serviceReviewConfirmError(confirmError error, serviceName string) error {
 	return confirmError
 }
 
-func printServiceSetupReceipt(out io.Writer, serviceName string, clusterName string, confirmed client.ServiceReview) {
+// printServiceSetupReceipt says the setup was confirmed and how to follow it.
+// hasApplications is false for a service created from another service's
+// backups, which starts with none: the receipt then names the command that
+// connects one where it would otherwise describe the delivery.
+func printServiceSetupReceipt(out io.Writer, serviceName string, clusterName string, confirmed client.ServiceReview, hasApplications bool) {
 	_, _ = fmt.Fprintf(out, "\nService %q is being set up on cluster %s.\n", serviceName, clusterName)
 	if confirmed.ExecutionID != nil {
 		_, _ = fmt.Fprintf(out, "  Execution:  %s\n", *confirmed.ExecutionID)
@@ -468,6 +622,12 @@ func printServiceSetupReceipt(out io.Writer, serviceName string, clusterName str
 	}
 	_, _ = fmt.Fprintf(out, "Confirming starts the deployment; it does not mean the service is ready. Follow its health and readiness with:\n"+
 		"  ankra services get %s --cluster %s\n", serviceName, clusterName)
+	if !hasApplications {
+		_, _ = fmt.Fprintf(out, "It starts with no applications. Once it is running, bind an application's namespace with "+
+			"'ankra services consumers bind' and connect it with:\n  ankra services connect %s --cluster %s --consumer <consumer-id>\n",
+			serviceName, clusterName)
+		return
+	}
 	_, _ = fmt.Fprintf(out, "Once it is running, Ankra delivers the connection to each application on cluster %s without a redeploy "+
 		"while none of its running pods reads it; otherwise it is left to the application's next deploy. "+
 		"'ankra services get %s --cluster %s' shows each application's pickup.\n", clusterName, serviceName, clusterName)
@@ -633,7 +793,7 @@ review that already expired needs a new 'ankra services setup'.`,
 			if rendered, renderError := renderStructured(command, confirmed); rendered || renderError != nil {
 				return renderError
 			}
-			printServiceSetupReceipt(command.OutOrStdout(), review.Name, clusterLabel, *confirmed)
+			printServiceSetupReceipt(command.OutOrStdout(), review.Name, clusterLabel, *confirmed, len(review.Destinations) > 0)
 			return nil
 		},
 	}

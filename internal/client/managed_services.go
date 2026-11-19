@@ -269,8 +269,10 @@ type ServiceConsumer struct {
 }
 
 // ServiceReviewRequest is what a setup review is prepared from. Every field
-// is required by the platform: Parameters and SecretReferences are sent as
-// empty objects, never null.
+// down to SecretReferences is required by the platform: Parameters and
+// SecretReferences are sent as empty objects, never null. The fields after
+// it are optional and left out of the request when empty, so a setup that
+// names none of them sends what it sent before they existed.
 type ServiceReviewRequest struct {
 	PackageVersionID string            `json:"package_version_id"`
 	Name             string            `json:"name"`
@@ -281,6 +283,20 @@ type ServiceReviewRequest struct {
 	ConsumerIDs      []string          `json:"consumer_ids"`
 	Parameters       map[string]int64  `json:"parameters"`
 	SecretReferences map[string]string `json:"secret_references"`
+	// SourceInstanceID creates the service from the archive of that
+	// PostgreSQL service instead of empty. SourceMoment, in RFC 3339,
+	// restores to that moment; without it the end of the archive.
+	SourceInstanceID string `json:"source_instance_id,omitempty"`
+	SourceMoment     string `json:"source_moment,omitempty"`
+	// BackupVault names the backup vault the service backs up into.
+	BackupVault string `json:"backup_vault,omitempty"`
+}
+
+// ServiceInstanceConsumerRequest connects one bound application environment
+// to a running service, at the generation of the service the caller read.
+type ServiceInstanceConsumerRequest struct {
+	ConsumerID         string `json:"consumer_id"`
+	ExpectedGeneration int64  `json:"expected_generation"`
 }
 
 // ServiceReview is a stored setup review: the server-resolved plan exactly
@@ -354,6 +370,19 @@ type ServiceReviewSummary struct {
 	ExpiresAt        string               `json:"expires_at" yaml:"expires_at"`
 	ExecutionID      *string              `json:"execution_id" yaml:"execution_id"`
 	ConfirmedAt      *string              `json:"confirmed_at" yaml:"confirmed_at"`
+	// Source is the service this one is created from. Absent for a service
+	// that starts empty, and on a platform that does not report it.
+	Source *ServiceReviewSource `json:"source,omitempty" yaml:"source,omitempty"`
+}
+
+// ServiceReviewSource is the service a reviewed setup is created from: which
+// one, as of which moment in RFC 3339 (nil for the end of its archive), and
+// the sentence the platform asks the person to approve.
+type ServiceReviewSource struct {
+	InstanceID   string  `json:"instance_id" yaml:"instance_id"`
+	InstanceName string  `json:"instance_name" yaml:"instance_name"`
+	Moment       *string `json:"moment,omitempty" yaml:"moment,omitempty"`
+	Statement    string  `json:"statement" yaml:"statement"`
 }
 
 // ServiceReviewPage is one page of the caller's own reviews, newest first. A
@@ -995,6 +1024,25 @@ func (c *Client) GetServiceInstance(ctx context.Context, instanceID string) (*Se
 	var instance ServiceInstance
 	address := c.servicesURL("/api/v1/org/service-admission/instances/%s", nil, instanceID)
 	if requestError := c.sendJSONContext(ctx, http.MethodGet, address, nil, &instance); requestError != nil {
+		return nil, requestError
+	}
+	return &instance, nil
+}
+
+// ConnectServiceConsumer adds one bound application environment to the
+// consumers of a running service and answers the service as it reads
+// afterwards. The platform refuses (409) any other generation than the one
+// named, and a service that is installing, being retired or retired.
+func (c *Client) ConnectServiceConsumer(ctx context.Context, instanceID string, request ServiceInstanceConsumerRequest) (*ServiceInstance, error) {
+	if request.ConsumerID == "" {
+		return nil, errors.New("connecting an application to a service needs the consumer binding to connect")
+	}
+	if request.ExpectedGeneration < 1 {
+		return nil, errors.New("connecting an application to a service needs the service's current generation (1 or higher)")
+	}
+	var instance ServiceInstance
+	address := c.servicesURL("/api/v1/org/service-admission/instances/%s/consumers", nil, instanceID)
+	if requestError := c.sendJSONContext(ctx, http.MethodPost, address, request, &instance); requestError != nil {
 		return nil, requestError
 	}
 	return &instance, nil

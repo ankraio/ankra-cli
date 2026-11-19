@@ -54,7 +54,13 @@ disconnects the application. Every confirmation asks first; --yes skips the
 question for scripts. Retiring a service deletes its data, so delete also
 needs --acknowledge-data-loss. 'ankra services disconnect' takes one
 application off a service that keeps running for the others, and deletes
-nothing.
+nothing. 'ankra services connect' adds one more application to a service
+that already runs.
+
+A PostgreSQL service can be created from the backups of another one: 'ankra
+services setup <name> --from <service>' starts the new service with the
+other's data, as of --at or as of the newest point its backups reach, and
+leaves the other unchanged.
 
 An application namespace on the service's own cluster receives the connection
 once the service is running: a <service>-connection Secret in its namespace,
@@ -75,6 +81,7 @@ Credential values are never shown; they stay in the cluster.`,
   ankra services setup orders-db --package postgresql --cluster prod --consumer 0b7c4d19-...
   ankra services list
   ankra services get orders-db
+  ankra services connect orders-db --consumer 0b7c4d19-...
   ankra services disconnect orders-db --application storefront
   ankra services delete orders-db --acknowledge-data-loss`,
 	}
@@ -82,6 +89,7 @@ Credential values are never shown; they stay in the cluster.`,
 	servicesCommand.AddCommand(newServicesGetCommand())
 	servicesCommand.AddCommand(newServicesSetupCommand())
 	servicesCommand.AddCommand(newServicesDeleteCommand())
+	servicesCommand.AddCommand(newServicesConnectCommand())
 	servicesCommand.AddCommand(newServicesDisconnectCommand())
 	servicesCommand.AddCommand(newServicesPackagesCommand())
 	servicesCommand.AddCommand(newServicesPolicyCommand())
@@ -176,11 +184,6 @@ func isServiceNotFound(lookupError error) bool {
 // record (deployment state released), so an active service wins over
 // released ones of the same name.
 func resolveServiceInstance(command *cobra.Command, reference string) (*client.ServiceInstance, error) {
-	reference = strings.TrimSpace(reference)
-	if reference == "" {
-		return nil, withExitCode(exitUsage, errors.New("a service name or id is required"))
-	}
-	ctx := command.Context()
 	clusterID := ""
 	if clusterReference, _ := command.Flags().GetString("cluster"); strings.TrimSpace(clusterReference) != "" {
 		resolvedID, resolveError := resolveClusterID(strings.TrimSpace(clusterReference))
@@ -188,6 +191,18 @@ func resolveServiceInstance(command *cobra.Command, reference string) (*client.S
 			return nil, resolveError
 		}
 		clusterID = resolvedID
+	}
+	return resolveServiceInstanceOn(command.Context(), reference, clusterID, "pass --cluster or the service id instead")
+}
+
+// resolveServiceInstanceOn finds a service by id or by name, on the cluster
+// clusterID names or, when it is empty, anywhere in the organisation.
+// ambiguousHint is what a name several services share is told to do instead,
+// since only some callers have a --cluster that narrows the search.
+func resolveServiceInstanceOn(ctx context.Context, reference string, clusterID string, ambiguousHint string) (*client.ServiceInstance, error) {
+	reference = strings.TrimSpace(reference)
+	if reference == "" {
+		return nil, withExitCode(exitUsage, errors.New("a service name or id is required"))
 	}
 	// An id-shaped reference is read as an id first. Service names may look
 	// like ids too (lower-case words joined by hyphens), so a not-found falls
@@ -245,8 +260,8 @@ func resolveServiceInstance(command *cobra.Command, reference string) (*client.S
 			candidates = append(candidates, fmt.Sprintf("%s on cluster %s", instance.ID, instance.ClusterID))
 		}
 		return nil, withExitCode(exitUsage, fmt.Errorf(
-			"%d services are named %q - pass --cluster or the service id instead (%s)",
-			len(matches), reference, strings.Join(candidates, "; ")))
+			"%d services are named %q - %s (%s)",
+			len(matches), reference, ambiguousHint, strings.Join(candidates, "; ")))
 	}
 }
 

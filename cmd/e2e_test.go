@@ -6193,6 +6193,10 @@ func (m baseMock) GetServiceInstance(context.Context, string) (*client.ServiceIn
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ConnectServiceConsumer(context.Context, string, client.ServiceInstanceConsumerRequest) (*client.ServiceInstance, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) PrepareServiceRetirement(context.Context, string, client.ServiceRetirementRequest) (*client.ServiceRetirement, error) {
 	return nil, errors.New("not implemented")
 }
