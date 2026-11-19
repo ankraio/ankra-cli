@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/manifoldco/promptui"
@@ -42,26 +43,11 @@ var maskedSecretPrompt = func(label string) (string, error) {
 // --*-stdin flag is set, and from a masked prompt otherwise. There is no flag
 // that carries the secret itself: an argument lands in shell history and in
 // the process list. Without a terminal to prompt on, the stdin flag is
-// required. Only the trailing newline a pipe or heredoc adds is dropped,
-// since a secret may legitimately carry other whitespace; a secret that is
-// nothing but whitespace, or larger than secretStdinLimit, is refused rather
-// than stored empty or cut short. The secret is never printed back.
+// required. The secret is never printed back.
 func readSecretFromStdinOrPrompt(command *cobra.Command, stdinFlagName string, label string) (string, error) {
 	fromStdin, _ := command.Flags().GetBool(stdinFlagName)
 	if fromStdin {
-		raw, readError := io.ReadAll(io.LimitReader(command.InOrStdin(), secretStdinLimit+1))
-		if readError != nil {
-			return "", fmt.Errorf("read the %s from stdin: %w", label, readError)
-		}
-		if len(raw) > secretStdinLimit {
-			return "", withExitCode(exitUsage, fmt.Errorf(
-				"the %s on stdin is larger than %d bytes, so it was not sent: it would have been cut short", label, secretStdinLimit))
-		}
-		secret := strings.TrimRight(string(raw), "\r\n")
-		if strings.TrimSpace(secret) == "" {
-			return "", withExitCode(exitUsage, fmt.Errorf("no %s was read from stdin", label))
-		}
-		return secret, nil
+		return readSecretFromStdin(command, stdinFlagName, label)
 	}
 	if !promptIsInteractive(command.InOrStdin()) {
 		return "", withExitCode(exitUsage, fmt.Errorf(
@@ -69,6 +55,52 @@ func readSecretFromStdinOrPrompt(command *cobra.Command, stdinFlagName string, l
 			label, stdinFlagName))
 	}
 	return maskedSecretPrompt(label)
+}
+
+// readSecretFromStdin reads the secret a --*-stdin flag pipes in, byte for
+// byte apart from the one trailing newline a pipe or heredoc adds (LF, or
+// CRLF): a secret may legitimately end in further newlines or carry other
+// whitespace, so nothing else is trimmed. A terminal on stdin is refused,
+// since what is typed there is echoed on screen; leaving the flag out gives
+// the masked prompt instead. A secret that is nothing but whitespace, is not
+// valid UTF-8 (a JSON body would replace the bad bytes and store a different
+// secret), or is larger than secretStdinLimit is refused rather than stored
+// empty, altered or cut short.
+func readSecretFromStdin(command *cobra.Command, stdinFlagName string, label string) (string, error) {
+	in := command.InOrStdin()
+	if promptIsInteractive(in) {
+		return "", withExitCode(exitUsage, fmt.Errorf(
+			"--%s reads the %s piped into the command, but stdin is a terminal, where it would show as you type it; "+
+				"leave --%s out to be asked for it with the input hidden",
+			stdinFlagName, label, stdinFlagName))
+	}
+	raw, readError := io.ReadAll(io.LimitReader(in, secretStdinLimit+1))
+	if readError != nil {
+		return "", fmt.Errorf("read the %s from stdin: %w", label, readError)
+	}
+	if len(raw) > secretStdinLimit {
+		return "", withExitCode(exitUsage, fmt.Errorf(
+			"the %s on stdin is larger than %d bytes, so it was not sent: it would have been cut short", label, secretStdinLimit))
+	}
+	secret := withoutOneTrailingNewline(string(raw))
+	if strings.TrimSpace(secret) == "" {
+		return "", withExitCode(exitUsage, fmt.Errorf("no %s was read from stdin", label))
+	}
+	if !utf8.ValidString(secret) {
+		return "", withExitCode(exitUsage, fmt.Errorf(
+			"the %s on stdin is not valid UTF-8, so it was not sent: it would have been stored altered", label))
+	}
+	return secret, nil
+}
+
+// withoutOneTrailingNewline drops a single trailing LF, with the CR before it
+// when the line ended in CRLF, and leaves every other byte as it is.
+func withoutOneTrailingNewline(text string) string {
+	withoutLineFeed, hadLineFeed := strings.CutSuffix(text, "\n")
+	if !hadLineFeed {
+		return text
+	}
+	return strings.TrimSuffix(withoutLineFeed, "\r")
 }
 
 // confirmOrganisationChange prints what a change does and asks for it to be
