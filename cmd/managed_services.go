@@ -178,12 +178,23 @@ func isServiceNotFound(lookupError error) bool {
 	return errors.As(lookupError, &unexpected) && unexpected.StatusCode == http.StatusNotFound
 }
 
+// errServiceReferenceRequired is the usage refusal of a command that names
+// no service.
+func errServiceReferenceRequired() error {
+	return withExitCode(exitUsage, errors.New("a service name or id is required"))
+}
+
 // resolveServiceInstance finds the service a command names, by id or by
 // name. A name is matched against the whole inventory; --cluster narrows it
 // when the same name runs on several clusters. A retired service keeps its
 // record (deployment state released), so an active service wins over
 // released ones of the same name.
 func resolveServiceInstance(command *cobra.Command, reference string) (*client.ServiceInstance, error) {
+	// A blank reference is refused before --cluster is read, so a command
+	// that names no service says so whatever else is wrong with it.
+	if strings.TrimSpace(reference) == "" {
+		return nil, errServiceReferenceRequired()
+	}
 	clusterID := ""
 	if clusterReference, _ := command.Flags().GetString("cluster"); strings.TrimSpace(clusterReference) != "" {
 		resolvedID, resolveError := resolveClusterID(strings.TrimSpace(clusterReference))
@@ -202,7 +213,7 @@ func resolveServiceInstance(command *cobra.Command, reference string) (*client.S
 func resolveServiceInstanceOn(ctx context.Context, reference string, clusterID string, ambiguousHint string) (*client.ServiceInstance, error) {
 	reference = strings.TrimSpace(reference)
 	if reference == "" {
-		return nil, withExitCode(exitUsage, errors.New("a service name or id is required"))
+		return nil, errServiceReferenceRequired()
 	}
 	// An id-shaped reference is read as an id first. Service names may look
 	// like ids too (lower-case words joined by hyphens), so a not-found falls

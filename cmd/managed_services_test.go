@@ -1773,6 +1773,23 @@ func TestResolveServiceInstanceRefusesAnAmbiguousName(t *testing.T) {
 	}
 }
 
+// A command that names no service says so before --cluster is read, so a
+// cluster that does not resolve never hides the missing name.
+func TestResolveServiceInstanceRefusesABlankReferenceBeforeReadingTheCluster(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	previousClient := apiClient
+	apiClient = platform.client()
+	t.Cleanup(func() { apiClient = previousClient })
+	command := newServicesGetCommand()
+	if flagError := command.Flags().Set("cluster", "no-such-cluster"); flagError != nil {
+		t.Fatal(flagError)
+	}
+	_, resolveError := resolveServiceInstance(command, "  ")
+	if resolveError == nil || exitCodeFor(resolveError) != exitUsage || !strings.Contains(resolveError.Error(), "a service name or id is required") {
+		t.Fatalf("expected the blank reference refused before the cluster is read, got %v", resolveError)
+	}
+}
+
 // twinInstancesClient answers the inventory with a fixed page.
 type twinInstancesClient struct {
 	*client.Client
