@@ -124,7 +124,10 @@ func renderObjectCostByEnvironment(out io.Writer, projection *client.ObjectCostP
 	}
 	if block.EnvironmentsTruncated {
 		_, _ = fmt.Fprintln(out)
-		_, _ = fmt.Fprintln(out, "More environments: the platform lists 50. The rest have no line here; their spend is listed below as not counted by any line.")
+		// The number is the count the platform sent, not its cap: the answer
+		// carries no cap, and a platform that changes it must not make this
+		// line say a number that is no longer true.
+		_, _ = fmt.Fprintf(out, "More environments: the platform found more than the %d it lists. The rest have no line here; their spend is listed below as not counted by any line.\n", len(block.Environments))
 	}
 	renderObjectCostUncounted(out, block, clusterNames)
 }

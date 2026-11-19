@@ -350,7 +350,7 @@ func TestCostObjectByEnvironmentSaysWhatWasCutShort(t *testing.T) {
 		"  More rows:       the platform found more rows than it lists. Those left out add up to €50.00 of the rate.\n",
 		"Environment on cluster "+costObjectStagingID+":\n",
 		"  Monthly rate:    not reported: this platform does not say what an environment's rate is made of.\n",
-		"More environments: the platform lists 50. The rest have no line here; their spend is listed below as not counted by any line.\n",
+		"More environments: the platform found more than the 2 it lists. The rest have no line here; their spend is listed below as not counted by any line.\n",
 		"Spend no environment line counts:\n",
 		"installation removed, not in the total", "3 days, 2026-09-01 to 2026-09-04",
 		"environment not listed, in the total", "1 day, 2026-09-03",
