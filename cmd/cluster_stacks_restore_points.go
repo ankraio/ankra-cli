@@ -661,7 +661,9 @@ undone, and the full id is always accepted.`,
 				*result.OperationID)
 			return nil
 		}
-		reason := result.ObjectsRetainedReason
+		// The platform's reason can be a whole sentence, and this line ends it
+		// with a full stop of its own.
+		reason := strings.TrimRight(strings.TrimSpace(result.ObjectsRetainedReason), ".")
 		if reason == "" {
 			reason = "no sweep could be dispatched"
 		}
