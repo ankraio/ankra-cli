@@ -192,6 +192,7 @@
     "ankra application previews follow",
     "ankra application promote",
     "ankra application protect",
+    "ankra application provenance checks",
     "ankra application provenance get",
     "ankra application provenance set",
     "ankra application provenance verify",
