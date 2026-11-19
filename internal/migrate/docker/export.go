@@ -492,9 +492,20 @@ func mysqlCredentials(server databaseServer) (username string, passwordKey strin
 		server.workload.Name)
 }
 
+// The MySQL-family tools are found by name inside the source container.
+// MariaDB 11 images ship only the mariadb-named binaries (no mysql or
+// mysqldump), MySQL images only the mysql-named ones, and older MariaDB
+// images both, so each program is the MariaDB name when the container has it
+// and the MySQL name otherwise. When neither exists the shell reports the
+// MySQL name as not found.
+const (
+	mysqlClientProgram = `"$(command -v mariadb || echo mysql)"`
+	mysqlDumpProgram   = `"$(command -v mariadb-dump || echo mysqldump)"`
+)
+
 func mysqlClient(job dumpJob, username string, passwordKey string) func(query string) []string {
 	return func(query string) []string {
-		return job.inContainer("MYSQL_PWD", passwordKey, "mysql", "-u"+username, "-N", "-e", query)
+		return job.inContainer("MYSQL_PWD", passwordKey, mysqlClientProgram, "-u"+username, "-N", "-e", query)
 	}
 }
 
@@ -554,9 +565,10 @@ func dumpMySQL(ctx context.Context, job dumpJob) (migrate.DatabaseExport, []stri
 	for _, database := range databases {
 		_, _ = fmt.Fprintf(job.progress, "%s: dumping database %s\n", workload, database)
 		// --databases makes the dump create and select its schema, so a
-		// restore is one `mysql < file` with nothing prepared by hand.
+		// restore is one `mariadb < file` (or `mysql < file`) with nothing
+		// prepared by hand.
 		dump, err := job.writeArtifact(ctx, sanitiseName(database)+".sql",
-			job.inContainer("MYSQL_PWD", passwordKey, "mysqldump", "-u"+username, "--single-transaction", "--routines", "--triggers", "--events", "--databases", database), nil)
+			job.inContainer("MYSQL_PWD", passwordKey, mysqlDumpProgram, "-u"+username, "--single-transaction", "--routines", "--triggers", "--events", "--databases", database), nil)
 		if err != nil {
 			return migrate.DatabaseExport{}, nil, err
 		}
