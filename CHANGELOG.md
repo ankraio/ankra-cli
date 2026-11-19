@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **Show and change an application's Overview layout from the CLI: `ankra application overview-layout show|versions|save|put-back|use-ankra`.** `show` says whether the Overview shows Ankra's own layout or a version the team saved, with who saved it and when and its cards in page order; `--content` prints the layout to edit. `save --file` saves a new version, `put-back` puts an earlier one back and `use-ankra` returns to Ankra's layout; each names the version it was made on with `--base`, and when the Overview changed since, nothing changes and the command says what it shows now.
+
 ### Fixed
 
 - **The bundled skills name `ankra cluster connect`.** `ankra-getting-started`, `ankra-cli` and `ankra-import-cluster` sent an assistant to an ImportCluster file to connect a cluster that already runs, even when there was nothing to declare on it. They now give `ankra cluster connect <name>` for that case, with the exit code a taken name gets, and keep the file for when stacks, add-ons or a GitOps repository go in with it. `ankra skills install` installs the updated skills.
