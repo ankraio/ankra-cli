@@ -1007,6 +1007,28 @@ func TestRestorePointsDeleteEndsARetainedObjectsSentenceOnce(t *testing.T) {
 	}
 }
 
+// Only the reason's own closing full stop is taken off: a reason that ends in
+// an ellipsis reads with its three dots, not with one.
+func TestRestorePointsDeleteKeepsAnEllipsisThatEndsTheRetainedObjectsReason(t *testing.T) {
+	mock := newBackupLaneMock()
+	mock.deleteResult = &client.DeleteRestorePointResult{
+		RestorePointID: backupTestRestorePointID, Status: client.RestorePointStatusDeleted,
+		ObjectsRetainedReason: "the vault is still being verified...",
+	}
+
+	output, executeError := runBackupCommand(t, mock, "",
+		[]*cobra.Command{clusterStacksRestorePointsDeleteCmd},
+		"cluster", "stacks", "restore-points", "delete", backupTestStack, backupTestRestorePointID,
+		"--cluster", "demo", "--yes")
+
+	if executeError != nil {
+		t.Fatalf("deleting a restore point: %v", executeError)
+	}
+	if !strings.Contains(output, "the vault is still being verified... Remove them yourself") {
+		t.Fatalf("the reason's ellipsis must be kept and the sentence ended once, got:\n%s", output)
+	}
+}
+
 func TestRestorePointsRestorePrintsTheSequenceAndSendsTheTypedConfirmation(t *testing.T) {
 	restorePoint := sampleRestorePoint()
 	mock := newBackupLaneMock()
