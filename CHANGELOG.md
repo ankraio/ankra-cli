@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## v0.83.0 - 2026-11-20
+
+Create a PostgreSQL service from another one's backups with
+`ankra services setup <name> --from <service>`, as of a moment you name with
+`--at` or the newest point its backups reach. Name the backup vault a service
+is backed up into with `--backup-vault`, which an organisation with more than
+one verified vault needs to get backups at all. Connect one more application to
+a service that already runs with `ankra services connect`. All three need the
+platform as it is from 20 November 2026. Every other command, flag, exit code
+and `-o json` key is unchanged; `ankra cluster stacks restore-points delete`
+prints one full stop where it printed two.
+
 ### Added
 
 - **Create a PostgreSQL service from another one's backups: `ankra services setup <name> --from <service>`.** The new service starts with the other service's data as of `--at`, a time in RFC 3339, or as of the newest point its backups reach when `--at` is left out. The other service is not changed, and it can be retired or on a cluster that no longer exists as long as its backups are kept. The review names the source and the moment before anything is set up, and the platform refuses a moment outside the window it can confirm from the backups. The new service starts with no applications, so `--consumer` is refused with `--from`. `ankra services reviews get` and `confirm` show the source of a stored review when the platform reports it. Against a platform that cannot do this yet, the command stops with exit 8 and sets nothing up, where confirming would have created an empty service. Needs a platform release that creates a service from another service's backups.
