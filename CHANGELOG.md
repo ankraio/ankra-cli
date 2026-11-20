@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## v0.82.0 - 2026-11-20
+
+Keep the searches saved for an application's Logs page from the terminal with
+`ankra application log-searches`: list them, save a new one, replace one or
+remove one. Clear one pipeline cache with `ankra pipeline caches clear`, so the
+next run that uses it fills it again. `ankra delete cluster` and
+`ankra cluster agent token --generate` now warn before they cut off a running
+agent, and `--generate` then asks first: a run with no terminal needs the new
+`--yes`, or it exits 2 with nothing generated. Every other command, flag, exit
+code and `-o json` key is unchanged; `--generate -o json` gains
+`previous_token_valid_until` when Ankra keeps the previous token valid for a
+while.
+
 ### Added
 
 - **`ankra application log-searches` lists, saves, replaces and removes the searches saved for an application's Logs.** These are the searches in the Logs page's "Saved searches" menu, shared with everyone who can read the application. `list` shows each search's name, what it looks for in words, who saved it and when; a search whose stored query the platform no longer accepts is listed and says so, and `-o json` and `-o yaml` print the platform's answer as it was sent. `save` and `replace` take the query as flags (`--text`, `--level`, `--copy`, `--filter`, `--last`, `--from`, `--to`) or as a whole document with `--file`, and a search is named by its name or its id. `remove` asks first. A refused name or query prints the platform's own sentence and exits 2; a search that is not there exits 3.
