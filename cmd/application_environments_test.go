@@ -22,7 +22,6 @@ const environmentsAutoDeployPayload = `{
 }`
 
 type applicationEnvironmentsMock struct {
-	baseMock
 	getPayload    json.RawMessage
 	updatePayload json.RawMessage
 	updateFail    error

@@ -10,7 +10,6 @@ import (
 )
 
 type notificationRoutesMock struct {
-	baseMock
 	routes          []client.NotificationRoute
 	createRequest   *client.CreateNotificationRouteRequest
 	updatedID       string
@@ -293,7 +292,7 @@ func TestAlertsRoutesCreateNotFoundDestinationUsesExitNotFound(t *testing.T) {
 	}
 }
 
-type notFoundDestinationRoutesMock struct{ baseMock }
+type notFoundDestinationRoutesMock struct{}
 
 func (m *notFoundDestinationRoutesMock) CreateNotificationRoute(request client.CreateNotificationRouteRequest) (*client.NotificationRoute, error) {
 	return nil, client.NewUnexpectedResponseError(404,
@@ -722,7 +721,7 @@ func routeTestProjects() []client.ProjectSummary {
 // runRouteProjectCommand runs an alerts command that may pass the global
 // --project, and resets the root's persistent flags around it so the
 // selection never leaks into the next case.
-func runRouteProjectCommand(t *testing.T, mock APIClient, args ...string) (string, error) {
+func runRouteProjectCommand(t *testing.T, mock any, args ...string) (string, error) {
 	t.Helper()
 	resetTreeFlags(t, rootCmd)
 	t.Cleanup(func() { resetTreeFlags(t, rootCmd) })

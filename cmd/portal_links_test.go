@@ -114,7 +114,6 @@ func TestPortalURLBuilders(t *testing.T) {
 
 // portalProjectMock is an invocation scoped to a project (--project).
 type portalProjectMock struct {
-	baseMock
 	projectID string
 }
 

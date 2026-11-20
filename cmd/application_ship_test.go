@@ -24,8 +24,6 @@ const (
 // scripted answer per poll (repeating the last), so a test walks the state
 // machine exactly the way the platform would answer it.
 type applicationShipMock struct {
-	baseMock
-
 	clusterOrganisationID string
 
 	listApplicationsPayloads [][]byte
@@ -330,15 +328,15 @@ func fastShipPolling(t *testing.T) {
 // runApplicationShipCommand executes ship against a temp checkout of
 // acme/shop with stdout and stderr captured separately, because ship's
 // contract splits them: progress on stderr, the result on stdout.
-func runApplicationShipCommand(t *testing.T, mockClient APIClient,
+func runApplicationShipCommand(t *testing.T, mockClient any,
 	arguments ...string) (string, string, error) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("ANKRA_ORG", "")
 	repositoryPath := createTestGitRepository(t, "main", "https://github.com/acme/shop.git")
 	previousClient := apiClient
-	apiClient = mockClient
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mockClient)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	applicationCommand := newApplicationCommand()
 	var output bytes.Buffer

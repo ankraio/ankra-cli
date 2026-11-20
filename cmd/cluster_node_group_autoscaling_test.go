@@ -15,8 +15,6 @@ import (
 )
 
 type autoscalingMock struct {
-	baseMock
-
 	clusterKind string
 	getResult   *client.NodeGroupAutoscalingResult
 	getError    error

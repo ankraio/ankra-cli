@@ -18,7 +18,6 @@ import (
 const auditLogTestClusterID = "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b"
 
 type auditLogsMock struct {
-	baseMock
 	trail          client.AuditLogTrail
 	exportBody     string
 	exportResult   client.AuditLogExportResult
@@ -59,7 +58,7 @@ func (mock *auditLogsMock) GetCluster(name string) (client.ClusterListItem, erro
 	return client.ClusterListItem{ID: auditLogTestClusterID, Name: "prod"}, nil
 }
 
-func runAuditLogsCommand(t *testing.T, mock APIClient, args ...string) (string, string, error) {
+func runAuditLogsCommand(t *testing.T, mock any, args ...string) (string, string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)

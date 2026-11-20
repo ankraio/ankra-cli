@@ -48,7 +48,7 @@ func TestClusterFlagParityChildProcess(t *testing.T) {
 		_, _ = os.Stderr.WriteString("parity child: " + decodeError.Error() + "\n")
 		os.Exit(99)
 	}
-	apiClient = nil
+	apiClient = adaptMockClient(nil)
 	os.Args = append([]string{"ankra"}, arguments...)
 	Execute()
 	os.Exit(0)

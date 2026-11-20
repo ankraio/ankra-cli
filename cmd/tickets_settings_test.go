@@ -13,7 +13,6 @@ import (
 const ticketSettingsCoreProjectID = "5b3c1a2e-0000-4000-8000-0000000000c1"
 
 type ticketProjectChannelsMock struct {
-	baseMock
 	list         []client.TicketProjectChannels
 	setProjectID string
 	setRequest   *client.SetTicketProjectChannelsRequest
@@ -56,7 +55,7 @@ func ticketsSettingsCommandTree() []*cobra.Command {
 	}
 }
 
-func runTicketsSettingsCommand(t *testing.T, mock APIClient, input string, args ...string) (string, error) {
+func runTicketsSettingsCommand(t *testing.T, mock any, input string, args ...string) (string, error) {
 	t.Helper()
 	resetTreeFlags(t, ticketsSettingsCommandTree()...)
 	return runConfirmCommand(t, mock, input, ticketsSettingsCommandTree(), args...)

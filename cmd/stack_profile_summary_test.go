@@ -14,7 +14,6 @@ import (
 const summaryTestID = "0b7c4d0c-1111-4111-8111-111111111111"
 
 type profileSummaryMock struct {
-	baseMock
 	calls      int
 	review     client.ProfileSummaryReviewRequest
 	edit       client.ProfileSummaryCandidateRequest

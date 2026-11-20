@@ -20,7 +20,6 @@ import (
 // name, and records the per-application calls that follow so a test can see
 // which id the command actually sent.
 type applicationLookupMock struct {
-	baseMock
 	listPayload  json.RawMessage
 	pagePayloads []json.RawMessage
 	// endless makes every page claim more pages are waiting, so the walk runs
@@ -113,7 +112,7 @@ func TestResolveApplicationIDPassesAUUIDStraightThrough(t *testing.T) {
 	mock := &applicationLookupMock{listError: errors.New("listing must not be called for a uuid")}
 	const applicationID = "0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
-	resolved, resolveError := resolveApplicationID(context.Background(), mock, applicationID)
+	resolved, resolveError := resolveApplicationID(context.Background(), adaptMockClient(mock), applicationID)
 
 	if resolveError != nil {
 		t.Fatalf("a uuid must resolve to itself: %v", resolveError)
@@ -132,7 +131,7 @@ func TestResolveApplicationIDResolvesAName(t *testing.T) {
 		[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"},
 	)}
 
-	resolved, resolveError := resolveApplicationID(context.Background(), mock, "commerce")
+	resolved, resolveError := resolveApplicationID(context.Background(), adaptMockClient(mock), "commerce")
 
 	if resolveError != nil {
 		t.Fatalf("resolving a name printed by `list`: %v", resolveError)
@@ -158,7 +157,7 @@ func TestResolveApplicationIDStopsAfterOnePageWhenThatIsTheWholeListing(t *testi
 		applicationListingPagePayload(1, [2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"}),
 	}}
 
-	if _, resolveError := resolveApplicationID(context.Background(), mock, "commerce"); resolveError != nil {
+	if _, resolveError := resolveApplicationID(context.Background(), adaptMockClient(mock), "commerce"); resolveError != nil {
 		t.Fatalf("resolving a name: %v", resolveError)
 	}
 	if len(mock.pagesAsked) != 1 {
@@ -183,7 +182,7 @@ func TestResolveApplicationIDPagesUntilItFindsTheExactMatch(t *testing.T) {
 		applicationListingPagePayload(2, [2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"}),
 	}}
 
-	resolved, resolveError := resolveApplicationID(context.Background(), mock, "commerce")
+	resolved, resolveError := resolveApplicationID(context.Background(), adaptMockClient(mock), "commerce")
 
 	if resolveError != nil {
 		t.Fatalf("an exact match on a later page must still resolve: %v", resolveError)
@@ -205,7 +204,7 @@ func TestResolveApplicationIDReportsAnAmbiguousNameFoundAcrossPages(t *testing.T
 		applicationListingPagePayload(2, [2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"}),
 	}}
 
-	_, resolveError := resolveApplicationID(context.Background(), mock, "commerce")
+	_, resolveError := resolveApplicationID(context.Background(), adaptMockClient(mock), "commerce")
 
 	if resolveError == nil {
 		t.Fatal("a name shared across pages must be reported as ambiguous")
@@ -222,7 +221,7 @@ func TestResolveApplicationIDPrefersTheExactNameOverACaseVariant(t *testing.T) {
 		[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"},
 	)}
 
-	resolved, resolveError := resolveApplicationID(context.Background(), mock, "commerce")
+	resolved, resolveError := resolveApplicationID(context.Background(), adaptMockClient(mock), "commerce")
 
 	if resolveError != nil {
 		t.Fatalf("an exact name match must win outright: %v", resolveError)
@@ -240,7 +239,7 @@ func TestResolveApplicationIDMatchesCaseInsensitivelyWhenNoExactMatchExists(t *t
 		[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "Commerce"},
 	)}
 
-	resolved, resolveError := resolveApplicationID(context.Background(), mock, "commerce")
+	resolved, resolveError := resolveApplicationID(context.Background(), adaptMockClient(mock), "commerce")
 
 	if resolveError != nil {
 		t.Fatalf("a unique case-insensitive match must resolve: %v", resolveError)
@@ -255,7 +254,7 @@ func TestResolveApplicationIDExplainsAnUnknownName(t *testing.T) {
 		[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"},
 	)}
 
-	_, resolveError := resolveApplicationID(context.Background(), mock, "commerc")
+	_, resolveError := resolveApplicationID(context.Background(), adaptMockClient(mock), "commerc")
 
 	if resolveError == nil {
 		t.Fatal("an unknown name must be reported, not passed to the API as a bogus uuid")
@@ -271,7 +270,7 @@ func TestResolveApplicationIDReportsAnAmbiguousName(t *testing.T) {
 		[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"},
 	)}
 
-	_, resolveError := resolveApplicationID(context.Background(), mock, "commerce")
+	_, resolveError := resolveApplicationID(context.Background(), adaptMockClient(mock), "commerce")
 
 	if resolveError == nil {
 		t.Fatal("an ambiguous name must be reported, not resolved to an arbitrary application")
@@ -291,7 +290,7 @@ func TestResolveApplicationIDReportsAFailedLookupRatherThanPassingTheNameOn(t *t
 	listingFailure := errors.New("listing unavailable")
 	mock := &applicationLookupMock{listError: listingFailure}
 
-	resolved, resolveError := resolveApplicationID(context.Background(), mock, "commerce")
+	resolved, resolveError := resolveApplicationID(context.Background(), adaptMockClient(mock), "commerce")
 
 	if resolveError == nil {
 		t.Fatalf("a failed lookup must be reported, not handed to the uuid-typed API as %q", resolved)
@@ -311,7 +310,7 @@ func TestResolveApplicationIDReportsAFailedLookupRatherThanPassingTheNameOn(t *t
 func TestResolveApplicationIDReportsAnUnreadableListing(t *testing.T) {
 	mock := &applicationLookupMock{listPayload: json.RawMessage(`"not-a-listing"`)}
 
-	resolved, resolveError := resolveApplicationID(context.Background(), mock, "commerce")
+	resolved, resolveError := resolveApplicationID(context.Background(), adaptMockClient(mock), "commerce")
 
 	if resolveError == nil {
 		t.Fatalf("an unreadable listing must be reported, not handed to the uuid-typed API as %q", resolved)
@@ -382,7 +381,7 @@ func TestResolveApplicationIDRefusesAnEmptyReference(t *testing.T) {
 			[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", ""},
 		)}
 
-		resolved, resolveError := resolveApplicationID(context.Background(), mock, reference)
+		resolved, resolveError := resolveApplicationID(context.Background(), adaptMockClient(mock), reference)
 
 		if resolveError == nil {
 			t.Fatalf("an empty reference (%q) must be refused, it resolved to %q", reference, resolved)
@@ -439,7 +438,7 @@ func TestResolveApplicationIDClassifiesAnUnknownNameAsNotFound(t *testing.T) {
 		[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"},
 	)}
 
-	_, resolveError := resolveApplicationID(context.Background(), mock, "commerc")
+	_, resolveError := resolveApplicationID(context.Background(), adaptMockClient(mock), "commerc")
 
 	if resolveError == nil {
 		t.Fatal("an unknown name must be reported")
@@ -455,7 +454,7 @@ func TestResolveApplicationIDClassifiesAnAmbiguousNameAsAUsageError(t *testing.T
 		[2]string{"0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "commerce"},
 	)}
 
-	_, resolveError := resolveApplicationID(context.Background(), mock, "commerce")
+	_, resolveError := resolveApplicationID(context.Background(), adaptMockClient(mock), "commerce")
 
 	if resolveError == nil {
 		t.Fatal("an ambiguous name must be reported")
@@ -507,7 +506,7 @@ func TestResolveApplicationIDRefusesToAnswerFromATruncatedListing(t *testing.T) 
 	// refuses to do.
 	mock := &applicationLookupMock{endless: true}
 
-	resolved, resolveError := resolveApplicationID(context.Background(), mock, "commerce")
+	resolved, resolveError := resolveApplicationID(context.Background(), adaptMockClient(mock), "commerce")
 
 	if resolveError == nil {
 		t.Fatalf("a truncated listing must not be answered from, it resolved to %q", resolved)

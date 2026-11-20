@@ -23,7 +23,6 @@ const canvasDocumentBody = `{"id":"` + testCanvasID + `","kind":"page","title":"
 	 "size_bytes":18,"author_kind":"user","created_at":"2026-11-09T10:00:00Z","content":"<h1>Q3 report</h1>"}}`
 
 type canvasLibraryMock struct {
-	baseMock
 	answer          string
 	failure         error
 	listOptions     *client.CanvasListOptions

@@ -62,9 +62,9 @@ func (platform *fakeSSHKeyPlatform) serve(t *testing.T) {
 		}
 	}))
 	previousClient := apiClient
-	apiClient = client.New("test-token", server.URL)
+	apiClient = adaptMockClient(client.New("test-token", server.URL))
 	t.Cleanup(func() {
-		apiClient = previousClient
+		apiClient = adaptMockClient(previousClient)
 		server.Close()
 	})
 }

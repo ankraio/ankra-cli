@@ -12,7 +12,6 @@ import (
 )
 
 type applicationRegistryMock struct {
-	baseMock
 	payload json.RawMessage
 	fail    error
 

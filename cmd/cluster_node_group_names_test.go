@@ -16,7 +16,6 @@ import (
 // nodeGroupNameGuardMock answers the cluster lookup every node-group command
 // starts with, so a name check that ran too late shows up as a lookup.
 type nodeGroupNameGuardMock struct {
-	baseMock
 	lookups int
 }
 

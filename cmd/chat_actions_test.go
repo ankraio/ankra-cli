@@ -14,8 +14,6 @@ import (
 )
 
 type chatActionMock struct {
-	baseMock
-
 	confirmRequests []client.ConfirmChatActionRequest
 	confirmResult   *client.ConfirmChatActionResult
 	confirmError    error

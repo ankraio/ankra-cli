@@ -10,7 +10,6 @@ import (
 )
 
 type debugPodMock struct {
-	baseMock
 	createRequest  *client.CreateDebugPodRequest
 	createResponse *client.DebugPodResponse
 	createError    error

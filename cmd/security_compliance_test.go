@@ -12,7 +12,6 @@ import (
 )
 
 type securityComplianceMock struct {
-	baseMock
 	overview          *client.SecurityComplianceOverview
 	frameworks        *client.SecurityComplianceFrameworkList
 	framework         *client.SecurityComplianceFramework

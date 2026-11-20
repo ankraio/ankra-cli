@@ -17,7 +17,6 @@ import (
 // chatSessionMock scripts the sessions lane: every created session gets the
 // next scripted tail, and every request is recorded for assertions.
 type chatSessionMock struct {
-	baseMock
 	mutex sync.Mutex
 
 	// The error queues are consumed one per call; a nil entry (or an empty

@@ -26,7 +26,7 @@ func savingsWithWaste(waste client.CloudSavingsWaste) *client.CloudSavings {
 func scanFlag(value bool) *bool { return &value }
 
 // runCostCommandKeepingStderr is runCostCommand with stderr returned too.
-func runCostCommandKeepingStderr(t *testing.T, mock APIClient, args ...string) (string, string, error) {
+func runCostCommandKeepingStderr(t *testing.T, mock any, args ...string) (string, string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)

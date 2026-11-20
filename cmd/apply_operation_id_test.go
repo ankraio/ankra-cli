@@ -105,7 +105,6 @@ func TestClusterApplySubmittedWithoutAnOperationKeepsTheWaitHint(t *testing.T) {
 // executionByIDMock serves one execution and fails the test if anything
 // tries to list a cluster's executions.
 type executionByIDMock struct {
-	baseMock
 	t *testing.T
 }
 

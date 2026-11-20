@@ -18,8 +18,6 @@ import (
 )
 
 type bastionResizeMock struct {
-	baseMock
-
 	resizeCalls []string
 	result      *client.UpdateBastionInstanceTypeResult
 	submitted   bool
@@ -119,8 +117,6 @@ func TestClusterBastionResizeCommandSurfacesError(t *testing.T) {
 }
 
 type bastionHealthMock struct {
-	baseMock
-
 	healthCalls   []string
 	health        *client.BastionHealthResult
 	healthError   error
@@ -345,8 +341,6 @@ func TestClusterBastionGroupIsMountedForEveryProvider(t *testing.T) {
 }
 
 type proxmoxBastionMock struct {
-	baseMock
-
 	healthCalls   []string
 	health        *client.BastionHealthResult
 	diagnoseCalls []string
@@ -401,8 +395,6 @@ func TestClusterBastionProxmoxUsesTheProxmoxCalls(t *testing.T) {
 }
 
 type scalewayBastionMock struct {
-	baseMock
-
 	healthCalls []string
 	health      *client.BastionHealthResult
 }
@@ -472,8 +464,6 @@ func TestClusterBastionStatusCommandStructuredOutputIsClean(t *testing.T) {
 // reached, so a mis-wired ops constructor cannot resize another provider's
 // bastion.
 type bastionResizeByProviderMock struct {
-	baseMock
-
 	calls []string
 }
 

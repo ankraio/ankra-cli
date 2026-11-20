@@ -10,7 +10,6 @@ import (
 )
 
 type stepsResultsMock struct {
-	baseMock
 	resultCalls    int
 	gotExecutionID string
 	resultError    error

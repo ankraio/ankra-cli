@@ -17,7 +17,6 @@ import (
 )
 
 type draftBootstrapMock struct {
-	baseMock
 	existingCluster *client.ClusterListItem
 
 	applyCalls      int

@@ -12,7 +12,6 @@ import (
 )
 
 type upcloudDeprovisionMock struct {
-	baseMock
 	called       bool
 	gotClusterID string
 }
@@ -24,7 +23,6 @@ func (m *upcloudDeprovisionMock) DeprovisionUpcloudCluster(clusterID string, _ c
 }
 
 type upcloudNodeGroupDeleteMock struct {
-	baseMock
 	called       bool
 	gotClusterID string
 	gotGroupName string
@@ -92,7 +90,6 @@ func TestUpcloudNodeGroupDelete_YesProceeds(t *testing.T) {
 }
 
 type upcloudCreateMock struct {
-	baseMock
 	gotRequest client.CreateUpcloudClusterRequest
 }
 
@@ -208,7 +205,6 @@ func TestUpcloudCreate_ZonePoolFlagsDefaultToNothing(t *testing.T) {
 }
 
 type upcloudZonePoolMock struct {
-	baseMock
 	gotClusterID string
 	gotZones     []string
 	gotWait      bool
@@ -236,7 +232,6 @@ func TestUpcloudZones_SendsTheDesiredPool(t *testing.T) {
 }
 
 type upcloudNodeGroupZoneMock struct {
-	baseMock
 	gotRequest client.AddNodeGroupRequest
 }
 

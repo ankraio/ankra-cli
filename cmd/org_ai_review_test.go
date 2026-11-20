@@ -16,8 +16,6 @@ import (
 // relatedReposMock records the related-repositories calls and the
 // installation each listing and write was addressed to.
 type relatedReposMock struct {
-	baseMock
-
 	credentials      []client.Credential
 	credentialsError error
 	related          []client.RelatedRepository

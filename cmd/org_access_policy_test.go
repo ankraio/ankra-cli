@@ -16,7 +16,6 @@ import (
 const testProposalID = "5d1c1a52-0000-4000-8000-000000000001"
 
 type accessPolicyProposalMock struct {
-	baseMock
 	mutex     sync.Mutex
 	policy    client.ClusterAccessPolicy
 	requests  []client.ProposeClusterAccessPolicyRequest

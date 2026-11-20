@@ -107,8 +107,8 @@ func (mock *pipelineTrainMock) MovePipelineMergeTrainToFront(_ context.Context, 
 func runPipelineTrainCommand(t *testing.T, mock *pipelineTrainMock, arguments ...string) (string, error) {
 	t.Helper()
 	previous := apiClient
-	apiClient = mock
-	t.Cleanup(func() { apiClient = previous })
+	apiClient = adaptMockClient(mock)
+	t.Cleanup(func() { apiClient = adaptMockClient(previous) })
 	command := newPipelineTrainCommand()
 	output := &bytes.Buffer{}
 	command.SetOut(output)

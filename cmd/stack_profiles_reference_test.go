@@ -17,7 +17,6 @@ import (
 
 // profileLookupMock answers the profile listing used to resolve a name.
 type profileLookupMock struct {
-	baseMock
 	profiles     []client.StackProfileSummary
 	listError    error
 	searched     string
@@ -46,7 +45,7 @@ func TestResolveStackProfileIDPassesAUUIDStraightThrough(t *testing.T) {
 	mock := &profileLookupMock{listError: errors.New("listing must not be called for a uuid")}
 	const profileID = "3435f700-7f47-475c-9f69-864dcba502bc"
 
-	resolved, resolveError := resolveStackProfileID(mock, profileID)
+	resolved, resolveError := resolveStackProfileID(adaptMockClient(mock), profileID)
 
 	if resolveError != nil {
 		t.Fatalf("a uuid must resolve to itself: %v", resolveError)
@@ -65,7 +64,7 @@ func TestResolveStackProfileIDResolvesAName(t *testing.T) {
 		{ID: "3435f700-7f47-475c-9f69-864dcba502bc", Name: "gpu-inference"},
 	}}
 
-	resolved, resolveError := resolveStackProfileID(mock, "gpu-inference")
+	resolved, resolveError := resolveStackProfileID(adaptMockClient(mock), "gpu-inference")
 
 	if resolveError != nil {
 		t.Fatalf("resolving a name printed by `list`: %v", resolveError)
@@ -85,7 +84,7 @@ func TestResolveStackProfileIDAsksForAPageSizeTheAPIAccepts(t *testing.T) {
 		{ID: "3cd57498-062c-4dd8-878a-cd0372e5fcf6", Name: "llm-d"},
 	}}
 
-	resolved, resolveError := resolveStackProfileID(mock, "llm-d")
+	resolved, resolveError := resolveStackProfileID(adaptMockClient(mock), "llm-d")
 
 	if resolveError != nil {
 		t.Fatalf("resolving a known name must not error: %v", resolveError)
@@ -108,7 +107,7 @@ func TestResolveStackProfileIDAsksForAPageSizeTheAPIAccepts(t *testing.T) {
 func TestResolveStackProfileIDExplainsAnUnknownName(t *testing.T) {
 	mock := &profileLookupMock{profiles: []client.StackProfileSummary{{ID: "id-1", Name: "gpu-inference"}}}
 
-	_, resolveError := resolveStackProfileID(mock, "gpu-inferenc")
+	_, resolveError := resolveStackProfileID(adaptMockClient(mock), "gpu-inferenc")
 
 	if resolveError == nil {
 		t.Fatal("an unknown name must be reported, not passed to the API as a bogus uuid")
@@ -124,7 +123,7 @@ func TestResolveStackProfileIDFallsBackWhenLookupIsUnavailable(t *testing.T) {
 	// unrelated endpoint was down.
 	mock := &profileLookupMock{listError: errors.New("listing unavailable")}
 
-	resolved, resolveError := resolveStackProfileID(mock, "profile-1")
+	resolved, resolveError := resolveStackProfileID(adaptMockClient(mock), "profile-1")
 
 	if resolveError != nil {
 		t.Fatalf("a failed lookup must not fail the command: %v", resolveError)

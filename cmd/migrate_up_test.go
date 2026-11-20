@@ -54,7 +54,7 @@ func (mock *migrateUpMock) ListPods(_ string, options *client.ListPodsOptions) (
 func installMigrateUpMock(t *testing.T, mock *migrateUpMock) {
 	t.Helper()
 	installMigrateRestoreMock(t, &mock.migrateRestoreMock)
-	apiClient = mock
+	apiClient = adaptMockClient(mock)
 	original := migrateUpPodPollInterval
 	migrateUpPodPollInterval = 0
 	t.Cleanup(func() { migrateUpPodPollInterval = original })

@@ -60,7 +60,7 @@ func (m *roleGrantRevokeMock) DeleteClusterAccessGrant(ctx context.Context, clus
 	return &client.DeleteClusterAccessGrantResponse{Deleted: true}, nil
 }
 
-func runAccessRevoke(t *testing.T, mock APIClient, target string) (string, error) {
+func runAccessRevoke(t *testing.T, mock any, target string) (string, error) {
 	t.Helper()
 	resetAccessFlags(t)
 	setMockClient(t, mock)

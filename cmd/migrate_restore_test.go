@@ -35,7 +35,6 @@ const migrateRestoreTestManifest = `{
 // migrateRestoreMock scripts the platform: it records the import lifecycle
 // calls and answers GET with a sequence of statuses.
 type migrateRestoreMock struct {
-	baseMock
 	vaults       []client.BackupVault
 	vaultIDs     []string
 	createdWith  *client.CreateBackupVaultImportRequest
@@ -208,12 +207,12 @@ func writeMigrateRestoreFixture(t *testing.T) string {
 func installMigrateRestoreMock(t *testing.T, mock *migrateRestoreMock) {
 	t.Helper()
 	previous := apiClient
-	apiClient = mock
+	apiClient = adaptMockClient(mock)
 	original := migrateRestorePollInterval
 	migrateRestorePollInterval = time.Millisecond
 	t.Setenv("ANKRA_API_TOKEN", "migrate-restore-test-token")
 	t.Cleanup(func() {
-		apiClient = previous
+		apiClient = adaptMockClient(previous)
 		migrateRestorePollInterval = original
 	})
 	resetMigrateRestoreFlags()

@@ -7,7 +7,6 @@ import (
 )
 
 type proxmoxCreateMock struct {
-	baseMock
 	called     bool
 	gotRequest client.CreateProxmoxClusterRequest
 }
@@ -19,7 +18,6 @@ func (m *proxmoxCreateMock) CreateProxmoxCluster(request client.CreateProxmoxClu
 }
 
 type proxmoxSizesMock struct {
-	baseMock
 	called bool
 }
 
@@ -32,7 +30,6 @@ func (m *proxmoxSizesMock) ListProxmoxSizes() ([]client.ProxmoxSize, error) {
 }
 
 type proxmoxHostsMock struct {
-	baseMock
 	called          bool
 	gotCredentialID string
 }

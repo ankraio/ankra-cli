@@ -18,8 +18,6 @@ import (
 // wallet. Each runs through rootCmd against a recording mock.
 
 type cliParityMock struct {
-	baseMock
-
 	alertRules       []client.AlertRule
 	listOptions      *client.ListAlertRulesOptions
 	createdBodies    []map[string]any
