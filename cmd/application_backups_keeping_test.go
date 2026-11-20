@@ -45,7 +45,10 @@ func renderApplicationBackupsWithKeeping(t *testing.T, keeping *client.Applicati
 	return stripANSICodes(output)
 }
 
-func requireLines(t *testing.T, output string, lines ...string) {
+// requireKeepingLines fails the test unless the backups output holds each of
+// lines as a whole line. Its name is the keeping tests' own, so no other
+// test file of the package can declare it too.
+func requireKeepingLines(t *testing.T, output string, lines ...string) {
 	t.Helper()
 	for _, line := range lines {
 		if !strings.Contains(output, line+"\n") {
@@ -57,7 +60,7 @@ func requireLines(t *testing.T, output string, lines ...string) {
 func TestApplicationBackupsSaysWhatTheBackupsKeep(t *testing.T) {
 	output := renderApplicationBackupsWithKeeping(t, knownApplicationBackupKeeping())
 
-	requireLines(t, output,
+	requireKeepingLines(t, output,
 		"    Since:       2026-03-04T02:17:00Z",
 		"    Kept for:    28 days (7 daily, 4 weekly)",
 		"    Kept now:    11 backups",
@@ -73,7 +76,7 @@ func TestApplicationBackupsSaysAPolicyThatKeepsEverything(t *testing.T) {
 
 	output := renderApplicationBackupsWithKeeping(t, keeping)
 
-	requireLines(t, output, "    Kept for:    everything (no backup is expired)")
+	requireKeepingLines(t, output, "    Kept for:    everything (no backup is expired)")
 }
 
 func TestApplicationBackupsSaysAPolicyShorterThanADay(t *testing.T) {
@@ -83,8 +86,35 @@ func TestApplicationBackupsSaysAPolicyShorterThanADay(t *testing.T) {
 
 	output := renderApplicationBackupsWithKeeping(t, keeping)
 
-	requireLines(t, output,
-		"    Kept for:    less than a day, or a number of backups rather than days (6 hourly)")
+	requireKeepingLines(t, output, "    Kept for:    less than a day (6 hourly)")
+}
+
+func TestApplicationBackupsSaysAPolicyThatKeepsANumberOfBackups(t *testing.T) {
+	keeping := knownApplicationBackupKeeping()
+	keeping.KeepsDays = nil
+	keeping.Policy = &client.BackupRetention{MinimumCount: 5}
+
+	output := renderApplicationBackupsWithKeeping(t, keeping)
+
+	requireKeepingLines(t, output, "    Kept for:    a number of backups rather than days (never below 5)")
+}
+
+// A policy that names nothing, beside keeps_everything false and no days,
+// says the platform did not say for how long: not "less than a day", and
+// not "the platform default".
+func TestApplicationBackupsSaysAPolicyThatNamesNoPeriod(t *testing.T) {
+	keeping := knownApplicationBackupKeeping()
+	keeping.KeepsDays = nil
+	keeping.Policy = &client.BackupRetention{}
+
+	output := renderApplicationBackupsWithKeeping(t, keeping)
+
+	requireKeepingLines(t, output, "    Kept for:    the platform did not say for how long")
+	for _, wrong := range []string{"less than a day", "rather than days", "the platform default"} {
+		if strings.Contains(output, wrong) {
+			t.Errorf("a policy that names no period was rendered with %q:\n%s", wrong, output)
+		}
+	}
 }
 
 func TestApplicationBackupsSaysAStackWithNoBackupPolicy(t *testing.T) {
@@ -95,7 +125,7 @@ func TestApplicationBackupsSaysAStackWithNoBackupPolicy(t *testing.T) {
 
 	output := renderApplicationBackupsWithKeeping(t, keeping)
 
-	requireLines(t, output, "    Kept for:    no backup policy, so nothing is kept on a schedule")
+	requireKeepingLines(t, output, "    Kept for:    no backup policy, so nothing is kept on a schedule")
 }
 
 // An unread block says so on every line. None of its null fields is printed
@@ -105,7 +135,7 @@ func TestApplicationBackupsNeverCallsAnUnreadKeepingBlockNone(t *testing.T) {
 		State: "unknown", ProtectedSinceState: "unknown", LastRestoreTestState: "unknown",
 	})
 
-	requireLines(t, output,
+	requireKeepingLines(t, output,
 		"    Since:       could not be read",
 		"    Kept for:    could not be read",
 		"    Kept now:    could not be read",
@@ -126,7 +156,7 @@ func TestApplicationBackupsSaysAStackThatKeepsNoBackupYet(t *testing.T) {
 
 	output := renderApplicationBackupsWithKeeping(t, keeping)
 
-	requireLines(t, output,
+	requireKeepingLines(t, output,
 		"    Since:       no backup has completed yet",
 		"    Kept now:    none",
 	)
@@ -143,10 +173,44 @@ func TestApplicationBackupsKeepsAnUntellableStartApartFromNever(t *testing.T) {
 
 	output := renderApplicationBackupsWithKeeping(t, keeping)
 
-	requireLines(t, output,
+	requireKeepingLines(t, output,
 		"    Since:       cannot be told (an older backup does not record which stack it was taken from)")
 	if strings.Contains(output, "no backup has completed yet") {
 		t.Errorf("an untellable start was rendered as never:\n%s", output)
+	}
+}
+
+// A protected_since_state this version of the CLI does not know, or none at
+// all, cannot be told, and gets no cause: the cause belongs to unknown.
+func TestApplicationBackupsGivesNoCauseForAStartStateItDoesNotKnow(t *testing.T) {
+	for _, state := range []string{"", "estimated"} {
+		keeping := knownApplicationBackupKeeping()
+		keeping.ProtectedSince = nil
+		keeping.ProtectedSinceState = state
+
+		output := renderApplicationBackupsWithKeeping(t, keeping)
+
+		requireKeepingLines(t, output, "    Since:       cannot be told")
+		if strings.Contains(output, "does not record which stack") {
+			t.Errorf("protected_since_state %q was given the cause of unknown:\n%s", state, output)
+		}
+	}
+}
+
+// A keeping state this version of the CLI does not know was read: it is not
+// "could not be read", and the line names the value.
+func TestApplicationBackupsNamesAKeepingStateItDoesNotKnow(t *testing.T) {
+	keeping := knownApplicationBackupKeeping()
+	keeping.State = "partial"
+
+	output := renderApplicationBackupsWithKeeping(t, keeping)
+
+	requireKeepingLines(t, output,
+		`    Keeping:     the platform answered a keeping state this version of the CLI does not know ("partial"); -o json shows it.`)
+	for _, wrong := range []string{"could not be read", "Since:", "Kept for:", "Kept now:"} {
+		if strings.Contains(output, wrong) {
+			t.Errorf("a keeping state the CLI does not know was rendered with %q:\n%s", wrong, output)
+		}
 	}
 }
 
@@ -157,8 +221,25 @@ func TestApplicationBackupsNamesBackupsThatDoNotRecordTheirStack(t *testing.T) {
 
 	output := renderApplicationBackupsWithKeeping(t, keeping)
 
-	requireLines(t, output,
+	requireKeepingLines(t, output,
 		"    Kept now:    1 backup, and 2 more with this stack's name that do not record which stack they came from")
+}
+
+// No backup of the stack's own beside some that carry its name says so in
+// one sentence, not "none, and 2 more".
+func TestApplicationBackupsSaysNoOwnBackupBesideOnesThatDoNotRecordTheirStack(t *testing.T) {
+	keeping := knownApplicationBackupKeeping()
+	keeping.KeptCount = applicationBackupCount(0)
+	keeping.OldestKeptAt = nil
+	keeping.UnattributedKeptCount = applicationBackupCount(2)
+
+	output := renderApplicationBackupsWithKeeping(t, keeping)
+
+	requireKeepingLines(t, output,
+		"    Kept now:    no backup recorded as this stack's own, and 2 with this stack's name that do not record which stack they came from")
+	if strings.Contains(output, "none, and") || strings.Contains(output, "2 more") {
+		t.Errorf("no own backup beside unattributed ones contradicts itself:\n%s", output)
+	}
 }
 
 // A deployment with no keeping block prints exactly what the section printed
@@ -171,7 +252,7 @@ func TestApplicationBackupsWithoutAKeepingBlockPrintsAsBefore(t *testing.T) {
 			t.Errorf("a deployment with no keeping block printed %q:\n%s", added, output)
 		}
 	}
-	requireLines(t, output,
+	requireKeepingLines(t, output,
 		"    Last backup: 2026-09-14T02:17:00Z",
 		"    Next backup: 2026-09-16T02:17:00Z",
 	)

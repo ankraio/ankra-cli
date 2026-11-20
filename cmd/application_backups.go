@@ -389,10 +389,18 @@ func printApplicationBackupKeeping(out io.Writer, keeping *client.ApplicationBac
 	if keeping == nil {
 		return
 	}
-	if keeping.State != "known" && keeping.State != "no_policy" {
+	switch keeping.State {
+	case "known", "no_policy":
+	case "unknown":
 		for _, label := range []string{"Since:", "Kept for:", "Kept now:"} {
 			_, _ = fmt.Fprintf(out, "    %-12s %s\n", label, keepingNotRead)
 		}
+		return
+	default:
+		// The block was read, so it is not "could not be read": its state is
+		// one this version of the CLI cannot word, and -o json prints it.
+		_, _ = fmt.Fprintf(out, "    %-12s the platform answered a keeping state this version of the CLI does not know (%q); -o json shows it.\n",
+			"Keeping:", keeping.State)
 		return
 	}
 	_, _ = fmt.Fprintf(out, "    Since:       %s\n", describeKeepingProtectedSince(keeping))
@@ -405,20 +413,27 @@ func printApplicationBackupKeeping(out io.Writer, keeping *client.ApplicationBac
 }
 
 // describeKeepingProtectedSince keeps "never backed up" apart from "cannot be
-// told": an older restore point that records no stack may be this one's.
+// told": an older restore point that records no stack may be this one's. A
+// state this version of the CLI does not know cannot be told either, and no
+// cause is given for it.
 func describeKeepingProtectedSince(keeping *client.ApplicationBackupKeeping) string {
 	switch keeping.ProtectedSinceState {
 	case "known":
 		return optionalTimestampText(keeping.ProtectedSince, keepingNotRead)
 	case "none":
 		return "no backup has completed yet"
-	default:
+	case "unknown":
 		return "cannot be told (an older backup does not record which stack it was taken from)"
+	default:
+		return "cannot be told"
 	}
 }
 
 // describeKeepingPeriod says how long the policy keeps backups, with the
-// policy itself when the platform sent it.
+// policy itself when the platform sent one that names anything. The
+// platform sends no days for a policy that keeps less than a day or a
+// number of backups only; the policy says which, and when it says neither
+// the line says the platform did not say.
 func describeKeepingPeriod(keeping *client.ApplicationBackupKeeping) string {
 	if keeping.State == "no_policy" {
 		return "no backup policy, so nothing is kept on a schedule"
@@ -426,15 +441,21 @@ func describeKeepingPeriod(keeping *client.ApplicationBackupKeeping) string {
 	if keeping.KeepsEverything {
 		return "everything (no backup is expired)"
 	}
-	period := "less than a day, or a number of backups rather than days"
-	if keeping.KeepsDays != nil {
+	policy := keeping.Policy
+	period := "the platform did not say for how long"
+	switch {
+	case keeping.KeepsDays != nil:
 		period = fmt.Sprintf("%d days", *keeping.KeepsDays)
 		if *keeping.KeepsDays == 1 {
 			period = "1 day"
 		}
+	case policy != nil && policy.Hourly > 0:
+		period = "less than a day"
+	case policy != nil && policy.MinimumCount > 0:
+		period = "a number of backups rather than days"
 	}
-	if keeping.Policy != nil {
-		period += " (" + describeRetention(*keeping.Policy) + ")"
+	if policy != nil && *policy != (client.BackupRetention{}) {
+		period += " (" + describeRetention(*policy) + ")"
 	}
 	return period
 }
@@ -445,18 +466,27 @@ func describeKeptCount(keeping *client.ApplicationBackupKeeping) string {
 	if keeping.KeptCount == nil {
 		return keepingNotRead
 	}
+	unattributed := 0
+	if keeping.UnattributedKeptCount != nil {
+		unattributed = *keeping.UnattributedKeptCount
+	}
 	var count string
-	switch kept := *keeping.KeptCount; kept {
-	case 0:
+	switch kept := *keeping.KeptCount; {
+	case kept == 0 && unattributed > 0:
+		// "none, and 2 more" would contradict itself: none is recorded as
+		// this stack's own, and the 2 may or may not be.
+		return fmt.Sprintf("no backup recorded as this stack's own, and %d with this stack's name that do not record which stack they came from",
+			unattributed)
+	case kept == 0:
 		count = "none"
-	case 1:
+	case kept == 1:
 		count = "1 backup"
 	default:
 		count = fmt.Sprintf("%d backups", kept)
 	}
-	if keeping.UnattributedKeptCount != nil && *keeping.UnattributedKeptCount > 0 {
+	if unattributed > 0 {
 		count += fmt.Sprintf(", and %d more with this stack's name that do not record which stack they came from",
-			*keeping.UnattributedKeptCount)
+			unattributed)
 	}
 	return count
 }
