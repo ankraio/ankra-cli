@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra application log-searches` lists, saves, replaces and removes the searches saved for an application's Logs.** These are the searches in the Logs page's "Saved searches" menu, shared with everyone who can read the application. `list` shows each search's name, what it looks for in words, who saved it and when; a search whose stored query the platform no longer accepts is listed and says so, and `-o json` and `-o yaml` print the platform's answer as it was sent. `save` and `replace` take the query as flags (`--text`, `--level`, `--copy`, `--filter`, `--last`, `--from`, `--to`) or as a whole document with `--file`, and a search is named by its name or its id. `remove` asks first. A refused name or query prints the platform's own sentence and exits 2; a search that is not there exits 3.
+
 ### Changed
 
 - **`ankra delete cluster` and `ankra cluster agent token --generate` warn before they cut off a running agent.** When the cluster's agent is connected, or checked in within the last 15 minutes, both say so on stderr. Deleting the cluster leaves that agent calling Ankra and being refused until it is uninstalled from the cluster, and a new token replaces the one it uses. `delete cluster` prints the warning above its usual prompt (`--force` still skips the prompt). `--generate` now asks first in that case: answer with the new `--yes`, which a run with no terminal needs, or it exits 2 with nothing generated. When Ankra keeps the previous token valid for a while, `--generate` says until when, and `-o json` carries it as `previous_token_valid_until`. When the agent cannot be read, both say that whether one would be cut off is not known. A cluster with no running agent behaves as before.
