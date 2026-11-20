@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra cost object application` shows the cost of each environment and what its rate is made of.** Under the namespaces, each environment now has its monthly rate and a row for each part of it: workloads, database instances, storage and backups. A rate that is partial or unknown says why in words. A row that is part of the rate but has no amount of its own says "not known", and what no row explains gets its own line. Backups say "not priced" and are not added to the rate. Rows, environments and spend the platform cut short each get a line. Every existing line, column, `-o json` key and exit code is unchanged, and a platform that does not send the block prints what it printed before.
+
 ## v0.80.0 - 2026-11-20
 
 Inspect every recorded preserved-file difference with `--all`, and refuse a

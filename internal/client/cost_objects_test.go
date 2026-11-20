@@ -185,3 +185,151 @@ func TestObjectCostDay_MeteringFieldsKeepAbsentApart(t *testing.T) {
 		t.Fatalf("yaml must carry the three sent pairs and leave the older day's out:\n%s", yamlEncoded)
 	}
 }
+
+// objectCostByEnvironmentDocument is a by_environment block with one
+// environment whose parts carry a counted row with no amount, a database
+// instance row with every field set, a storage row and a backups row.
+const objectCostByEnvironmentDocument = `{"state":"available","reason":null,"environments":[` +
+	`{"environment_id":"` + objectCostTestClusterID + `","named":false,"shared":false,"trend_30d":[],` +
+	`"parts":{"state":"partial","gaps":["split_rounded"],"monthly_cents":903,"rows":[` +
+	`{"kind":"workload","name":"web","detail":null,"cluster_id":"` + objectCostTestClusterID + `","namespace":"shop",` +
+	`"monthly_cents":null,"shared":false,"counted_in_rate":true,"role":null,"database":null,"engine":null,"image_version":null,` +
+	`"instances":null,"copies":2,"reserved_cpu_millicores":null,"reserved_memory_bytes":null,"copies_alike":true,` +
+	`"claim_count":null,"claim_bytes":null,"claim_size_known":null},` +
+	`{"kind":"database_instance","name":"orders-db, primary","detail":"1 instance.","cluster_id":"` + objectCostTestClusterID + `",` +
+	`"namespace":"shop","monthly_cents":400,"shared":false,"counted_in_rate":true,"role":"primary","database":"orders-db",` +
+	`"engine":"postgres","image_version":"16.4","instances":null,"copies":1,"reserved_cpu_millicores":250,` +
+	`"reserved_memory_bytes":536870912,"copies_alike":true,"claim_count":null,"claim_bytes":null,"claim_size_known":null},` +
+	`{"kind":"storage","name":"Storage","detail":null,"cluster_id":null,"namespace":null,"monthly_cents":null,"shared":false,` +
+	`"counted_in_rate":true,"role":null,"database":null,"engine":null,"image_version":null,"instances":null,"copies":null,` +
+	`"reserved_cpu_millicores":null,"reserved_memory_bytes":null,"copies_alike":null,"claim_count":0,"claim_bytes":0,` +
+	`"claim_size_known":false},` +
+	`{"kind":"backups","name":"Backups","detail":null,"cluster_id":null,"namespace":null,"monthly_cents":null,"shared":false,` +
+	`"counted_in_rate":false,"role":null,"database":null,"engine":null,"image_version":null,"instances":null,"copies":null,` +
+	`"reserved_cpu_millicores":null,"reserved_memory_bytes":null,"copies_alike":null,"claim_count":null,"claim_bytes":null,` +
+	`"claim_size_known":null}],` +
+	`"rows_truncated":false,"truncated_monthly_cents":0,"unattributed_monthly_cents":503}}],` +
+	`"environments_truncated":false,` +
+	`"uncounted":[{"reason":"installation_removed","environment_id":null,"named":false,"cluster_id":"` + objectCostTestClusterID + `",` +
+	`"namespace":"old","dates":["2026-11-01"]}],` +
+	`"uncounted_truncated":false,"uncounted_known_from":"2026-10-01"}`
+
+// TestGetObjectCost_DecodesAnApplicationsCostByEnvironment pins the
+// by_environment block read from the route: every level decodes, a null
+// amount stays nil (never 0), a zero stays a zero, and the response document
+// is kept whole for -o json.
+func TestGetObjectCost_DecodesAnApplicationsCostByEnvironment(t *testing.T) {
+	body := `{"kind":"application","object":{"id":"x","name":"checkout","cluster_id":null,"cluster_name":null},` +
+		`"currency":"eur","priced":true,"unpriced_reason":null,"monthly_cents":903,` +
+		`"open_waste":{"available":false,"reason":"not attributed","count":0,"monthly_cents":null,"unpriced_count":0},` +
+		`"snapshot_stale_after_hours":26,"by_environment":` + objectCostByEnvironmentDocument + `}`
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}
+	result, err := newTestClient(t, handler).GetObjectCost(ObjectCostKindApplication, "0b7c4d13-5f6a-4b8c-9d0e-1f2a3b4c5d6e")
+	if err != nil {
+		t.Fatalf("GetObjectCost: %v", err)
+	}
+	block := result.ByEnvironment.Value
+	if !result.ByEnvironment.Present || block == nil || block.State != ObjectCostStateAvailable || len(block.Environments) != 1 {
+		t.Fatalf("by_environment = %+v", result.ByEnvironment)
+	}
+	if block.UncountedKnownFrom == nil || *block.UncountedKnownFrom != "2026-10-01" || len(block.Uncounted) != 1 ||
+		block.Uncounted[0].EnvironmentID != nil || block.Uncounted[0].Reason != "installation_removed" {
+		t.Fatalf("uncounted = %+v (known from %v)", block.Uncounted, block.UncountedKnownFrom)
+	}
+	parts := block.Environments[0].Parts
+	if parts == nil || parts.State != ObjectCostStatePartial || !reflect.DeepEqual(parts.Gaps, []string{ObjectCostGapSplitRounded}) ||
+		parts.MonthlyCents == nil || *parts.MonthlyCents != 903 || parts.UnattributedMonthlyCents == nil ||
+		*parts.UnattributedMonthlyCents != 503 || parts.TruncatedMonthlyCents == nil || *parts.TruncatedMonthlyCents != 0 ||
+		len(parts.Rows) != 4 {
+		t.Fatalf("parts = %+v", parts)
+	}
+	web, database, storage, backups := parts.Rows[0], parts.Rows[1], parts.Rows[2], parts.Rows[3]
+	if web.MonthlyCents != nil || !web.IsCountedInRate() || web.Copies == nil || *web.Copies != 2 || web.ReservedCPUMillicores != nil {
+		t.Fatalf("a counted row with no amount must stay nil, never 0: %+v", web)
+	}
+	if database.MonthlyCents == nil || *database.MonthlyCents != 400 || database.Role == nil || *database.Role != "primary" ||
+		database.Engine == nil || *database.Engine != "postgres" || database.ImageVersion == nil || *database.ImageVersion != "16.4" ||
+		database.ReservedMemoryBytes == nil || *database.ReservedMemoryBytes != 536870912 || database.Detail == nil {
+		t.Fatalf("database row = %+v", database)
+	}
+	if storage.ClaimCount == nil || *storage.ClaimCount != 0 || storage.ClaimSizeKnown == nil || *storage.ClaimSizeKnown ||
+		storage.Namespace != nil || storage.ClusterID != nil {
+		t.Fatalf("storage row = %+v", storage)
+	}
+	if backups.IsCountedInRate() || backups.MonthlyCents != nil {
+		t.Fatalf("backups are beside the rate: %+v", backups)
+	}
+	var want, got map[string]any
+	_ = json.Unmarshal([]byte(body), &want)
+	if err := json.Unmarshal(result.RawJSON(), &got); err != nil || !reflect.DeepEqual(want, got) {
+		t.Fatalf("the response document must be kept whole: %s (%v)", result.RawJSON(), err)
+	}
+}
+
+// TestObjectCostProjection_ByEnvironmentKeepsAbsentApartFromNull pins the
+// block's three forms: absent (an older platform) stays absent, null (every
+// kind but an application) stays null, and an object round-trips field for
+// field, in JSON and in YAML.
+func TestObjectCostProjection_ByEnvironmentKeepsAbsentApartFromNull(t *testing.T) {
+	base := `{"kind":"application","object":{"id":"x","name":"x","cluster_id":null,"cluster_name":null},"currency":"eur",` +
+		`"priced":false,"unpriced_reason":null,"monthly_cents":null,"idle_pct":null,"share_of_fleet_pct":null,"confidence":null,` +
+		`"coverage_incomplete":null,"open_waste":{"available":false,"reason":null,"count":0,"monthly_cents":null,"unpriced_count":0},` +
+		`"trend_30d":[],"clusters":[],"namespaces":[],"snapshot_stale_after_hours":26`
+	for _, testCase := range []struct {
+		name        string
+		document    string
+		wantPresent bool
+		wantValue   bool
+		yamlKey     string
+	}{
+		{"absent", base + `}`, false, false, ""},
+		{"null", base + `,"by_environment":null}`, true, false, "by_environment: null"},
+		{"object", base + `,"by_environment":` + objectCostByEnvironmentDocument + `}`, true, true, "unattributed_monthly_cents: 503"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			var projection ObjectCostProjection
+			if err := json.Unmarshal([]byte(testCase.document), &projection); err != nil {
+				t.Fatalf("decoding: %v", err)
+			}
+			if projection.ByEnvironment.Present != testCase.wantPresent || (projection.ByEnvironment.Value != nil) != testCase.wantValue {
+				t.Fatalf("by_environment = %+v", projection.ByEnvironment)
+			}
+			encoded, err := json.Marshal(projection)
+			if err != nil {
+				t.Fatalf("encoding: %v", err)
+			}
+			var want, got map[string]any
+			_ = json.Unmarshal([]byte(testCase.document), &want)
+			_ = json.Unmarshal(encoded, &got)
+			if !reflect.DeepEqual(want, got) {
+				t.Fatalf("round trip changed the projection:\nwant %s\ngot  %s", testCase.document, encoded)
+			}
+			yamlEncoded, err := yaml.Marshal(projection)
+			if err != nil {
+				t.Fatalf("yaml: %v", err)
+			}
+			hasKey := strings.Contains(string(yamlEncoded), "by_environment:")
+			if hasKey != testCase.wantPresent || !strings.Contains(string(yamlEncoded), testCase.yamlKey) {
+				t.Fatalf("yaml must carry the key exactly when it was sent:\n%s", yamlEncoded)
+			}
+		})
+	}
+}
+
+// TestObjectCostRatePart_CountedInRateFromAnOlderShape pins IsCountedInRate
+// for a row that does not say: every kind but backups is in the rate.
+func TestObjectCostRatePart_CountedInRateFromAnOlderShape(t *testing.T) {
+	var rows []ObjectCostRatePart
+	if err := json.Unmarshal([]byte(`[{"kind":"workload","name":"web"},{"kind":"backups","name":"Backups"},`+
+		`{"kind":"workload","name":"api","counted_in_rate":null},{"kind":"backups","name":"Backups","counted_in_rate":true}]`), &rows); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	for index, want := range []bool{true, false, true, true} {
+		if rows[index].IsCountedInRate() != want {
+			t.Fatalf("row %d (%+v) counted = %v, want %v", index, rows[index], rows[index].IsCountedInRate(), want)
+		}
+	}
+}
