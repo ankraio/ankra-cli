@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra application log-searches` lists, saves, replaces and removes the searches saved for an application's Logs.** These are the searches in the Logs page's "Saved searches" menu, shared with everyone who can read the application. `list` shows each search's name, what it looks for in words, who saved it and when; a search whose stored query the platform no longer accepts is listed and says so, and `-o json` and `-o yaml` print the platform's answer as it was sent. `save` and `replace` take the query as flags (`--text`, `--level`, `--copy`, `--filter`, `--last`, `--from`, `--to`) or as a whole document with `--file`, and a search is named by its name or its id. `remove` asks first. A refused name or query prints the platform's own sentence and exits 2; a search that is not there exits 3.
+
 ## v0.81.0 - 2026-11-20
 
 See what each environment of an application costs, and what each rate is made
