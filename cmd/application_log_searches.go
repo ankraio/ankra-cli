@@ -583,20 +583,34 @@ func describeSavedLogSearchQuery(query client.SavedLogSearchQuery) string {
 		parts = append(parts, "text "+strconv.Quote(query.Text))
 	}
 	for _, filter := range query.Filters {
-		field := filter.Field
-		if field == savedLogSearchPodField {
+		field := savedLogSearchPlainWords(filter.Field)
+		if filter.Field == savedLogSearchPodField {
 			field = "copy"
 		}
 		verb := " is "
 		if filter.Not {
 			verb = " is not "
 		}
-		parts = append(parts, field+verb+filter.Value)
+		parts = append(parts, field+verb+savedLogSearchPlainWords(filter.Value))
 	}
 	if len(parts) == 0 {
 		parts = append(parts, "every line")
 	}
 	return strings.Join(append(parts, describeSavedLogSearchSpan(query.Span)), ", ")
+}
+
+// savedLogSearchPlainWords says a filter's field or value as it is when it is
+// one plain word, and quoted otherwise. The platform keeps a value whole, so
+// one that another member saved can hold a space, a comma, a line break or a
+// terminal control sequence. Quoted, it stays on its row of the table, reads
+// apart from the next part, and reaches the terminal as text.
+func savedLogSearchPlainWords(text string) string {
+	for _, character := range text {
+		if character == ' ' || character == ',' || character == '"' || !strconv.IsPrint(character) {
+			return strconv.Quote(text)
+		}
+	}
+	return text
 }
 
 // describeSavedLogSearchSpan says a time range in words.

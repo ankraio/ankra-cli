@@ -470,6 +470,24 @@ func TestApplicationLogSearchesRemoveOfANameNotSavedExitsNotFound(t *testing.T) 
 	}
 }
 
+func TestDescribeSavedLogSearchQueryQuotesAFilterThatIsNotOnePlainWord(t *testing.T) {
+	// The platform keeps a filter's value whole: a space, a comma, a line break and a terminal control sequence are
+	// all stored. Each is printed quoted, so it stays on its row and reaches the terminal as text.
+	query := client.SavedLogSearchQuery{Filters: []client.SavedLogSearchFilter{
+		{Field: "level", Value: "error"},
+		{Field: "message", Value: "payment failed"},
+		{Field: "route", Value: "a,b"},
+		{Field: "pod", Value: "shop\n\x1b[2Jgone", Not: true},
+		{Field: "request id", Value: "42"},
+	}}
+	want := `level is error, message is "payment failed", route is "a,b", copy is not "shop\n\x1b[2Jgone", ` +
+		`"request id" is 42, the time range on the page`
+
+	if got := describeSavedLogSearchQuery(query); got != want {
+		t.Errorf("describeSavedLogSearchQuery() = %q, want %q", got, want)
+	}
+}
+
 func TestDescribeSavedLogSearchSpanSaysTheRangeInWords(t *testing.T) {
 	cases := []struct {
 		span *client.SavedLogSearchSpan
