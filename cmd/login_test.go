@@ -316,7 +316,6 @@ func TestLoginSaveBlockPersistsSecureConfig(t *testing.T) {
 }
 
 type logoutRevokeMock struct {
-	baseMock
 	revokedTokenID string
 	revokeErr      error
 }

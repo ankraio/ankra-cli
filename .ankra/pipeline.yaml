@@ -1,28 +1,26 @@
 # ankraio/ankra-cli's checks on Ankra Pipelines, reported as the one
-# `Ankra pipeline` check. It runs what .github/workflows/lint-build.yml runs,
-# with the same tool versions:
+# `Ankra pipeline` check. It replaces the legacy lint-build workflow:
 #   lint     golangci-lint v2.12.2 over ./..., the standard linter set and
 #            .golangci.yml, staticcheck included
 #   test     go test -race with coverage over ./..., against the cluster
 #            repository's route census, then the coverage summary
 #   checks   make verify-skills, go build ./..., the install.sh test and
 #            govulncheck
-# The workflow stays until this pipeline has proven green on master; then it
-# is removed and branch protection requires `Ankra pipeline` instead.
+#   installer-shellcheck  mandatory POSIX installer lint
+#   installer-powershell  mandatory isolated PowerShell installer cases
+# Test JSON/coverage are retained as Ankra artifacts. Release, docs-sync and
+# lifecycle workflows have separate purposes and remain in place.
 #
-# Why this needs a large node: ankra/cmd is one package, and both lint (the
-# type-check behind `go list -export`) and the race+coverage test compile
-# build its test variant in a single compile process. Its test mocks embed a
-# stub of the whole API client interface, so the compiler generates a wrapper
-# per method per mock, and that compile peaks above 15 GB cold. A GitHub
-# hosted runner has 16 GB. Here lint and test each get 20Gi on a
-# `ci-class: large` node, and debug info is not generated (nothing here reads
-# it), which takes the peak to about 13 GB.
+# Keep the existing20Gi/large-node policy for this delivery. The single test
+# adapter removes the dominant promoted-wrapper growth; cold command tests and
+# full lint now pass in a4Gi main container. Any future native-CI right-sizing
+# needs its own measurements and protected-authority review.
 #
-# All steps of a run share the node its workspace is attached to, so lint and
-# test (20Gi each) run one after the other rather than side by side; checks
-# (4Gi) runs beside lint. test runs whether or not lint passed, so one run
-# reports both.
+# Each stage gets its own workspace, restored from its dependencies through
+# Ankra's artifact vault, so a small checkout cannot pin a later 20Gi stage
+# to a node with too little room. Lint and test still run one after the other;
+# checks (4Gi) runs beside lint. Each stage reports separately; test retains
+# its lint dependency. Memory requirements and large-node restrictions remain.
 #
 # runs_on, resources, timeout, cache and credentials are protected sections:
 # they apply only once an organisation administrator has approved master's
@@ -46,6 +44,9 @@ concurrency:
   group: "${{ event.kind == 'pull_request' ? format('ankra-cli-pr-{0}', ankra.sha) : format('ankra-cli-{0}', ankra.ref) }}"
   cancel_in_progress: true
 workspace:
+  # The CI pool advertises step workspaces and has them enabled. The ready
+  # artifact vault hands checkout files and stage outputs between workspaces.
+  mode: "per_step"
   # The module cache, one build cache per stage (the race build of ankra/cmd
   # is several GiB) and the downloaded Go toolchain.
   size: "40Gi"
@@ -68,7 +69,7 @@ defaults:
     GIT_CONFIG_KEY_0: "safe.directory"
     GIT_CONFIG_VALUE_0: "/workspace"
     # No DWARF: lint reads export data and race reports and coverage use the
-    # runtime's own line tables. It is the largest saving on the cmd compile.
+    # runtime's own line tables. Keep this existing saving alongside the adapter.
     GOFLAGS: "-buildvcs=false -gcflags=all=-dwarf=false"
     # Only a push to master writes the Go caches; every other run reads
     # master's and saves nothing.
@@ -128,7 +129,7 @@ stages:
           ;;
         *)
           if [ "$limit" -lt $((MINIMUM_MEMORY_GIB * 1024 * 1024 * 1024)) ]; then
-            echo "FAILED: compiling ankra/cmd's tests needs at least ${MINIMUM_MEMORY_GIB} GiB but this container has $((limit / 1024 / 1024)) MiB."
+            echo "FAILED: this pipeline requires at least ${MINIMUM_MEMORY_GIB} GiB but this container has $((limit / 1024 / 1024)) MiB."
             echo "This run's resources come from a pipeline definition that does not grant them: an administrator approves master's current one (ankra pipeline definitions approve <id>), then rerun."
             exit 1
           fi
@@ -181,11 +182,13 @@ stages:
       status=0
       echo "--- make verify-skills"
       make verify-skills || status=1
+      go run ./tools/genmockadapter -check || status=1
       echo "--- go build ./..."
       go build -o /dev/null ./... || status=1
       # install.sh is what `curl -fsSL https://ankra.ai/install | sh` runs;
       # this image's sh is dash, where a bashism would break it.
       echo "--- install.sh"
+      dash -n install.sh || status=1
       TMPDIR="$GOTMPDIR" TEST_INSTALL_REQUIRE_DASH=1 sh tools/test-install-sh.sh || status=1
       echo "--- govulncheck ./..."
       go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./... || status=1
@@ -199,6 +202,10 @@ stages:
     needs:
       - "checkout"
       - "lint"
+    # Lint is an ordering dependency; tests consume the checkout, not lint's
+    # downloaded modules or caches. Their own declared cache remains separate.
+    workspace_from:
+      - "checkout"
     if: "${{ !cancelled() && needs.checkout.result == 'success' }}"
     runs_on: *ci_large
     resources:
@@ -226,7 +233,7 @@ stages:
           ;;
         *)
           if [ "$limit" -lt $((MINIMUM_MEMORY_GIB * 1024 * 1024 * 1024)) ]; then
-            echo "FAILED: compiling ankra/cmd's tests needs at least ${MINIMUM_MEMORY_GIB} GiB but this container has $((limit / 1024 / 1024)) MiB."
+            echo "FAILED: this pipeline requires at least ${MINIMUM_MEMORY_GIB} GiB but this container has $((limit / 1024 / 1024)) MiB."
             echo "This run's resources come from a pipeline definition that does not grant them: an administrator approves master's current one (ankra pipeline definitions approve <id>), then rerun."
             exit 1
           fi
@@ -262,14 +269,50 @@ stages:
       fi
       # -timeout is go test's per-binary alarm for a hung test, not a budget
       # (the step has its own 40m). On this runner ankra/cmd takes 270-300s
-      # with -race and coverage (129s on lint-build.yml's GitHub runner), so
+      # with -race and coverage (129s on the former GitHub runner), so
       # 5m failed passing runs at random, once while the binary was already
       # exiting after every test passed (ankra-kdo0b7). 10m still stops a
       # hang well inside the step.
-      go test -race -count=1 -timeout=10m -coverprofile=/workspace/coverage.out ./...
-      go tool cover -func=/workspace/coverage.out
+      go build -o "$GOTMPDIR/testreport" ./tools/testreport
+      status=0
+      # pipefail preserves go test's failure through tee and the log filter.
+      # Keep per-test evidence even when a test fails; never turn it green.
+      bash -euo pipefail -c 'go test -race -count=1 -timeout=10m -coverprofile=/workspace/coverage.out -json ./... | tee /workspace/test-events.json | "$GOTMPDIR/testreport" -filter' || status=$?
+      if [ -s /workspace/test-events.json ]; then
+        "$GOTMPDIR/testreport" -summary -top 40 /workspace/test-events.json || status=1
+      fi
+      if [ "$status" -eq 0 ]; then
+        go tool cover -func=/workspace/coverage.out || status=1
+      fi
       if [ "$GO_CACHE_WRITER" = "true" ]; then
         find "$GOCACHE" -mindepth 2 -type f -mmin +90 -delete
       else
         rm -rf "$GOCACHE"
       fi
+      exit "$status"
+    artifacts:
+      - name: "test-evidence"
+        paths:
+          - "test-events.json"
+          - "coverage.out"
+
+  - name: "installer-shellcheck"
+    kind: "run"
+    needs: ["checkout"]
+    image: "koalaman/shellcheck-alpine:v0.11.0@sha256:9955be09ea7f0dbf7ae942ac1f2094355bb30d96fffba0ec09f5432207544002"
+    network: "none"
+    run: shellcheck -s sh install.sh tools/test-install-sh.sh
+
+  - name: "installer-powershell"
+    kind: "run"
+    needs: ["checkout"]
+    # Microsoft maintains PowerShell in its SDK images; the older standalone
+    # PowerShell container repository is deprecated. Pin the actual SDK bytes.
+    image: "mcr.microsoft.com/dotnet/sdk:10.0.404@sha256:bef136a371963aaa46ec97882845ef6f54dec15728bb4b128b1c2a400ffbc9b4"
+    network: "none"
+    env:
+      POWERSHELL_TELEMETRY_OPTOUT: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+    run: |
+      pwsh -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+      pwsh -NoLogo -NoProfile -File tools/test-install-ps1.ps1

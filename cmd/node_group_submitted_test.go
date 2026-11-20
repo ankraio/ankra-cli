@@ -19,7 +19,6 @@ import (
 // only trace.
 
 type nodeGroupSubmittedMock struct {
-	baseMock
 	resizeError error
 }
 

@@ -15,7 +15,6 @@ import (
 // under wait=true: once the change is recorded, before any node exists, and
 // with no operation id.
 type nodeGroupRecordedMock struct {
-	baseMock
 	previousCount int
 	submitted     bool
 }
@@ -39,7 +38,7 @@ func (m *nodeGroupRecordedMock) DeleteHetznerNodeGroup(_ context.Context, _, gro
 	return &client.DeleteNodeGroupResult{GroupName: groupName, Deleted: 2}, false, nil
 }
 
-func runNodeGroupWrite(t *testing.T, mock APIClient, args ...string) string {
+func runNodeGroupWrite(t *testing.T, mock any, args ...string) string {
 	t.Helper()
 	var runError error
 	stdout := captureStdout(t, func() {
@@ -174,7 +173,6 @@ func TestNodeGroupWriteWaitHelpSaysWhatItWaitsFor(t *testing.T) {
 // submittedNodeGroupMock answers every older per-provider node-group write
 // the way the platform answers wait=false: accepted, nothing more.
 type submittedNodeGroupMock struct {
-	baseMock
 }
 
 func (m *submittedNodeGroupMock) AddHetznerNodeGroup(context.Context, string, client.AddNodeGroupRequest, bool) (*client.AddNodeGroupResult, bool, error) {
@@ -255,7 +253,6 @@ func TestAutoscalingSetSubmittedSaysWaitFollowsTheOperation(t *testing.T) {
 // way the platform does: once the change is recorded, before any node is
 // resized, with the operation resizing them when it started one.
 type resizedNodeGroupMock struct {
-	baseMock
 	operationID *string
 	notice      string
 }

@@ -13,8 +13,6 @@ import (
 )
 
 type managedClusterMock struct {
-	baseMock
-
 	createProvider client.ManagedK8sProvider
 	createRequests []client.CreateManagedClusterRequest
 	createError    error

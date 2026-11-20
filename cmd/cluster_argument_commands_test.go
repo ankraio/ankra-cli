@@ -14,7 +14,6 @@ import (
 // clusterFlagCommandMock is a Hetzner cluster named "demo" (testClusterID)
 // among others, and records which cluster each command acted on.
 type clusterFlagCommandMock struct {
-	baseMock
 	kind       string
 	scaleError error
 	calls      []string
@@ -94,7 +93,7 @@ func clusterTreeCommands() []*cobra.Command {
 
 // runClusterFlagCommand runs one command line with testClusterID selected
 // (`ankra cluster select`) and nothing on stdin.
-func runClusterFlagCommand(t *testing.T, mock APIClient, args ...string) error {
+func runClusterFlagCommand(t *testing.T, mock any, args ...string) error {
 	t.Helper()
 	withTempHome(t)
 	writeSelectedClusterJSON(t)

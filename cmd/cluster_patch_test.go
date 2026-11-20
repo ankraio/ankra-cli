@@ -11,7 +11,6 @@ import (
 )
 
 type patchCommandMock struct {
-	baseMock
 	requests  []client.PatchResourceRequest
 	responses map[string]*client.ResourceMutationResponse
 }
@@ -28,7 +27,7 @@ func (m *patchCommandMock) PatchResource(clusterID string, request client.PatchR
 	return &client.ResourceMutationResponse{Status: "success"}, nil
 }
 
-func runPatch(t *testing.T, mock APIClient, input string, extraArgs ...string) (string, error) {
+func runPatch(t *testing.T, mock any, input string, extraArgs ...string) (string, error) {
 	t.Helper()
 	resetConfirmFlag(t, clusterPatchCmd, clusterCmd)
 	args := append([]string{"cluster", "patch"}, extraArgs...)

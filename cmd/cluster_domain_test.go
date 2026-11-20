@@ -16,8 +16,6 @@ const domainTestClusterID = "0b7c4d0a-0000-4000-8000-0000000000aa"
 // clusterDomainMock records which DNS-zone verb the command reached for, so
 // the tests can prove the plain lookup never mutates.
 type clusterDomainMock struct {
-	baseMock
-
 	readCalls    []string
 	enableCalls  []string
 	disableCalls []string
@@ -317,7 +315,7 @@ func (m *clusterDomainLookupMock) GetClusterByID(clusterID string) (client.Clust
 	return client.ClusterListItem{ID: clusterID, Name: "production"}, nil
 }
 
-func runClusterDomainWithSelection(t *testing.T, mock APIClient, arguments ...string) (string, error) {
+func runClusterDomainWithSelection(t *testing.T, mock any, arguments ...string) (string, error) {
 	t.Helper()
 	withTempHome(t)
 	writeSelectedClusterJSON(t)

@@ -13,7 +13,6 @@ import (
 )
 
 type securityMock struct {
-	baseMock
 	overview        *client.SecurityOverview
 	findings        *client.SecurityFindingList
 	findingsOptions *client.SecurityFindingsOptions
@@ -58,7 +57,7 @@ func securityCommandTree() []*cobra.Command {
 	}
 }
 
-func runSecurityCommand(t *testing.T, mock APIClient, args ...string) (string, error) {
+func runSecurityCommand(t *testing.T, mock any, args ...string) (string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)

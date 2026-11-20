@@ -16,7 +16,6 @@ import (
 )
 
 type registryRobotsMock struct {
-	baseMock
 	createRequest *client.CreateRegistryRobotRequest
 	// updateRequest is the projects change the command sent; updated answers it
 	// and updateFail refuses it instead.
@@ -217,7 +216,7 @@ func (mock *registryRobotsMock) DeleteRegistryRobot(_ context.Context, robotName
 	return mock.deleteFail
 }
 
-func runRegistryCommand(t *testing.T, mockClient APIClient, input string, arguments ...string) (string, error) {
+func runRegistryCommand(t *testing.T, mockClient any, input string, arguments ...string) (string, error) {
 	t.Helper()
 	stdout, stderr, runError := runRegistryCommandSplit(t, mockClient, input, arguments...)
 	return stdout + stderr, runError
@@ -225,11 +224,11 @@ func runRegistryCommand(t *testing.T, mockClient APIClient, input string, argume
 
 // runRegistryCommandSplit captures stdout and stderr separately, so a test
 // can prove that stdout carries nothing but the answer under -o json.
-func runRegistryCommandSplit(t *testing.T, mockClient APIClient, input string, arguments ...string) (string, string, error) {
+func runRegistryCommandSplit(t *testing.T, mockClient any, input string, arguments ...string) (string, string, error) {
 	t.Helper()
 	previousClient := apiClient
-	apiClient = mockClient
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mockClient)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	registryCommand := newRegistryCommand()
 	var stdout, stderr bytes.Buffer

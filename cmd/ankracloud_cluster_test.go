@@ -12,7 +12,6 @@ import (
 )
 
 type ankraCloudClusterMock struct {
-	baseMock
 	createRequests    []client.CreateAnkraCloudClusterRequest
 	preflightRequests []client.CreateAnkraCloudClusterRequest
 	preflightResult   client.AnkraCloudPreflightResult
@@ -121,7 +120,7 @@ var ankraCloudRequiredCreateArguments = []string{
 	"--zone", "fi-hel1", "--bastion-plan", "s-1", "--control-plane-plan", "s-4", "--worker-plan", "s-8",
 }
 
-func runAnkraCloudCommand(t *testing.T, mock APIClient, arguments ...string) (string, error) {
+func runAnkraCloudCommand(t *testing.T, mock any, arguments ...string) (string, error) {
 	t.Helper()
 	var runError error
 	var cobraOutput string
@@ -459,7 +458,6 @@ func TestAnkraCloudCPUPoolsRefusesAmbiguousSources(t *testing.T) {
 }
 
 type ankraCloudFailingMock struct {
-	baseMock
 }
 
 func (mock *ankraCloudFailingMock) CreateAnkraCloudCluster(request client.CreateAnkraCloudClusterRequest) (*client.CreateAnkraCloudClusterResponse, error) {

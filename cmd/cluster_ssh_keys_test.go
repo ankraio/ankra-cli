@@ -8,7 +8,6 @@ import (
 )
 
 type clusterSSHKeysMock struct {
-	baseMock
 	cluster client.ClusterListItem
 
 	hetznerResync  []string

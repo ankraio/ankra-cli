@@ -66,7 +66,7 @@ func newAssignMock() *assignMock {
 
 // runOrgCommand runs an `ankra org ...` command on the saved login with a
 // saved organisation selection, so no organisation listing is needed.
-func runOrgCommand(t *testing.T, mock APIClient, args ...string) (string, error) {
+func runOrgCommand(t *testing.T, mock any, args ...string) (string, error) {
 	t.Helper()
 	withTempHome(t)
 	t.Setenv(envAnkraProject, "")

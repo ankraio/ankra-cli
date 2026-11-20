@@ -340,8 +340,8 @@ func TestPipelineRepositoriesDisconnectDeclinedConfirmationDoesNotCall(t *testin
 	repositoryID := "3fa85f64-5717-4562-b3fc-2c963f66afa6"
 	mockClient := &pipelineLaneMock{}
 	previousClient := apiClient
-	apiClient = mockClient
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mockClient)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	pipelineCommand := newPipelineCommand()
 	var output bytes.Buffer
@@ -390,8 +390,8 @@ func TestPipelineRepositoriesDisconnectStructuredOutputStaysCleanOfThePrompt(t *
 	repositoryID := "3fa85f64-5717-4562-b3fc-2c963f66afa6"
 	mockClient := &pipelineLaneMock{}
 	previousClient := apiClient
-	apiClient = mockClient
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mockClient)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	pipelineCommand := newPipelineCommand()
 	var stdout, stderr bytes.Buffer
@@ -467,8 +467,6 @@ func TestPipelineRepositoriesSetClusterRequiresTheFlagAndAUUID(t *testing.T) {
 
 // pipelineSetClusterMock records the repository cluster change.
 type pipelineSetClusterMock struct {
-	baseMock
-
 	clusters     []client.ClusterListItem
 	result       *client.PipelineRepository
 	called       bool
@@ -570,8 +568,6 @@ func TestPipelineRepositoriesConnectWorkspacesOnlyNamesTheRepositoryWhenTheUndoF
 
 // pipelineSetModeMock records the repository mode change.
 type pipelineSetModeMock struct {
-	baseMock
-
 	called           bool
 	repositoryID     string
 	isWorkspacesOnly bool

@@ -13,7 +13,6 @@ import (
 // countingKubeTokenMock mints a numbered token per call, expiring after its
 // lifetime.
 type countingKubeTokenMock struct {
-	baseMock
 	calls    int
 	lifetime time.Duration
 }
@@ -36,7 +35,7 @@ func useKubeTokenCache(t *testing.T, lifetime time.Duration) (*countingKubeToken
 	mock := &countingKubeTokenMock{lifetime: lifetime}
 	previousClient, previousDirectory, previousNow := apiClient, kubeTokenCacheDirectory, kubeTokenNow
 	previousToken, previousBase := apiToken, baseURL
-	apiClient = mock
+	apiClient = adaptMockClient(mock)
 	kubeTokenCacheDirectory = func() (string, error) { return directory, nil }
 	kubeTokenNow = func() time.Time { return clock }
 	apiToken, baseURL = "login-a", "https://platform.example"

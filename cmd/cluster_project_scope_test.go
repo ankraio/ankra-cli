@@ -90,7 +90,7 @@ func newProjectScopeMock(t *testing.T) *projectScopeMock {
 		},
 	}
 	withOrgScopeMock(t, organisations)
-	apiClient = mock
+	apiClient = adaptMockClient(mock)
 	originalPin := projectPinnedExplicitly
 	projectPinnedExplicitly = false
 	t.Cleanup(func() { projectPinnedExplicitly = originalPin })

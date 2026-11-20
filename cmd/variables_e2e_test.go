@@ -14,8 +14,6 @@ import (
 // and upsert fallback. It embeds baseMock for the rest of the interface and
 // the IaC / PATCH surface from upgradeMock for stack variables.
 type varsMock struct {
-	baseMock
-
 	iac                string
 	orgVars            []client.OrganisationVariable
 	clusterVars        []client.ClusterVariable
@@ -662,5 +660,4 @@ func TestRunStackVariablesList_UnknownStackErrors(t *testing.T) {
 	}
 }
 
-// ensure compile-time interface compliance — varsMock must satisfy APIClient
-var _ APIClient = (*varsMock)(nil)
+// Generated one-method contracts verify varsMock overrides; the adapter supplies defaults.

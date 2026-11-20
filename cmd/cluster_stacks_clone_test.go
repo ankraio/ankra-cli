@@ -22,7 +22,6 @@ const (
 // resolved against, and the run a --wait follows, recording what the command
 // put on the wire.
 type cloneLaneMock struct {
-	baseMock
 	source client.ClusterListItem
 	target client.ClusterListItem
 
@@ -105,7 +104,7 @@ func sampleCloneWithDataResult() *client.CloneStackToClusterResult {
 	}
 }
 
-func runCloneCommand(t *testing.T, mock APIClient, args ...string) (string, error) {
+func runCloneCommand(t *testing.T, mock any, args ...string) (string, error) {
 	t.Helper()
 	return runBackupCommand(t, mock, "", []*cobra.Command{clusterStacksCloneCmd}, args...)
 }

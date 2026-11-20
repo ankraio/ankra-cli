@@ -9,7 +9,6 @@ import (
 )
 
 type digitaloceanCreateMock struct {
-	baseMock
 	called     bool
 	gotRequest client.CreateDigitaloceanClusterRequest
 }
@@ -64,7 +63,6 @@ func TestDigitaloceanCreateSendsIncludeDNS(t *testing.T) {
 }
 
 type digitaloceanDeprovisionMock struct {
-	baseMock
 	called       bool
 	gotClusterID string
 }
@@ -76,7 +74,6 @@ func (m *digitaloceanDeprovisionMock) DeprovisionDigitaloceanCluster(clusterID s
 }
 
 type digitaloceanNodeGroupDeleteMock struct {
-	baseMock
 	called       bool
 	gotClusterID string
 	gotGroupName string

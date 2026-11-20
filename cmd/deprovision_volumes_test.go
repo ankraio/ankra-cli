@@ -13,7 +13,6 @@ import (
 // deprovisionVolumesMock answers the volume read and records what the
 // deprovision was sent, for a Hetzner cluster and an AWS one.
 type deprovisionVolumesMock struct {
-	baseMock
 	cluster     client.ClusterListItem
 	volumes     *client.DeprovisionVolumes
 	volumesRead error

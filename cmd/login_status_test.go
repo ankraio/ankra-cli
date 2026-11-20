@@ -10,7 +10,6 @@ import (
 
 // loginStatusMock answers the one read `login status` makes.
 type loginStatusMock struct {
-	baseMock
 	organisations []client.OrganisationSummary
 	listError     error
 }

@@ -10,7 +10,7 @@ import (
 	"ankra/internal/client"
 )
 
-func runShowDraftCommand(t *testing.T, mock APIClient, arguments ...string) (string, error) {
+func runShowDraftCommand(t *testing.T, mock any, arguments ...string) (string, error) {
 	t.Helper()
 	writeSelectedClusterJSON(t)
 	setMockClient(t, mock)

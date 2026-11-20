@@ -66,7 +66,6 @@ spec:
 `
 
 type upgradeMock struct {
-	baseMock
 	iac               string
 	addonValues       string
 	manifestB64       string

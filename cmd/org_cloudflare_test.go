@@ -32,8 +32,6 @@ func resetOrgCloudflareFlags(t *testing.T) {
 // cloudflareMock captures the calls the commands make so the tests can assert
 // the wire shapes and the domain/record resolution.
 type cloudflareMock struct {
-	baseMock
-
 	credentials  []client.CloudflareCredential
 	domains      []client.CloudflareDomain
 	records      []client.CloudflareRecord

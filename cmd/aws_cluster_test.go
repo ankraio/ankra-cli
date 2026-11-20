@@ -11,8 +11,6 @@ import (
 )
 
 type awsClusterMock struct {
-	baseMock
-
 	createRequest    *client.CreateAwsClusterRequest
 	preflightRequest *client.CreateAwsClusterRequest
 	preflightResult  *client.AwsPreflightResult
@@ -609,7 +607,6 @@ func TestAwsStartCommandWithScope(t *testing.T) {
 }
 
 type awsDeprovisionConfirmMock struct {
-	baseMock
 	clusters      []client.ClusterListItem
 	deprovisioned string
 }
@@ -845,7 +842,6 @@ func TestAwsImagesRendersSeriesAndArchitectures(t *testing.T) {
 }
 
 type awsCredentialsMock struct {
-	baseMock
 	listCalls       int
 	onboardingScope *string
 	roleRequest     *client.AwsRoleCredentialCreateRequest

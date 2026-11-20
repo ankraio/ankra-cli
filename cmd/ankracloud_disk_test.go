@@ -74,7 +74,6 @@ func TestAnkraCloudCreateRefusesAnInvalidDiskSize(t *testing.T) {
 }
 
 type nodeGroupAddDiskMock struct {
-	baseMock
 	kind       string
 	gotRequest *client.AddNodeGroupRequest
 }

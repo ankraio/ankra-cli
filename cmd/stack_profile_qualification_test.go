@@ -18,7 +18,6 @@ const qualificationOperationID = "abf2b51d-0b90-489c-ad57-6472494e8740"
 const qualificationRequestID = "52c69bf4-b97a-4c0f-ac11-58bd91af8287"
 
 type qualificationMock struct {
-	baseMock
 	starts, gets, cancels int
 	requestID             string
 	view                  *client.ProfileRuntimeQualification

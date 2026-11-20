@@ -73,10 +73,10 @@ func withOrganisationHeaderServer(t *testing.T, server *organisationHeaderServer
 	t.Cleanup(httpServer.Close)
 	originalClient := apiClient
 	originalScope := organisationScopedByLocalSelection
-	apiClient = client.New("saved-token", httpServer.URL)
+	apiClient = adaptMockClient(client.New("saved-token", httpServer.URL))
 	withTokenSource(t, sourceConfigFile)
 	t.Cleanup(func() {
-		apiClient = originalClient
+		apiClient = adaptMockClient(originalClient)
 		organisationScopedByLocalSelection = originalScope
 	})
 }

@@ -19,8 +19,6 @@ import (
 // distinguishes "not in the body" from "null", and a set that quietly restated
 // a neighbouring setting would clobber it.
 type orgCISettingsMock struct {
-	baseMock
-
 	settings   client.OrganisationCISettings
 	updateSeen []map[string]any
 	clusters   []client.ClusterListItem

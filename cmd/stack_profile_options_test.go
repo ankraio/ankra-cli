@@ -14,7 +14,6 @@ import (
 // written back, so a test can assert exactly what an authoring command
 // changed and that it left every other field alone.
 type stackProfileDraftMock struct {
-	baseMock
 	draft         *client.StackProfileDraft
 	updateRequest *client.UpdateStackProfileDraftRequest
 }
