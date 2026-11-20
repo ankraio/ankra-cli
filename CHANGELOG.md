@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## v0.80.0 - 2026-11-19
+## v0.80.0 - 2026-11-20
 
 Inspect every recorded preserved-file difference with `--all`, and refuse a
 preserved-file decision when complete matching metadata cannot be read. The
