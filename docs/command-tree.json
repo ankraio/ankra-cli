@@ -966,6 +966,7 @@
     "ankra pipeline authority list",
     "ankra pipeline branches",
     "ankra pipeline caches",
+    "ankra pipeline caches clear",
     "ankra pipeline cancel",
     "ankra pipeline definition get",
     "ankra pipeline definition put",

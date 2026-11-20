@@ -4093,6 +4093,10 @@ func (m baseMock) ListPipelineCaches(ctx context.Context, selector client.Pipeli
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ClearPipelineCache(ctx context.Context, selector client.PipelineSelector, path string, trust string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetWorkspaceProfilesDocument(ctx context.Context, repositoryID string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }

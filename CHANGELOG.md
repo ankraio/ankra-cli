@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **Clear one pipeline cache from the CLI: `ankra pipeline caches clear --path <mount path> [--trust default_branch|branch]`.** It takes the cache at that mount path out of use, for an application (`--application`) or a pipeline repository (`--repository`): no new run restores its archives or mounts its volumes, so the next run fills it again. Leave `--trust` out to clear both scopes. It asks first (`--yes` skips the question) and then says what was cleared: the archives and their size, the volumes, and the moment before which the platform does not delete a cleared volume. A cache with nothing left to clear says so and exits 0. A refusal prints the platform's sentence: exit 3 when the repository is not found or the application has no pipeline, 7 without the `pipelines.operate` permission, and 8 when runs kept starting with the cache while it was being cleared, so nothing was cleared. `-o json` and `-o yaml` print the platform's answer as it was sent.
+
 ## v0.81.0 - 2026-11-20
 
 See what each environment of an application costs, and what each rate is made
