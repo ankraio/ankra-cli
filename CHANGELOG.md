@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## v0.81.0 - 2026-11-20
+
+See what each environment of an application costs, and what each rate is made
+of, with `ankra cost object application`. `ankra application backups` says what
+each deployment's backups keep, and its `-o json` and `-o yaml` now print the
+platform's answer as it was sent: each deployment gains a `keeping` key, null
+for a deployment whose stack does not exist yet, so a script that rejects
+unknown keys has to accept it. Nothing is removed: every existing command,
+flag, exit code and `-o json` key is unchanged.
+
 ### Added
 
 - **`ankra cost object application` shows the cost of each environment and what its rate is made of.** Under the namespaces, each environment now has its monthly rate and a row for each part of it: workloads, database instances, storage and backups. A rate that is partial or unknown says why in words. A row that is part of the rate but has no amount of its own says "not known", and what no row explains gets its own line. Backups say "not priced" and are not added to the rate. Rows, environments and spend the platform cut short each get a line. Every existing line, column, `-o json` key and exit code is unchanged, and a platform that does not send the block prints what it printed before.
