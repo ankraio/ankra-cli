@@ -10137,6 +10137,18 @@ var _ interface {
 	UpdateAgentCISettings(a0 context.Context, a1 string, a2 client.AgentCISettingsUpdate) (*client.AgentCISettings, error)
 } = (*agentCIMock)(nil)
 var _ interface {
+	DeleteCluster(a0 context.Context, a1 string) error
+} = (*agentCutOffMock)(nil)
+var _ interface {
+	GenerateAgentToken(a0 context.Context, a1 string) (*client.AgentToken, error)
+} = (*agentCutOffMock)(nil)
+var _ interface {
+	GetCluster(a0 string) (client.ClusterListItem, error)
+} = (*agentCutOffMock)(nil)
+var _ interface {
+	GetClusterAgent(a0 string) (*client.AgentInfo, error)
+} = (*agentCutOffMock)(nil)
+var _ interface {
 	GetAgentResources(a0 context.Context, a1 string) (*client.AgentResources, error)
 } = (*agentResourcesMock)(nil)
 var _ interface {
