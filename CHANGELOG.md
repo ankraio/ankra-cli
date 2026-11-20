@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra cost object application` shows the cost of each environment and what its rate is made of.** Under the namespaces, each environment now has its monthly rate and a row for each part of it: workloads, database instances, storage and backups. A rate that is partial or unknown says why in words. A row that is part of the rate but has no amount of its own says "not known", and what no row explains gets its own line. Backups say "not priced" and are not added to the rate. Rows, environments and spend the platform cut short each get a line. Every existing line, column, `-o json` key and exit code is unchanged, and a platform that does not send the block prints what it printed before.
+
 ### Fixed
 
 - **`ankra application backups` says what each deployment's backups keep.** Under each deployment it now prints since when it is backed up, how long backups are kept (or that everything is kept, or that the stack has no backup policy), how many are kept now and the oldest of them. A value Ankra could not read is said as not read, never as none or zero. The platform already sent this as each deployment's `keeping` block and the command dropped it, from `-o json` and `-o yaml` too: both now print the platform's answer as it was sent, so a null stays null, a field the platform did not send stays out, and a field this release does not know yet is passed through.
