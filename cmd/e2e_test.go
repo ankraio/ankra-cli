@@ -503,6 +503,22 @@ func (m baseMock) DeleteApplicationAlert(requestContext context.Context, applica
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ListApplicationSavedLogSearches(requestContext context.Context, applicationID string) (*client.SavedLogSearches, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SaveApplicationLogSearch(requestContext context.Context, applicationID string, searchRequest client.SavedLogSearchRequest) (*client.SavedLogSearch, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ReplaceApplicationSavedLogSearch(requestContext context.Context, applicationID string, searchID string, searchRequest client.SavedLogSearchRequest) (*client.SavedLogSearch, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteApplicationSavedLogSearch(requestContext context.Context, applicationID string, searchID string) error {
+	return errors.New("not implemented")
+}
+
 func (m baseMock) StartApplicationPlatformBuild(requestContext context.Context, applicationID string, request client.StartApplicationPlatformBuildRequest) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }

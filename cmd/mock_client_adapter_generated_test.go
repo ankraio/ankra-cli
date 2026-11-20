@@ -1526,6 +1526,14 @@ func (m mockClientAdapter) DeleteApplicationEnvSecret(a0 context.Context, a1 str
 	}
 	return baseMock{}.DeleteApplicationEnvSecret(a0, a1, a2)
 }
+func (m mockClientAdapter) DeleteApplicationSavedLogSearch(a0 context.Context, a1 string, a2 string) error {
+	if target, ok := m.target.(interface {
+		DeleteApplicationSavedLogSearch(a0 context.Context, a1 string, a2 string) error
+	}); ok {
+		return target.DeleteApplicationSavedLogSearch(a0, a1, a2)
+	}
+	return baseMock{}.DeleteApplicationSavedLogSearch(a0, a1, a2)
+}
 func (m mockClientAdapter) DeleteAwsNodeGroup(a0 context.Context, a1 string, a2 string, a3 client.DrainOptions, a4 bool) (*client.DeleteNodeGroupResult, bool, error) {
 	if target, ok := m.target.(interface {
 		DeleteAwsNodeGroup(a0 context.Context, a1 string, a2 string, a3 client.DrainOptions, a4 bool) (*client.DeleteNodeGroupResult, bool, error)
@@ -5254,6 +5262,14 @@ func (m mockClientAdapter) ListApplicationRollbacks(a0 context.Context, a1 strin
 	}
 	return baseMock{}.ListApplicationRollbacks(a0, a1, a2)
 }
+func (m mockClientAdapter) ListApplicationSavedLogSearches(a0 context.Context, a1 string) (*client.SavedLogSearches, error) {
+	if target, ok := m.target.(interface {
+		ListApplicationSavedLogSearches(a0 context.Context, a1 string) (*client.SavedLogSearches, error)
+	}); ok {
+		return target.ListApplicationSavedLogSearches(a0, a1)
+	}
+	return baseMock{}.ListApplicationSavedLogSearches(a0, a1)
+}
 func (m mockClientAdapter) ListApplicationsRaw(a0 context.Context, a1 int, a2 int, a3 string) (json.RawMessage, error) {
 	if target, ok := m.target.(interface {
 		ListApplicationsRaw(a0 context.Context, a1 int, a2 int, a3 string) (json.RawMessage, error)
@@ -7382,6 +7398,14 @@ func (m mockClientAdapter) ReorderPersonalAIKeys(a0 []string) (*client.PersonalA
 	}
 	return baseMock{}.ReorderPersonalAIKeys(a0)
 }
+func (m mockClientAdapter) ReplaceApplicationSavedLogSearch(a0 context.Context, a1 string, a2 string, a3 client.SavedLogSearchRequest) (*client.SavedLogSearch, error) {
+	if target, ok := m.target.(interface {
+		ReplaceApplicationSavedLogSearch(a0 context.Context, a1 string, a2 string, a3 client.SavedLogSearchRequest) (*client.SavedLogSearch, error)
+	}); ok {
+		return target.ReplaceApplicationSavedLogSearch(a0, a1, a2, a3)
+	}
+	return baseMock{}.ReplaceApplicationSavedLogSearch(a0, a1, a2, a3)
+}
 func (m mockClientAdapter) ReplaceSecretSlot(a0 context.Context, a1 string, a2 client.SecretSlotReplaceRequest) (*client.SecretSlot, error) {
 	if target, ok := m.target.(interface {
 		ReplaceSecretSlot(a0 context.Context, a1 string, a2 client.SecretSlotReplaceRequest) (*client.SecretSlot, error)
@@ -7909,6 +7933,14 @@ func (m mockClientAdapter) SaveAnthropicKey(a0 string) (*client.AIAnthropicStatu
 		return target.SaveAnthropicKey(a0)
 	}
 	return baseMock{}.SaveAnthropicKey(a0)
+}
+func (m mockClientAdapter) SaveApplicationLogSearch(a0 context.Context, a1 string, a2 client.SavedLogSearchRequest) (*client.SavedLogSearch, error) {
+	if target, ok := m.target.(interface {
+		SaveApplicationLogSearch(a0 context.Context, a1 string, a2 client.SavedLogSearchRequest) (*client.SavedLogSearch, error)
+	}); ok {
+		return target.SaveApplicationLogSearch(a0, a1, a2)
+	}
+	return baseMock{}.SaveApplicationLogSearch(a0, a1, a2)
 }
 func (m mockClientAdapter) SaveApplicationOverviewLayoutVersion(a0 context.Context, a1 string, a2 string, a3 *string) (*client.ApplicationOverviewLayout, error) {
 	if target, ok := m.target.(interface {
