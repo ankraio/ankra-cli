@@ -1257,6 +1257,7 @@ type APIClient interface {
 	GetPipelinePolicy(ctx context.Context) (json.RawMessage, error)
 	UpdatePipelinePolicy(ctx context.Context, changes map[string]any) (json.RawMessage, error)
 	ListPipelineCaches(ctx context.Context, selector client.PipelineSelector, cursor string, limit int) (json.RawMessage, error)
+	ClearPipelineCache(ctx context.Context, selector client.PipelineSelector, path string, trust string) (json.RawMessage, error)
 	GetWorkspaceProfilesDocument(ctx context.Context, repositoryID string) (json.RawMessage, error)
 	PutWorkspaceProfiles(ctx context.Context, repositoryID string, profiles map[string]any) (json.RawMessage, error)
 	ListPipelineSchedules(ctx context.Context, selector client.PipelineSelector) (*client.PipelineScheduleList, error)

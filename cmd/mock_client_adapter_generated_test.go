@@ -546,6 +546,14 @@ func (m mockClientAdapter) ClearCostAutopilotOverride(a0 string) (*client.CostAu
 	}
 	return baseMock{}.ClearCostAutopilotOverride(a0)
 }
+func (m mockClientAdapter) ClearPipelineCache(a0 context.Context, a1 client.PipelineSelector, a2 string, a3 string) (json.RawMessage, error) {
+	if target, ok := m.target.(interface {
+		ClearPipelineCache(a0 context.Context, a1 client.PipelineSelector, a2 string, a3 string) (json.RawMessage, error)
+	}); ok {
+		return target.ClearPipelineCache(a0, a1, a2, a3)
+	}
+	return baseMock{}.ClearPipelineCache(a0, a1, a2, a3)
+}
 func (m mockClientAdapter) CloneStackToCluster(a0 context.Context, a1 string, a2 client.CloneStackToClusterRequest) (*client.CloneStackToClusterResult, error) {
 	if target, ok := m.target.(interface {
 		CloneStackToCluster(a0 context.Context, a1 string, a2 client.CloneStackToClusterRequest) (*client.CloneStackToClusterResult, error)
