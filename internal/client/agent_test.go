@@ -146,6 +146,36 @@ func TestGenerateAgentTokenCommandOnlyResponse(t *testing.T) {
 	}
 }
 
+// A platform with a rotation grace window says until when the previous token
+// keeps working; an older platform says nothing, which must stay nil rather
+// than read as an empty time.
+func TestGenerateAgentTokenReadsThePreviousTokenGraceWindow(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		body map[string]string
+		want string
+	}{
+		"a grace window": {
+			body: map[string]string{"token": "new-agent-token", "previous_token_valid_until": "2026-11-21T10:00:00Z"},
+			want: "2026-11-21T10:00:00Z",
+		},
+		"an older platform": {body: map[string]string{"token": "new-agent-token"}},
+	} {
+		testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			jsonResponse(t, w, http.StatusOK, testCase.body)
+		})
+		got, err := testClient.GenerateAgentToken(context.Background(), "cluster-id")
+		if err != nil {
+			t.Fatalf("%s: GenerateAgentToken() error = %v", name, err)
+		}
+		switch {
+		case testCase.want == "" && got.PreviousTokenValidUntil != nil:
+			t.Errorf("%s: want no grace window, got %q", name, *got.PreviousTokenValidUntil)
+		case testCase.want != "" && (got.PreviousTokenValidUntil == nil || *got.PreviousTokenValidUntil != testCase.want):
+			t.Errorf("%s: want the grace window %q, got %v", name, testCase.want, got.PreviousTokenValidUntil)
+		}
+	}
+}
+
 func TestUpgradeClusterAgent(t *testing.T) {
 	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || !strings.Contains(r.URL.Path, "/agent/upgrade") {
