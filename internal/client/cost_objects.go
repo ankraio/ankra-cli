@@ -223,7 +223,8 @@ func (part ObjectCostRatePart) IsCountedInRate() bool {
 }
 
 // ObjectCostUncountedSpend is the days one namespace spent for the
-// application that no environment line counts. Reason is
+// application that no environment line counts (Dates, UTC days, oldest
+// first). Reason is
 // installation_removed (the installation is gone, its spend is in no line
 // and not in the total), cluster_not_read (its cluster was deleted or left
 // the organisation) or environment_not_listed (its environment's line was

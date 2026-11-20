@@ -181,15 +181,18 @@ func renderObjectCostEnvironment(out io.Writer, environment client.ObjectCostEnv
 			_, _ = fmt.Fprintf(out, "  %-16s %s\n", label, sentence)
 		}
 	}
-	renderObjectCostRateRows(out, parts, clusterNames, currency)
+	renderObjectCostRateRows(out, parts, why != "", clusterNames, currency)
 }
 
 // renderObjectCostRateRows prints the rows of one environment's rate: a row
 // counted in the rate with no amount is "not known" (its amount is on no
 // row), a row beside the rate with no amount is "not priced", and a row
 // beside the rate with an amount is marked as not in it. Then what no row
-// explains, and what the cap on rows left out.
-func renderObjectCostRateRows(out io.Writer, parts *client.ObjectCostRateParts, clusterNames map[string]string, currency string) {
+// explains, and what the cap on rows left out. reasonsPrinted says the
+// reasons for a partial or unknown rate were printed above, so the line of
+// what no row explains may point at them.
+func renderObjectCostRateRows(out io.Writer, parts *client.ObjectCostRateParts, reasonsPrinted bool, clusterNames map[string]string, currency string) {
+	onNoRow := parts.UnattributedMonthlyCents != nil && *parts.UnattributedMonthlyCents > 0
 	if len(parts.Rows) == 0 {
 		if parts.State != client.ObjectCostStateUnknown {
 			_, _ = fmt.Fprintln(out, "  Rows:            none listed, which does not mean it costs nothing.")
@@ -227,7 +230,11 @@ func renderObjectCostRateRows(out io.Writer, parts *client.ObjectCostRateParts, 
 		}
 		writer.Render()
 		if anyNotKnown {
-			_, _ = fmt.Fprintln(out, "* not known: the row is part of the rate, but the platform cannot say how much of it is this row's. Its amount is in the part on no row.")
+			line := "* not known: the row is part of the rate, but the platform cannot say how much of it is this row's."
+			if onNoRow {
+				line += " Its amount is in the part on no row."
+			}
+			_, _ = fmt.Fprintln(out, line)
 		}
 		if anyNotPriced {
 			line := "* not priced: the row is shown beside the rate and is not part of it."
@@ -240,17 +247,38 @@ func renderObjectCostRateRows(out io.Writer, parts *client.ObjectCostRateParts, 
 			_, _ = fmt.Fprintln(out, "* not in the rate: the row is shown beside the rate and is not added to it.")
 		}
 	}
-	if parts.UnattributedMonthlyCents != nil && *parts.UnattributedMonthlyCents > 0 {
-		_, _ = fmt.Fprintf(out, "  On no row:       %s of the rate. No row explains it; the reasons above say why.\n",
-			formatCostCents(*parts.UnattributedMonthlyCents, currency))
+	if onNoRow {
+		explained := "No row explains it."
+		if reasonsPrinted {
+			explained = "No row explains it; the reasons above say why."
+		}
+		_, _ = fmt.Fprintf(out, "  On no row:       %s of the rate. %s\n",
+			formatCostCents(*parts.UnattributedMonthlyCents, currency), explained)
 	}
 	if parts.RowsTruncated {
-		leftOut := "an amount the platform did not give"
-		if parts.TruncatedMonthlyCents != nil {
-			leftOut = formatCostCents(*parts.TruncatedMonthlyCents, currency) + " of the rate"
-		}
-		_, _ = fmt.Fprintf(out, "  More rows:       the platform found more rows than it lists. Those left out add up to %s.\n", leftOut)
+		_, _ = fmt.Fprintf(out, "  More rows:       the platform found more rows than it lists. %s\n",
+			costObjectRowsLeftOut(parts, onNoRow, currency))
 	}
+}
+
+// costObjectRowsLeftOut words what the rows the cap left out add up to. The
+// platform lists the rows largest first and the rows with no amount last,
+// and sums only the rows left out that are part of the rate and have an
+// amount. So when the last row shown has no amount, no row left out has one,
+// and the platform's figure is no amount at all, never a zero.
+func costObjectRowsLeftOut(parts *client.ObjectCostRateParts, onNoRow bool, currency string) string {
+	if parts.TruncatedMonthlyCents == nil {
+		return "Those left out add up to an amount the platform did not give."
+	}
+	lastHasNoAmount := len(parts.Rows) > 0 && parts.Rows[len(parts.Rows)-1].MonthlyCents == nil
+	if lastHasNoAmount && *parts.TruncatedMonthlyCents == 0 {
+		if onNoRow {
+			return "The rows left out have no amount of their own. What they cost, if anything, is in the part on no row."
+		}
+		return "The rows left out have no amount of their own."
+	}
+	return "Those left out that have an amount add up to " + formatCostCents(*parts.TruncatedMonthlyCents, currency) +
+		" of the rate. A row left out with no amount of its own is not in that figure."
 }
 
 // costObjectRatePlace is where a row runs: its namespace, with its cluster
@@ -309,7 +337,8 @@ func renderObjectCostUncounted(out io.Writer, block *client.ObjectCostByEnvironm
 }
 
 // costObjectUncountedDays is how many days had spend, with the first and the
-// last.
+// last. The platform sends the dates oldest first, so they are not sorted
+// again here.
 func costObjectUncountedDays(dates []string) string {
 	switch len(dates) {
 	case 0:

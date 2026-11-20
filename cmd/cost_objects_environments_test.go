@@ -138,7 +138,10 @@ func costObjectEnvironmentSection(t *testing.T, output string) string {
 	return output[index:]
 }
 
-func requireLines(t *testing.T, output string, wants ...string) {
+// requireCostLines fails the test unless the cost output holds every one of
+// wants. Its name is the cost tests' own, so no other test file of the
+// package can declare it too.
+func requireCostLines(t *testing.T, output string, wants ...string) {
 	t.Helper()
 	for _, want := range wants {
 		if !strings.Contains(output, want) {
@@ -147,7 +150,8 @@ func requireLines(t *testing.T, output string, wants ...string) {
 	}
 }
 
-func refuseLines(t *testing.T, output string, unwanted ...string) {
+// refuseCostLines fails the test when the cost output holds any of unwanted.
+func refuseCostLines(t *testing.T, output string, unwanted ...string) {
 	t.Helper()
 	for _, text := range unwanted {
 		if strings.Contains(output, text) {
@@ -215,7 +219,7 @@ func TestCostObjectApplicationWithoutByEnvironmentPrintsAsBefore(t *testing.T) {
 func TestCostObjectByEnvironmentShapeA(t *testing.T) {
 	section := costObjectEnvironmentSection(t, runApplicationCost(t,
 		applicationCostDocument(costObjectEnvironmentBlock(costObjectShapeA()))))
-	requireLines(t, section,
+	requireCostLines(t, section,
 		"Cost by environment:\n",
 		"Environment on cluster prod-eu ("+costObjectClusterID+"):\n",
 		"  Monthly rate:    €9.03, partial\n",
@@ -225,7 +229,7 @@ func TestCostObjectByEnvironmentShapeA(t *testing.T) {
 		"* not priced: the row is shown beside the rate and is not part of it. Ankra does not price backups.\n",
 		"  On no row:       €9.03 of the rate. No row explains it; the reasons above say why.\n",
 	)
-	refuseLines(t, section, "€0.00", "at least", "More rows", "Spend no environment line counts")
+	refuseCostLines(t, section, "€0.00", "at least", "More rows", "Spend no environment line counts")
 	notKnown := 0
 	for _, line := range strings.Split(section, "\n") {
 		switch {
@@ -250,13 +254,13 @@ func TestCostObjectByEnvironmentShapeA(t *testing.T) {
 func TestCostObjectByEnvironmentShapeB(t *testing.T) {
 	section := costObjectEnvironmentSection(t, runApplicationCost(t,
 		applicationCostDocument(costObjectEnvironmentBlock(costObjectShapeB()))))
-	requireLines(t, section,
+	requireCostLines(t, section,
 		"  Monthly rate:    €1.20, partial\n",
 		"  Why partial:     The metering did not split a namespace's compute from its storage, so that figure is on no row.\n",
 		"* not priced: the row is shown beside the rate and is not part of it. Ankra does not price backups.\n",
 		"  On no row:       €1.20 of the rate.",
 	)
-	refuseLines(t, section, "* not known", "€0.00")
+	refuseCostLines(t, section, "* not known", "€0.00")
 }
 
 // TestCostObjectByEnvironmentShapeC pins the live shape C: an available rate
@@ -265,8 +269,8 @@ func TestCostObjectByEnvironmentShapeB(t *testing.T) {
 func TestCostObjectByEnvironmentShapeC(t *testing.T) {
 	section := costObjectEnvironmentSection(t, runApplicationCost(t,
 		applicationCostDocument(costObjectEnvironmentBlock(costObjectShapeC()))))
-	requireLines(t, section, "  Monthly rate:    €0.00\n", "not priced")
-	refuseLines(t, section, "partial", "Why", "On no row", "* not known")
+	requireCostLines(t, section, "  Monthly rate:    €0.00\n", "not priced")
+	refuseCostLines(t, section, "partial", "Why", "On no row", "* not known")
 }
 
 // TestCostObjectByEnvironmentShapeD pins the live shape D: an unknown rate
@@ -274,11 +278,11 @@ func TestCostObjectByEnvironmentShapeC(t *testing.T) {
 func TestCostObjectByEnvironmentShapeD(t *testing.T) {
 	section := costObjectEnvironmentSection(t, runApplicationCost(t,
 		applicationCostDocument(costObjectEnvironmentBlock(costObjectShapeD()))))
-	requireLines(t, section,
+	requireCostLines(t, section,
 		"  Monthly rate:    unknown, not zero\n",
 		"  Why unknown:     A namespace has no cost figure (no usable snapshot, or the latest pass attributed none), so the rate leaves it out.\n",
 	)
-	refuseLines(t, section, "€", "PART", "Rows:", "at least", "On no row")
+	refuseCostLines(t, section, "€", "PART", "Rows:", "at least", "On no row")
 }
 
 // TestCostObjectByEnvironmentEmptyAndUnknownBlocks pins the block's own
@@ -286,11 +290,11 @@ func TestCostObjectByEnvironmentShapeD(t *testing.T) {
 // never a zero; unknown says unknown, not none, with the platform's reason.
 func TestCostObjectByEnvironmentEmptyAndUnknownBlocks(t *testing.T) {
 	empty := runApplicationCost(t, applicationCostDocument(costObjectEnvironmentBlock()))
-	requireLines(t, empty, "Cost by environment: no line. No environment has an installation behind this cost on the clusters you can read.\n")
+	requireCostLines(t, empty, "Cost by environment: no line. No environment has an installation behind this cost on the clusters you can read.\n")
 	unknown := runApplicationCost(t, applicationCostDocument(`{"state": "unknown", "reason": "The installations could not be read.",
   "environments": [], "environments_truncated": false, "uncounted": [], "uncounted_truncated": false, "uncounted_known_from": null}`))
-	requireLines(t, unknown, "Cost by environment: unknown, not none: The installations could not be read.\n")
-	refuseLines(t, unknown, "no line")
+	requireCostLines(t, unknown, "Cost by environment: unknown, not none: The installations could not be read.\n")
+	refuseCostLines(t, unknown, "no line")
 }
 
 // TestCostObjectByEnvironmentSaysEveryGapAndKeepsAnUnknownOne pins the eight
@@ -304,7 +308,7 @@ func TestCostObjectByEnvironmentSaysEveryGapAndKeepsAnUnknownOne(t *testing.T) {
 		costObjectEnvironmentLine(`{"state": "partial", "gaps": `+string(encoded)+`, "monthly_cents": 5000,
   "rows": [`+costObjectRow("workload", "web", "shop", "4000", true, "")+`], "rows_truncated": false,
   "truncated_monthly_cents": 0, "unattributed_monthly_cents": 1000}`)))))
-	requireLines(t, section, "  Monthly rate:    at least €50.00, partial\n",
+	requireCostLines(t, section, "  Monthly rate:    at least €50.00, partial\n",
 		"The platform also gave a reason this version of the CLI does not know: a_new_gap, another_new_gap.",
 		"  On no row:       €10.00 of the rate.")
 	for _, gap := range gaps[:8] {
@@ -343,11 +347,11 @@ func TestCostObjectByEnvironmentSaysWhatWasCutShort(t *testing.T) {
   ],
   "uncounted_truncated": true, "uncounted_known_from": "2026-08-30"}`
 	section := costObjectEnvironmentSection(t, runApplicationCost(t, applicationCostDocument(block)))
-	requireLines(t, section,
+	requireCostLines(t, section,
 		"Environment "+costObjectNamedEnvironmentID+" (a named environment):\n",
 		"  Shared:          a namespace of it also holds another application, so that namespace is counted whole here, as in the total.\n",
 		"  Monthly rate:    €90.00\n",
-		"  More rows:       the platform found more rows than it lists. Those left out add up to €50.00 of the rate.\n",
+		"  More rows:       the platform found more rows than it lists. Those left out that have an amount add up to €50.00 of the rate. A row left out with no amount of its own is not in that figure.\n",
 		"Environment on cluster "+costObjectStagingID+":\n",
 		"  Monthly rate:    not reported: this platform does not say what an environment's rate is made of.\n",
 		"More environments: the platform found more than the 2 it lists. The rest have no line here; their spend is listed below as not counted by any line.\n",
@@ -362,6 +366,55 @@ func TestCostObjectByEnvironmentSaysWhatWasCutShort(t *testing.T) {
 			t.Fatalf("a removed installation's environment is not known: %q", line)
 		}
 	}
+}
+
+// costObjectRowsWithNoAmountLeftOut is a partial rate whose last row shown
+// has no amount, cut short, so every row left out has no amount either and
+// the platform's figure for them is 0: that 0 is no amount, never a cost of
+// nothing. unattributed is what no row explains.
+func costObjectRowsWithNoAmountLeftOut(monthly string, unattributed string) string {
+	rows := costObjectRow("workload", "web", "shop", "600", true, "") + "," +
+		costObjectRow("workload", "worker", "shop", "null", true, "")
+	return costObjectEnvironmentLine(`{"state": "partial", "gaps": ["split_rounded"], "monthly_cents": ` + monthly + `,
+  "rows": [` + rows + `], "rows_truncated": true, "truncated_monthly_cents": 0, "unattributed_monthly_cents": ` + unattributed + `}`)
+}
+
+// TestCostObjectByEnvironmentRowsLeftOutWithNoAmountAreNotZero pins that
+// rows the cap left out with no amount of their own are said as such,
+// never as adding up to €0.00, and point at the part on no row only when
+// there is one.
+func TestCostObjectByEnvironmentRowsLeftOutWithNoAmountAreNotZero(t *testing.T) {
+	withPartOnNoRow := costObjectEnvironmentSection(t, runApplicationCost(t,
+		applicationCostDocument(costObjectEnvironmentBlock(costObjectRowsWithNoAmountLeftOut("903", "303")))))
+	requireCostLines(t, withPartOnNoRow,
+		"* not known: the row is part of the rate, but the platform cannot say how much of it is this row's. Its amount is in the part on no row.\n",
+		"  On no row:       €3.03 of the rate. No row explains it; the reasons above say why.\n",
+		"  More rows:       the platform found more rows than it lists. The rows left out have no amount of their own. What they cost, if anything, is in the part on no row.\n",
+	)
+	refuseCostLines(t, withPartOnNoRow, "€0.00", "add up to")
+
+	withoutPartOnNoRow := costObjectEnvironmentSection(t, runApplicationCost(t,
+		applicationCostDocument(costObjectEnvironmentBlock(costObjectRowsWithNoAmountLeftOut("600", "0")))))
+	requireCostLines(t, withoutPartOnNoRow,
+		"* not known: the row is part of the rate, but the platform cannot say how much of it is this row's.\n",
+		"  More rows:       the platform found more rows than it lists. The rows left out have no amount of their own.\n",
+	)
+	refuseCostLines(t, withoutPartOnNoRow, "€0.00", "add up to", "On no row", "part on no row")
+}
+
+// TestCostObjectByEnvironmentOnNoRowPointsAtReasonsOnlyWhenPrinted pins that
+// the line of what no row explains points at the reasons above only when
+// reasons were printed: an available rate prints none.
+func TestCostObjectByEnvironmentOnNoRowPointsAtReasonsOnlyWhenPrinted(t *testing.T) {
+	section := costObjectEnvironmentSection(t, runApplicationCost(t, applicationCostDocument(costObjectEnvironmentBlock(
+		costObjectEnvironmentLine(`{"state": "available", "gaps": [], "monthly_cents": 1000,
+  "rows": [`+costObjectRow("workload", "web", "shop", "800", true, "")+`], "rows_truncated": false,
+  "truncated_monthly_cents": 0, "unattributed_monthly_cents": 200}`)))))
+	requireCostLines(t, section,
+		"  Monthly rate:    €10.00\n",
+		"  On no row:       €2.00 of the rate. No row explains it.\n",
+	)
+	refuseCostLines(t, section, "reasons above", "Why")
 }
 
 // TestCostObjectByEnvironmentStructuredOutputIsTheBlock pins -o json and
@@ -398,6 +451,6 @@ func TestCostObjectByEnvironmentStructuredOutputIsTheBlock(t *testing.T) {
 	if yamlError != nil {
 		t.Fatalf("yaml: %v", yamlError)
 	}
-	requireLines(t, yamlOutput, "by_environment:", "unattributed_monthly_cents: null", "counted_in_rate: false",
+	requireCostLines(t, yamlOutput, "by_environment:", "unattributed_monthly_cents: null", "counted_in_rate: false",
 		"gaps:", "- split_rounded", "uncounted_known_from:", "monthly_cents: null")
 }
