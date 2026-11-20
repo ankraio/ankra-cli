@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -215,12 +217,21 @@ func runningAgentPresence(agent *client.AgentInfo) string {
 }
 
 // readRunningAgentPresence reads the cluster's agent and describes it with
-// runningAgentPresence. A read that fails (a cluster with no agent record,
-// a platform without the route, a transient error) says nothing: the
-// warning is advice, and the command behaves as it did before it existed.
-func readRunningAgentPresence(clusterID string) string {
+// runningAgentPresence. A 404 (a cluster with no agent record, a platform
+// without the route) is a confirmed answer of no agent and says nothing.
+// Any other failed read is not: it writes a note to errOut that whether an
+// agent would be cut off is not known, so a transient error is never
+// mistaken for an agent that is not running. Either way the command goes
+// on as it did before the warning existed.
+func readRunningAgentPresence(errOut io.Writer, clusterID, clusterName string) string {
 	agent, readError := apiClient.GetClusterAgent(clusterID)
 	if readError != nil {
+		var unexpected *client.UnexpectedResponseError
+		if errors.As(readError, &unexpected) && unexpected.StatusCode == http.StatusNotFound {
+			return ""
+		}
+		_, _ = fmt.Fprintf(errOut, "Could not read the Ankra agent of cluster '%s', so whether a running agent "+
+			"would be cut off is not known: %v\n", clusterName, readError)
 		return ""
 	}
 	return runningAgentPresence(agent)
@@ -233,11 +244,11 @@ func readRunningAgentPresence(clusterID string) string {
 // -o json|yaml stays parseable. --yes skips the question; a run with no
 // terminal and no --yes is refused, with nothing generated.
 func confirmAgentTokenRotation(cmd *cobra.Command, clusterID, clusterName string) error {
-	presence := readRunningAgentPresence(clusterID)
+	errOut := cmd.ErrOrStderr()
+	presence := readRunningAgentPresence(errOut, clusterID, clusterName)
 	if presence == "" {
 		return nil
 	}
-	errOut := cmd.ErrOrStderr()
 	_, _ = fmt.Fprintf(errOut, "The Ankra agent in cluster '%s' %s.\n", clusterName, presence)
 	_, _ = fmt.Fprintln(errOut, "A new token replaces the token that agent uses. Redeploy the agent with the new "+
 		"install command straight after; until then Ankra may refuse the running agent and the cluster shows as offline.")

@@ -88,12 +88,12 @@ var deleteClusterCmd = &cobra.Command{
 // keeps its credential, so it keeps calling Ankra and is refused until it is
 // uninstalled, and nothing else tells anyone (support ticket 1331: 13.7
 // days). It is printed with --force too, so a script's log carries it. An
-// agent that cannot be read is not mentioned.
+// agent with no record is not mentioned; one that cannot be read gets a note.
 func warnRunningAgentBeforeDelete(errOut io.Writer, name, clusterID string) {
 	if clusterID == "" {
 		return
 	}
-	presence := readRunningAgentPresence(clusterID)
+	presence := readRunningAgentPresence(errOut, clusterID, name)
 	if presence == "" {
 		return
 	}

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"os"
 	"strings"
@@ -162,7 +161,7 @@ func TestDeleteClusterWithForceStillPrintsTheAgentWarning(t *testing.T) {
 func TestDeleteClusterSaysNothingAboutAnAgentItCannotSeeRunning(t *testing.T) {
 	offline := false
 	for name, mock := range map[string]*agentCutOffMock{
-		"the agent read fails":   {agentError: errors.New("failed to get agent info: status 404")},
+		"no agent record":        {agentError: client.NewUnexpectedResponseError(404, "unexpected status: 404 Not Found")},
 		"the agent is long gone": {agent: &client.AgentInfo{IsOnline: &offline, CheckedInAt: checkInAgo(3 * time.Hour)}},
 	} {
 		_, stderr, runError := runDeleteClusterWithInput(t, mock, false, "y\n")
@@ -290,7 +289,7 @@ func TestAgentTokenGenerateJSONStaysClean(t *testing.T) {
 func TestAgentTokenGenerateDoesNotAskWhenNoAgentIsRunning(t *testing.T) {
 	offline := false
 	for name, mock := range map[string]*agentCutOffMock{
-		"the agent read fails":    {agentError: errors.New("failed to get agent info: status 404")},
+		"no agent record":         {agentError: client.NewUnexpectedResponseError(404, "unexpected status: 404 Not Found")},
 		"the agent never checked": {agent: &client.AgentInfo{IsOnline: &offline}},
 	} {
 		_, stderr, runError := runAgentTokenGenerate(t, mock, false, "")
@@ -300,5 +299,34 @@ func TestAgentTokenGenerateDoesNotAskWhenNoAgentIsRunning(t *testing.T) {
 		if strings.Contains(stderr, tokenRotationWarning) {
 			t.Fatalf("%s: no warning expected, got %q", name, stderr)
 		}
+	}
+}
+
+// A read that fails for any reason but a 404 is not an answer: both commands
+// say on stderr that whether an agent would be cut off is not known, then go
+// on as before (delete still asks; --generate does not add a question).
+func TestAnUnreadableAgentIsSaidToBeUnknownNotAbsent(t *testing.T) {
+	const unknown = "Could not read the Ankra agent of cluster "
+	readFailure := func() *agentCutOffMock {
+		return &agentCutOffMock{agentError: client.NewUnexpectedResponseError(502, "unexpected status: 502 Bad Gateway")}
+	}
+
+	deleteMock := readFailure()
+	_, deleteStderr, deleteError := runDeleteClusterWithInput(t, deleteMock, false, "y\n")
+	if deleteError != nil || deleteMock.deletes != 1 {
+		t.Fatalf("delete: want the delete after yes, got %v (%d deletes)", deleteError, deleteMock.deletes)
+	}
+	if !strings.Contains(deleteStderr, unknown+"'games', so whether a running agent would be cut off is not known") ||
+		!strings.Contains(deleteStderr, "Are you sure") {
+		t.Fatalf("delete: want the unknown note and the prompt, got %q", deleteStderr)
+	}
+
+	generateMock := readFailure()
+	stdout, generateStderr, generateError := runAgentTokenGenerate(t, generateMock, false, "")
+	if generateError != nil || generateMock.generations != 1 {
+		t.Fatalf("generate: want one generation, got %v (%d generations)", generateError, generateMock.generations)
+	}
+	if !strings.Contains(generateStderr, unknown+"'test-cluster'") || strings.Contains(stdout, unknown) {
+		t.Fatalf("generate: want the unknown note on stderr only; stdout %q, stderr %q", stdout, generateStderr)
 	}
 }
