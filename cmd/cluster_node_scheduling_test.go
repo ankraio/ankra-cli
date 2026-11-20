@@ -9,7 +9,6 @@ import (
 )
 
 type nodeSchedulingMock struct {
-	baseMock
 	patches      []client.PatchResourceRequest
 	deletes      []client.DeleteResourceRequest
 	pods         []interface{}

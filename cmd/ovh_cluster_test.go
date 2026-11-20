@@ -13,7 +13,6 @@ import (
 )
 
 type ovhStopMock struct {
-	baseMock
 	gotClusterID string
 }
 
@@ -42,7 +41,6 @@ func TestOvhStopCommand(t *testing.T) {
 }
 
 type ovhStartMock struct {
-	baseMock
 	gotClusterID string
 	gotScope     string
 }
@@ -73,7 +71,6 @@ func TestOvhStartCommandWithScope(t *testing.T) {
 }
 
 type ovhAccessInfoMock struct {
-	baseMock
 }
 
 func (m *ovhAccessInfoMock) GetOvhAccessInfo(clusterID string) (*client.ClusterAccessInfo, error) {
@@ -107,7 +104,6 @@ func TestOvhAccessInfoCommand(t *testing.T) {
 }
 
 type ovhSSHKeysMock struct {
-	baseMock
 	gotSetIDs []string
 }
 
@@ -155,7 +151,6 @@ func TestOvhSSHKeysSetCommand(t *testing.T) {
 }
 
 type ovhNodeGroupAddMock struct {
-	baseMock
 	gotRequest client.AddNodeGroupRequest
 }
 
@@ -236,7 +231,6 @@ func resetOvhNodeGroupFlags(t *testing.T) {
 }
 
 type ovhNodeGroupLabelsMock struct {
-	baseMock
 	called    bool
 	gotLabels map[string]string
 }
@@ -312,7 +306,6 @@ func TestOvhNodeGroupLabels_SetLabels(t *testing.T) {
 }
 
 type ovhNodeGroupTaintsMock struct {
-	baseMock
 	called    bool
 	gotTaints []client.NodeTaint
 }
@@ -388,7 +381,6 @@ func TestOvhNodeGroupTaints_SetTaints(t *testing.T) {
 }
 
 type ovhDeprovisionMock struct {
-	baseMock
 	called bool
 }
 
@@ -428,7 +420,6 @@ func TestOvhDeprovision_YesSkipsPrompt(t *testing.T) {
 }
 
 type ovhNodeGroupDeleteMock struct {
-	baseMock
 	called bool
 }
 
@@ -468,7 +459,6 @@ func TestOvhNodeGroupDelete_YesSkipsPrompt(t *testing.T) {
 }
 
 type ovhCreateZonesMock struct {
-	baseMock
 	gotRequest client.CreateOvhClusterRequest
 }
 
@@ -568,7 +558,6 @@ func TestOvhCreateSendsIncludeDNS(t *testing.T) {
 }
 
 type ovhNodeGroupZoneMock struct {
-	baseMock
 	gotRequest client.AddNodeGroupRequest
 }
 
@@ -596,7 +585,6 @@ func TestOvhNodeGroupAddSendsTheAvailabilityZone(t *testing.T) {
 }
 
 type ovhRegionsZonesMock struct {
-	baseMock
 	gotWithDetails bool
 }
 
@@ -633,7 +621,6 @@ func TestOvhRegionsWithZonesListsTheZoneNames(t *testing.T) {
 }
 
 type ovhRegionsNoDetailsMock struct {
-	baseMock
 }
 
 func (m *ovhRegionsNoDetailsMock) ListOvhRegions(_ string, _ bool) (*client.OvhRegionListResult, error) {

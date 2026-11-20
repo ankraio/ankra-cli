@@ -20,7 +20,6 @@ import (
 // the field selectors that scope an event listing, and the explicit
 // resource plural the metrics API needs - not only what was rendered.
 type debugVerbsMock struct {
-	baseMock
 	responses     map[string]client.ResourceResponseItem
 	requests      []client.ResourceRequestItem
 	skipCacheSeen []bool

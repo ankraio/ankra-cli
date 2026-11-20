@@ -10,7 +10,6 @@ import (
 )
 
 type stackProfileContentsMock struct {
-	baseMock
 	payload json.RawMessage
 	err     error
 }

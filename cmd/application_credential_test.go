@@ -10,7 +10,6 @@ import (
 )
 
 type applicationCredentialMock struct {
-	baseMock
 	payload json.RawMessage
 
 	getCalls      int

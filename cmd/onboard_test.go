@@ -81,7 +81,6 @@ func (platform *onboardFakePlatform) inits() []url.Values {
 
 // onboardMock is the platform API behind a signed-in onboard.
 type onboardMock struct {
-	baseMock
 	organisations  []client.OrganisationSummary
 	switchedTo     []string
 	override       string
@@ -143,7 +142,7 @@ var onboardFlagNames = []string{"json", "wait", "signup", "login", "new", "yes",
 
 // setUpOnboardTest isolates one onboard test: a temporary HOME with no
 // login, the mock as the API client, no terminal, no agent, and fast polls.
-func setUpOnboardTest(t *testing.T, mock APIClient) string {
+func setUpOnboardTest(t *testing.T, mock any) string {
 	t.Helper()
 	withFreshViperAndEnv(t)
 	home := withTempHome(t)
@@ -163,7 +162,7 @@ func setUpOnboardTest(t *testing.T, mock APIClient) string {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 	})
-	apiClient = mock
+	apiClient = adaptMockClient(mock)
 	onboardIsTerminal = func(any) bool { return false }
 	onboardAgentName = func() string { return "" }
 	onboardChoose = func(io.Reader, io.Writer, string, []string, int) (int, error) {

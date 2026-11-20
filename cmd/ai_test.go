@@ -13,7 +13,6 @@ import (
 )
 
 type aiSettingsMock struct {
-	baseMock
 	status             *client.AIProviderStatus
 	models             []client.AICatalogModel
 	endpoints          []client.AIEndpoint

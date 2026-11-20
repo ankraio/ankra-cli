@@ -41,12 +41,12 @@ func useTestClient(t *testing.T, serverURL string) {
 	previousClient := apiClient
 	previousToken := apiToken
 	previousBaseURL := baseURL
-	apiClient = client.New("test-token", serverURL)
+	apiClient = adaptMockClient(client.New("test-token", serverURL))
 	apiToken = "test-token"
 	baseURL = serverURL
 	t.Setenv("ANKRA_API_TOKEN", "test-token")
 	t.Cleanup(func() {
-		apiClient = previousClient
+		apiClient = adaptMockClient(previousClient)
 		apiToken = previousToken
 		baseURL = previousBaseURL
 	})

@@ -36,11 +36,11 @@ func shortenPipelineRunWait(t *testing.T, appearBound time.Duration) {
 // kept apart, for the tests that pin that stdout carries nothing but the
 // command's own output. Usage is silenced as the root command silences it,
 // so a refused invocation does not write its usage text onto stdout.
-func runPipelineCommandSeparately(t *testing.T, mockClient APIClient, arguments ...string) (string, string, error) {
+func runPipelineCommandSeparately(t *testing.T, mockClient any, arguments ...string) (string, string, error) {
 	t.Helper()
 	previousClient := apiClient
-	apiClient = mockClient
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mockClient)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	pipelineCommand := newPipelineCommand()
 	pipelineCommand.SilenceUsage = true

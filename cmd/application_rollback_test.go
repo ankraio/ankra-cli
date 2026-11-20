@@ -10,7 +10,6 @@ import (
 )
 
 type applicationRollbackMock struct {
-	baseMock
 	targets        string
 	targetClusters []string
 	history        string

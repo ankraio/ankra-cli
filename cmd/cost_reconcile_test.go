@@ -10,7 +10,6 @@ import (
 )
 
 type costReconcileMock struct {
-	baseMock
 	reconciliation *client.CostReconciliation
 	readError      error
 	months         []string
@@ -24,7 +23,7 @@ func (m *costReconcileMock) GetCostReconciliation(month string) (*client.CostRec
 	return m.reconciliation, nil
 }
 
-func runCostReconcileCommand(t *testing.T, mock APIClient, args ...string) (string, error) {
+func runCostReconcileCommand(t *testing.T, mock any, args ...string) (string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)

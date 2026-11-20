@@ -9,7 +9,6 @@ import (
 )
 
 type applicationTimelineMock struct {
-	baseMock
 	timeline      string
 	timelineQuery url.Values
 	launchPlan    string

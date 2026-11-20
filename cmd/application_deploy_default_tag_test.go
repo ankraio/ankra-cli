@@ -15,7 +15,6 @@ const testTagNotRecordedRefusal = "Ankra has not recorded the tag of a published
 	"yet, so a deploy without image_tag has no image to run."
 
 type deployDefaultTagMock struct {
-	baseMock
 	refuseFirstDeploy bool
 	refuseRetry       bool
 	deployRequests    []client.DeployApplicationRequest

@@ -15,8 +15,6 @@ const editedDraftID = "7a7a7a7a-7a7a-7a7a-7a7a-7a7a7a7a7a7a"
 // deployedDraftMock answers the three calls the deployed-stack deploy makes:
 // the listing (before and after), the draft read, and the promote.
 type deployedDraftMock struct {
-	baseMock
-
 	listings        [][]client.ClusterStackDocument
 	listCalls       int
 	listError       error
@@ -82,7 +80,7 @@ func editedDraftRead(t *testing.T) client.ClusterStackDocument {
 		"manifests":[{"name":"api","manifest_base64":"a2luZDogQ29uZmlnTWFw","state":"creating"}]}`)
 }
 
-func runDeployDraftCommand(t *testing.T, mock APIClient, arguments ...string) (string, error) {
+func runDeployDraftCommand(t *testing.T, mock any, arguments ...string) (string, error) {
 	t.Helper()
 	writeSelectedClusterJSON(t)
 	setMockClient(t, mock)

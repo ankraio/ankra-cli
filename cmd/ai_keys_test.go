@@ -16,7 +16,6 @@ import (
 )
 
 type aiKeysMock struct {
-	baseMock
 	listing      *client.PersonalAIKeyListing
 	added        *client.AddPersonalAIKeyRequest
 	addCalls     int

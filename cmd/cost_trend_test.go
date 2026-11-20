@@ -12,7 +12,6 @@ import (
 )
 
 type costTrendMock struct {
-	baseMock
 	trend       *client.FleetCostTrend
 	trendError  error
 	events      *client.CostEvents
@@ -37,7 +36,7 @@ func (m *costTrendMock) GetCostEvents(days int) (*client.CostEvents, error) {
 	return m.events, nil
 }
 
-func runCostTrendCommand(t *testing.T, mock APIClient, args ...string) (string, error) {
+func runCostTrendCommand(t *testing.T, mock any, args ...string) (string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)

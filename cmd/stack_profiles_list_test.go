@@ -16,7 +16,6 @@ import (
 
 // profileListingMock answers one page of a larger catalogue.
 type profileListingMock struct {
-	baseMock
 	response *client.StackProfileListResponse
 }
 
@@ -36,8 +35,8 @@ func runProfilesList(t *testing.T, page int, pageSize int, response *client.Stac
 func runProfilesListAs(t *testing.T, format string, page int, pageSize int, response *client.StackProfileListResponse) string {
 	t.Helper()
 	previousClient := apiClient
-	apiClient = &profileListingMock{response: response}
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(&profileListingMock{response: response})
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	// executeCommand leaves rootCmd's writers pointing at its own buffer and
 	// never restores them, and OutOrStdout walks to the parent - so without

@@ -11,7 +11,6 @@ import (
 )
 
 type aiMemoriesMock struct {
-	baseMock
 	memories   []client.AIMemory
 	deleted    int
 	routeError error
@@ -35,7 +34,7 @@ func (mock *aiMemoriesMock) ClearAIMemories() (int, error) {
 	return mock.deleted, nil
 }
 
-func runAIMemoriesCommand(t *testing.T, mock APIClient, stdin string, args ...string) (string, error) {
+func runAIMemoriesCommand(t *testing.T, mock any, stdin string, args ...string) (string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)

@@ -11,14 +11,10 @@
 # Test JSON/coverage are retained as Ankra artifacts. Release, docs-sync and
 # lifecycle workflows have separate purposes and remain in place.
 #
-# Why this needs a large node: ankra/cmd is one package, and both lint (the
-# type-check behind `go list -export`) and the race+coverage test compile
-# build its test variant in a single compile process. Its test mocks embed a
-# stub of the whole API client interface, so the compiler generates a wrapper
-# per method per mock, and that compile peaks above 15 GB cold. A GitHub
-# hosted runner has 16 GB. Here lint and test each get 20Gi on a
-# `ci-class: large` node, and debug info is not generated (nothing here reads
-# it), which takes the peak to about 13 GB.
+# Keep the existing20Gi/large-node policy for this delivery. The single test
+# adapter removes the dominant promoted-wrapper growth; cold command tests and
+# full lint now pass in a4Gi main container. Any future native-CI right-sizing
+# needs its own measurements and protected-authority review.
 #
 # Each stage gets its own workspace, restored from its dependencies through
 # Ankra's artifact vault, so a small checkout cannot pin a later 20Gi stage
@@ -73,7 +69,7 @@ defaults:
     GIT_CONFIG_KEY_0: "safe.directory"
     GIT_CONFIG_VALUE_0: "/workspace"
     # No DWARF: lint reads export data and race reports and coverage use the
-    # runtime's own line tables. It is the largest saving on the cmd compile.
+    # runtime's own line tables. Keep this existing saving alongside the adapter.
     GOFLAGS: "-buildvcs=false -gcflags=all=-dwarf=false"
     # Only a push to master writes the Go caches; every other run reads
     # master's and saves nothing.
@@ -133,7 +129,7 @@ stages:
           ;;
         *)
           if [ "$limit" -lt $((MINIMUM_MEMORY_GIB * 1024 * 1024 * 1024)) ]; then
-            echo "FAILED: compiling ankra/cmd's tests needs at least ${MINIMUM_MEMORY_GIB} GiB but this container has $((limit / 1024 / 1024)) MiB."
+            echo "FAILED: this pipeline requires at least ${MINIMUM_MEMORY_GIB} GiB but this container has $((limit / 1024 / 1024)) MiB."
             echo "This run's resources come from a pipeline definition that does not grant them: an administrator approves master's current one (ankra pipeline definitions approve <id>), then rerun."
             exit 1
           fi
@@ -186,6 +182,7 @@ stages:
       status=0
       echo "--- make verify-skills"
       make verify-skills || status=1
+      go run ./tools/genmockadapter -check || status=1
       echo "--- go build ./..."
       go build -o /dev/null ./... || status=1
       # install.sh is what `curl -fsSL https://ankra.ai/install | sh` runs;
@@ -236,7 +233,7 @@ stages:
           ;;
         *)
           if [ "$limit" -lt $((MINIMUM_MEMORY_GIB * 1024 * 1024 * 1024)) ]; then
-            echo "FAILED: compiling ankra/cmd's tests needs at least ${MINIMUM_MEMORY_GIB} GiB but this container has $((limit / 1024 / 1024)) MiB."
+            echo "FAILED: this pipeline requires at least ${MINIMUM_MEMORY_GIB} GiB but this container has $((limit / 1024 / 1024)) MiB."
             echo "This run's resources come from a pipeline definition that does not grant them: an administrator approves master's current one (ankra pipeline definitions approve <id>), then rerun."
             exit 1
           fi

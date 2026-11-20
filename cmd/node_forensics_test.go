@@ -16,7 +16,6 @@ import (
 )
 
 type nodeConsoleLogMock struct {
-	baseMock
 	result *client.NodeConsoleLogResult
 	err    error
 	calls  []string

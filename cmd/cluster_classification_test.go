@@ -138,7 +138,6 @@ func TestHetznerCreateRefusesAnUnknownCriticalityBeforeCreating(t *testing.T) {
 }
 
 type scalewayClassificationMock struct {
-	baseMock
 	createCalled    bool
 	preflightCalled bool
 	gotRequest      client.CreateScalewayClusterRequest

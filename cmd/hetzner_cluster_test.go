@@ -14,7 +14,6 @@ import (
 )
 
 type hetznerCreateMock struct {
-	baseMock
 	called     bool
 	gotRequest client.CreateHetznerClusterRequest
 }
@@ -67,7 +66,6 @@ func TestHetznerCreateSendsIncludeDNS(t *testing.T) {
 }
 
 type hetznerDeprovisionMock struct {
-	baseMock
 	called       bool
 	gotClusterID string
 	gotForce     bool
@@ -81,7 +79,6 @@ func (m *hetznerDeprovisionMock) DeprovisionHetznerCluster(clusterID string, opt
 }
 
 type hetznerNodeGroupDeleteMock struct {
-	baseMock
 	called       bool
 	gotClusterID string
 	gotGroupName string
@@ -111,7 +108,7 @@ func resetConfirmFlag(t *testing.T, commands ...*cobra.Command) {
 	t.Cleanup(reset)
 }
 
-func runWithInput(t *testing.T, mock APIClient, input string, args ...string) (string, error) {
+func runWithInput(t *testing.T, mock any, input string, args ...string) (string, error) {
 	t.Helper()
 	setMockClient(t, mock)
 	out := &strings.Builder{}
@@ -211,7 +208,6 @@ func TestHetznerCreatePrintsResolvedServerTypes(t *testing.T) {
 }
 
 type hetznerCreateServerTypesMock struct {
-	baseMock
 	gotRequest client.CreateHetznerClusterRequest
 }
 

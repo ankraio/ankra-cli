@@ -20,7 +20,6 @@ import (
 // stackProfileManageMock records the owner-lifecycle calls the new commands
 // make and answers each with a fixed payload.
 type stackProfileManageMock struct {
-	baseMock
 	payload  json.RawMessage
 	versions map[int]json.RawMessage
 
@@ -222,7 +221,7 @@ func resetStackProfileCommandFlags(t *testing.T, commands ...*cobra.Command) {
 	}
 }
 
-func runStackProfilesCommand(t *testing.T, mock APIClient, input string, arguments ...string) (string, error) {
+func runStackProfilesCommand(t *testing.T, mock any, input string, arguments ...string) (string, error) {
 	t.Helper()
 	setMockClient(t, mock)
 	var output bytes.Buffer

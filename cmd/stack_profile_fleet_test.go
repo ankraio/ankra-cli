@@ -26,7 +26,6 @@ spec:
 `
 
 type rolloutMock struct {
-	baseMock
 	deployments    string
 	exportDocument string
 	exportVersion  int
