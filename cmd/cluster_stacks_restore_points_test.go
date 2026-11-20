@@ -982,6 +982,53 @@ func TestRestorePointsDeleteReportsRetainedObjects(t *testing.T) {
 	}
 }
 
+// The platform's reason can be a sentence with its own full stop; the line that
+// carries it must not end the reason twice.
+func TestRestorePointsDeleteEndsARetainedObjectsSentenceOnce(t *testing.T) {
+	mock := newBackupLaneMock()
+	mock.deleteResult = &client.DeleteRestorePointResult{
+		RestorePointID: backupTestRestorePointID, Status: client.RestorePointStatusDeleted,
+		ObjectsRetainedReason: "The archive is shared by every restore point of the database, so it is left to its own retention. ",
+	}
+
+	output, executeError := runBackupCommand(t, mock, "",
+		[]*cobra.Command{clusterStacksRestorePointsDeleteCmd},
+		"cluster", "stacks", "restore-points", "delete", backupTestStack, backupTestRestorePointID,
+		"--cluster", "demo", "--yes")
+
+	if executeError != nil {
+		t.Fatalf("deleting a restore point: %v", executeError)
+	}
+	if !strings.Contains(output, "left to its own retention. Remove them yourself") {
+		t.Fatalf("the reason must end with one full stop before the next sentence, got:\n%s", output)
+	}
+	if strings.Contains(output, "..") {
+		t.Fatalf("the output must not carry a double full stop, got:\n%s", output)
+	}
+}
+
+// Only the reason's own closing full stop is taken off: a reason that ends in
+// an ellipsis reads with its three dots, not with one.
+func TestRestorePointsDeleteKeepsAnEllipsisThatEndsTheRetainedObjectsReason(t *testing.T) {
+	mock := newBackupLaneMock()
+	mock.deleteResult = &client.DeleteRestorePointResult{
+		RestorePointID: backupTestRestorePointID, Status: client.RestorePointStatusDeleted,
+		ObjectsRetainedReason: "the vault is still being verified...",
+	}
+
+	output, executeError := runBackupCommand(t, mock, "",
+		[]*cobra.Command{clusterStacksRestorePointsDeleteCmd},
+		"cluster", "stacks", "restore-points", "delete", backupTestStack, backupTestRestorePointID,
+		"--cluster", "demo", "--yes")
+
+	if executeError != nil {
+		t.Fatalf("deleting a restore point: %v", executeError)
+	}
+	if !strings.Contains(output, "the vault is still being verified... Remove them yourself") {
+		t.Fatalf("the reason's ellipsis must be kept and the sentence ended once, got:\n%s", output)
+	}
+}
+
 func TestRestorePointsRestorePrintsTheSequenceAndSendsTheTypedConfirmation(t *testing.T) {
 	restorePoint := sampleRestorePoint()
 	mock := newBackupLaneMock()

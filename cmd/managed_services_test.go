@@ -125,6 +125,78 @@ type fakeServicesPlatform struct {
 	disconnectionNetworkReason   string
 	disconnections               map[string]map[string]any
 	disconnectionPrepares        int
+	// The lane that creates a service from another service's backups
+	// (managed_services_source_test.go). A prepare that names a source
+	// answers a plan that carries it and no consumers. sourceIgnored answers
+	// the plan of a platform from before that, which drops the request
+	// fields. sourcePlanInstanceID replaces the source the plan names, and
+	// sourcePlanMoment the moment it carries (an empty string sends none).
+	// reviewHasSource makes the stored review read as one created from the
+	// fake instance, with no destinations.
+	sourceIgnored        bool
+	sourcePlanInstanceID string
+	sourcePlanMoment     *string
+	reviewHasSource      bool
+	// A prepare that names a backup vault answers a plan that names it, and
+	// one that names a source and no vault answers the vault that holds the
+	// source's backups (fakeServiceArchiveVault). vaultIgnored answers the
+	// plan of a platform from before a setup could name its vault, and
+	// planVaultName replaces the vault the plan names.
+	vaultIgnored  bool
+	planVaultName string
+	// connectConflict makes connecting an application answer the platform's
+	// 409 for a service that changed since it was read.
+	connectConflict bool
+}
+
+// fakeServiceSourceStatement is the sentence a plan carries for a service
+// created from another service's backups.
+const fakeServiceSourceStatement = "This service is created from the archive of the service orders-db. The service orders-db is not changed."
+
+// fakeServiceArchiveVault is the vault that holds the fake source's backups.
+const fakeServiceArchiveVault = "archive-backups"
+
+// planBackupVault is the backup vault of a prepared plan, as the platform
+// resolves it: the vault the request named, or the one that holds the
+// source's backups, each with its statement. Nil when the plan names none.
+func (platform *fakeServicesPlatform) planBackupVault(prepared client.ServiceReviewRequest) map[string]any {
+	if platform.vaultIgnored {
+		return nil
+	}
+	name := prepared.BackupVault
+	hasSource := prepared.SourceInstanceID != "" && !platform.sourceIgnored
+	if name == "" && hasSource {
+		name = fakeServiceArchiveVault
+	}
+	if name == "" {
+		return nil
+	}
+	if platform.planVaultName != "" {
+		name = platform.planVaultName
+	}
+	statement := "This service is backed up into the backup vault " + name + "."
+	if hasSource {
+		statement = "This service is backed up into the backup vault " + name + ", which holds the archive of the service orders-db."
+	}
+	return map[string]any{"name": name, "statement": statement}
+}
+
+// planSource is the source of a plan prepared with one, as the platform
+// resolves it: the instance and its name, the moment when one was named, and
+// the statement.
+func (platform *fakeServicesPlatform) planSource(prepared client.ServiceReviewRequest) map[string]any {
+	source := map[string]any{"instance_id": prepared.SourceInstanceID, "instance_name": "orders-db", "statement": fakeServiceSourceStatement}
+	if platform.sourcePlanInstanceID != "" {
+		source["instance_id"] = platform.sourcePlanInstanceID
+	}
+	moment := prepared.SourceMoment
+	if platform.sourcePlanMoment != nil {
+		moment = *platform.sourcePlanMoment
+	}
+	if moment != "" {
+		source["moment"] = moment
+	}
+	return source
 }
 
 // instance is the fake instance as this platform answers it.
@@ -351,15 +423,35 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"cluster_id": fakeServiceClusterID, "region": "eu-north-1",
 			"data_boundary": "eu", "local_only": false, "revision": 3, "source": "organisation_declared", "updated_at": "2026-10-01T00:00:00Z"})
 	case request.Method == http.MethodPost && path == admission+"/reviews":
-		fakeServiceJSON(t, writer, http.StatusOK, fakeServiceReview(false))
+		review := fakeServiceReview(false)
+		var prepared client.ServiceReviewRequest
+		_ = json.Unmarshal(bodyBytes, &prepared)
+		if prepared.SourceInstanceID != "" && !platform.sourceIgnored {
+			plan := review["plan"].(map[string]any)
+			plan["consumers"] = []any{}
+			plan["source"] = platform.planSource(prepared)
+		}
+		if vault := platform.planBackupVault(prepared); vault != nil {
+			review["plan"].(map[string]any)["backup_vault"] = vault
+		}
+		fakeServiceJSON(t, writer, http.StatusOK, review)
 	case request.Method == http.MethodGet && path == admission+"/reviews/"+fakeServiceReviewID:
-		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"id": fakeServiceReviewID, "package_version_id": fakeServicePackageID,
+		summary := map[string]any{"id": fakeServiceReviewID, "package_version_id": fakeServicePackageID,
 			"cluster_id": fakeServiceClusterID, "name": "orders-db", "region": "eu-north-1", "data_boundary": "eu",
 			"digest": fakeServiceReviewDigest, "mode": "customer", "parameters": map[string]any{"instances": 1},
 			"secret_inputs": []any{}, "destinations": []any{map[string]any{"application_id": fakeServiceApplication,
 				"cluster_id": fakeServiceClusterID, "namespace": "orders"}},
 			"state": "pending", "created_at": "2026-10-02T09:00:00Z", "expires_at": "2026-10-02T09:10:00Z",
-			"execution_id": nil, "confirmed_at": nil})
+			"execution_id": nil, "confirmed_at": nil}
+		if platform.reviewHasSource {
+			summary["destinations"] = []any{}
+			summary["source"] = map[string]any{"instance_id": fakeServiceInstanceID, "instance_name": "orders-db",
+				"moment": "2026-11-18T09:30:00Z", "statement": fakeServiceSourceStatement}
+			summary["backup_vault"] = map[string]any{"name": fakeServiceArchiveVault,
+				"statement": "This service is backed up into the backup vault " + fakeServiceArchiveVault +
+					", which holds the archive of the service orders-db."}
+		}
+		fakeServiceJSON(t, writer, http.StatusOK, summary)
 	case request.Method == http.MethodPost && path == admission+"/reviews/"+fakeServiceReviewID+"/confirm":
 		var body struct{ Digest string }
 		_ = json.Unmarshal(bodyBytes, &body)
@@ -441,6 +533,12 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 			instance["disconnections"] = platform.instanceDisconnections
 		}
 		fakeServiceJSON(t, writer, http.StatusOK, instance)
+	case request.Method == http.MethodPost && path == instancePath+"/consumers":
+		if platform.connectConflict {
+			fakeServiceJSON(t, writer, http.StatusConflict, map[string]any{"detail": "Service configuration changed; refresh and review again"})
+			return
+		}
+		fakeServiceJSON(t, writer, http.StatusOK, platform.instance())
 	case request.Method == http.MethodPost && path == instancePath+"/disconnections":
 		platform.servePrepareDisconnection(writer, bodyBytes)
 	case request.Method == http.MethodPost && strings.HasPrefix(path, instancePath+"/disconnections/") && strings.HasSuffix(path, "/confirm"):
@@ -633,7 +731,7 @@ func runServicesCommand(t *testing.T, platform *fakeServicesPlatform, input stri
 
 func TestServicesCommandsRegistered(t *testing.T) {
 	expected := map[string][]string{
-		"":            {"list", "get", "setup", "delete", "disconnect", "packages", "policy", "consumers", "reviews", "retirements"},
+		"":            {"list", "get", "setup", "delete", "connect", "disconnect", "packages", "policy", "consumers", "reviews", "retirements"},
 		"packages":    {"list", "get", "init", "publish", "propose", "probe", "collisions"},
 		"policy":      {"get", "set"},
 		"consumers":   {"list", "get", "bind", "unbind"},
@@ -1672,6 +1770,23 @@ func TestResolveServiceInstanceRefusesAnAmbiguousName(t *testing.T) {
 	_, resolveError := resolveServiceInstance(command, "orders-db")
 	if resolveError == nil || exitCodeFor(resolveError) != exitUsage || !strings.Contains(resolveError.Error(), "--cluster") {
 		t.Fatalf("expected an ambiguity refusal naming --cluster, got %v", resolveError)
+	}
+}
+
+// A command that names no service says so before --cluster is read, so a
+// cluster that does not resolve never hides the missing name.
+func TestResolveServiceInstanceRefusesABlankReferenceBeforeReadingTheCluster(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	previousClient := apiClient
+	apiClient = platform.client()
+	t.Cleanup(func() { apiClient = previousClient })
+	command := newServicesGetCommand()
+	if flagError := command.Flags().Set("cluster", "no-such-cluster"); flagError != nil {
+		t.Fatal(flagError)
+	}
+	_, resolveError := resolveServiceInstance(command, "  ")
+	if resolveError == nil || exitCodeFor(resolveError) != exitUsage || !strings.Contains(resolveError.Error(), "a service name or id is required") {
+		t.Fatalf("expected the blank reference refused before the cluster is read, got %v", resolveError)
 	}
 }
 

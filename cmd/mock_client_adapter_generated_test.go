@@ -658,6 +658,14 @@ func (m mockClientAdapter) ConnectPipelineRepository(a0 context.Context, a1 clie
 	}
 	return baseMock{}.ConnectPipelineRepository(a0, a1)
 }
+func (m mockClientAdapter) ConnectServiceConsumer(a0 context.Context, a1 string, a2 client.ServiceInstanceConsumerRequest) (*client.ServiceInstance, error) {
+	if target, ok := m.target.(interface {
+		ConnectServiceConsumer(a0 context.Context, a1 string, a2 client.ServiceInstanceConsumerRequest) (*client.ServiceInstance, error)
+	}); ok {
+		return target.ConnectServiceConsumer(a0, a1, a2)
+	}
+	return baseMock{}.ConnectServiceConsumer(a0, a1, a2)
+}
 func (m mockClientAdapter) ControlAITask(a0 context.Context, a1 string, a2 string) (json.RawMessage, error) {
 	if target, ok := m.target.(interface {
 		ControlAITask(a0 context.Context, a1 string, a2 string) (json.RawMessage, error)

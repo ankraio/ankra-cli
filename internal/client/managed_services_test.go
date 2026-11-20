@@ -329,3 +329,59 @@ func TestUnbindServiceConsumerLane(t *testing.T) {
 		t.Fatalf("got %+v, want %+v", calls, want)
 	}
 }
+
+// A review prepared from another service's backups carries the source, the
+// moment and the backup vault beside the fields every review sends, with an
+// empty consumer list, and connecting an application posts the binding and the generation
+// to the instance's consumers.
+func TestManagedServicesSourceAndConnectLaneParity(t *testing.T) {
+	var calls []recordedServiceCall
+	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		bodyBytes, _ := io.ReadAll(request.Body)
+		calls = append(calls, recordedServiceCall{request.Method, request.URL.Path, request.URL.RawQuery, string(bodyBytes)})
+		jsonResponse(t, writer, http.StatusOK, map[string]any{"id": testServiceInstanceID})
+	})
+	ctx := context.Background()
+	if _, prepareError := client.PrepareServiceReview(ctx, ServiceReviewRequest{PackageVersionID: "a5e62beb-cbe7-4340-9986-635e09cf086e",
+		Name: "orders-db-copy", Mode: "customer", Region: "eu-north-1", DataBoundary: "eu", ClusterID: testServiceClusterID,
+		SourceInstanceID: testServiceInstanceID, SourceMoment: "2026-11-18T09:30:00Z", BackupVault: "production-backups"}); prepareError != nil {
+		t.Fatal(prepareError)
+	}
+	if _, connectError := client.ConnectServiceConsumer(ctx, testServiceInstanceID,
+		ServiceInstanceConsumerRequest{ConsumerID: "0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f", ExpectedGeneration: 2}); connectError != nil {
+		t.Fatal(connectError)
+	}
+	admission := "/api/v1/org/service-admission"
+	expected := []recordedServiceCall{
+		{http.MethodPost, admission + "/reviews", "",
+			`{"package_version_id":"a5e62beb-cbe7-4340-9986-635e09cf086e","name":"orders-db-copy","mode":"customer",` +
+				`"region":"eu-north-1","data_boundary":"eu","cluster_id":"` + testServiceClusterID +
+				`","consumer_ids":[],"parameters":{},"secret_references":{},"source_instance_id":"` + testServiceInstanceID +
+				`","source_moment":"2026-11-18T09:30:00Z","backup_vault":"production-backups"}`},
+		{http.MethodPost, admission + "/instances/" + testServiceInstanceID + "/consumers", "",
+			`{"consumer_id":"0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f","expected_generation":2}`},
+	}
+	if len(calls) != len(expected) {
+		t.Fatalf("expected %d calls, got %d: %+v", len(expected), len(calls), calls)
+	}
+	for index, call := range calls {
+		if call != expected[index] {
+			t.Errorf("call %d = %+v, want %+v", index, call, expected[index])
+		}
+	}
+
+	// Neither a binding nor a generation is guessed: a connect without one
+	// is refused before a request is sent.
+	before := len(calls)
+	if _, connectError := client.ConnectServiceConsumer(ctx, testServiceInstanceID,
+		ServiceInstanceConsumerRequest{ConsumerID: "0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f"}); connectError == nil {
+		t.Error("a connect without the service's generation was sent")
+	}
+	if _, connectError := client.ConnectServiceConsumer(ctx, testServiceInstanceID,
+		ServiceInstanceConsumerRequest{ExpectedGeneration: 2}); connectError == nil {
+		t.Error("a connect without a binding was sent")
+	}
+	if len(calls) != before {
+		t.Errorf("a refused connect reached the platform: %+v", calls[before:])
+	}
+}

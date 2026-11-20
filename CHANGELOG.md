@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+- **Create a PostgreSQL service from another one's backups: `ankra services setup <name> --from <service>`.** The new service starts with the other service's data as of `--at`, a time in RFC 3339, or as of the newest point its backups reach when `--at` is left out. The other service is not changed, and it can be retired or on a cluster that no longer exists as long as its backups are kept. The review names the source and the moment before anything is set up, and the platform refuses a moment outside the window it can confirm from the backups. The new service starts with no applications, so `--consumer` is refused with `--from`. `ankra services reviews get` and `confirm` show the source of a stored review when the platform reports it. Against a platform that cannot do this yet, the command stops with exit 8 and sets nothing up, where confirming would have created an empty service. Needs a platform release that creates a service from another service's backups.
+- **Name the backup vault a service is backed up into: `ankra services setup --backup-vault <name>`.** An organisation with more than one verified backup vault got its PostgreSQL service without backups, because the platform does not choose between vaults. `--backup-vault` takes the vault's name from `ankra backup vaults list`. The review names the vault before anything is set up, and `ankra services reviews get` and `confirm` show it when the platform reports it. A service created with `--from` is always backed up into the vault that holds the other service's backups, so there the flag is accepted only when it names that vault. Against a platform that cannot name a vault yet, the command stops with exit 8 and sets nothing up. Needs a platform release that serves it.
+- **Connect one more application to a service that already runs: `ankra services connect <service> --consumer <id>`.** Until now an application could only be connected when the service was set up. `--consumer` is the binding of the application's namespace from `ankra services consumers bind`, on the service's own cluster. The service is not redeployed and nothing restarts: the application receives the connection as every other consumer does, and `ankra services get` shows its pickup. `-o json|yaml` prints the service as it reads afterwards. A retired service is refused with exit 8 before anything is sent.
+
+### Fixed
+
+- **`ankra cluster stacks restore-points delete` ends its sentence once.** When the objects of a deleted restore point stay in the bucket, the line that says why no longer ends the platform's reason with two full stops.
+
 ## v0.82.0 - 2026-11-20
 
 Keep the searches saved for an application's Logs page from the terminal with

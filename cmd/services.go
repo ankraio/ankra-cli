@@ -1320,6 +1320,7 @@ type APIClient interface {
 	ListServiceInstances(ctx context.Context, options client.ServiceInstanceListOptions) (*client.ServiceInstancePage, error)
 	GetOrganisationUsage(ctx context.Context, options client.UsageOptions) (*client.UsageReport, error)
 	GetServiceInstance(ctx context.Context, instanceID string) (*client.ServiceInstance, error)
+	ConnectServiceConsumer(ctx context.Context, instanceID string, request client.ServiceInstanceConsumerRequest) (*client.ServiceInstance, error)
 	PrepareServiceRetirement(ctx context.Context, instanceID string, request client.ServiceRetirementRequest) (*client.ServiceRetirement, error)
 	ListServiceRetirements(ctx context.Context, instanceID string, options client.ServiceRetirementListOptions) (*client.ServiceRetirementPage, error)
 	GetServiceRetirement(ctx context.Context, instanceID string, retirementID string) (*client.ServiceRetirement, error)
