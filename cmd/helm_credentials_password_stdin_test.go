@@ -7,7 +7,6 @@ import (
 )
 
 type helmCredentialPasswordMock struct {
-	baseMock
 	createRequests []client.CreateHelmCredentialRequest
 	updateRequests []client.UpdateHelmCredentialRequest
 }

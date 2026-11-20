@@ -7,7 +7,6 @@ import (
 )
 
 type morpheusCreateMock struct {
-	baseMock
 	called     bool
 	gotRequest client.CreateMorpheusClusterRequest
 }
@@ -19,7 +18,6 @@ func (m *morpheusCreateMock) CreateMorpheusCluster(request client.CreateMorpheus
 }
 
 type morpheusGroupsMock struct {
-	baseMock
 	called          bool
 	gotCredentialID string
 }

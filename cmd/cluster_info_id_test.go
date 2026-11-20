@@ -11,7 +11,6 @@ import (
 )
 
 type clusterInfoByIDMock struct {
-	baseMock
 	cluster     client.ClusterListItem
 	idLookups   []string
 	nameLookups []string

@@ -10,7 +10,6 @@ import (
 )
 
 type agentUpgradeMock struct {
-	baseMock
 	requests     []client.AgentUpgradeRequest
 	upgradeError error
 }
@@ -27,7 +26,7 @@ func (mock *agentUpgradeMock) UpgradeClusterAgent(_ context.Context, _ string,
 // runAgentUpgradeCommand runs `ankra cluster agent upgrade` and puts the
 // command's flags back afterwards: cobra keeps flag values on the package
 // level command between executions.
-func runAgentUpgradeCommand(t *testing.T, mock APIClient, arguments ...string) (string, error) {
+func runAgentUpgradeCommand(t *testing.T, mock any, arguments ...string) (string, error) {
 	t.Helper()
 	writeSelectedClusterJSON(t)
 	setMockClient(t, mock)

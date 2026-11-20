@@ -27,8 +27,6 @@ func resetCanvasFlags(t *testing.T) {
 }
 
 type canvasMock struct {
-	baseMock
-
 	publishRequests []client.CanvasPublicationRequest
 	publishResult   *client.CanvasPublicationResult
 	publishError    error
@@ -67,7 +65,7 @@ func newCanvasPublished(created bool) *client.CanvasPublicationResult {
 	}
 }
 
-func runCanvas(t *testing.T, mock APIClient, args ...string) (string, error) {
+func runCanvas(t *testing.T, mock any, args ...string) (string, error) {
 	t.Helper()
 	setMockClient(t, mock)
 	resetCanvasFlags(t)

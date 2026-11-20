@@ -31,7 +31,6 @@ const (
 )
 
 type secretsMock struct {
-	baseMock
 	slots []client.SecretSlot
 	// relisted, when set, is what every listing after the first answers:
 	// the organisation as it stands once a resource started referencing a

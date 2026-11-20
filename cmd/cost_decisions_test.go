@@ -16,7 +16,6 @@ import (
 )
 
 type costDecisionsMock struct {
-	baseMock
 	listing        *client.DecisionProposalList
 	listError      error
 	filters        []client.DecisionListFilter
@@ -116,7 +115,7 @@ func (m *costDecisionsMock) ListClusters(int, int) (*client.ClusterListResponse,
 
 // runCostDecisionsCommand runs the command with stdin, returning stdout and
 // stderr apart so a test can tell the parseable output from the prompt.
-func runCostDecisionsCommand(t *testing.T, mock APIClient, input string, args ...string) (string, string, error) {
+func runCostDecisionsCommand(t *testing.T, mock any, input string, args ...string) (string, string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)

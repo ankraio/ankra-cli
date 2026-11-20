@@ -17,8 +17,6 @@ import (
 // deleteGuardMock answers the kind lookup `ankra delete cluster` makes before
 // the generic DELETE, and records whether that DELETE was ever sent.
 type deleteGuardMock struct {
-	baseMock
-
 	cluster     client.ClusterListItem
 	lookupError error
 	deletes     int
@@ -188,8 +186,6 @@ func TestDeleteClusterDeclinedSendsNothing(t *testing.T) {
 // deprovisionGuardMock answers the kind lookups `ankra cluster deprovision`
 // makes and counts every deprovision it is asked for, generic or provider.
 type deprovisionGuardMock struct {
-	baseMock
-
 	cluster      client.ClusterListItem
 	lookupError  error
 	deprovisions int
@@ -293,7 +289,7 @@ func TestDeprovisionRefusesAKindWithoutALaneHere(t *testing.T) {
 
 // runDeprovisionWithoutArgument runs `ankra cluster deprovision --yes` with
 // a cluster selected, no cluster argument, and flags.
-func runDeprovisionWithoutArgument(t *testing.T, mock APIClient, flags ...string) (string, error) {
+func runDeprovisionWithoutArgument(t *testing.T, mock any, flags ...string) (string, error) {
 	t.Helper()
 	setMockClient(t, mock)
 	writeSelectedClusterJSON(t)

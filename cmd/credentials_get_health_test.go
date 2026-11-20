@@ -31,10 +31,10 @@ func serveCredentialAndCoverage(t *testing.T, detailBody string, coverageBody st
 	}))
 	previousClient := apiClient
 	previousBaseURL := baseURL
-	apiClient = client.New("test-token", server.URL)
+	apiClient = adaptMockClient(client.New("test-token", server.URL))
 	baseURL = server.URL
 	t.Cleanup(func() {
-		apiClient = previousClient
+		apiClient = adaptMockClient(previousClient)
 		baseURL = previousBaseURL
 		server.Close()
 	})
@@ -91,10 +91,10 @@ func TestCredentialsGetSaysWhenTheReasonCannotBeRead(t *testing.T) {
 	}))
 	previousClient := apiClient
 	previousBaseURL := baseURL
-	apiClient = client.New("test-token", server.URL)
+	apiClient = adaptMockClient(client.New("test-token", server.URL))
 	baseURL = server.URL
 	t.Cleanup(func() {
-		apiClient = previousClient
+		apiClient = adaptMockClient(previousClient)
 		baseURL = previousBaseURL
 		server.Close()
 	})

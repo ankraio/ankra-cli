@@ -11,7 +11,6 @@ import (
 )
 
 type helmUninstallMock struct {
-	baseMock
 	called         bool
 	gotClusterID   string
 	gotReleaseName string
@@ -61,7 +60,6 @@ func TestHelmUninstall_YesProceeds(t *testing.T) {
 }
 
 type helmReleaseOpsMock struct {
-	baseMock
 	rollbacks   []client.RollbackHelmReleaseRequest
 	upgrades    []client.UpgradeHelmReleaseRequest
 	gotRelease  string

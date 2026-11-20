@@ -12,7 +12,6 @@ import (
 )
 
 type moveMock struct {
-	baseMock
 	cluster       client.ClusterListItem
 	organisations []client.OrganisationSummary
 	moveCalls     int

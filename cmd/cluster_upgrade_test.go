@@ -14,7 +14,6 @@ type k8sUpgradeCall struct {
 }
 
 type clusterUpgradeMock struct {
-	baseMock
 	cluster       client.ClusterListItem
 	getClusterErr error
 

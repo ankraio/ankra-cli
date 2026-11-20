@@ -22,7 +22,6 @@ import (
 // the corrected wording so the "stop"/"start" labels cannot come back.
 
 type provisionWordingMock struct {
-	baseMock
 	cluster        client.ClusterListItem
 	provisionCalls int
 }

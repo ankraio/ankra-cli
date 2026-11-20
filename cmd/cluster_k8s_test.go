@@ -15,7 +15,6 @@ import (
 // table renderer and panicked on the named-pod path's nil formatRow; the up-front
 // output-format validation must reject the value before any API call.
 type k8sResourcesMock struct {
-	baseMock
 	called bool
 }
 
@@ -127,7 +126,6 @@ func findClusterGetSubcommand(t *testing.T, name string) *cobra.Command {
 // capturedResourcesMock records the resource request it received and serves
 // a canned response.
 type capturedResourcesMock struct {
-	baseMock
 	lastRequest client.GetResourcesRequest
 	response    *client.GetResourcesResponse
 }
@@ -173,7 +171,6 @@ func TestGetDeploymentsEmptyJSONStaysParseable(t *testing.T) {
 
 // podsPagedMock serves the pod listing across a fixed number of pages.
 type podsPagedMock struct {
-	baseMock
 	pages      map[int][]client.PodSummary
 	totalPages int
 	totalCount int

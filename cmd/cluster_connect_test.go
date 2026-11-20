@@ -26,7 +26,6 @@ const (
 const clusterConnectSuccessLine = "Cluster 'my-cluster' is registered"
 
 type clusterConnectMock struct {
-	baseMock
 	existing    []client.ClusterListItem
 	lookupError error
 	requests    []client.CreateImportClusterRequest
@@ -63,7 +62,7 @@ func (mock *clusterConnectMock) ApplyCluster(_ context.Context, request client.C
 		ImportCommand: clusterConnectTestInstallCommand}, false, nil
 }
 
-func runClusterConnectCommand(t *testing.T, mock APIClient, arguments ...string) (string, error) {
+func runClusterConnectCommand(t *testing.T, mock any, arguments ...string) (string, error) {
 	t.Helper()
 	return runConfirmCommand(t, mock, "", []*cobra.Command{clusterConnectCmd}, append([]string{"cluster", "connect"}, arguments...)...)
 }

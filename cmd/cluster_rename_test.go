@@ -19,7 +19,6 @@ type clusterRenameCall struct {
 }
 
 type clusterRenameMock struct {
-	baseMock
 	cluster     client.ClusterListItem
 	calls       []clusterRenameCall
 	renameError error
@@ -55,7 +54,7 @@ func newClusterRenameMock() *clusterRenameMock {
 		ID: "0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e", Name: "web-staging"}}
 }
 
-func runClusterRenameCommand(t *testing.T, mock APIClient, arguments ...string) (string, error) {
+func runClusterRenameCommand(t *testing.T, mock any, arguments ...string) (string, error) {
 	t.Helper()
 	return runConfirmCommand(t, mock, "", []*cobra.Command{clusterRenameCmd}, append([]string{"cluster", "rename"}, arguments...)...)
 }

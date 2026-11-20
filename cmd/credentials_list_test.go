@@ -11,7 +11,6 @@ import (
 // credentialsGitListMock answers the credentials listing per provider filter,
 // recording which filters were asked for.
 type credentialsGitListMock struct {
-	baseMock
 	unfiltered    []client.Credential
 	github        []client.Credential
 	providerCalls []string
@@ -29,7 +28,7 @@ func (mock *credentialsGitListMock) ListCredentials(provider *string) ([]client.
 	return nil, nil
 }
 
-func runCredentialsList(t *testing.T, mock APIClient, arguments ...string) (string, string, error) {
+func runCredentialsList(t *testing.T, mock any, arguments ...string) (string, string, error) {
 	t.Helper()
 	setMockClient(t, mock)
 	t.Cleanup(func() {

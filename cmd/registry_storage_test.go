@@ -11,7 +11,6 @@ import (
 )
 
 type registryStorageMock struct {
-	baseMock
 	storage      *client.RegistryStorage
 	repositories *client.RegistryStorageRepositories
 	retention    *client.RegistryRetention
@@ -587,7 +586,7 @@ func TestRegistryStorageRequest(t *testing.T) {
 
 func TestRegistryStorageUnservedRoute(t *testing.T) {
 	previousClient := apiClient
-	t.Cleanup(func() { apiClient = previousClient })
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 	_, runError := runRegistryCommand(t, unservedRouteClient(t), "", "storage")
 	if runError == nil || !strings.Contains(runError.Error(), "does not serve registry storage yet") {
 		t.Fatalf("an unregistered route must say so: %v", runError)

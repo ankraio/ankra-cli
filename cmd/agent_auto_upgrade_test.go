@@ -17,7 +17,6 @@ type agentAutoUpgradeCall struct {
 }
 
 type agentAutoUpgradeMock struct {
-	baseMock
 	calls       []agentAutoUpgradeCall
 	updateError error
 	unconfirmed bool
@@ -35,7 +34,7 @@ func (mock *agentAutoUpgradeMock) SetClusterAgentAutoUpgrade(_ context.Context, 
 	return &client.AgentSettingsResult{Success: true, Message: "Cluster agent settings updated successfully"}, nil
 }
 
-func runAgentAutoUpgradeCommand(t *testing.T, mock APIClient, arguments ...string) (string, error) {
+func runAgentAutoUpgradeCommand(t *testing.T, mock any, arguments ...string) (string, error) {
 	t.Helper()
 	writeSelectedClusterJSON(t)
 	setMockClient(t, mock)

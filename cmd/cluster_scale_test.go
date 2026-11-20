@@ -15,7 +15,6 @@ type workerScaleCall struct {
 }
 
 type clusterScaleMock struct {
-	baseMock
 	cluster client.ClusterListItem
 
 	hetznerCalls  []workerScaleCall

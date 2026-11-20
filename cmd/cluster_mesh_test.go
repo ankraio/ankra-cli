@@ -17,7 +17,6 @@ const (
 )
 
 type clusterMeshMock struct {
-	baseMock
 	meshes    []client.ClusterMesh
 	readiness map[string]client.ClusterMeshReadiness
 

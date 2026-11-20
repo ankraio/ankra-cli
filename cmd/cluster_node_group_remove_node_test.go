@@ -26,7 +26,6 @@ type removeNodeCall struct {
 }
 
 type nodeGroupRemoveNodeMock struct {
-	baseMock
 	cluster client.ClusterListItem
 	lookups int
 	calls   []removeNodeCall
@@ -171,7 +170,7 @@ var removeNodeResets = []*cobra.Command{clusterNodeGroupRemoveNodeCmd}
 
 // runRemoveNode runs a command line and returns stdout and stderr apart, so
 // a test can tell output from the prompt.
-func runRemoveNode(t *testing.T, mock APIClient, input string, args ...string) (string, string, error) {
+func runRemoveNode(t *testing.T, mock any, input string, args ...string) (string, string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)

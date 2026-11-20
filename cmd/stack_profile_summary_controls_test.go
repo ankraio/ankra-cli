@@ -15,7 +15,6 @@ import (
 const summaryRequestKey = "01937e50-4980-7000-8000-000000000001"
 
 type summaryControlMock struct {
-	baseMock
 	calls     int
 	source    string
 	revision  int

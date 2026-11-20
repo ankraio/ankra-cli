@@ -17,8 +17,6 @@ import (
 // keeping the exact change map so the present-vs-absent contract can be
 // asserted: the endpoint distinguishes "not in the body" from "null".
 type orgPreviewSettingsMock struct {
-	baseMock
-
 	settings   client.OrganisationPreviewSettings
 	updateSeen []map[string]any
 }

@@ -127,7 +127,6 @@ func mustCanonicalJSON(t *testing.T, raw json.RawMessage) string {
 }
 
 type helmRegistryCreateMock struct {
-	baseMock
 	lastReq *client.CreateHelmRegistryRequest
 }
 

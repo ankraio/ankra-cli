@@ -13,7 +13,6 @@ import (
 const dataMigrationTestRunID = "0b7c4d08-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 type applicationDataMigrationMock struct {
-	baseMock
 	run           *client.DataMigrationRun
 	runs          []client.DataMigrationRun
 	rollbackError error

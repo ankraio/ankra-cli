@@ -12,7 +12,6 @@ import (
 )
 
 type ankraCloudCredentialMock struct {
-	baseMock
 	createRequests []client.CreateAnkraCloudCredentialRequest
 	createResult   client.CreateAnkraCloudCredentialResponse
 	credentials    []client.Credential
@@ -27,7 +26,7 @@ func (mock *ankraCloudCredentialMock) ListAnkraCloudCredentials() ([]client.Cred
 	return mock.credentials, nil
 }
 
-func runAnkraCloudCredentialCommand(t *testing.T, mock APIClient, input string, arguments ...string) (string, error) {
+func runAnkraCloudCredentialCommand(t *testing.T, mock any, input string, arguments ...string) (string, error) {
 	t.Helper()
 	var runError error
 	var cobraOutput string

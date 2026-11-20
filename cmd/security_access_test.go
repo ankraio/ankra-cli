@@ -9,7 +9,6 @@ import (
 )
 
 type securityAccessMock struct {
-	baseMock
 	clusters      *client.SecurityClusterList
 	posture       *client.SecurityClusterAccessPosture
 	postureError  error

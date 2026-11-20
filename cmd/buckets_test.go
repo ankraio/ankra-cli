@@ -13,7 +13,6 @@ import (
 // bucketsMock answers the object storage bucket surface and records what the
 // commands sent.
 type bucketsMock struct {
-	baseMock
 	buckets          []client.ObjectStorageBucket
 	listCalls        int
 	bucket           *client.ObjectStorageBucket
@@ -89,20 +88,20 @@ func registryBucket() *client.ObjectStorageBucket {
 
 func TestResolveBucketIDTakesAUUIDOrAName(t *testing.T) {
 	mock := &bucketsMock{buckets: []client.ObjectStorageBucket{*registryBucket()}}
-	if resolved, resolveError := resolveBucketID(mock, bucketTestID); resolveError != nil || resolved != bucketTestID ||
+	if resolved, resolveError := resolveBucketID(adaptMockClient(mock), bucketTestID); resolveError != nil || resolved != bucketTestID ||
 		mock.listCalls != 0 {
 		t.Fatalf("a uuid must resolve to itself without a listing: %q %v (%d calls)", resolved, resolveError, mock.listCalls)
 	}
-	if resolved, resolveError := resolveBucketID(mock, "registry"); resolveError != nil || resolved != bucketTestID {
+	if resolved, resolveError := resolveBucketID(adaptMockClient(mock), "registry"); resolveError != nil || resolved != bucketTestID {
 		t.Fatalf("a listed name must resolve: %q %v", resolved, resolveError)
 	}
-	if _, resolveError := resolveBucketID(mock, "nope"); resolveError == nil || !strings.Contains(resolveError.Error(), "ankra bucket list") {
+	if _, resolveError := resolveBucketID(adaptMockClient(mock), "nope"); resolveError == nil || !strings.Contains(resolveError.Error(), "ankra bucket list") {
 		t.Fatalf("an unknown name must point at the listing: %v", resolveError)
 	}
 	twin := *registryBucket()
 	twin.ID = "aaaaaaaa-1111-4111-8111-111111111111"
 	mock.buckets = append(mock.buckets, twin)
-	if _, resolveError := resolveBucketID(mock, "registry"); resolveError == nil || !strings.Contains(resolveError.Error(), "pass the id") {
+	if _, resolveError := resolveBucketID(adaptMockClient(mock), "registry"); resolveError == nil || !strings.Contains(resolveError.Error(), "pass the id") {
 		t.Fatalf("an ambiguous name must ask for the id: %v", resolveError)
 	}
 }
@@ -264,14 +263,13 @@ func TestWaitForBucketProvisioningKeepsPollingOnAStatusThatIsNotAVerdict(t *test
 
 	statuses := []string{"provisioning", "", "deleting", "ready"}
 	mock := &sequencedBucketsMock{statuses: statuses}
-	final, waitError := waitForBucketProvisioning(context.Background(), mock, bucketTestID)
+	final, waitError := waitForBucketProvisioning(context.Background(), adaptMockClient(mock), bucketTestID)
 	if waitError != nil || final.Status != "ready" || mock.calls != len(statuses) {
 		t.Fatalf("final=%+v calls=%d err=%v", final, mock.calls, waitError)
 	}
 }
 
 type sequencedBucketsMock struct {
-	baseMock
 	statuses []string
 	calls    int
 }

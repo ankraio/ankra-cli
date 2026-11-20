@@ -17,7 +17,7 @@ import (
 // runFreshCommand runs a newly built command tree against mock and answers
 // what it wrote to stdout and to stderr. A fresh tree carries no flag values
 // from an earlier test.
-func runFreshCommand(t *testing.T, root *cobra.Command, mock APIClient, input string, arguments ...string) (string, string, error) {
+func runFreshCommand(t *testing.T, root *cobra.Command, mock any, input string, arguments ...string) (string, string, error) {
 	t.Helper()
 	setMockClient(t, mock)
 	var stdout, stderr bytes.Buffer

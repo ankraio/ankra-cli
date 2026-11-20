@@ -31,7 +31,7 @@ func (mock *migrateImportsMock) DeleteBackupVaultImport(_ string, importID strin
 func installMigrateImportsMock(t *testing.T, mock *migrateImportsMock) {
 	t.Helper()
 	installMigrateRestoreMock(t, &mock.migrateRestoreMock)
-	apiClient = mock
+	apiClient = adaptMockClient(mock)
 	migrateImportsListVault = ""
 	migrateImportsDeleteVault = ""
 	migrateImportsDeleteYes = false

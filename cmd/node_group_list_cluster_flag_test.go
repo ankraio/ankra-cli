@@ -16,7 +16,6 @@ const otherClusterID = "9d3e2c1b-0a4f-4e5d-8c7b-6a5f4e3d2c1b"
 // nodeGroupListClusterMock records which cluster each provider's node-group
 // list was asked for.
 type nodeGroupListClusterMock struct {
-	baseMock
 	listed []string
 }
 
@@ -191,7 +190,6 @@ func TestNodeGroupListUnderTheClusterArgumentResolver(t *testing.T) {
 // wrongKindListMock is an OVH cluster that the Hetzner node-group route
 // refuses, the way the platform answers a kind mismatch.
 type wrongKindListMock struct {
-	baseMock
 }
 
 func (m *wrongKindListMock) GetClusterByID(clusterID string) (client.ClusterListItem, error) {

@@ -14,7 +14,6 @@ import (
 )
 
 type applicationAddMock struct {
-	baseMock
 	credentials         []client.Credential
 	applicationResponse *client.CreateApplicationResponse
 	applicationRequest  client.CreateApplicationRequest
@@ -44,12 +43,12 @@ func newApplicationAddMock() *applicationAddMock {
 	}
 }
 
-func withApplicationAPIClient(t *testing.T, mockClient APIClient) {
+func withApplicationAPIClient(t *testing.T, mockClient any) {
 	t.Helper()
 	previousClient := apiClient
-	apiClient = mockClient
+	apiClient = adaptMockClient(mockClient)
 	t.Cleanup(func() {
-		apiClient = previousClient
+		apiClient = adaptMockClient(previousClient)
 	})
 }
 
@@ -434,9 +433,9 @@ func TestApplicationAddCommand(t *testing.T) {
 		},
 	}
 	previousClient := apiClient
-	apiClient = mockClient
+	apiClient = adaptMockClient(mockClient)
 	t.Cleanup(func() {
-		apiClient = previousClient
+		apiClient = adaptMockClient(previousClient)
 	})
 
 	applicationCommand := newApplicationCommand()
@@ -499,9 +498,9 @@ func TestApplicationAddCommandStructuredOutput(t *testing.T) {
 		},
 	}
 	previousClient := apiClient
-	apiClient = mockClient
+	apiClient = adaptMockClient(mockClient)
 	t.Cleanup(func() {
-		apiClient = previousClient
+		apiClient = adaptMockClient(previousClient)
 	})
 
 	applicationCommand := newApplicationCommand()
@@ -528,9 +527,9 @@ func TestApplicationAddCommandStructuredOutput(t *testing.T) {
 func TestApplicationAddCommandRejectsInvalidOutputBeforeCreating(t *testing.T) {
 	mockClient := &applicationAddMock{}
 	previousClient := apiClient
-	apiClient = mockClient
+	apiClient = adaptMockClient(mockClient)
 	t.Cleanup(func() {
-		apiClient = previousClient
+		apiClient = adaptMockClient(previousClient)
 	})
 
 	applicationCommand := newApplicationCommand()
