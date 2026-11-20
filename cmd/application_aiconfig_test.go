@@ -11,7 +11,6 @@ import (
 )
 
 type applicationAIConfigMock struct {
-	baseMock
 	sentConfiguration json.RawMessage
 	resetCalls        int
 	publishRequest    *client.PublishApplicationAddonRequest

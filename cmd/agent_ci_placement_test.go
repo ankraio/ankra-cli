@@ -153,7 +153,6 @@ func TestClusterAgentCIGetPrintsThePlacementBlock(t *testing.T) {
 }
 
 type nodeGroupAddPlacementMock struct {
-	baseMock
 	gotRequest client.AddNodeGroupRequest
 }
 

@@ -15,8 +15,6 @@ import (
 )
 
 type supportMock struct {
-	baseMock
-
 	createReq   *client.CreateSupportTicketRequest
 	createErr   error
 	created     *client.SupportTicket
@@ -102,12 +100,12 @@ func resetSupportFlags(t *testing.T) {
 	}
 }
 
-func runSupport(t *testing.T, mock APIClient, args ...string) (string, error) {
+func runSupport(t *testing.T, mock any, args ...string) (string, error) {
 	t.Helper()
 	return runSupportWithInput(t, mock, "y\n", args...)
 }
 
-func runSupportWithInput(t *testing.T, mock APIClient, input string, args ...string) (string, error) {
+func runSupportWithInput(t *testing.T, mock any, input string, args ...string) (string, error) {
 	t.Helper()
 	setMockClient(t, mock)
 	resetSupportFlags(t)

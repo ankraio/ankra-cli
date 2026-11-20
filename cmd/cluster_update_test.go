@@ -21,7 +21,6 @@ type clusterUpdateCall struct {
 }
 
 type clusterUpdateMock struct {
-	baseMock
 	cluster     client.ClusterListItem
 	calls       []clusterUpdateCall
 	updateError error
@@ -61,7 +60,7 @@ func newClusterUpdateMock() *clusterUpdateMock {
 		ID: "0b7c4d10-5f6a-4b8c-9d0e-1f2a3b4c5d6e", Name: "so-infrastructure"}}
 }
 
-func runClusterUpdateCommand(t *testing.T, mock APIClient, arguments ...string) (string, error) {
+func runClusterUpdateCommand(t *testing.T, mock any, arguments ...string) (string, error) {
 	t.Helper()
 	return runConfirmCommand(t, mock, "", []*cobra.Command{clusterUpdateCmd}, append([]string{"cluster", "update"}, arguments...)...)
 }

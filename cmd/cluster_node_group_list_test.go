@@ -14,7 +14,6 @@ import (
 )
 
 type nodeGroupListJoinedMock struct {
-	baseMock
 	result *client.NodeGroupListResult
 }
 

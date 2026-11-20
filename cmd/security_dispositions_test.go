@@ -13,7 +13,6 @@ import (
 const securityTestClusterID = "0b8f2f5e-3c1a-4d2b-9e7f-1a2b3c4d5e6f"
 
 type securityDispositionsMock struct {
-	baseMock
 	detail             *client.SecurityFindingDetail
 	occurrences        *client.SecurityOccurrenceList
 	occurrencesOptions *client.SecurityOccurrencesOptions
@@ -78,7 +77,7 @@ func (m *securityDispositionsMock) RevokeSecurityDisposition(policyID string, re
 
 // runSecurityCommandWithInput is runSecurityCommand with a stdin, for the
 // commands that confirm before writing.
-func runSecurityCommandWithInput(t *testing.T, mock APIClient, input string, args ...string) (string, string, error) {
+func runSecurityCommandWithInput(t *testing.T, mock any, input string, args ...string) (string, string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)

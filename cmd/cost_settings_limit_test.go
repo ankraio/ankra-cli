@@ -75,7 +75,7 @@ func (recorder *settingsServer) refuse(status int, detail string) {
 	recorder.status, recorder.detail = status, detail
 }
 
-func runCostSettingsAgainst(t *testing.T, apiClient APIClient, args ...string) (string, error) {
+func runCostSettingsAgainst(t *testing.T, apiClient any, args ...string) (string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, apiClient)

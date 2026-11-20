@@ -8,7 +8,6 @@ import (
 )
 
 type hetznerStateMock struct {
-	baseMock
 	stopOptions  *client.StopClusterOptions
 	startOptions *client.StartClusterOptions
 }

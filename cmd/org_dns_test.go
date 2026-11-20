@@ -30,8 +30,6 @@ func resetOrgDnsFlags(t *testing.T) {
 // shapes and the id/name resolution. It embeds baseMock for the rest of the
 // APIClient surface.
 type dnsMock struct {
-	baseMock
-
 	zone        client.DnsZone
 	records     []client.DnsRecord
 	createCalls []createDnsCall

@@ -12,7 +12,6 @@ import (
 // applicationDemoMock records the demo calls the command family makes, so the
 // tests can assert the request the flags built rather than the rendering.
 type applicationDemoMock struct {
-	baseMock
 	deployPayload json.RawMessage
 	detailPayload json.RawMessage
 	listPayload   json.RawMessage

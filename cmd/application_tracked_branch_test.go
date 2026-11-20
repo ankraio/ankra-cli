@@ -10,7 +10,6 @@ import (
 )
 
 type applicationTrackedBranchMock struct {
-	baseMock
 	applicationPayload json.RawMessage
 	setPayload         json.RawMessage
 

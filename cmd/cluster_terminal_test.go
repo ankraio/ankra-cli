@@ -58,7 +58,6 @@ func (f *fakePodTerminal) typed() string {
 }
 
 type terminalMock struct {
-	baseMock
 	podItems        []any
 	terminal        *fakePodTerminal
 	openError       error

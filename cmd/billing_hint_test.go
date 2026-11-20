@@ -18,7 +18,6 @@ const testBillingDetail = "Your prepaid credit is used up; new clusters and AI a
 // orgOverrideMock answers the --org override the hint prefers over the
 // persisted selection.
 type orgOverrideMock struct {
-	baseMock
 	organisationID string
 }
 

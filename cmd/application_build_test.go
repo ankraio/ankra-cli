@@ -15,8 +15,6 @@ import (
 // a test can walk a request from pending through a claim to a conclusion the
 // way the platform would.
 type applicationBuildMock struct {
-	baseMock
-
 	startPayload  json.RawMessage
 	startError    error
 	startRequest  client.StartApplicationPlatformBuildRequest

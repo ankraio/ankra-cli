@@ -11,7 +11,6 @@ import (
 // helmRegistriesPagedMock serves a fixed page layout so the --all loop can
 // be observed walking every page with the expected options.
 type helmRegistriesPagedMock struct {
-	baseMock
 	pages      map[int][]client.HelmRegistryListItem
 	totalCount int
 	totalPages int

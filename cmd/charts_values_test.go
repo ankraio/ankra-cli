@@ -30,7 +30,6 @@ func resetCommandFlags(t *testing.T, command *cobra.Command) {
 }
 
 type chartsValuesMock struct {
-	baseMock
 	searchResults       []client.ChartItem
 	valuesResult        *client.GetChartDefaultValuesResult
 	valuesError         error

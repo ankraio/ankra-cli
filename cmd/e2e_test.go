@@ -18,6 +18,9 @@ import (
 	"github.com/jedib0t/go-pretty/v6/text"
 )
 
+//go:generate go run ../tools/genmockadapter -dir .
+
+// baseMock owns stateless defaults once; narrow doubles define only their handlers.
 type baseMock struct{}
 
 func (m baseMock) SetOrganisationOverride(string) {}
@@ -4241,7 +4244,6 @@ func (m baseMock) GetDeployment(ctx context.Context, deploymentID string) (*clie
 }
 
 type clusterListMock struct {
-	baseMock
 	clusters []client.ClusterListItem
 }
 
@@ -4258,7 +4260,6 @@ func (m *clusterListMock) ListClusters(page int, pageSize int) (*client.ClusterL
 }
 
 type clusterGetMock struct {
-	baseMock
 	cluster client.ClusterListItem
 }
 
@@ -4270,7 +4271,6 @@ func (m *clusterGetMock) GetCluster(name string) (client.ClusterListItem, error)
 }
 
 type orgListMock struct {
-	baseMock
 	organisations []client.OrganisationSummary
 }
 
@@ -4279,7 +4279,6 @@ func (m *orgListMock) ListOrganisations() ([]client.OrganisationSummary, error) 
 }
 
 type credentialsListMock struct {
-	baseMock
 	credentials []client.Credential
 }
 
@@ -4296,17 +4295,17 @@ func (m *credentialsListMock) ListCredentials(provider *string) ([]client.Creden
 	return m.credentials, nil
 }
 
-func setMockClient(t *testing.T, mock APIClient) {
+func setMockClient(t *testing.T, mock any) {
 	t.Helper()
 	originalClient := apiClient
 	originalToken := apiToken
 	originalBaseURL := baseURL
-	apiClient = mock
+	apiClient = adaptMockClient(mock)
 	apiToken = "test-token"
 	baseURL = "https://test.ankra.app"
 	t.Setenv("ANKRA_API_TOKEN", "test-token")
 	t.Cleanup(func() {
-		apiClient = originalClient
+		apiClient = adaptMockClient(originalClient)
 		apiToken = originalToken
 		baseURL = originalBaseURL
 	})
@@ -4595,7 +4594,6 @@ func writeSelectedClusterJSON(t *testing.T) {
 }
 
 type clusterAddonsListMock struct {
-	baseMock
 	addons         []client.ClusterAddonListItem
 	advisoryStale  bool
 	advisoryReadAt *time.Time
@@ -4700,7 +4698,6 @@ func TestClusterAddonsListShowsSecurityUpdates(t *testing.T) {
 }
 
 type clusterFlagOverrideMock struct {
-	baseMock
 	requestedClusterID string
 }
 
@@ -4732,7 +4729,6 @@ func TestClusterFlagOverridesSelectedCluster(t *testing.T) {
 }
 
 type clusterManifestsListMock struct {
-	baseMock
 	manifests []client.ClusterManifestListItem
 }
 
@@ -4770,7 +4766,6 @@ func TestClusterManifestsListCommand(t *testing.T) {
 }
 
 type clusterStacksListMock struct {
-	baseMock
 	stacks []client.ClusterStackListItem
 }
 
@@ -4845,7 +4840,6 @@ func TestClusterStacksListShowsApplicationMembers(t *testing.T) {
 }
 
 type clusterOperationsListMock struct {
-	baseMock
 	executions  []client.ExecutionSummary
 	lastOptions client.ListExecutionsOptions
 }
@@ -4912,7 +4906,6 @@ func TestClusterOperationsListCommand(t *testing.T) {
 }
 
 type clusterAgentStatusMock struct {
-	baseMock
 	agent *client.AgentInfo
 }
 
@@ -5001,7 +4994,6 @@ func TestClusterAgentStatusCommand(t *testing.T) {
 }
 
 type helmRegistriesListMock struct {
-	baseMock
 	registries []client.HelmRegistryListItem
 	lastOpts   *client.ListHelmRegistriesOptions
 }
@@ -5020,7 +5012,6 @@ func (m *helmRegistriesListMock) ListHelmRegistries(opts *client.ListHelmRegistr
 }
 
 type helmRegistryCredentialsListMock struct {
-	baseMock
 	credentials []client.HelmCredentialListItem
 }
 
@@ -5146,7 +5137,6 @@ func TestHelmCredentialsListCommand(t *testing.T) {
 }
 
 type chartsListMock struct {
-	baseMock
 	charts []client.ChartItem
 }
 
@@ -5163,7 +5153,6 @@ func (m *chartsListMock) ListCharts(page, pageSize int, onlySubscribed bool) (*c
 }
 
 type chartsSearchMock struct {
-	baseMock
 	charts []client.ChartItem
 }
 
@@ -5172,7 +5161,6 @@ func (m *chartsSearchMock) SearchCharts(query string) ([]client.ChartItem, error
 }
 
 type tokensListMock struct {
-	baseMock
 	tokens []client.APIToken
 }
 
@@ -5181,7 +5169,6 @@ func (m *tokensListMock) ListAPITokens() ([]client.APIToken, error) {
 }
 
 type orgSwitchMock struct {
-	baseMock
 }
 
 func (m *orgSwitchMock) ListOrganisations() ([]client.OrganisationSummary, error) {
@@ -5201,7 +5188,6 @@ func (m *orgSwitchMock) SwitchOrganisation(orgID string) (*client.SwitchOrganisa
 }
 
 type orgCreateOnlyMock struct {
-	baseMock
 }
 
 func (m *orgCreateOnlyMock) CreateOrganisation(name string, country *string) (*client.CreateOrganisationResponse, error) {
@@ -5212,7 +5198,6 @@ func (m *orgCreateOnlyMock) CreateOrganisation(name string, country *string) (*c
 }
 
 type credentialGetMock struct {
-	baseMock
 	detail      *client.CredentialDetail
 	list        []client.Credential
 	requestedID string
@@ -5402,7 +5387,6 @@ func TestCredentialsGetByNameResolvesToID(t *testing.T) {
 }
 
 type hetznerCredentialsListMock struct {
-	baseMock
 	creds []client.HetznerCredentialListItem
 }
 
@@ -5432,7 +5416,6 @@ func TestHetznerCredentialsListCommand(t *testing.T) {
 }
 
 type sshKeyCredentialsListMock struct {
-	baseMock
 	creds []client.HetznerCredentialListItem
 }
 
@@ -5462,7 +5445,6 @@ func TestHetznerSSHKeyListCommand(t *testing.T) {
 }
 
 type ovhCredentialsListMock struct {
-	baseMock
 	creds []client.OvhCredentialListItem
 }
 
@@ -5492,7 +5474,6 @@ func TestOvhCredentialsListCommand(t *testing.T) {
 }
 
 type upcloudCredentialsListMock struct {
-	baseMock
 	creds []client.UpcloudCredentialListItem
 }
 
@@ -5522,7 +5503,6 @@ func TestUpcloudCredentialsListCommand(t *testing.T) {
 }
 
 type proxmoxCredentialsListMock struct {
-	baseMock
 	creds []client.ProxmoxCredentialListItem
 }
 
@@ -5552,7 +5532,6 @@ func TestProxmoxCredentialsListCommand(t *testing.T) {
 }
 
 type morpheusCredentialsListMock struct {
-	baseMock
 	creds []client.MorpheusCredentialListItem
 }
 
@@ -5582,7 +5561,6 @@ func TestMorpheusCredentialsListCommand(t *testing.T) {
 }
 
 type hetznerNodeGroupsListMock struct {
-	baseMock
 	result *client.NodeGroupListResult
 }
 
@@ -5615,7 +5593,6 @@ func TestClusterHetznerNodeGroupListCommand(t *testing.T) {
 }
 
 type ovhNodeGroupsListMock struct {
-	baseMock
 	result *client.NodeGroupListResult
 }
 
@@ -5648,7 +5625,6 @@ func TestClusterOvhNodeGroupListCommand(t *testing.T) {
 }
 
 type upcloudNodeGroupsListMock struct {
-	baseMock
 	result *client.NodeGroupListResult
 }
 

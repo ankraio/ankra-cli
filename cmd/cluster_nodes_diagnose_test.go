@@ -14,7 +14,6 @@ import (
 )
 
 type nodeDiagnoseMock struct {
-	baseMock
 	result *client.NodeDiagnoseResult
 	err    error
 	calls  []string

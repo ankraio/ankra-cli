@@ -127,7 +127,7 @@ func TestEnsureExecClientAppliesTheSavedSelectionOnlyToTheSavedLogin(t *testing.
 				t.Fatal(err)
 			}
 			setMockClient(t, &projectsMock{})
-			apiClient = nil
+			apiClient = adaptMockClient(nil)
 			t.Setenv("ANKRA_API_TOKEN", testCase.envToken)
 			if err := ensureExecClient(execCmd); err != nil {
 				t.Fatal(err)

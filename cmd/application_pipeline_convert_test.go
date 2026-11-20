@@ -10,8 +10,6 @@ import (
 )
 
 type applicationPipelineConvertMock struct {
-	baseMock
-
 	conversion    *client.PipelineConversion
 	convertError  error
 	applicationID string

@@ -20,7 +20,6 @@ import (
 const testApplicationID = "b7f4c1de-2a03-4d61-9f8e-51c0a6d3e742"
 
 type applicationResourceMock struct {
-	baseMock
 	payload json.RawMessage
 	fail    error
 
@@ -108,16 +107,16 @@ func (mock *applicationResourceMock) DeleteApplication(requestContext context.Co
 	return mock.payload, nil
 }
 
-func runApplicationCommand(t *testing.T, mockClient APIClient, arguments ...string) (string, error) {
+func runApplicationCommand(t *testing.T, mockClient any, arguments ...string) (string, error) {
 	t.Helper()
 	return runApplicationCommandWithInput(t, mockClient, "", arguments...)
 }
 
-func runApplicationCommandWithInput(t *testing.T, mockClient APIClient, input string, arguments ...string) (string, error) {
+func runApplicationCommandWithInput(t *testing.T, mockClient any, input string, arguments ...string) (string, error) {
 	t.Helper()
 	previousClient := apiClient
-	apiClient = mockClient
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mockClient)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	applicationCommand := newApplicationCommand()
 	var output bytes.Buffer

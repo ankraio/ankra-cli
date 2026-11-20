@@ -10,7 +10,6 @@ import (
 )
 
 type clusterAccessMock struct {
-	baseMock
 	grants          []client.ClusterAccessGrant
 	createdRequest  *client.CreateClusterAccessGrantRequest
 	elevateRequest  *client.ElevateClusterAccessRequest

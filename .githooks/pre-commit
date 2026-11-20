@@ -9,14 +9,11 @@ unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX
 
 # Tests and the linter run for the packages this commit changes, not the
 # whole module.
-# ankra/cmd is one ~105k-line package whose test binary needs more than
-# 12 GiB to compile and link (measured 2026-10-16, ankra-klaw40), more than an
-# Ankra Workspace on a default node or most laptops can give, so it is left
-# to CI's lint and test jobs (16 GB runners, GOMEMLIMIT=5GiB), which test and
-# lint the whole module on every push; golangci-lint builds it too, and needs
-# as much. ANKRA_PRECOMMIT_FULL=1 runs `go test ./...` and
-# `golangci-lint run ./...` here instead. A go.mod or go.sum change tests and
-# lints every package (except cmd).
+# The hook delegates ankra/cmd to CI's full lint and test jobs. The single
+# mock adapter removed the former >12Gi promoted-wrapper compile; targeted
+# command checks can now run in an adequately sized Ankra Workspace. Keep
+# full CI mandatory. ANKRA_PRECOMMIT_FULL=1 runs the whole module here.
+# A go.mod/go.sum change checks every other package in this hook.
 # Packages are worked out from git's file list as relative directories, so the
 # hook needs no local Go toolchain beyond the `go test` the Ankra dev shims
 # route to the workspace (`go list` is not routed).
@@ -60,7 +57,7 @@ else
     echo "No Go package to test or lint locally in this commit."
   fi
   if [ "$skipped_cmd" = "1" ]; then
-    echo "ankra/cmd changed: it is tested and linted in CI's lint and test jobs (too large to build here; ANKRA_PRECOMMIT_FULL=1 runs it locally)."
+    echo "ankra/cmd changed: full command tests/lint remain required in CI; run targeted checks in the Ankra Workspace too."
   fi
 fi
 

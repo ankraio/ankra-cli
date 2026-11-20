@@ -10,7 +10,6 @@ import (
 )
 
 type ticketsMock struct {
-	baseMock
 	tickets       []client.Ticket
 	events        []client.TicketEvent
 	listFilters   []client.TicketListFilter

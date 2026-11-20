@@ -21,7 +21,6 @@ const chatPlanBody = `{"plan_id":"` + testPlanID + `","title":"Scale the shop","
 	  "risk_level":"high","reversible":false,"status":"pending"}]}`
 
 type chatPlansMock struct {
-	baseMock
 	answer       string
 	failure      error
 	conversation string

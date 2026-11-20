@@ -13,7 +13,6 @@ import (
 )
 
 type agentResourcesMock struct {
-	baseMock
 	resources   *client.AgentResources
 	getError    error
 	updateError error
@@ -60,7 +59,7 @@ func agentResourcesCommands(t *testing.T) []*cobra.Command {
 	return nil
 }
 
-func runAgentResourcesCommand(t *testing.T, mock APIClient, arguments ...string) (string, error) {
+func runAgentResourcesCommand(t *testing.T, mock any, arguments ...string) (string, error) {
 	t.Helper()
 	writeSelectedClusterJSON(t)
 	setMockClient(t, mock)

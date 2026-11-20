@@ -12,7 +12,6 @@ import (
 // failingRetryExecutionMock returns an error from RetryExecution to exercise
 // the non-zero-exit path of `cluster operations retry`.
 type failingRetryExecutionMock struct {
-	baseMock
 }
 
 func (m *failingRetryExecutionMock) RetryExecution(_ context.Context, _ string) (*client.ExecutionSummary, error) {
@@ -22,7 +21,6 @@ func (m *failingRetryExecutionMock) RetryExecution(_ context.Context, _ string) 
 // listClustersErrorMock returns an error from ListClusters to exercise
 // `cluster list` failure handling.
 type listClustersErrorMock struct {
-	baseMock
 }
 
 func (m *listClustersErrorMock) ListClusters(_, _ int) (*client.ClusterListResponse, error) {
