@@ -9,7 +9,6 @@ import (
 )
 
 type securitySbomMock struct {
-	baseMock
 	namespaces        *client.SecurityNamespaceList
 	pods              *client.SecurityPodList
 	podsOptions       *client.SecurityPodsOptions

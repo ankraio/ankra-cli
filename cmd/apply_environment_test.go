@@ -18,7 +18,6 @@ import (
 // lookupErrorAfterApply stand for the cluster as it is once the apply ran,
 // for a label somebody chose or a read that failed in between.
 type applyEnvironmentMock struct {
-	baseMock
 	stored                *client.ClusterListItem
 	lookupError           error
 	storedAfterApply      *client.ClusterListItem

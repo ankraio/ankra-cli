@@ -25,7 +25,6 @@ spec:
 `
 
 type applyOverrideMock struct {
-	baseMock
 	applied []client.CreateImportClusterRequest
 	lookups int
 }

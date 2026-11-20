@@ -229,7 +229,6 @@ func TestRunClone_NewTargetCarriesUnmodeledFields(t *testing.T) {
 }
 
 type encryptFileMock struct {
-	baseMock
 	encrypted string
 }
 
@@ -253,8 +252,8 @@ func TestRunEncryptManifestFile_PreservesUnmodeledFields(t *testing.T) {
 
 	encryptedManifest := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: db\ndata:\n  password: ENC[AES256_GCM,data:abc,tag:def]\nsops:\n  mac: ENC[AES256_GCM,data:mac]\n"
 	previousClient := apiClient
-	apiClient = encryptFileMock{encrypted: encryptedManifest}
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(encryptFileMock{encrypted: encryptedManifest})
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	previousFile := encryptClusterFile
 	encryptClusterFile = clusterPath

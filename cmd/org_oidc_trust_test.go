@@ -22,7 +22,6 @@ func resetOIDCTrustFlags(t *testing.T) {
 }
 
 type oidcTrustMock struct {
-	baseMock
 	created client.OIDCTrustPolicyRequest
 	deleted string
 }

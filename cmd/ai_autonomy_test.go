@@ -10,7 +10,6 @@ import (
 )
 
 type aiAutonomyMock struct {
-	baseMock
 	identity      *client.BoardIdentity
 	provisioned   []string
 	revokes       int

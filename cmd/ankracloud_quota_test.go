@@ -11,7 +11,6 @@ import (
 )
 
 type ankraCloudQuotaMock struct {
-	baseMock
 	report      *client.ClusterQuotaReport
 	readError   error
 	requestedID string

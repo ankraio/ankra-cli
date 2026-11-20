@@ -10,7 +10,6 @@ import (
 )
 
 type adoptMock struct {
-	baseMock
 	clusters   []client.ClusterListItem
 	requests   []client.AdoptStackProfileRequest
 	clusterIDs []string

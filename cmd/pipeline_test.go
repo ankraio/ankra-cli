@@ -21,8 +21,6 @@ import (
 // tracking, so a test can assert both what was returned and what the CLI
 // asked for.
 type pipelineLaneMock struct {
-	baseMock
-
 	lastSelector client.PipelineSelector
 
 	listOptions client.ListPipelineRunsOptions
@@ -184,7 +182,7 @@ func (mock *pipelineLaneMock) ListApplicationsRaw(ctx context.Context, page int,
 		return nil, failure
 	}
 	if mock.applicationsListing == "" {
-		return mock.baseMock.ListApplicationsRaw(ctx, page, pageSize, search)
+		return baseMock{}.ListApplicationsRaw(ctx, page, pageSize, search)
 	}
 	return json.RawMessage(mock.applicationsListing), nil
 }
@@ -417,11 +415,11 @@ func (mock *pipelineLaneMock) DisconnectPipelineRepository(ctx context.Context, 
 	return mock.disconnectRepositoryError
 }
 
-func runPipelineCommand(t *testing.T, mockClient APIClient, arguments ...string) (string, error) {
+func runPipelineCommand(t *testing.T, mockClient any, arguments ...string) (string, error) {
 	t.Helper()
 	previousClient := apiClient
-	apiClient = mockClient
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mockClient)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	pipelineCommand := newPipelineCommand()
 	var output bytes.Buffer
@@ -1432,8 +1430,8 @@ func TestPipelineRunConclusionErrorNamesTheErrorClass(t *testing.T) {
 func TestPipelineSchedulesDeleteConfirms(t *testing.T) {
 	mockClient := &pipelineLaneMock{}
 	previousClient := apiClient
-	apiClient = mockClient
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mockClient)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	pipelineCommand := newPipelineCommand()
 	var output bytes.Buffer
@@ -1620,8 +1618,8 @@ func TestPipelineDefinitionsApproveErrorsAreVerbatimAndExitNonZero(t *testing.T)
 func TestPipelineDefinitionsApproveConfirms(t *testing.T) {
 	mockClient := &pipelineLaneMock{}
 	previousClient := apiClient
-	apiClient = mockClient
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mockClient)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	pipelineCommand := newPipelineCommand()
 	var output bytes.Buffer

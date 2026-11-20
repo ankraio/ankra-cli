@@ -16,7 +16,6 @@ const (
 )
 
 type applicationRemoveMock struct {
-	baseMock
 	installations      json.RawMessage
 	installationsReads int
 	retainedStacks     []string

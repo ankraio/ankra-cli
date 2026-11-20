@@ -11,7 +11,6 @@ import (
 // the flag must reach the client exactly as typed - and default to false.
 
 type proxmoxStopMock struct {
-	baseMock
 	stopClusterID string
 	gotForce      bool
 }
@@ -23,7 +22,6 @@ func (mock *proxmoxStopMock) StopProxmoxCluster(clusterID string, options client
 }
 
 type morpheusStopMock struct {
-	baseMock
 	stopClusterID string
 	gotForce      bool
 }

@@ -13,7 +13,6 @@ import (
 )
 
 type costMock struct {
-	baseMock
 	fleet       *client.FleetCloudCost
 	savings     *client.CloudSavings
 	clusterCost *client.ClusterCost
@@ -68,7 +67,7 @@ func costCommandTree() []*cobra.Command {
 	return []*cobra.Command{costSummaryCmd, costSavingsCmd, costLedgerCmd, costClusterCmd, costSettingsGetCmd, costSettingsSetCmd}
 }
 
-func runCostCommand(t *testing.T, mock APIClient, args ...string) (string, error) {
+func runCostCommand(t *testing.T, mock any, args ...string) (string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)

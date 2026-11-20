@@ -9,7 +9,6 @@ import (
 
 // tokenRemovalMock records which revoke and delete routes a command took.
 type tokenRemovalMock struct {
-	baseMock
 	personalRevoked, serviceRevoked []string
 	personalDeleted, serviceDeleted []string
 	personalError, serviceError     error

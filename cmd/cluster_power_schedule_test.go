@@ -18,8 +18,6 @@ type powerScheduleCall struct {
 }
 
 type powerScheduleMock struct {
-	baseMock
-
 	lists   []string
 	creates []powerScheduleCall
 	updates []powerScheduleCall

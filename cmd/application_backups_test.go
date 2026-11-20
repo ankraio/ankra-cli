@@ -19,7 +19,6 @@ const (
 // what the commands sent, so the tests assert the wire-facing behaviour - and
 // in particular that a stack name is never sent.
 type applicationBackupsMock struct {
-	baseMock
 	backups     *client.ApplicationBackups
 	backupsRead int
 	readError   error

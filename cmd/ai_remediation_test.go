@@ -11,7 +11,6 @@ import (
 )
 
 type aiRemediationMock struct {
-	baseMock
 	policy    *client.AIRemediationPolicy
 	readError error
 	reads     int
@@ -26,7 +25,7 @@ func (mock *aiRemediationMock) GetAIRemediationPolicy() (*client.AIRemediationPo
 	return &policy, nil
 }
 
-func runAIRemediationCommand(t *testing.T, mock APIClient, args ...string) (string, error) {
+func runAIRemediationCommand(t *testing.T, mock any, args ...string) (string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)

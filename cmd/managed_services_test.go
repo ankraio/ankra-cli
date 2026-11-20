@@ -717,8 +717,8 @@ func (platform *fakeServicesPlatform) serveRetirementPage(writer http.ResponseWr
 func runServicesCommand(t *testing.T, platform *fakeServicesPlatform, input string, arguments ...string) (string, string, error) {
 	t.Helper()
 	previousClient := apiClient
-	apiClient = platform.client()
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(platform.client())
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 	servicesCommand := newServicesCommand()
 	var stdout, stderr bytes.Buffer
 	servicesCommand.SetOut(&stdout)
@@ -1764,8 +1764,8 @@ func TestResolveServiceInstanceRefusesAnAmbiguousName(t *testing.T) {
 	twin := fakeServiceInstance()
 	twin["id"] = "c9b96bb8-0000-4000-8000-0000000000aa"
 	twin["cluster_id"] = "c1a2b3c4-0000-4000-8000-0000000000bb"
-	apiClient = &twinInstancesClient{Client: platform.client(), items: []map[string]any{fakeServiceInstance(), twin}}
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(&twinInstancesClient{Client: platform.client(), items: []map[string]any{fakeServiceInstance(), twin}})
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 	command := newServicesGetCommand()
 	_, resolveError := resolveServiceInstance(command, "orders-db")
 	if resolveError == nil || exitCodeFor(resolveError) != exitUsage || !strings.Contains(resolveError.Error(), "--cluster") {
@@ -2096,7 +2096,7 @@ func TestServicesConsumersUnbindRelaysRefusals(t *testing.T) {
 
 // endlessClusterPages answers every cluster page full, as an organisation
 // with more clusters than the name lookup reads would.
-type endlessClusterPages struct{ baseMock }
+type endlessClusterPages struct{}
 
 func (m *endlessClusterPages) ListClusters(page int, pageSize int) (*client.ClusterListResponse, error) {
 	clusters := make([]client.ClusterListItem, pageSize)
@@ -2111,9 +2111,9 @@ func (m *endlessClusterPages) ListClusters(page int, pageSize int) (*client.Clus
 // that read every cluster says nothing.
 func TestServiceNamesSaysWhenTheClusterLookupStopsAtItsCap(t *testing.T) {
 	previousClient := apiClient
-	t.Cleanup(func() { apiClient = previousClient })
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
-	apiClient = &endlessClusterPages{}
+	apiClient = adaptMockClient(&endlessClusterPages{})
 	command := &cobra.Command{}
 	command.SetContext(context.Background())
 	var notes bytes.Buffer
@@ -2129,7 +2129,7 @@ func TestServiceNamesSaysWhenTheClusterLookupStopsAtItsCap(t *testing.T) {
 		t.Fatalf("notes %q", notes.String())
 	}
 
-	apiClient = &clusterListMock{clusters: []client.ClusterListItem{{ID: "only", Name: "the-only-one"}}}
+	apiClient = adaptMockClient(&clusterListMock{clusters: []client.ClusterListItem{{ID: "only", Name: "the-only-one"}}})
 	notes.Reset()
 	complete := newServiceNames(command)
 	if shown := complete.cluster("only"); shown != "the-only-one" || notes.Len() != 0 {
@@ -2214,7 +2214,6 @@ func TestServiceDeploymentViewMirrorsThePortal(t *testing.T) {
 }
 
 type serviceFailureStepsMock struct {
-	baseMock
 	status         string
 	executionError *string
 	steps          []client.ExecutionStep
@@ -2247,8 +2246,8 @@ func TestServicesGetExplainsAFailedDeployment(t *testing.T) {
 		{Name: "install", Status: "failed", ErrorExcerpt: &excerpt},
 	}}
 	previousClient := apiClient
-	apiClient = mock
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mock)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	var out bytes.Buffer
 	printServiceDeploymentFailure(&out, instance)
@@ -2323,8 +2322,8 @@ func TestServicesFailureExcerptKeepsValidUTF8(t *testing.T) {
 	excerpt := strings.Repeat("é", serviceDeploymentFailureExcerptLimit+50)
 	instance := client.ServiceInstance{Name: "svc", DeploymentState: "deployment_failed", DeploymentOperationID: &operationID}
 	previousClient := apiClient
-	apiClient = &serviceFailureStepsMock{steps: []client.ExecutionStep{{Name: "install", Status: "failed", ErrorExcerpt: &excerpt}}}
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(&serviceFailureStepsMock{steps: []client.ExecutionStep{{Name: "install", Status: "failed", ErrorExcerpt: &excerpt}}})
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	var out bytes.Buffer
 	printServiceDeploymentFailure(&out, instance)
@@ -2348,8 +2347,8 @@ func TestServicesFailureSuggestsOnlyARetryThePlatformAccepts(t *testing.T) {
 	mock := &serviceFailureStepsMock{status: "timeout", executionError: &executionError,
 		steps: []client.ExecutionStep{{Name: "install", Status: "timeout"}}}
 	previousClient := apiClient
-	apiClient = mock
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mock)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	var out bytes.Buffer
 	printServiceDeploymentFailure(&out, instance)

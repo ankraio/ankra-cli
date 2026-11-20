@@ -19,7 +19,6 @@ const (
 )
 
 type costObjectMock struct {
-	baseMock
 	projection *client.ObjectCostProjection
 	readError  error
 	clusters   []client.ClusterListItem
@@ -40,7 +39,7 @@ func (m *costObjectMock) ListClusters(page int, pageSize int) (*client.ClusterLi
 	return &client.ClusterListResponse{Result: m.clusters, Pagination: client.Pagination{TotalPages: 1}}, nil
 }
 
-func runCostObjectCommand(t *testing.T, mock APIClient, args ...string) (string, error) {
+func runCostObjectCommand(t *testing.T, mock any, args ...string) (string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)

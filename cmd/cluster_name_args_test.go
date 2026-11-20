@@ -20,8 +20,6 @@ const testClusterID = "0b7c4d0e-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 // clusterArgMock answers the cluster listing that resolveClusterArg pages
 // through, and records the ids the commands under test forward to the API.
 type clusterArgMock struct {
-	baseMock
-
 	clusters  []client.ClusterListItem
 	listCalls int
 
@@ -68,8 +66,8 @@ func (m *clusterArgMock) CheckClusterMeshReadiness(clusterIDs []string) (map[str
 func withClusterArgMock(t *testing.T, mock *clusterArgMock) {
 	t.Helper()
 	previous := apiClient
-	apiClient = mock
-	t.Cleanup(func() { apiClient = previous })
+	apiClient = adaptMockClient(mock)
+	t.Cleanup(func() { apiClient = adaptMockClient(previous) })
 }
 
 func newClusterArgMock() *clusterArgMock {
@@ -374,7 +372,6 @@ func TestUnresolvedClusterNameExitsNotFoundLikeTheIDPath(t *testing.T) {
 // scalewayDeprovisionConfirmMock records whether the permanent delete was
 // actually asked for.
 type scalewayDeprovisionConfirmMock struct {
-	baseMock
 	clusters      []client.ClusterListItem
 	deprovisioned string
 }

@@ -15,7 +15,6 @@ import (
 )
 
 type clusterAddonUninstallMock struct {
-	baseMock
 	addons []client.ClusterAddonListItem
 	// resourceIDs maps addon name -> resource id, mirroring the stack-history
 	// resolution the real client performs (the listing carries no id).

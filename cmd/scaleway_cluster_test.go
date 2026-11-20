@@ -10,7 +10,6 @@ import (
 )
 
 type scalewayLifecycleMock struct {
-	baseMock
 	startClusterID string
 	startScope     string
 	stopClusterID  string
@@ -63,7 +62,6 @@ func TestScalewayStartCommandWithScope(t *testing.T) {
 }
 
 type scalewayDeprovisionForceMock struct {
-	baseMock
 	force bool
 	calls int
 }

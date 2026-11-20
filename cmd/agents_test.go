@@ -10,7 +10,6 @@ import (
 )
 
 type agentRunsMock struct {
-	baseMock
 	runs        []client.AgentRun
 	cancelCalls int
 	cancelError error

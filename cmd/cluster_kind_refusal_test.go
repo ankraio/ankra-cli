@@ -18,8 +18,6 @@ import (
 )
 
 type wrongKindMock struct {
-	baseMock
-
 	cluster     client.ClusterListItem
 	lookupError error
 	workerError error

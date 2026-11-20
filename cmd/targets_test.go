@@ -66,8 +66,8 @@ func newDeployPlatform(t *testing.T, routes map[string]deployPlatformAnswer) *de
 	}))
 	t.Cleanup(server.Close)
 	previousClient := apiClient
-	apiClient = client.New("test-token", server.URL)
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(client.New("test-token", server.URL))
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 	return platform
 }
 

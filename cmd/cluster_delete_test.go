@@ -9,7 +9,6 @@ import (
 )
 
 type deleteResourceMock struct {
-	baseMock
 	requests  []client.DeleteResourceRequest
 	responses map[string]*client.ResourceMutationResponse
 }
@@ -26,7 +25,7 @@ func (m *deleteResourceMock) DeleteResource(clusterID string, request client.Del
 	return &client.ResourceMutationResponse{Status: "success"}, nil
 }
 
-func runDelete(t *testing.T, mock APIClient, input string, extraArgs ...string) (string, error) {
+func runDelete(t *testing.T, mock any, input string, extraArgs ...string) (string, error) {
 	t.Helper()
 	resetConfirmFlag(t, clusterDeleteCmd, clusterCmd)
 	args := append([]string{"cluster", "delete"}, extraArgs...)
@@ -261,7 +260,6 @@ func TestDelete_TransportErrorStopsRun(t *testing.T) {
 }
 
 type deleteTransportErrorMock struct {
-	baseMock
 	calls int
 }
 

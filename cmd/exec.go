@@ -69,7 +69,7 @@ const (
 // execForwardEnv is the bash client's FORWARD_ENV, plus GOMEMLIMIT: the
 // environment a remote command sees from this machine, plus the names in
 // ANKRA_EXEC_FORWARD_ENV. GOMEMLIMIT lets a caller hold a Go build to the
-// soft memory ceiling its CI uses (ankra-cli's own lint-build.yml sets 5GiB);
+// soft memory ceiling its CI supplies through GOMEMLIMIT;
 // unset, the workspace's own default applies.
 var execForwardEnv = []string{
 	"E2E_TARGET", "BASE_URL", "PLAYWRIGHT_BASE_URL", "GOFLAGS", "CGO_ENABLED", "GOEXPERIMENT", "GODEBUG",

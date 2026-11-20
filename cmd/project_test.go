@@ -25,7 +25,6 @@ const (
 // projectsMock answers the project routes and records what the commands
 // asked of the client: the scope overrides, the writes and the reads.
 type projectsMock struct {
-	baseMock
 	projects       []client.ProjectSummary
 	listError      error
 	listCalls      int
@@ -199,7 +198,7 @@ func resetGlobalProjectFlag(t *testing.T) {
 // with no project override from the environment, and returns stdout and
 // stderr. Every flag of the project tree and the global --project are reset
 // before and after.
-func runProjectCommand(t *testing.T, mock APIClient, input string, args ...string) (string, string, error) {
+func runProjectCommand(t *testing.T, mock any, input string, args ...string) (string, string, error) {
 	t.Helper()
 	withTempHome(t)
 	t.Setenv(envAnkraProject, "")
@@ -786,7 +785,7 @@ func (m projectKubeconfigMock) ProjectOverride() string { return m.project }
 
 func TestKubeconfigAddPinsTheProjectItWasAddedIn(t *testing.T) {
 	withKubeconfigMock(t, kubeconfigMock{cluster: client.ClusterListItem{ID: "id-1", Name: "demo", OrganisationID: "org-1"}})
-	apiClient = projectKubeconfigMock{kubeconfigMock: kubeconfigMock{cluster: client.ClusterListItem{ID: "id-1", Name: "demo", OrganisationID: "org-1"}}, project: projectTestEdgeID}
+	apiClient = adaptMockClient(projectKubeconfigMock{kubeconfigMock: kubeconfigMock{cluster: client.ClusterListItem{ID: "id-1", Name: "demo", OrganisationID: "org-1"}}, project: projectTestEdgeID})
 	path := filepath.Join(t.TempDir(), "config")
 	resetKubeconfigFlags(path)
 	kubeconfigClusterFlag = "demo"

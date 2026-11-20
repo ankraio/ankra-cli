@@ -13,7 +13,6 @@ import (
 // commands sent, so the tests can assert the wire-facing behaviour without
 // a server.
 type backupVaultsMock struct {
-	baseMock
 	vaults           []client.BackupVault
 	listError        error
 	listCalls        int
@@ -111,7 +110,7 @@ const backupVaultTestID = "0d9c1f9e-5f2a-4c53-9d3e-6a1f2b3c4d5e"
 func TestResolveBackupVaultIDPassesAUUIDStraightThrough(t *testing.T) {
 	mock := &backupVaultsMock{listError: errors.New("listing must not be called for a uuid")}
 
-	resolved, resolveError := resolveBackupVaultID(mock, backupVaultTestID)
+	resolved, resolveError := resolveBackupVaultID(adaptMockClient(mock), backupVaultTestID)
 
 	if resolveError != nil {
 		t.Fatalf("a uuid must resolve to itself: %v", resolveError)
@@ -130,7 +129,7 @@ func TestResolveBackupVaultIDResolvesAName(t *testing.T) {
 		{ID: backupVaultTestID, Name: "offsite"},
 	}}
 
-	resolved, resolveError := resolveBackupVaultID(mock, "offsite")
+	resolved, resolveError := resolveBackupVaultID(adaptMockClient(mock), "offsite")
 
 	if resolveError != nil {
 		t.Fatalf("resolving a name printed by `list`: %v", resolveError)
@@ -143,7 +142,7 @@ func TestResolveBackupVaultIDResolvesAName(t *testing.T) {
 func TestResolveBackupVaultIDExplainsAnUnknownName(t *testing.T) {
 	mock := &backupVaultsMock{vaults: []client.BackupVault{{ID: "id-1", Name: "offsite"}}}
 
-	_, resolveError := resolveBackupVaultID(mock, "offsit")
+	_, resolveError := resolveBackupVaultID(adaptMockClient(mock), "offsit")
 
 	if resolveError == nil {
 		t.Fatal("an unknown name must be reported, not passed to the API as a bogus uuid")
@@ -159,7 +158,7 @@ func TestResolveBackupVaultIDReportsDuplicateNames(t *testing.T) {
 		{ID: "bbbbbbbb-2222-4222-8222-222222222222", Name: "offsite"},
 	}}
 
-	_, resolveError := resolveBackupVaultID(mock, "offsite")
+	_, resolveError := resolveBackupVaultID(adaptMockClient(mock), "offsite")
 
 	if resolveError == nil {
 		t.Fatal("duplicate names must be reported so the user passes an id")
@@ -176,7 +175,7 @@ func TestResolveBackupVaultIDReportsDuplicateNames(t *testing.T) {
 func TestResolveBackupVaultIDReportsWhyTheLookupFailed(t *testing.T) {
 	mock := &backupVaultsMock{listError: errors.New("listing unavailable")}
 
-	resolved, resolveError := resolveBackupVaultID(mock, "offsite")
+	resolved, resolveError := resolveBackupVaultID(adaptMockClient(mock), "offsite")
 
 	if resolveError == nil {
 		t.Fatal("a failed lookup must surface, not pass the name through")
@@ -194,7 +193,7 @@ func TestResolveBackupVaultIDReportsWhyTheLookupFailed(t *testing.T) {
 func TestResolveBackupVaultIDSkipsTheLookupForAnID(t *testing.T) {
 	mock := &backupVaultsMock{listError: errors.New("listing unavailable")}
 
-	resolved, resolveError := resolveBackupVaultID(mock, backupVaultTestID)
+	resolved, resolveError := resolveBackupVaultID(adaptMockClient(mock), backupVaultTestID)
 
 	if resolveError != nil {
 		t.Fatalf("an id must not need the listing: %v", resolveError)

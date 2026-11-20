@@ -22,7 +22,6 @@ func TestCloudDNSZoneNotFoundUsesExitThree(t *testing.T) {
 }
 
 type cloudAccessPolicyMock struct {
-	baseMock
 	zoneID string
 	policy client.CloudDNSAccessPolicy
 }
@@ -35,8 +34,8 @@ func (mock *cloudAccessPolicyMock) UpdateCloudDNSAccess(_ context.Context, zoneI
 func TestAccessGatewaySetValidatesAndSendsPolicy(t *testing.T) {
 	previous := apiClient
 	mock := &cloudAccessPolicyMock{}
-	apiClient = mock
-	defer func() { apiClient = previous }()
+	apiClient = adaptMockClient(mock)
+	defer func() { apiClient = adaptMockClient(previous) }()
 
 	invalid := newAccessGatewaySetCommand()
 	invalid.SetArgs([]string{"zone-1", "--mode", "public", "--role", "admin"})
@@ -59,12 +58,12 @@ func TestAccessGatewaySetValidatesAndSendsPolicy(t *testing.T) {
 
 func TestAccessGatewaySetProjectLimit(t *testing.T) {
 	previous := apiClient
-	defer func() { apiClient = previous }()
+	defer func() { apiClient = adaptMockClient(previous) }()
 	const project = "1ed7f4df-23b0-4571-ad50-89b968748bc4"
 
 	run := func(arguments ...string) (*cloudAccessPolicyMock, error) {
 		mock := &cloudAccessPolicyMock{}
-		apiClient = mock
+		apiClient = adaptMockClient(mock)
 		command := newAccessGatewaySetCommand()
 		command.SetArgs(append([]string{"zone-1"}, arguments...))
 		command.SetOut(&bytes.Buffer{})
@@ -91,7 +90,6 @@ func TestAccessGatewaySetProjectLimit(t *testing.T) {
 }
 
 type accessGatewayMock struct {
-	baseMock
 	relaySecretMissing bool
 }
 
@@ -143,8 +141,8 @@ func gatewayTestDeployment(name string, relay bool) map[string]interface{} {
 
 func TestAccessGatewayReportUsesLiveRedactedReads(t *testing.T) {
 	previous := apiClient
-	apiClient = accessGatewayMock{}
-	defer func() { apiClient = previous }()
+	apiClient = adaptMockClient(accessGatewayMock{})
+	defer func() { apiClient = adaptMockClient(previous) }()
 	report, err := readAccessGatewayReport("platform", "relay")
 	if err != nil {
 		t.Fatal(err)
@@ -156,8 +154,8 @@ func TestAccessGatewayReportUsesLiveRedactedReads(t *testing.T) {
 
 func TestAccessGatewayReportRequiresBothSecrets(t *testing.T) {
 	previous := apiClient
-	apiClient = accessGatewayMock{relaySecretMissing: true}
-	defer func() { apiClient = previous }()
+	apiClient = adaptMockClient(accessGatewayMock{relaySecretMissing: true})
+	defer func() { apiClient = adaptMockClient(previous) }()
 	report, err := readAccessGatewayReport("platform", "relay")
 	if err != nil {
 		t.Fatal(err)

@@ -48,7 +48,9 @@ func shellDefinitions(t *testing.T, names ...string) (string, []string) {
 // The stubs: one Running autoscaler pod; `ankra cluster logs` failing for
 // the first STUB_LOG_FAILURES reads and then printing $STUB_DIR/log; jq
 // answering the group's nodes without a providerID with $STUB_NOID. The
-// grace window is 1s polled every 0.2s, so a retried read has room.
+// clock advances by one 0.2s poll only when the script sleeps. A real
+// whole-second clock can expire the 1s grace window before a second read
+// when a busy runner crosses a second boundary during the first attempt.
 const identityPrelude = `set -u -o pipefail
 NL=$'\n'
 LANE_SKIP_RESULTS=""
@@ -59,6 +61,24 @@ AS_LOG_WINDOW=60
 AS_JQ_LIB=''
 POLL_INTERVAL=0.2
 AUTOSCALING_IDENTITY_GRACE=1
+date() {
+  if [ "$#" -eq 1 ] && [ "$1" = +%s ]; then
+    local ticks
+    ticks=$(cat "$STUB_DIR/clock_ticks" 2>/dev/null || echo 0)
+    echo "$((1000 + ticks / 5))"
+  else
+    command date "$@"
+  fi
+}
+sleep() {
+  if [ "$#" -ne 1 ] || [ "$1" != "$POLL_INTERVAL" ]; then
+    echo "unexpected fixture sleep: $*" >&2
+    exit 2
+  fi
+  local ticks
+  ticks=$(cat "$STUB_DIR/clock_ticks" 2>/dev/null || echo 0)
+  echo "$((ticks + 1))" > "$STUB_DIR/clock_ticks"
+}
 lane_headline() { echo "All 1 provider lanes configured"; }
 as_ca_pod() { echo cluster-autoscaler-abc; }
 as_nodes_json() { echo '{}'; }

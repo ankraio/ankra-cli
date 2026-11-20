@@ -9,7 +9,6 @@ import (
 )
 
 type chatDeleteMock struct {
-	baseMock
 	called            bool
 	gotConversationID string
 }
@@ -71,7 +70,6 @@ func TestChatStatusText(t *testing.T) {
 }
 
 type chatStreamMock struct {
-	baseMock
 	events []client.ChatStreamEvent
 }
 

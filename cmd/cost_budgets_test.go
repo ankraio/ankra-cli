@@ -13,7 +13,6 @@ import (
 )
 
 type costBudgetsMock struct {
-	baseMock
 	budgets     *client.CostBudgets
 	listError   error
 	written     *client.CostBudget
@@ -59,7 +58,7 @@ func (m *costBudgetsMock) ListClusters(page int, pageSize int) (*client.ClusterL
 	return &client.ClusterListResponse{Result: m.clusters, Pagination: client.Pagination{TotalPages: 1, Page: 1}}, nil
 }
 
-func runCostBudgetsCommand(t *testing.T, mock APIClient, input string, args ...string) (string, error) {
+func runCostBudgetsCommand(t *testing.T, mock any, input string, args ...string) (string, error) {
 	t.Helper()
 	stdout, _, executeError := runCostBudgetsCommandSplit(t, mock, input, args...)
 	return stdout, executeError
@@ -67,7 +66,7 @@ func runCostBudgetsCommand(t *testing.T, mock APIClient, input string, args ...s
 
 // runCostBudgetsCommandSplit is runCostBudgetsCommand that also returns what
 // the command wrote to stderr, where its confirmation prompt goes.
-func runCostBudgetsCommandSplit(t *testing.T, mock APIClient, input string, args ...string) (string, string, error) {
+func runCostBudgetsCommandSplit(t *testing.T, mock any, input string, args ...string) (string, string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)

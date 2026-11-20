@@ -14,7 +14,6 @@ import (
 )
 
 type kubeconfigMock struct {
-	baseMock
 	cluster     client.ClusterListItem
 	byIDCluster client.ClusterListItem
 	clusters    []client.ClusterListItem
@@ -69,11 +68,11 @@ func withKubeconfigMock(t *testing.T, mock kubeconfigMock) {
 	originalClient := apiClient
 	originalBaseURL := baseURL
 	originalTokenSource := organisationScopeTokenSource
-	apiClient = mock
+	apiClient = adaptMockClient(mock)
 	baseURL = "https://test.ankra.app"
 	organisationScopeTokenSource = sourceConfigFile
 	t.Cleanup(func() {
-		apiClient = originalClient
+		apiClient = adaptMockClient(originalClient)
 		baseURL = originalBaseURL
 		organisationScopeTokenSource = originalTokenSource
 	})
