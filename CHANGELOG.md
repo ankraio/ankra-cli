@@ -7,9 +7,13 @@
 Keep the searches saved for an application's Logs page from the terminal with
 `ankra application log-searches`: list them, save a new one, replace one or
 remove one. Clear one pipeline cache with `ankra pipeline caches clear`, so the
-next run that uses it fills it again. Both are new commands, so nothing a
-script reads today changes: every existing command, flag, exit code and
-`-o json` key is unchanged.
+next run that uses it fills it again. `ankra delete cluster` and
+`ankra cluster agent token --generate` now warn before they cut off a running
+agent, and `--generate` then asks first: a run with no terminal needs the new
+`--yes`, or it exits 2 with nothing generated. Every other command, flag, exit
+code and `-o json` key is unchanged; `--generate -o json` gains
+`previous_token_valid_until` when Ankra keeps the previous token valid for a
+while.
 
 ### Added
 
