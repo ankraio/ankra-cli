@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- **`ankra delete cluster` and `ankra cluster agent token --generate` warn before they cut off a running agent.** When the cluster's agent is connected, or checked in within the last 15 minutes, both say so on stderr. Deleting the cluster leaves that agent calling Ankra and being refused until it is uninstalled from the cluster, and a new token replaces the one it uses. `delete cluster` prints the warning above its usual prompt (`--force` still skips the prompt). `--generate` now asks first in that case: answer with the new `--yes`, which a run with no terminal needs, or it exits 2 with nothing generated. When Ankra keeps the previous token valid for a while, `--generate` says until when, and `-o json` carries it as `previous_token_valid_until`. A cluster with no running agent behaves as before.
+
 ## v0.81.0 - 2026-11-20
 
 See what each environment of an application costs, and what each rate is made

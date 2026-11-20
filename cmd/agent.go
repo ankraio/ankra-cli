@@ -120,6 +120,18 @@ func agentIsConnected(agent *client.AgentInfo) bool {
 var clusterAgentTokenCmd = &cobra.Command{
 	Use:   "token",
 	Short: "Get or generate agent token for the selected cluster",
+	Long: `Print the agent token and install command for the selected cluster, or
+generate a new one with --generate.
+
+A new token replaces the token the running agent holds. When the cluster's
+agent is connected, or checked in within the last 15 minutes, --generate says
+so and asks first; with no terminal to ask on it needs --yes. When Ankra keeps
+the previous token valid for a while, the output says until when; otherwise
+the running agent is refused from its next check-in until it is redeployed
+with the new install command.`,
+	Example: `  ankra cluster agent token
+  ankra cluster agent token --generate
+  ankra cluster agent token --generate --yes -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		generate, _ := cmd.Flags().GetBool("generate")
 
@@ -129,6 +141,10 @@ var clusterAgentTokenCmd = &cobra.Command{
 		}
 
 		if generate {
+			if err := confirmAgentTokenRotation(cmd, cluster.ID, cluster.Name); err != nil {
+				return err
+			}
+
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
@@ -145,7 +161,7 @@ var clusterAgentTokenCmd = &cobra.Command{
 			fmt.Println()
 			printAgentToken(token)
 			fmt.Println()
-			fmt.Println("The previous token is now invalid; redeploy the agent with the command above.")
+			fmt.Println(previousAgentTokenSentence(token))
 			return nil
 		}
 
@@ -163,6 +179,99 @@ var clusterAgentTokenCmd = &cobra.Command{
 		printAgentToken(token)
 		return nil
 	},
+}
+
+// agentCutOffCheckinWindow is how recently an agent that the platform no
+// longer reports as connected must have checked in to still count as
+// running when a delete or a token rotation would cut it off. An agent
+// between check-ins, or one restarting, is not connected for a moment but is
+// still installed and will keep calling with the credential it holds
+// (support ticket 1331: the record was deleted 16 minutes after the agent's
+// last check-in, and the agent was refused for 13.7 days).
+const agentCutOffCheckinWindow = 15 * time.Minute
+
+// runningAgentPresence describes an agent that is, or very recently was,
+// connected, as the end of a sentence that starts "The Ankra agent in
+// cluster X": "is connected (last check-in 20 seconds ago)" or "checked in 5
+// minutes ago". It is empty when nothing says an agent is running.
+func runningAgentPresence(agent *client.AgentInfo) string {
+	if agent == nil {
+		return ""
+	}
+	if agentIsConnected(agent) {
+		if agent.CheckedInAt != nil {
+			return fmt.Sprintf("is connected (last check-in %s)", formatTimeAgo(*agent.CheckedInAt))
+		}
+		return "is connected"
+	}
+	if agent.CheckedInAt == nil {
+		return ""
+	}
+	checkedInAt, parseError := time.Parse(time.RFC3339, *agent.CheckedInAt)
+	if parseError != nil || time.Since(checkedInAt) > agentCutOffCheckinWindow {
+		return ""
+	}
+	return "checked in " + formatTimeAgo(*agent.CheckedInAt)
+}
+
+// readRunningAgentPresence reads the cluster's agent and describes it with
+// runningAgentPresence. A read that fails (a cluster with no agent record,
+// a platform without the route, a transient error) says nothing: the
+// warning is advice, and the command behaves as it did before it existed.
+func readRunningAgentPresence(clusterID string) string {
+	agent, readError := apiClient.GetClusterAgent(clusterID)
+	if readError != nil {
+		return ""
+	}
+	return runningAgentPresence(agent)
+}
+
+// confirmAgentTokenRotation warns before a new agent token is generated for
+// a cluster whose agent is running, and asks. The token the running agent
+// holds is replaced, so unless the platform keeps it valid for a while the
+// agent is refused from its next check-in. Everything goes to stderr so
+// -o json|yaml stays parseable. --yes skips the question; a run with no
+// terminal and no --yes is refused, with nothing generated.
+func confirmAgentTokenRotation(cmd *cobra.Command, clusterID, clusterName string) error {
+	presence := readRunningAgentPresence(clusterID)
+	if presence == "" {
+		return nil
+	}
+	errOut := cmd.ErrOrStderr()
+	_, _ = fmt.Fprintf(errOut, "The Ankra agent in cluster '%s' %s.\n", clusterName, presence)
+	_, _ = fmt.Fprintln(errOut, "A new token replaces the token that agent uses. Redeploy the agent with the new "+
+		"install command straight after; until then Ankra may refuse the running agent and the cluster shows as offline.")
+	if yes, _ := cmd.Flags().GetBool("yes"); yes {
+		return nil
+	}
+	if !promptIsInteractive(cmd.InOrStdin()) {
+		return withExitCode(exitUsage, fmt.Errorf(
+			"generating a new agent token for cluster '%s' while its agent is running needs confirmation, "+
+				"but there is no terminal to ask on; nothing was generated. Re-run with --yes to confirm", clusterName))
+	}
+	if promptError := confirmPrompt(cmd.InOrStdin(), errOut, "Generate a new agent token? [y/N]: ", false); promptError != nil {
+		if errors.Is(promptError, errCancelled) {
+			return promptError
+		}
+		return fmt.Errorf("reading the confirmation: %w", promptError)
+	}
+	return nil
+}
+
+// previousAgentTokenSentence says what happens to the agent still running
+// with the previous token: on a platform with a rotation grace window it
+// keeps working until the agent with the new token connects or the window
+// ends; otherwise it was cut off the moment the new token was generated.
+func previousAgentTokenSentence(token *client.AgentToken) string {
+	if token.PreviousTokenValidUntil == nil || strings.TrimSpace(*token.PreviousTokenValidUntil) == "" {
+		return "The previous token is now invalid; redeploy the agent with the command above."
+	}
+	until := strings.TrimSpace(*token.PreviousTokenValidUntil)
+	if _, parseError := time.Parse(time.RFC3339, until); parseError == nil {
+		until = fmt.Sprintf("%s (%s)", until, formatTimeAgo(until))
+	}
+	return fmt.Sprintf("An agent still running with the previous token keeps working until the agent with this token "+
+		"connects, or until %s at the latest; redeploy the agent with the command above before then.", until)
 }
 
 func printAgentToken(token *client.AgentToken) {
@@ -250,7 +359,11 @@ func agentUpgradeError(upgradeError error) error {
 }
 
 func init() {
-	clusterAgentTokenCmd.Flags().Bool("generate", false, "Generate a new agent token")
+	clusterAgentTokenCmd.Flags().Bool("generate", false,
+		"Generate a new agent token (asks first when the cluster's agent is running)")
+	clusterAgentTokenCmd.Flags().BoolP("yes", "y", false,
+		"With --generate, skip the confirmation asked when the cluster's agent is running "+
+			"(required then when stdin is not a terminal)")
 	clusterAgentUpgradeCmd.Flags().String("version", "",
 		"Exact agent release to install (default: the newer of the running release and the latest stable one)")
 	clusterAgentUpgradeCmd.Flags().Bool("allow-downgrade", false,
