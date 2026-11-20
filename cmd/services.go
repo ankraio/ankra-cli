@@ -494,6 +494,10 @@ type APIClient interface {
 	CreateApplicationAlert(requestContext context.Context, applicationID string, alertRequest client.ApplicationAlertRequest) (*client.ApplicationAlert, error)
 	UpdateApplicationAlert(requestContext context.Context, applicationID string, alertID string, alertRequest client.ApplicationAlertRequest) (*client.ApplicationAlert, error)
 	DeleteApplicationAlert(requestContext context.Context, applicationID string, alertID string) (*client.ApplicationAlertDeleteResult, error)
+	ListApplicationSavedLogSearches(requestContext context.Context, applicationID string) (*client.SavedLogSearches, error)
+	SaveApplicationLogSearch(requestContext context.Context, applicationID string, searchRequest client.SavedLogSearchRequest) (*client.SavedLogSearch, error)
+	ReplaceApplicationSavedLogSearch(requestContext context.Context, applicationID string, searchID string, searchRequest client.SavedLogSearchRequest) (*client.SavedLogSearch, error)
+	DeleteApplicationSavedLogSearch(requestContext context.Context, applicationID string, searchID string) error
 	StartApplicationPlatformBuild(requestContext context.Context, applicationID string, request client.StartApplicationPlatformBuildRequest) (json.RawMessage, error)
 	ListApplicationPlatformBuilds(requestContext context.Context, applicationID string) (json.RawMessage, error)
 	GetApplicationPlatformBuild(requestContext context.Context, applicationID string, buildID string) (json.RawMessage, error)
@@ -1253,6 +1257,7 @@ type APIClient interface {
 	GetPipelinePolicy(ctx context.Context) (json.RawMessage, error)
 	UpdatePipelinePolicy(ctx context.Context, changes map[string]any) (json.RawMessage, error)
 	ListPipelineCaches(ctx context.Context, selector client.PipelineSelector, cursor string, limit int) (json.RawMessage, error)
+	ClearPipelineCache(ctx context.Context, selector client.PipelineSelector, path string, trust string) (json.RawMessage, error)
 	GetWorkspaceProfilesDocument(ctx context.Context, repositoryID string) (json.RawMessage, error)
 	PutWorkspaceProfiles(ctx context.Context, repositoryID string, profiles map[string]any) (json.RawMessage, error)
 	ListPipelineSchedules(ctx context.Context, selector client.PipelineSelector) (*client.PipelineScheduleList, error)

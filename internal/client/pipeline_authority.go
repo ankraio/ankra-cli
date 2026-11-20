@@ -10,8 +10,10 @@ package client
 // or a 403 keeps its status and the command exits 3 or 7 on it.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	neturl "net/url"
 	"strconv"
@@ -106,6 +108,73 @@ func (c *Client) ListPipelineCaches(ctx context.Context, selector PipelineSelect
 		return nil, selectorError
 	}
 	return c.requestDocument(ctx, http.MethodGet, pathWithQuery(base+"/pipeline-caches", pipelinePageQuery(cursor, limit)), nil)
+}
+
+// PipelineCacheClearRejectedError is the platform's 422 answer to a cache
+// clear it would not read: a blank path or a trust scope it does not know.
+// Message is the platform's own words, flattened the way every pipeline
+// route's 422 is (pipelineValidationDetailFromBody). Nothing was cleared.
+type PipelineCacheClearRejectedError struct {
+	Message string
+}
+
+func (e *PipelineCacheClearRejectedError) Error() string {
+	return e.Message
+}
+
+// ClearPipelineCache takes one cache of the selected pipeline out of use: no
+// new run restores its ready archives or mounts its volumes. path is the
+// cache's mount path as the cache listing shows it; trust is
+// "default_branch" or "branch", and an empty trust is left out of the body,
+// which clears both scopes. The answer is the platform's document, zeros
+// when nothing was left to clear.
+// POST …/pipeline-caches/clear under the selector's application or repository.
+//
+// The request rides sendJSON's status handling, so a 404 keeps its status
+// (exit 3) and a 403 its permission (exit 7); only the 422, whose body is a
+// list of problems rather than one sentence, is read here first.
+func (c *Client) ClearPipelineCache(ctx context.Context, selector PipelineSelector, path string, trust string) (json.RawMessage, error) {
+	base, selectorError := selector.basePath()
+	if selectorError != nil {
+		return nil, selectorError
+	}
+	payload := map[string]any{"path": path}
+	if trust != "" {
+		payload["trust"] = trust
+	}
+	encoded, marshalError := json.Marshal(payload)
+	if marshalError != nil {
+		return nil, fmt.Errorf("marshal request: %w", marshalError)
+	}
+	request, requestError := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+base+"/pipeline-caches/clear",
+		bytes.NewReader(encoded))
+	if requestError != nil {
+		return nil, fmt.Errorf("create request: %w", requestError)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+c.Token)
+	response, doError := c.HTTP.Do(request)
+	if doError != nil {
+		return nil, fmt.Errorf("request failed: %w", doError)
+	}
+	defer closeBody(response)
+	body, readError := readResponseBody(response)
+	if readError != nil {
+		return nil, fmt.Errorf("read response: %w", readError)
+	}
+	if response.StatusCode == http.StatusUnprocessableEntity {
+		if message := pipelineValidationDetailFromBody(body); message != "" {
+			return nil, &PipelineCacheClearRejectedError{Message: message}
+		}
+	}
+	if responseError := errorFromResponse(response.StatusCode, body); responseError != nil {
+		return nil, responseError
+	}
+	var document json.RawMessage
+	if decodeError := json.Unmarshal(body, &document); decodeError != nil {
+		return nil, fmt.Errorf("parse response: %w", decodeError)
+	}
+	return document, nil
 }
 
 func workspaceProfilesEndpoint(baseURL string, repositoryID string) string {

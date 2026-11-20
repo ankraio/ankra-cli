@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -34,17 +35,12 @@ var deleteClusterCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := confirmPrompt(os.Stdin, cmd.ErrOrStderr(),
-			fmt.Sprintf("Are you sure you want to delete cluster %q? This action is irreversible! (y/N): ", name),
-			forceDelete); err != nil {
-			return err
-		}
-
 		// The generic delete must only ever reach a cluster whose kind is
 		// known to allow it: a cloud cluster deleted here would lose its
 		// record while its servers keep running and billing. So the kind is
 		// read first, and when it cannot be read nothing is deleted - a
-		// transient lookup failure must never bypass the check.
+		// transient lookup failure must never bypass the check. It is read
+		// before the prompt, so a refusal is never asked about first.
 		clusterInfo, lookupErr := apiClient.GetCluster(name)
 		if lookupErr != nil {
 			if errors.Is(lookupErr, client.ErrClusterNotFound) {
@@ -58,6 +54,13 @@ var deleteClusterCmd = &cobra.Command{
 		}
 		if refusal := deleteClusterKindRefusal(name, clusterInfo); refusal != nil {
 			return refusal
+		}
+
+		warnRunningAgentBeforeDelete(cmd.ErrOrStderr(), name, clusterInfo.ID)
+		if err := confirmPrompt(os.Stdin, cmd.ErrOrStderr(),
+			fmt.Sprintf("Are you sure you want to delete cluster %q? This action is irreversible! (y/N): ", name),
+			forceDelete); err != nil {
+			return err
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -78,6 +81,25 @@ var deleteClusterCmd = &cobra.Command{
 		fmt.Printf("Cluster %q deleted successfully.\n", name)
 		return nil
 	},
+}
+
+// warnRunningAgentBeforeDelete says, on stderr and before the prompt, that
+// the cluster's agent is running and what the delete does to it: the agent
+// keeps its credential, so it keeps calling Ankra and is refused until it is
+// uninstalled, and nothing else tells anyone (support ticket 1331: 13.7
+// days). It is printed with --force too, so a script's log carries it. An
+// agent with no record is not mentioned; one that cannot be read gets a note.
+func warnRunningAgentBeforeDelete(errOut io.Writer, name, clusterID string) {
+	if clusterID == "" {
+		return
+	}
+	presence := readRunningAgentPresence(errOut, clusterID, name)
+	if presence == "" {
+		return
+	}
+	_, _ = fmt.Fprintf(errOut, "The Ankra agent in cluster %q %s.\n", name, presence)
+	_, _ = fmt.Fprintln(errOut, "Deleting the cluster cuts that agent off: it keeps calling Ankra, and is refused, "+
+		"until it is uninstalled from the cluster.")
 }
 
 // managedClusterKinds are the provider-managed Kubernetes kinds, removed with

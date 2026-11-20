@@ -31,6 +31,12 @@ type AgentToken struct {
 	Token     string `json:"token"`
 	ClusterID string `json:"cluster_id"`
 	Command   string `json:"command"`
+	// PreviousTokenValidUntil is when the token the running agent holds stops
+	// being accepted after a new one is generated (RFC 3339). Platforms with a
+	// rotation grace window send it on generate; the previous token is retired
+	// earlier once the agent with the new token connects. Nil means the
+	// platform did not send it: the previous token stopped working at once.
+	PreviousTokenValidUntil *string `json:"previous_token_valid_until,omitempty"`
 }
 
 // tokenInInstallCommandPattern matches the --set config.token=<token> value

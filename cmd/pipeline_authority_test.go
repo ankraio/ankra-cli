@@ -1,12 +1,16 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"ankra/internal/client"
 )
 
 const (
@@ -197,6 +201,188 @@ func TestPipelineCachesSaysSoWhenThereAreNoneAndWhenNothingIsConnected(t *testin
 	_, _, missingError := runDocumentCommand(t, unconnected, newPipelineCommand(), "", "caches", "--application", testApplicationID)
 	if exitCodeFor(missingError) != exitNotFound {
 		t.Fatalf("error = %v (exit %d), want exit %d", missingError, exitCodeFor(missingError), exitNotFound)
+	}
+}
+
+const (
+	pipelineCacheClearTestRepositoryPath  = "/api/v1/org/pipeline-repositories/" + testPipelineRepositoryID + "/pipeline-caches/clear"
+	pipelineCacheClearTestApplicationPath = "/api/v1/org/applications/" + testApplicationID + "/pipeline-caches/clear"
+)
+
+func TestPipelineCachesClearSendsThePathAndScopeAndSaysWhatWasCleared(t *testing.T) {
+	server, calls := serveDocuments(t, map[string]documentRoute{
+		"POST " + pipelineCacheClearTestRepositoryPath: {http.StatusOK,
+			`{"archives_cleared":2,"archive_bytes":1610612736,"volumes_cleared":1,"volumes_deleted_after":"2026-11-21T09:00:00Z"}`},
+	})
+	stdout, _, runError := runDocumentCommand(t, server, newPipelineCommand(), "", "caches", "clear",
+		"--repository", testPipelineRepositoryID, "--path", " /go/pkg/mod ", "--trust", "branch", "--yes")
+	if runError != nil {
+		t.Fatalf("caches clear: %v", runError)
+	}
+	want := "Cleared the cache at /go/pkg/mod (branch scope): 2 archives (1.5 GiB) that no new run restores, " +
+		"and 1 volume that no new run mounts. The platform deletes the cleared volume no earlier than 2026-11-21T09:00:00Z.\n"
+	if stdout != want {
+		t.Fatalf("stdout = %q, want %q", stdout, want)
+	}
+	requireDocumentCalls(t, calls, "POST "+pipelineCacheClearTestRepositoryPath)
+	body := decodeDocumentCallBody(t, (*calls)[0])
+	if len(body) != 2 || body["path"] != "/go/pkg/mod" || body["trust"] != "branch" {
+		t.Fatalf("body = %v", body)
+	}
+}
+
+func TestPipelineCachesClearOfAnApplicationLeavesTrustOutForBothScopes(t *testing.T) {
+	server, calls := serveDocuments(t, map[string]documentRoute{
+		"POST " + pipelineCacheClearTestApplicationPath: {http.StatusOK,
+			`{"archives_cleared":1,"archive_bytes":524288,"volumes_cleared":0,"volumes_deleted_after":null}`},
+	})
+	stdout, _, runError := runDocumentCommand(t, server, newPipelineCommand(), "", "caches", "clear",
+		"--application", testApplicationID, "--path", "/workspace/.pnpm-store", "--yes")
+	if runError != nil {
+		t.Fatalf("caches clear: %v", runError)
+	}
+	want := "Cleared the cache at /workspace/.pnpm-store (both scopes): 1 archive (512.0 KiB) that no new run restores.\n"
+	if stdout != want {
+		t.Fatalf("stdout = %q, want %q", stdout, want)
+	}
+	body := decodeDocumentCallBody(t, (*calls)[0])
+	if _, isSent := body["trust"]; isSent || body["path"] != "/workspace/.pnpm-store" {
+		t.Fatalf("body = %v, want the path alone", body)
+	}
+}
+
+func TestPipelineCachesClearSaysNothingWasHeldWhenTheAnswerIsZeros(t *testing.T) {
+	server, _ := serveDocuments(t, map[string]documentRoute{
+		"POST " + pipelineCacheClearTestRepositoryPath: {http.StatusOK,
+			`{"archives_cleared":0,"archive_bytes":0,"volumes_cleared":0,"volumes_deleted_after":null}`},
+	})
+	stdout, _, runError := runDocumentCommand(t, server, newPipelineCommand(), "", "caches", "clear",
+		"--repository", testPipelineRepositoryID, "--path", "/go/pkg/mod", "--trust", "default_branch", "--yes")
+	if runError != nil {
+		t.Fatalf("a zero answer is not a failure: %v", runError)
+	}
+	want := "Nothing was cleared: no ready archive and no volume was held for the cache at /go/pkg/mod " +
+		"(default_branch scope). It may have been cleared already, or the path or scope names no cache; " +
+		"'ankra pipeline caches --repository " + testPipelineRepositoryID + "' lists them.\n"
+	if stdout != want {
+		t.Fatalf("stdout = %q, want %q", stdout, want)
+	}
+	if strings.Contains(stdout, "Cleared ") {
+		t.Fatalf("a zero answer must not read as a clear: %q", stdout)
+	}
+}
+
+func TestPipelineCachesClearPrintsTheAnswerAsSentForJSONAndYAML(t *testing.T) {
+	const answer = `{"archives_cleared":0,"archive_bytes":0,"volumes_cleared":3,"volumes_deleted_after":"2026-11-21T09:00:00Z"}`
+	server, _ := serveDocuments(t, map[string]documentRoute{
+		"POST " + pipelineCacheClearTestRepositoryPath: {http.StatusOK, answer},
+	})
+	stdout, _, runError := runDocumentCommand(t, server, newPipelineCommand(), "", "caches", "clear",
+		"--repository", testPipelineRepositoryID, "--path", "/go/pkg/mod", "--yes", "-o", "json")
+	if runError != nil {
+		t.Fatalf("caches clear -o json: %v", runError)
+	}
+	var printed, sent map[string]any
+	if decodeError := json.Unmarshal([]byte(stdout), &printed); decodeError != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", decodeError, stdout)
+	}
+	_ = json.Unmarshal([]byte(answer), &sent)
+	if !reflect.DeepEqual(printed, sent) {
+		t.Fatalf("printed = %v, want the answer as sent %v", printed, sent)
+	}
+	yamlOut, _, yamlError := runDocumentCommand(t, server, newPipelineCommand(), "", "caches", "clear",
+		"--repository", testPipelineRepositoryID, "--path", "/go/pkg/mod", "--yes", "-o", "yaml")
+	if yamlError != nil || !strings.Contains(yamlOut, "volumes_cleared: 3") ||
+		!strings.Contains(yamlOut, "volumes_deleted_after:") || strings.Contains(yamlOut, "Cleared") {
+		t.Fatalf("yaml stdout = %q, error = %v", yamlOut, yamlError)
+	}
+}
+
+func TestPipelineCachesClearAsksFirstAndRefusesABadRequestBeforeSending(t *testing.T) {
+	server, calls := serveDocuments(t, map[string]documentRoute{
+		"POST " + pipelineCacheClearTestRepositoryPath: {http.StatusOK,
+			`{"archives_cleared":0,"archive_bytes":0,"volumes_cleared":0,"volumes_deleted_after":null}`},
+	})
+	_, stderr, declinedError := runDocumentCommand(t, server, newPipelineCommand(), "n\n", "caches", "clear",
+		"--repository", testPipelineRepositoryID, "--path", "/go/pkg/mod")
+	if !errors.Is(declinedError, errCancelled) || exitCodeFor(declinedError) != exitCancelled {
+		t.Fatalf("declined clear error = %v, want errCancelled", declinedError)
+	}
+	if !strings.Contains(stderr, "Clear the cache at /go/pkg/mod (both scopes)?") {
+		t.Fatalf("the question must name the cache, stderr = %q", stderr)
+	}
+	for name, arguments := range map[string][]string{
+		"no path":       {"--repository", testPipelineRepositoryID, "--yes"},
+		"blank path":    {"--repository", testPipelineRepositoryID, "--path", "  ", "--yes"},
+		"unknown trust": {"--repository", testPipelineRepositoryID, "--path", "/go/pkg/mod", "--trust", "main", "--yes"},
+		"bad output":    {"--repository", testPipelineRepositoryID, "--path", "/go/pkg/mod", "--yes", "-o", "jsn"},
+	} {
+		_, _, usageError := runDocumentCommand(t, server, newPipelineCommand(), "", append([]string{"caches", "clear"}, arguments...)...)
+		if exitCodeFor(usageError) != exitUsage {
+			t.Errorf("%s: error = %v (exit %d), want exit %d", name, usageError, exitCodeFor(usageError), exitUsage)
+		}
+	}
+	requireDocumentCalls(t, calls)
+}
+
+func TestPipelineCachesClearPrintsEachRefusalWithItsExitCode(t *testing.T) {
+	lanes := []struct {
+		name     string
+		path     string
+		selector []string
+		status   int
+		body     string
+		message  string
+		exitCode int
+	}{
+		{"unknown repository", pipelineCacheClearTestRepositoryPath, []string{"--repository", testPipelineRepositoryID},
+			http.StatusNotFound, `{"detail":"Pipeline repository not found"}`, "Pipeline repository not found", exitNotFound},
+		{"application without a pipeline", pipelineCacheClearTestApplicationPath, []string{"--application", testApplicationID},
+			http.StatusNotFound, `{"detail":"This application has no connected pipeline repository"}`,
+			"This application has no connected pipeline repository", exitNotFound},
+		{"runs kept starting", pipelineCacheClearTestRepositoryPath, []string{"--repository", testPipelineRepositoryID},
+			http.StatusConflict, `{"detail":"Runs kept starting with this cache while it was being cleared. Nothing was cleared; try again."}`,
+			"Runs kept starting with this cache while it was being cleared. Nothing was cleared; try again.", exitBlocked},
+		{"request the platform would not read", pipelineCacheClearTestRepositoryPath, []string{"--repository", testPipelineRepositoryID},
+			http.StatusUnprocessableEntity,
+			`{"detail":[{"type":"value_error","loc":["body","path"],"msg":"Value error, A cache path is required","input":" "}]}`,
+			"Value error, A cache path is required", exitUsage},
+		{"role without pipelines.operate", pipelineCacheClearTestRepositoryPath, []string{"--repository", testPipelineRepositoryID},
+			http.StatusForbidden, `{"detail":"permission_denied","permission":"pipelines.operate"}`, "pipelines.operate", exitForbidden},
+		{"platform failure", pipelineCacheClearTestRepositoryPath, []string{"--repository", testPipelineRepositoryID},
+			http.StatusInternalServerError, `{"detail":"Internal error"}`, "Internal error", exitError},
+	}
+	for _, lane := range lanes {
+		t.Run(lane.name, func(t *testing.T) {
+			server, _ := serveDocuments(t, map[string]documentRoute{"POST " + lane.path: {lane.status, lane.body}})
+			arguments := append([]string{"caches", "clear", "--path", "/go/pkg/mod", "--yes"}, lane.selector...)
+			// The root command silences cobra's usage text on an error; this
+			// tree runs without the root, so it is silenced here the same way.
+			pipelineCommand := newPipelineCommand()
+			pipelineCommand.SilenceUsage = true
+			stdout, _, runError := runDocumentCommand(t, server, pipelineCommand, "", arguments...)
+			if runError == nil || !strings.Contains(runError.Error(), lane.message) {
+				t.Fatalf("error = %v, want the platform's %q", runError, lane.message)
+			}
+			if exitCodeFor(runError) != lane.exitCode {
+				t.Fatalf("exit = %d, want %d (error %v)", exitCodeFor(runError), lane.exitCode, runError)
+			}
+			if stdout != "" {
+				t.Fatalf("a refusal printed on stdout: %q", stdout)
+			}
+		})
+	}
+}
+
+func TestPipelineCachesClearSentenceCountsWhatTheAnswerHolds(t *testing.T) {
+	deletedAfter := "2026-11-21T09:00:00Z"
+	selector := client.PipelineSelector{RepositoryID: testPipelineRepositoryID}
+	sentence := pipelineCacheClearSentence("/go/pkg/mod", "", selector,
+		pipelineCacheClearAnswer{VolumesCleared: 2, VolumesDeletedAfter: &deletedAfter})
+	want := "Cleared the cache at /go/pkg/mod (both scopes): 2 volumes that no new run mounts. " +
+		"The platform deletes the cleared volumes no earlier than 2026-11-21T09:00:00Z."
+	if sentence != want {
+		t.Fatalf("sentence = %q, want %q", sentence, want)
 	}
 }
 
