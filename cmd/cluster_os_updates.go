@@ -596,7 +596,7 @@ func osUpdatesModeSummary(policy osUpdatesPolicy) string {
 		if policy.AutomaticFrom != "" {
 			return fmt.Sprintf("%s until %s, then automatic (notice period)", policy.Mode, formatOSUpdatesTime(policy.AutomaticFrom))
 		}
-		return policy.Mode + " (notice period: automatic 14 days after the organisation is told)"
+		return policy.Mode + " (notice period: automatic once the organisation has been told and the notice has run)"
 	case "environment":
 		return policy.Mode + " (decided by the cluster's environment)"
 	default:
@@ -749,9 +749,14 @@ func printOSUpdatesChange(out io.Writer, target osUpdatesTarget, policy osUpdate
 	if policy.Message != "" {
 		_, _ = fmt.Fprintf(out, "\n%s\n", policy.Message)
 	}
-	if revert := policy.HoldRevert; revert != nil && revert.OperationID != "" {
-		_, _ = fmt.Fprintf(out, "Follow the hold removal with: ankra cluster operations list %s --cluster %s\n",
-			revert.OperationID, target.clusterID)
+	if revert := policy.HoldRevert; revert != nil {
+		if revert.OperationID != "" {
+			_, _ = fmt.Fprintf(out, "Follow the hold removal with: ankra cluster operations list %s --cluster %s\n",
+				revert.OperationID, target.clusterID)
+		}
+		if revert.NotStarted != "" {
+			_, _ = fmt.Fprintf(out, "The update hold was not removed from the hosts made advisory: %s.\n", revert.NotStarted)
+		}
 	}
 }
 

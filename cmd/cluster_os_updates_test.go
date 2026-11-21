@@ -307,6 +307,29 @@ func TestOSUpdatesSetSendsTheClusterMode(t *testing.T) {
 	}
 }
 
+func TestOSUpdatesSetSaysWhenTheHoldRemovalDidNotStart(t *testing.T) {
+	recorder := newOSUpdatesServer(t, "hetzner")
+	recorder.answer(http.MethodPatch, "policy", http.StatusOK, strings.NewReplacer(
+		`"window_open_now":false}`, `"window_open_now":false,"hold_revert":{"operation_id":"","not_started":"the bastion is unreachable"}}`,
+	).Replace(osUpdatesPolicyNoticePeriod))
+
+	stdout, _, runError := runOSUpdates(t, "", "set", testClusterID, "--mode", "advisory")
+	if runError != nil {
+		t.Fatalf("set failed: %v", runError)
+	}
+	assertContainsAll(t, stdout, []string{"The update hold was not removed from the hosts made advisory: the bastion is unreachable."})
+	if strings.Contains(stdout, "Follow the hold removal") {
+		t.Fatalf("a removal that did not start was given an operation to follow:\n%s", stdout)
+	}
+}
+
+func TestOSUpdatesModeSummaryInANoticePeriodWithoutADate(t *testing.T) {
+	got := osUpdatesModeSummary(osUpdatesPolicy{Mode: "advisory", ModeSource: "notice_period"})
+	if got != "advisory (notice period: automatic once the organisation has been told and the notice has run)" {
+		t.Fatalf("summary %q", got)
+	}
+}
+
 func TestOSUpdatesSetSendsNodeGroupModes(t *testing.T) {
 	recorder := newOSUpdatesServer(t, "digitalocean")
 	recorder.answer(http.MethodPatch, "policy", http.StatusOK, osUpdatesPolicyNoticePeriod)
