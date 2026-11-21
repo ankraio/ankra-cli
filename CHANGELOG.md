@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra cluster move --zone` takes `--vault` and shows the backup vault each stack's data moves through.** Every data copy of a zone move goes through a backup vault. The plan now names each carried stack's vault and what chose it: `--vault`, the stack's backup policy, or the organisation's only ready vault. When the organisation has several ready vaults and nothing names one, the plan lists that stack's data under not carried and as a warning with the ready vaults, and starting the move is refused until you name one with `--vault <name|id>`. Needs the platform as it is from 22 November 2026.
+
 ## v0.85.0 - 2026-11-22
 
 `ankra cluster move` gains a second kind of destination: `--zone` moves an

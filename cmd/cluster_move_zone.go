@@ -48,14 +48,14 @@ const (
 // means anything beside --organisation.
 var zoneMoveFlags = []string{
 	"zone", "target-cluster", "target-name", "plan",
-	"control-plane-count", "control-plane-plan", "worker-plan", "worker-count", "storage-tier", "soak-days",
+	"control-plane-count", "control-plane-plan", "worker-plan", "worker-count", "storage-tier", "soak-days", "vault",
 	"status", "cutover", "rollback", "retire", "wait", "timeout",
 }
 
 // zoneMoveStartFlags only shape a move that is being started.
 var zoneMoveStartFlags = []string{
 	"target-name", "plan",
-	"control-plane-count", "control-plane-plan", "worker-plan", "worker-count", "storage-tier", "soak-days",
+	"control-plane-count", "control-plane-plan", "worker-plan", "worker-count", "storage-tier", "soak-days", "vault",
 }
 
 // zoneMoveTargetShapeFlags shape a target cluster the move builds, so they
@@ -76,6 +76,8 @@ func registerZoneMoveFlags(command *cobra.Command) {
 	flags.Int("worker-count", 0, "Workers of the target (default: derived from the source)")
 	flags.String("storage-tier", "", "Storage tier of the target's volumes (default: the zone's Ankra Storage tier for a local-NVMe source)")
 	flags.Int("soak-days", 0, "Days the move soaks after the cutover before the source may be retired (default: the platform's)")
+	flags.String("vault", "", "Backup vault (name or id) the move copies data through (default: the stack's backup policy vault, "+
+		"else the organisation's only ready vault)")
 	flags.Bool("status", false, "Show the cluster's latest zone move and its steps")
 	flags.Bool("cutover", false, "Cut the zone move over: maintenance page, final copy, traffic switch")
 	flags.Bool("rollback", false, "Roll a soaking zone move back: traffic returns to the source")
@@ -143,6 +145,9 @@ func validateZoneMoveStartFlags(cmd *cobra.Command) error {
 	} else if zone, _ := flags.GetString("zone"); strings.TrimSpace(zone) == "" {
 		return withExitCode(exitUsage, errors.New("--zone needs a zone name, for example --zone se-sto1"))
 	}
+	if vault, _ := flags.GetString("vault"); flags.Changed("vault") && strings.TrimSpace(vault) == "" {
+		return withExitCode(exitUsage, errors.New("--vault needs a backup vault name or id, for example --vault backups"))
+	}
 	if plan, _ := flags.GetBool("plan"); plan && flags.Changed("wait") {
 		return withExitCode(exitUsage, errors.New("--wait does not apply to --plan: a plan writes nothing, so there is nothing to follow"))
 	}
@@ -170,6 +175,8 @@ func zoneMoveRequestFromFlags(cmd *cobra.Command, targetClusterID string) client
 	request.ControlPlanePlan, _ = flags.GetString("control-plane-plan")
 	request.WorkerPlan, _ = flags.GetString("worker-plan")
 	request.StorageTier, _ = flags.GetString("storage-tier")
+	request.Vault, _ = flags.GetString("vault")
+	request.Vault = strings.TrimSpace(request.Vault)
 	request.ControlPlaneCount = changedIntFlag(cmd, "control-plane-count")
 	request.WorkerCount = changedIntFlag(cmd, "worker-count")
 	request.SoakDays = changedIntFlag(cmd, "soak-days")
@@ -273,7 +280,7 @@ func startZoneMove(cmd *cobra.Command, format outputFormat, source zoneMoveSourc
 	defer cancelRequest()
 	move, startError := apiClient.StartZoneMove(requestContext, source.ID, request)
 	if startError != nil {
-		return zoneMoveError("starting the zone move", startError)
+		return zoneMoveError("starting the zone move", withZoneMoveVaultHint(startError))
 	}
 	return reportZoneMove(cmd, format, source, move, wait, client.ZoneMoveStatusReadyForCutover)
 }
@@ -283,9 +290,29 @@ func requestZoneMovePlan(source zoneMoveSource, planRequest client.ZoneMoveReque
 	defer cancelRequest()
 	plan, planError := apiClient.StartZoneMove(requestContext, source.ID, planRequest)
 	if planError != nil {
-		return nil, zoneMoveError("planning the zone move", planError)
+		return nil, zoneMoveError("planning the zone move", withZoneMoveVaultHint(planError))
 	}
 	return plan, nil
+}
+
+// zoneMoveVaultHint is what the CLI adds to the platform's vault refusal,
+// which names the request field ("vault") rather than the flag.
+const zoneMoveVaultHint = "Name the vault with --vault <name|id>."
+
+// withZoneMoveVaultHint adds the --vault hint to a start the platform
+// refused (422) because it cannot tell which backup vault carries a stack's
+// data, keeping the refusal's status for the exit code.
+func withZoneMoveVaultHint(requestError error) error {
+	var unexpected *client.UnexpectedResponseError
+	if !errors.As(requestError, &unexpected) || unexpected.StatusCode != 422 ||
+		!mentionsZoneMoveBackupVault(requestError.Error()) {
+		return requestError
+	}
+	return fmt.Errorf("%w %s", requestError, zoneMoveVaultHint)
+}
+
+func mentionsZoneMoveBackupVault(text string) bool {
+	return strings.Contains(strings.ToLower(text), "backup vault")
 }
 
 func showZoneMoveStatus(cmd *cobra.Command, format outputFormat, source zoneMoveSource) error {
@@ -591,7 +618,7 @@ func printZoneMovePlan(out io.Writer, source zoneMoveSource, move *client.ZoneMo
 	carried, skipped := []string{}, []string{}
 	for _, stack := range plan.Stacks {
 		if stack.Carried {
-			carried = append(carried, stack.Name)
+			carried = append(carried, stack.Name+describeZoneMoveStackVault(stack.Vault))
 			continue
 		}
 		reason := "not carried"
@@ -639,6 +666,18 @@ func printZoneMovePlan(out io.Writer, source zoneMoveSource, move *client.ZoneMo
 		}
 	}
 
+	if len(plan.Warnings) > 0 {
+		_, _ = fmt.Fprintf(out, "\nWarnings (%d):\n", len(plan.Warnings))
+		mentionsVault := false
+		for _, warning := range plan.Warnings {
+			_, _ = fmt.Fprintf(out, "  - %s\n", warning)
+			mentionsVault = mentionsVault || mentionsZoneMoveBackupVault(warning)
+		}
+		if mentionsVault {
+			_, _ = fmt.Fprintf(out, "  %s\n", zoneMoveVaultHint)
+		}
+	}
+
 	if len(plan.DNS) == 0 {
 		_, _ = fmt.Fprintf(out, "\nHostnames cut over: none\n")
 		return
@@ -657,6 +696,35 @@ func printZoneMovePlan(out io.Writer, source zoneMoveSource, move *client.ZoneMo
 			optionalText(hostname.SourceOrigin), targetOrigin})
 	}
 	writer.Render()
+}
+
+// describeZoneMoveStackVault is the suffix a carried stack's line gets: the
+// vault its data copies write through and what chose it, "" for a stack the
+// move copies no data of.
+func describeZoneMoveStackVault(vault *client.ZoneMoveStackVault) string {
+	if vault == nil {
+		return ""
+	}
+	name := vault.Name
+	if name == "" {
+		name = vault.ID
+	}
+	if name == "" {
+		return ""
+	}
+	basis := vault.Basis
+	switch vault.Basis {
+	case client.ZoneMoveVaultBasisRequest:
+		basis = "named with --vault"
+	case client.ZoneMoveVaultBasisStackPolicy:
+		basis = "the stack's backup policy"
+	case client.ZoneMoveVaultBasisOnlyReady:
+		basis = "the organisation's only ready vault"
+	}
+	if basis == "" {
+		return fmt.Sprintf(" (data through vault %s)", name)
+	}
+	return fmt.Sprintf(" (data through vault %s: %s)", name, basis)
 }
 
 func describeZoneMoveDNSMechanism(mechanism string) string {

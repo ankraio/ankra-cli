@@ -26,6 +26,9 @@ func TestStartZoneMoveSendsThePlanRequestAndDecodesTheMove(t *testing.T) {
 		if _, sent := body["target_cluster_id"]; sent {
 			t.Errorf("an unset target must not be sent: %v", body)
 		}
+		if _, sent := body["vault"]; sent {
+			t.Errorf("an unset vault must not be sent: %v", body)
+		}
 		jsonResponse(t, w, http.StatusOK, map[string]any{"move": map[string]any{
 			"id": "", "source_cluster_id": "c-fr", "zone": "se-sto1", "status": "planned",
 			"plan": map[string]any{
@@ -118,5 +121,39 @@ func TestZoneMoveActionStatuses(t *testing.T) {
 		if IsZoneMoveResting(status) {
 			t.Fatalf("%s must not be resting", status)
 		}
+	}
+}
+
+func TestStartZoneMoveSendsTheVaultAndDecodesEachStacksVault(t *testing.T) {
+	apiClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if decodeError := json.NewDecoder(r.Body).Decode(&body); decodeError != nil {
+			t.Errorf("decode: %v", decodeError)
+		}
+		if body["vault"] != "backups" {
+			t.Errorf("body = %v, want vault backups", body)
+		}
+		jsonResponse(t, w, http.StatusOK, map[string]any{"move": map[string]any{
+			"id": "", "zone": "se-sto1", "status": "planned",
+			"plan": map[string]any{
+				"stacks": []map[string]any{
+					{"name": "avura", "carried": true, "vault": map[string]any{"id": "vault-1", "name": "backups", "basis": "request"}},
+					{"name": "web", "carried": true, "vault": nil},
+				},
+				"not_carried": []map[string]any{{"what": "the data of stack 'ledger'", "reason": "no vault"}},
+				"warnings":    []string{"The move cannot tell which backup vault carries the data of stack 'ledger'"},
+			},
+		}})
+	})
+	move, startError := apiClient.StartZoneMove(context.Background(), "c-fr", ZoneMoveRequest{Zone: "se-sto1", PlanOnly: true, Vault: "backups"})
+	if startError != nil {
+		t.Fatalf("start: %v", startError)
+	}
+	vault := move.Plan.Stacks[0].Vault
+	if vault == nil || vault.ID != "vault-1" || vault.Name != "backups" || vault.Basis != ZoneMoveVaultBasisRequest {
+		t.Fatalf("vault = %+v", vault)
+	}
+	if move.Plan.Stacks[1].Vault != nil || len(move.Plan.Warnings) != 1 || len(move.Plan.NotCarried) != 1 {
+		t.Fatalf("plan = %+v", move.Plan)
 	}
 }
