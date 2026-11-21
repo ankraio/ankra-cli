@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## v0.84.0 - 2026-11-21
+
+`ankra services setup` now says before you confirm whether the service will be
+backed up: the review's `Backup vault` row names the vault, or reads `none,
+this service is not backed up` with the platform's sentence on why and what
+changes it. That needs the platform as it is from 21 November 2026; against an
+older one the review prints what it printed before. One thing a script can
+meet: `ankra services setup --from <name>` now exits 2 and lists the ids when
+an active and a retired service share the name, where it used to take the
+active one. Every other command, flag and exit code is unchanged; a review's
+`-o json` plan gains the key `backups`, and the refusal of a name two services
+share now lists each one's state.
+
 ### Added
 
 - **`ankra services setup` says before you confirm whether the service will be backed up.** The review's `Backup vault` row now shows the vault whenever the service is backed up, also when you named none and the platform took the organisation's only vault, and it reads `none, this service is not backed up` when it is not, followed by the platform's sentence on why and what changes it. Before, an organisation with one verified backup vault and one with several read the same review, and only the first got backups. `ankra services reviews get` shows the same row, and `-o json` carries it as `backups` (`state`, `reason`, `vault`, `statement`). It needs a platform that says it: against an older one the row is printed as before, only for a vault the plan names.
