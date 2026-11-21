@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -445,5 +446,53 @@ func TestParseKeyValueFlags(t *testing.T) {
 	}
 	if _, emptyKeyError := parseKeyValueFlags([]string{"=value"}); emptyKeyError == nil {
 		t.Error("expected error for empty key")
+	}
+}
+
+// TestApplicationDeployMapsResetInputs pins --reset to the deploy request's
+// reset_inputs, in the order given and each once (ankra-rvbvr4.8): the CLI's
+// way out of an input the deployment keeps as its own.
+func TestApplicationDeployMapsResetInputs(t *testing.T) {
+	mockClient := &applicationResourceMock{payload: json.RawMessage(`{"status":"queued"}`)}
+	_, executeError := runApplicationCommand(t, mockClient,
+		"deploy", testApplicationID, "--cluster", testClusterID,
+		"--set", "replicas=2",
+		"--reset", "memory_limit", "--reset", " memory_request ", "--reset", "memory_limit",
+	)
+	if executeError != nil {
+		t.Fatalf("deploy error = %v", executeError)
+	}
+	request := mockClient.deployRequest
+	if !reflect.DeepEqual(request.ResetInputs, []string{"memory_limit", "memory_request"}) {
+		t.Errorf("reset inputs = %v, want memory_limit then memory_request", request.ResetInputs)
+	}
+	if request.Inputs["replicas"] != "2" {
+		t.Errorf("deploy inputs = %+v", request.Inputs)
+	}
+
+	plain := &applicationResourceMock{payload: json.RawMessage(`{"status":"queued"}`)}
+	if _, plainError := runApplicationCommand(t, plain, "deploy", testApplicationID,
+		"--cluster", testClusterID); plainError != nil || plain.deployRequest.ResetInputs != nil {
+		t.Fatalf("a deploy without --reset sent %v (error %v)", plain.deployRequest.ResetInputs, plainError)
+	}
+}
+
+// TestApplicationDeployRefusesAContradictoryOrBlankReset keeps a reset that
+// cannot mean anything off the platform: an input both set and reset, or a
+// blank name, is a usage error and nothing is deployed.
+func TestApplicationDeployRefusesAContradictoryOrBlankReset(t *testing.T) {
+	for _, arguments := range [][]string{
+		{"--set", "memory_limit=1Gi", "--reset", "memory_limit"},
+		{"--reset", " "},
+	} {
+		mockClient := &applicationResourceMock{}
+		_, executeError := runApplicationCommand(t, mockClient,
+			append([]string{"deploy", testApplicationID, "--cluster", testClusterID}, arguments...)...)
+		if exitCodeFor(executeError) != exitUsage {
+			t.Errorf("%v: exit code = %d, want %d: %v", arguments, exitCodeFor(executeError), exitUsage, executeError)
+		}
+		if mockClient.deployCalls != 0 {
+			t.Errorf("%v: DeployApplication calls = %d, want 0", arguments, mockClient.deployCalls)
+		}
 	}
 }

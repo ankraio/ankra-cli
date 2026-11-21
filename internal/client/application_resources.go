@@ -19,6 +19,12 @@ type DeployApplicationRequest struct {
 	Namespace  string            `json:"namespace,omitempty"`
 	DeployMode string            `json:"deploy_mode,omitempty"`
 	Inputs     map[string]string `json:"inputs,omitempty"`
+	// ResetInputs names inputs the deployment hands back to the repository:
+	// each stops being its own value and follows the default in
+	// .ankra/ankra.yaml from this deploy on (the deploy form's "Use repository
+	// default"). The platform refuses, by name, an input with no default or one
+	// Inputs also sets.
+	ResetInputs []string `json:"reset_inputs,omitempty"`
 	// PrepareDatabase consents that the platform sets up the CloudNativePG
 	// operator the application's database needs when the cluster has none
 	// (it installs Ankra's cloudnative-pg profile, then deploys). It needs
