@@ -11,9 +11,11 @@ import (
 )
 
 // fakeServiceWithoutBackupsStatement is the sentence a plan carries for a
-// service the organisation's several vaults leave without backups.
-const fakeServiceWithoutBackupsStatement = "This service is set up without backups. This organisation has more than one verified backup vault. " +
-	"To have it backed up, name the backup vault in the setup: '--backup-vault <name>' on the command line, backup_vault in the API. " +
+// service the organisation's several vaults leave without backups, word for
+// word as the platform writes it.
+const fakeServiceWithoutBackupsStatement = "This service is set up without backups. The organisation has more than one verified backup vault, " +
+	"and Ankra does not choose which one holds a database's backups. To have it backed up, name the backup vault in the setup: " +
+	"'--backup-vault <name>' on the command line, backup_vault in the API. " +
 	"'ankra backup vaults list' shows the vaults."
 
 // fakeServiceBackedUp is the plan block of a service backed up into vault.
