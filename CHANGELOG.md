@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **Read and choose a cluster's OS updates mode: `ankra cluster os-updates get|set|plan|run`.** OS updates are automatic (Ankra starts the rolling run in the maintenance window: one node at a time, drained first, back in service before the next) or advisory (nothing is drained or rebooted on its own). `get` shows the mode and why the cluster has it, including the date a non-production cluster in its 14-day notice becomes automatic, the node groups with a mode of their own, the window, the security lag and the last runs. `set --mode automatic|advisory|default` chooses the cluster's mode, and `set --node-group <name> --mode automatic|advisory|inherit` a node group's; the window, cadence and lag flags change when automatic runs may start. `plan` is the dry run. `run` starts the rolling run inside the window, says when the window next opens while it is closed (exit 8), and with `--now` starts at once outside it; it asks first unless `--yes`. The provider is read from the cluster, so the commands work the same on Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, AWS and Ankra Cloud clusters; any other kind exits 2. A refusal by the platform (a run in flight, an unknown node group, a value out of bounds) exits 8 and changes nothing. `ankra cluster <provider> os-patches` is unchanged.
+
 ## v0.85.0 - 2026-11-22
 
 `ankra cluster move` gains a second kind of destination: `--zone` moves an

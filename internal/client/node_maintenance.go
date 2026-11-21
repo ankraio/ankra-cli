@@ -24,15 +24,21 @@ type NodeMaintenanceResult struct {
 }
 
 // OSPatchPolicyUpdate is a partial write of a cluster's OS patch policy: a
-// nil member is not sent and keeps its stored value.
+// nil member is not sent and keeps its stored value. Mode is the cluster's OS
+// updates mode (automatic, advisory, or default to follow the cluster's
+// environment) and the newer spelling of Enabled; send one of the two.
+// NodeGroupModes sets the named node groups' modes (automatic, advisory, or
+// inherit to follow the cluster); a node group it does not name keeps its own.
 type OSPatchPolicyUpdate struct {
-	Enabled              *bool    `json:"enabled,omitempty"`
-	WindowDays           []string `json:"window_days,omitempty"`
-	WindowStartHourUTC   *int     `json:"window_start_hour_utc,omitempty"`
-	WindowDurationHours  *int     `json:"window_duration_hours,omitempty"`
-	CadenceDays          *int     `json:"cadence_days,omitempty"`
-	IncludeStatefulNodes *bool    `json:"include_stateful_nodes,omitempty"`
-	SecurityLagDays      *int     `json:"security_lag_days,omitempty"`
+	Enabled              *bool             `json:"enabled,omitempty"`
+	Mode                 *string           `json:"mode,omitempty"`
+	NodeGroupModes       map[string]string `json:"node_group_modes,omitempty"`
+	WindowDays           []string          `json:"window_days,omitempty"`
+	WindowStartHourUTC   *int              `json:"window_start_hour_utc,omitempty"`
+	WindowDurationHours  *int              `json:"window_duration_hours,omitempty"`
+	CadenceDays          *int              `json:"cadence_days,omitempty"`
+	IncludeStatefulNodes *bool             `json:"include_stateful_nodes,omitempty"`
+	SecurityLagDays      *int              `json:"security_lag_days,omitempty"`
 }
 
 // OSPatchRunRequest starts a rolling OS patch run. A nil member keeps the
