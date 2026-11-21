@@ -8,6 +8,9 @@
 #            govulncheck
 #   installer-shellcheck  mandatory POSIX installer lint
 #   installer-powershell  mandatory isolated PowerShell installer cases
+#   release-tag  on a push to master, after everything above passed: tags the
+#            newest CHANGELOG.md version heading when it has no tag yet, which
+#            starts the release workflow (scripts/release-tag.sh)
 # Test JSON/coverage are retained as Ankra artifacts. Release, docs-sync and
 # lifecycle workflows have separate purposes and remain in place.
 #
@@ -190,6 +193,8 @@ stages:
       echo "--- install.sh"
       dash -n install.sh || status=1
       TMPDIR="$GOTMPDIR" TEST_INSTALL_REQUIRE_DASH=1 sh tools/test-install-sh.sh || status=1
+      echo "--- scripts/release-tag.sh"
+      TMPDIR="$GOTMPDIR" sh scripts/test-release-tag.sh || status=1
       echo "--- govulncheck ./..."
       go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./... || status=1
       rm -rf "$GOCACHE"
@@ -301,7 +306,7 @@ stages:
     needs: ["checkout"]
     image: "koalaman/shellcheck-alpine:v0.11.0@sha256:9955be09ea7f0dbf7ae942ac1f2094355bb30d96fffba0ec09f5432207544002"
     network: "none"
-    run: shellcheck -s sh install.sh tools/test-install-sh.sh
+    run: shellcheck -s sh install.sh tools/test-install-sh.sh scripts/release-tag.sh scripts/test-release-tag.sh
 
   - name: "installer-powershell"
     kind: "run"
@@ -316,3 +321,46 @@ stages:
     run: |
       pwsh -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
       pwsh -NoLogo -NoProfile -File tools/test-install-ps1.ps1
+
+  # A merge to master is the release. When the newest version heading in
+  # CHANGELOG.md (the first `## vX.Y.Z - YYYY-MM-DD` after `## Unreleased`)
+  # has no tag yet, this creates the annotated tag on the commit this run
+  # built and tested, and the tag starts .github/workflows/release.yml
+  # (binaries, the GitHub release, Homebrew). Every other push finds the tag
+  # and does nothing. A lookup GitHub answers with anything but the tag or
+  # 404 fails the stage and tags nothing; a heading not newer than every
+  # existing v* tag is refused; an existing tag is never moved.
+  #
+  # It writes with the organisation's GitHub App installation token, the
+  # same login the test stage reads the route census with (credentials
+  # above, delivered to every step as cluster_routes_git), so it declares no
+  # protected section of its own and needs no new authority approval. A tag
+  # made with the App's token starts workflows; one made with a workflow's
+  # GITHUB_TOKEN would not.
+  - name: "release-tag"
+    kind: "run"
+    image: *golang_image
+    needs:
+      - "checkout"
+      - "lint"
+      - "checks"
+      - "test"
+      - "installer-shellcheck"
+      - "installer-powershell"
+    # It reads CHANGELOG.md and the script from the checkout, nothing else.
+    workspace_from:
+      - "checkout"
+    # A pull request run's ankra.ref is its base branch, so the event is what
+    # keeps a pull request from ever tagging; the script checks both again.
+    when:
+      events:
+        - "push"
+      branches:
+        - "master"
+    env:
+      RELEASE_TAG_EVENT: "${{ event.kind }}"
+      RELEASE_TAG_REF: "${{ ankra.ref }}"
+      RELEASE_TAG_COMMIT: "${{ ankra.sha }}"
+      RELEASE_TAG_REPOSITORY: "${{ format('{0}/{1}', ankra.repository.owner, ankra.repository.name) }}"
+      RELEASE_TAG_CREDENTIAL_FILE: "/run/agent-secrets/cluster_routes_git"
+    run: sh scripts/release-tag.sh
