@@ -62,6 +62,11 @@ step that moves traffic always waits for you:
      on the target since the cutover are not copied back), and --retire
      deprovisions the source, which cannot be undone.
 
+Every data copy the move takes goes through a backup vault. Each stack's
+vault defaults to the stack's backup policy vault, then the organisation's
+only ready vault; when the organisation has several ready vaults, name one
+with --vault (the plan shows each carried stack's vault and what chose it).
+
 --status shows the latest move and its steps. --wait follows the move until it
 rests (ready_for_cutover, soaking, rolled_back, retired or failed), up to
 --timeout. Starting a move, --cutover, --rollback and --retire ask for
@@ -74,6 +79,7 @@ confirmation unless --yes is given.`,
   ankra cluster move avura-france --zone se-sto1 --plan
   ankra cluster move avura-france --zone se-sto1 --control-plane-count 3 --storage-tier standard --wait
   ankra cluster move avura-france --zone se-sto1 --target-cluster avura-stockholm
+  ankra cluster move avura-france --zone se-sto1 --vault backups --plan
   ankra cluster move avura-france --status --wait
   ankra cluster move avura-france --cutover --wait
   ankra cluster move avura-france --rollback

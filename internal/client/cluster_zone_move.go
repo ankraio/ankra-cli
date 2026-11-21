@@ -99,7 +99,10 @@ func (action ZoneMoveAction) SettlesAt() string {
 // ZoneMoveRequest starts a zone move, or with PlanOnly computes its plan and
 // writes nothing. Zone is required unless TargetClusterID names a cluster
 // that already exists. The shape fields override the twin the platform
-// derives from the source; a nil count leaves the derived one.
+// derives from the source; a nil count leaves the derived one. Vault names
+// the backup vault (name or id) every data copy of the move writes through;
+// empty leaves each stack's to the platform: the stack's backup policy vault,
+// else the organisation's only ready vault.
 type ZoneMoveRequest struct {
 	Zone              string `json:"zone,omitempty"`
 	TargetClusterID   string `json:"target_cluster_id,omitempty"`
@@ -111,6 +114,7 @@ type ZoneMoveRequest struct {
 	WorkerCount       *int   `json:"worker_count,omitempty"`
 	StorageTier       string `json:"storage_tier,omitempty"`
 	SoakDays          *int   `json:"soak_days,omitempty"`
+	Vault             string `json:"vault,omitempty"`
 }
 
 // ZoneMove is a zone move as the platform reports it.
@@ -134,6 +138,7 @@ type ZoneMovePlan struct {
 	Data       []ZoneMoveDataVolume `json:"data" yaml:"data"`
 	NotCarried []ZoneMoveOmission   `json:"not_carried" yaml:"not_carried"`
 	DNS        []ZoneMoveHostname   `json:"dns" yaml:"dns"`
+	Warnings   []string             `json:"warnings" yaml:"warnings"`
 }
 
 // ZoneMoveTarget is the shape of the cluster the move lands in.
@@ -160,15 +165,34 @@ type ZoneMoveNodeGroup struct {
 	Count int    `json:"count" yaml:"count"`
 }
 
-// ZoneMoveStack is one of the source's stacks and whether the move carries it.
+// ZoneMoveStack is one of the source's stacks and whether the move carries
+// it. Vault is nil for a stack whose data the move does not copy, and for one
+// whose vault cannot be chosen (named in NotCarried and Warnings instead).
 type ZoneMoveStack struct {
-	Name    string  `json:"name" yaml:"name"`
-	Carried bool    `json:"carried" yaml:"carried"`
-	Reason  *string `json:"reason" yaml:"reason"`
+	Name    string              `json:"name" yaml:"name"`
+	Carried bool                `json:"carried" yaml:"carried"`
+	Reason  *string             `json:"reason" yaml:"reason"`
+	Vault   *ZoneMoveStackVault `json:"vault,omitempty" yaml:"vault,omitempty"`
+}
+
+// What chose a carried stack's backup vault (ZoneMoveStackVault.Basis).
+const (
+	ZoneMoveVaultBasisRequest     = "request"
+	ZoneMoveVaultBasisStackPolicy = "stack_policy"
+	ZoneMoveVaultBasisOnlyReady   = "only_ready_vault"
+)
+
+// ZoneMoveStackVault is the backup vault a carried stack's data copies write
+// their restore point to, and what chose it.
+type ZoneMoveStackVault struct {
+	ID    string `json:"id" yaml:"id"`
+	Name  string `json:"name" yaml:"name"`
+	Basis string `json:"basis" yaml:"basis"`
 }
 
 // ZoneMoveDataVolume is a data volume the move copies to the target.
 type ZoneMoveDataVolume struct {
+	Stack          string `json:"stack" yaml:"stack"`
 	Namespace      string `json:"namespace" yaml:"namespace"`
 	Name           string `json:"name" yaml:"name"`
 	Kind           string `json:"kind" yaml:"kind"`

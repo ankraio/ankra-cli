@@ -150,6 +150,12 @@ func TestClusterMoveZone_FlagCombinationsAreRefusedBeforeAnythingIsSent(t *testi
 		{[]string{"avura-france", "--zone", " "}, "--zone needs a zone name"},
 		{[]string{"avura-france"}, "a destination is required"},
 		{[]string{"avura-france", "--wait"}, "--wait only applies to a zone move"},
+		{[]string{"avura-france", "--status", "--vault", "backups"}, "--vault only applies when starting a zone move"},
+		{[]string{"avura-france", "--cutover", "--vault", "backups"}, "--vault only applies when starting a zone move"},
+		{[]string{"avura-france", "--rollback", "--vault", "backups"}, "--vault only applies when starting a zone move"},
+		{[]string{"avura-france", "--retire", "--vault", "backups"}, "--vault only applies when starting a zone move"},
+		{[]string{"avura-france", "--organisation", "acme", "--vault", "backups"}, "--organisation and --vault cannot be combined"},
+		{[]string{"avura-france", "--zone", "se-sto1", "--vault", " "}, "--vault needs a backup vault name or id"},
 	} {
 		t.Run(strings.Join(testCase.args, " "), func(t *testing.T) {
 			mock := newZoneMoveMock()
@@ -428,5 +434,172 @@ func TestClusterMoveZone_CutoverWaitMustReachSoaking(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output missing %q:\n%s", want, output)
 		}
+	}
+}
+
+func zoneMoveFixtureWithVaults() *client.ZoneMove {
+	move := zoneMoveFixture(client.ZoneMoveStatusProvisioning)
+	move.Plan.Stacks = []client.ZoneMoveStack{
+		{Name: "avura", Carried: true, Vault: &client.ZoneMoveStackVault{ID: "vault-backups", Name: "backups", Basis: client.ZoneMoveVaultBasisStackPolicy}},
+		{Name: "web", Carried: true},
+		{Name: "minio", Carried: true, Vault: &client.ZoneMoveStackVault{ID: "vault-archive", Name: "archive", Basis: client.ZoneMoveVaultBasisRequest}},
+		{Name: "ledger", Carried: true, Vault: &client.ZoneMoveStackVault{ID: "vault-only", Name: "only", Basis: client.ZoneMoveVaultBasisOnlyReady}},
+	}
+	return move
+}
+
+func TestClusterMoveZone_VaultIsSentOnlyWhenGiven(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		input     string
+		args      []string
+		planOnly  bool
+		wantVault string
+	}{
+		{"start", "", []string{"--vault", " backups ", "--yes"}, false, "backups"},
+		{"plan", "", []string{"--vault", "vault-archive", "--plan"}, true, "vault-archive"},
+		{"plan shown before confirming", "n\n", []string{"--vault", "backups"}, true, "backups"},
+		{"unset", "", []string{"--yes"}, false, ""},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			mock := newZoneMoveMock()
+			_, _ = runZoneMoveCommand(t, mock, testCase.input, append([]string{"avura-france", "--zone", "se-sto1"}, testCase.args...)...)
+			if len(mock.startRequests) != 1 || mock.startRequests[0].PlanOnly != testCase.planOnly ||
+				mock.startRequests[0].Vault != testCase.wantVault {
+				t.Fatalf("requests = %+v, want one (plan_only %v) with vault %q", mock.startRequests, testCase.planOnly, testCase.wantVault)
+			}
+			encoded, marshalError := json.Marshal(mock.startRequests[0])
+			if marshalError != nil {
+				t.Fatal(marshalError)
+			}
+			if sent := strings.Contains(string(encoded), `"vault"`); sent != (testCase.wantVault != "") {
+				t.Fatalf("vault sent = %v in %s", sent, encoded)
+			}
+		})
+	}
+}
+
+func TestClusterMoveZone_PlanShowsEachCarriedStacksVaultAndBasis(t *testing.T) {
+	mock := newZoneMoveMock()
+	mock.startMove = zoneMoveFixtureWithVaults()
+	output, runError := runZoneMoveCommand(t, mock, "", "avura-france", "--zone", "se-sto1", "--plan")
+	if runError != nil {
+		t.Fatalf("plan failed: %v\n%s", runError, output)
+	}
+	for _, want := range []string{
+		"Stacks carried (4)",
+		"- avura (data through vault backups: the stack's backup policy)",
+		"- minio (data through vault archive: named with --vault)",
+		"- ledger (data through vault only: the organisation's only ready vault)",
+		"  - web\n",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("plan output missing %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "Warnings") {
+		t.Fatalf("a plan without warnings prints no warnings section:\n%s", output)
+	}
+}
+
+func TestClusterMoveZone_PlanVaultAsJSON(t *testing.T) {
+	mock := newZoneMoveMock()
+	mock.startMove = zoneMoveFixtureWithVaults()
+	output, runError := runZoneMoveCommand(t, mock, "", "avura-france", "--zone", "se-sto1", "--plan", "-o", "json")
+	if runError != nil {
+		t.Fatalf("plan failed: %v", runError)
+	}
+	var decoded struct {
+		Plan struct {
+			Stacks []struct {
+				Name  string                     `json:"name"`
+				Vault *client.ZoneMoveStackVault `json:"vault"`
+			} `json:"stacks"`
+		} `json:"plan"`
+	}
+	if decodeError := json.Unmarshal([]byte(output), &decoded); decodeError != nil {
+		t.Fatalf("stdout is not one JSON document: %v\n%s", decodeError, output)
+	}
+	if len(decoded.Plan.Stacks) != 4 {
+		t.Fatalf("stacks = %+v", decoded.Plan.Stacks)
+	}
+	first := decoded.Plan.Stacks[0].Vault
+	if first == nil || first.ID != "vault-backups" || first.Name != "backups" || first.Basis != "stack_policy" {
+		t.Fatalf("avura vault = %+v", first)
+	}
+	if decoded.Plan.Stacks[1].Vault != nil {
+		t.Fatalf("a stack without data has no vault: %+v", decoded.Plan.Stacks[1].Vault)
+	}
+	if strings.Contains(output, `"vault": null`) {
+		t.Fatalf("a stack without a vault omits the key:\n%s", output)
+	}
+}
+
+func TestClusterMoveZone_PlanShowsTheVaultRefusal(t *testing.T) {
+	mock := newZoneMoveMock()
+	refused := zoneMoveFixture(client.ZoneMoveStatusProvisioning)
+	refusal := "The move cannot tell which backup vault carries the data of stack 'avura' (several ready vaults and none named). " +
+		"Name the vault to copy through with \"vault\"; the organisation's ready backup vaults are: archive, backups."
+	refused.Plan.NotCarried = append(refused.Plan.NotCarried, client.ZoneMoveOmission{What: "the data of stack 'avura'", Reason: refusal})
+	refused.Plan.Warnings = []string{refusal}
+	refused.Plan.Data[0].Stack = "avura"
+	mock.startMove = refused
+	output, runError := runZoneMoveCommand(t, mock, "", "avura-france", "--zone", "se-sto1", "--plan")
+	if runError != nil {
+		t.Fatalf("plan failed: %v\n%s", runError, output)
+	}
+	for _, want := range []string{
+		"Not carried (2):", "- the data of stack 'avura': The move cannot tell which backup vault",
+		"Warnings (1):", "ready backup vaults are: archive, backups.", "Name the vault with --vault <name|id>.",
+		"- avura (data not carried: no backup vault, see Not carried)",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("plan output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestClusterMoveZone_StartVaultRefusalNamesTheFlag(t *testing.T) {
+	mock := newZoneMoveMock()
+	mock.startError = client.NewUnexpectedResponseError(422,
+		"The move cannot tell which backup vault carries the data of stack 'avura' (several ready vaults and none named).")
+	_, runError := runZoneMoveCommand(t, mock, "", "avura-france", "--zone", "se-sto1", "--yes")
+	if runError == nil || exitCodeFor(runError) != exitError ||
+		!strings.Contains(runError.Error(), "stack 'avura'") || !strings.Contains(runError.Error(), "--vault <name|id>") {
+		t.Fatalf("error = %v (exit %d)", runError, exitCodeFor(runError))
+	}
+
+}
+
+func TestClusterMoveZone_PlanSaysWhenTheVaultOfAStackWithDataIsNotReported(t *testing.T) {
+	mock := newZoneMoveMock()
+	unreported := zoneMoveFixture(client.ZoneMoveStatusProvisioning)
+	unreported.Plan.Data[0].Stack = "avura"
+	mock.startMove = unreported
+	output, runError := runZoneMoveCommand(t, mock, "", "avura-france", "--zone", "se-sto1", "--plan")
+	if runError != nil {
+		t.Fatalf("plan failed: %v\n%s", runError, output)
+	}
+	if !strings.Contains(output, "- avura (data vault not reported by the platform)") {
+		t.Fatalf("a carried stack with data and no vault must say so:\n%s", output)
+	}
+}
+
+func TestClusterMoveZone_RefusalOfTheNamedVaultSaysItWasRefused(t *testing.T) {
+	mock := newZoneMoveMock()
+	mock.startError = client.NewUnexpectedResponseError(422,
+		"The move cannot tell which backup vault carries the data of stack 'avura' (vault 'nope' does not exist).")
+	_, runError := runZoneMoveCommand(t, mock, "", "avura-france", "--zone", "se-sto1", "--vault", "nope", "--yes")
+	if runError == nil || !strings.Contains(runError.Error(), "The vault named with --vault (nope) was refused") {
+		t.Fatalf("error = %v", runError)
+	}
+}
+
+func TestClusterMoveZone_StartRefusalNotAboutAVaultGetsNoVaultHint(t *testing.T) {
+	mock := newZoneMoveMock()
+	mock.startError = client.NewUnexpectedResponseError(422, "zone se-sto9 does not exist")
+	_, runError := runZoneMoveCommand(t, mock, "", "avura-france", "--zone", "se-sto9", "--yes")
+	if runError == nil || strings.Contains(runError.Error(), "--vault") {
+		t.Fatalf("a refusal not about a vault gets no vault hint: %v", runError)
 	}
 }
