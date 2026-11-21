@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## v0.85.0 - 2026-11-22
+
+`ankra cluster move` gains a second kind of destination: `--zone` moves an
+Ankra Cloud cluster's stacks, data and public traffic to another Ankra Cloud
+zone. `--plan` shows what the move would build and carry and writes nothing;
+traffic moves only on `--cutover`, and `--rollback` and `--retire` finish it.
+It needs the platform as it is from 22 November 2026. Nothing else changes:
+`ankra cluster move --organisation` behaves as before, and `--zone` cannot be
+combined with it.
+
 ### Added
 
 - **Move a cluster to another Ankra Cloud zone: `ankra cluster move <cluster> --zone <zone>`.** `--plan` shows what the move would build and carry and writes nothing: the target cluster's shape, the stacks carried, the data volumes copied with their sizes, what is not carried, and every public hostname with how it is cut over. Without `--plan` the platform builds a twin of the cluster in the zone (or uses an empty cluster named with `--target-cluster`), copies the stacks and their data into it and keeps it in standby while the source goes on serving; `--control-plane-count`, `--control-plane-plan`, `--worker-plan`, `--worker-count`, `--storage-tier` and `--soak-days` override the shape it derives. Traffic moves only when you run `--cutover`, which puts up a maintenance page, takes the final copy and switches traffic. While the move soaks, `--rollback` sends traffic back (writes made on the target since the cutover are not copied back) and `--retire` deprovisions the source, which cannot be undone. `--status` shows the move and its steps, `--wait` follows it until it rests, and every step asks for confirmation unless `--yes` is given. `--zone` and `--organisation` cannot be combined. Needs a platform release that serves zone moves.
