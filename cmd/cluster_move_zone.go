@@ -249,7 +249,7 @@ func startZoneMove(cmd *cobra.Command, format outputFormat, source zoneMoveSourc
 		if format != outputDefault {
 			return encodeStructured(cmd.OutOrStdout(), format, plan)
 		}
-		printZoneMovePlan(cmd.OutOrStdout(), source, plan)
+		printZoneMovePlan(cmd.OutOrStdout(), source, plan, request.Vault)
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nNothing was changed. Start the move with the same command without --plan.\n")
 		return nil
 	}
@@ -263,7 +263,7 @@ func startZoneMove(cmd *cobra.Command, format outputFormat, source zoneMoveSourc
 		if planError != nil {
 			return planError
 		}
-		printZoneMovePlan(cmd.ErrOrStderr(), source, plan)
+		printZoneMovePlan(cmd.ErrOrStderr(), source, plan, request.Vault)
 		_, _ = fmt.Fprintln(cmd.ErrOrStderr())
 		if plan.Plan.Target.Name != "" && targetClusterID == "" {
 			destination = fmt.Sprintf("zone %q as cluster %q", plan.Plan.Target.Zone, plan.Plan.Target.Name)
@@ -280,7 +280,7 @@ func startZoneMove(cmd *cobra.Command, format outputFormat, source zoneMoveSourc
 	defer cancelRequest()
 	move, startError := apiClient.StartZoneMove(requestContext, source.ID, request)
 	if startError != nil {
-		return zoneMoveError("starting the zone move", withZoneMoveVaultHint(startError))
+		return zoneMoveError("starting the zone move", withZoneMoveVaultHint(startError, request.Vault))
 	}
 	return reportZoneMove(cmd, format, source, move, wait, client.ZoneMoveStatusReadyForCutover)
 }
@@ -290,25 +290,32 @@ func requestZoneMovePlan(source zoneMoveSource, planRequest client.ZoneMoveReque
 	defer cancelRequest()
 	plan, planError := apiClient.StartZoneMove(requestContext, source.ID, planRequest)
 	if planError != nil {
-		return nil, zoneMoveError("planning the zone move", withZoneMoveVaultHint(planError))
+		return nil, zoneMoveError("planning the zone move", withZoneMoveVaultHint(planError, planRequest.Vault))
 	}
 	return plan, nil
 }
 
 // zoneMoveVaultHint is what the CLI adds to the platform's vault refusal,
-// which names the request field ("vault") rather than the flag.
-const zoneMoveVaultHint = "Name the vault with --vault <name|id>."
+// which names the request field ("vault") rather than the flag. A vault the
+// request named applies to every stack, so a refusal while one is named is
+// a refusal of that vault.
+func zoneMoveVaultHint(requestedVault string) string {
+	if requestedVault == "" {
+		return "Name the vault with --vault <name|id>."
+	}
+	return fmt.Sprintf("The vault named with --vault (%s) was refused; name a ready one with --vault <name|id>.", requestedVault)
+}
 
 // withZoneMoveVaultHint adds the --vault hint to a start the platform
 // refused (422) because it cannot tell which backup vault carries a stack's
 // data, keeping the refusal's status for the exit code.
-func withZoneMoveVaultHint(requestError error) error {
+func withZoneMoveVaultHint(requestError error, requestedVault string) error {
 	var unexpected *client.UnexpectedResponseError
 	if !errors.As(requestError, &unexpected) || unexpected.StatusCode != 422 ||
 		!mentionsZoneMoveBackupVault(requestError.Error()) {
 		return requestError
 	}
-	return fmt.Errorf("%w %s", requestError, zoneMoveVaultHint)
+	return fmt.Errorf("%w %s", requestError, zoneMoveVaultHint(requestedVault))
 }
 
 func mentionsZoneMoveBackupVault(text string) bool {
@@ -589,7 +596,7 @@ func printZoneMove(out io.Writer, source zoneMoveSource, move *client.ZoneMove) 
 
 // printZoneMovePlan renders the plan: what is built, what is carried with
 // its size, what is left behind, and how each hostname moves.
-func printZoneMovePlan(out io.Writer, source zoneMoveSource, move *client.ZoneMove) {
+func printZoneMovePlan(out io.Writer, source zoneMoveSource, move *client.ZoneMove, requestedVault string) {
 	plan := move.Plan
 	target := plan.Target
 	zone := target.Zone
@@ -618,7 +625,7 @@ func printZoneMovePlan(out io.Writer, source zoneMoveSource, move *client.ZoneMo
 	carried, skipped := []string{}, []string{}
 	for _, stack := range plan.Stacks {
 		if stack.Carried {
-			carried = append(carried, stack.Name+describeZoneMoveStackVault(stack.Vault))
+			carried = append(carried, stack.Name+describeZoneMoveStackVault(stack, plan))
 			continue
 		}
 		reason := "not carried"
@@ -674,7 +681,7 @@ func printZoneMovePlan(out io.Writer, source zoneMoveSource, move *client.ZoneMo
 			mentionsVault = mentionsVault || mentionsZoneMoveBackupVault(warning)
 		}
 		if mentionsVault {
-			_, _ = fmt.Fprintf(out, "  %s\n", zoneMoveVaultHint)
+			_, _ = fmt.Fprintf(out, "  %s\n", zoneMoveVaultHint(requestedVault))
 		}
 	}
 
@@ -700,10 +707,22 @@ func printZoneMovePlan(out io.Writer, source zoneMoveSource, move *client.ZoneMo
 
 // describeZoneMoveStackVault is the suffix a carried stack's line gets: the
 // vault its data copies write through and what chose it, "" for a stack the
-// move copies no data of.
-func describeZoneMoveStackVault(vault *client.ZoneMoveStackVault) string {
+// move copies no data of. A stack with data and no vault says why rather
+// than reading like a stack without data: its data is not carried (the
+// platform could not choose a vault), or the platform did not say.
+func describeZoneMoveStackVault(stack client.ZoneMoveStack, plan client.ZoneMovePlan) string {
+	vault := stack.Vault
 	if vault == nil {
-		return ""
+		if !zoneMoveStackHasData(stack.Name, plan.Data) {
+			return ""
+		}
+		dataOmission := fmt.Sprintf("the data of stack '%s'", stack.Name)
+		for _, omission := range plan.NotCarried {
+			if omission.What == dataOmission {
+				return " (data not carried: no backup vault, see Not carried)"
+			}
+		}
+		return " (data vault not reported by the platform)"
 	}
 	name := vault.Name
 	if name == "" {
@@ -725,6 +744,15 @@ func describeZoneMoveStackVault(vault *client.ZoneMoveStackVault) string {
 		return fmt.Sprintf(" (data through vault %s)", name)
 	}
 	return fmt.Sprintf(" (data through vault %s: %s)", name, basis)
+}
+
+func zoneMoveStackHasData(stackName string, data []client.ZoneMoveDataVolume) bool {
+	for _, volume := range data {
+		if volume.Stack == stackName {
+			return true
+		}
+	}
+	return false
 }
 
 func describeZoneMoveDNSMechanism(mechanism string) string {

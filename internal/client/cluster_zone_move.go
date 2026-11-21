@@ -192,6 +192,7 @@ type ZoneMoveStackVault struct {
 
 // ZoneMoveDataVolume is a data volume the move copies to the target.
 type ZoneMoveDataVolume struct {
+	Stack          string `json:"stack" yaml:"stack"`
 	Namespace      string `json:"namespace" yaml:"namespace"`
 	Name           string `json:"name" yaml:"name"`
 	Kind           string `json:"kind" yaml:"kind"`

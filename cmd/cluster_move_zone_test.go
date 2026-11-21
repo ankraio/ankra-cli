@@ -542,6 +542,7 @@ func TestClusterMoveZone_PlanShowsTheVaultRefusal(t *testing.T) {
 		"Name the vault to copy through with \"vault\"; the organisation's ready backup vaults are: archive, backups."
 	refused.Plan.NotCarried = append(refused.Plan.NotCarried, client.ZoneMoveOmission{What: "the data of stack 'avura'", Reason: refusal})
 	refused.Plan.Warnings = []string{refusal}
+	refused.Plan.Data[0].Stack = "avura"
 	mock.startMove = refused
 	output, runError := runZoneMoveCommand(t, mock, "", "avura-france", "--zone", "se-sto1", "--plan")
 	if runError != nil {
@@ -550,6 +551,7 @@ func TestClusterMoveZone_PlanShowsTheVaultRefusal(t *testing.T) {
 	for _, want := range []string{
 		"Not carried (2):", "- the data of stack 'avura': The move cannot tell which backup vault",
 		"Warnings (1):", "ready backup vaults are: archive, backups.", "Name the vault with --vault <name|id>.",
+		"- avura (data not carried: no backup vault, see Not carried)",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("plan output missing %q:\n%s", want, output)
@@ -567,6 +569,30 @@ func TestClusterMoveZone_StartVaultRefusalNamesTheFlag(t *testing.T) {
 		t.Fatalf("error = %v (exit %d)", runError, exitCodeFor(runError))
 	}
 
+}
+
+func TestClusterMoveZone_PlanSaysWhenTheVaultOfAStackWithDataIsNotReported(t *testing.T) {
+	mock := newZoneMoveMock()
+	unreported := zoneMoveFixture(client.ZoneMoveStatusProvisioning)
+	unreported.Plan.Data[0].Stack = "avura"
+	mock.startMove = unreported
+	output, runError := runZoneMoveCommand(t, mock, "", "avura-france", "--zone", "se-sto1", "--plan")
+	if runError != nil {
+		t.Fatalf("plan failed: %v\n%s", runError, output)
+	}
+	if !strings.Contains(output, "- avura (data vault not reported by the platform)") {
+		t.Fatalf("a carried stack with data and no vault must say so:\n%s", output)
+	}
+}
+
+func TestClusterMoveZone_RefusalOfTheNamedVaultSaysItWasRefused(t *testing.T) {
+	mock := newZoneMoveMock()
+	mock.startError = client.NewUnexpectedResponseError(422,
+		"The move cannot tell which backup vault carries the data of stack 'avura' (vault 'nope' does not exist).")
+	_, runError := runZoneMoveCommand(t, mock, "", "avura-france", "--zone", "se-sto1", "--vault", "nope", "--yes")
+	if runError == nil || !strings.Contains(runError.Error(), "The vault named with --vault (nope) was refused") {
+		t.Fatalf("error = %v", runError)
+	}
 }
 
 func TestClusterMoveZone_StartRefusalNotAboutAVaultGetsNoVaultHint(t *testing.T) {
