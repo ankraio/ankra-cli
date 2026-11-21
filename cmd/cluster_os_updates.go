@@ -779,7 +779,7 @@ func printOSUpdatesPlan(out io.Writer, target osUpdatesTarget, plan osUpdatesPla
 		writer.Render()
 		_, _ = fmt.Fprintln(out)
 	}
-	if plan.Summary != nil {
+	if plan.Summary != nil && plan.Completed {
 		_, _ = fmt.Fprintf(out, "Summary:   %s\n", osUpdatesPlanSummaryLine(*plan.Summary))
 	}
 	if len(plan.RunOrder) > 0 {
@@ -787,8 +787,9 @@ func printOSUpdatesPlan(out io.Writer, target osUpdatesTarget, plan osUpdatesPla
 	}
 	printOSUpdatesSkipped(out, plan.Skipped)
 	if !plan.Completed {
-		_, _ = fmt.Fprintf(out, "\nNot every host has reported yet (operation %s). The dry run keeps going; "+
-			"'ankra cluster os-updates get %s' shows it once it finishes.\n", plan.OperationID, target.typed)
+		_, _ = fmt.Fprintf(out, "\nNot every host has reported yet (operation %s), so a host without counts is "+
+			"unknown, not up to date. The dry run keeps going; 'ankra cluster os-updates get %s' shows it once it "+
+			"finishes.\n", plan.OperationID, target.typed)
 		return
 	}
 	_, _ = fmt.Fprintln(out, "\nA host whose status is not success has an unknown plan, not an empty one.")

@@ -452,7 +452,11 @@ func TestOSUpdatesPlanPrintsEachHost(t *testing.T) {
 
 func TestOSUpdatesPlanStillRunningPointsAtGet(t *testing.T) {
 	recorder := newOSUpdatesServer(t, "hetzner")
-	recorder.answer(http.MethodPost, "plan", http.StatusOK, `{"operation_id":"plan-2","completed":false,"hosts":[],
+	recorder.answer(http.MethodPost, "plan", http.StatusOK, `{"operation_id":"plan-2","completed":false,
+"hosts":[{"resource_id":"r1","name":"cp-1","role":"control_plane","status":"running","held_back_pending":[],
+"security_pending":[],"reboot_required":false}],
+"summary":{"hosts":3,"hosts_with_work":0,"hosts_unknown":0,"pending":0,"security_pending":0,"held_back_pending":0,
+"held_back_security_pending":0,"reboot_required":0,"observed_at":"2026-11-21T10:00:00Z"},
 "run_order":[],"skipped":[],"policy":`+osUpdatesPolicyNoticePeriod+`,"message":"still running"}`)
 
 	stdout, _, runError := runOSUpdates(t, "", "plan", testClusterID)
@@ -460,7 +464,10 @@ func TestOSUpdatesPlanStillRunningPointsAtGet(t *testing.T) {
 		t.Fatalf("plan failed: %v", runError)
 	}
 	assertContainsAll(t, stdout, []string{"Not every host has reported yet (operation plan-2)",
-		"ankra cluster os-updates get " + testClusterID})
+		"a host without counts is unknown, not up to date", "ankra cluster os-updates get " + testClusterID})
+	if strings.Contains(stdout, "Summary:") {
+		t.Fatalf("an unfinished dry run printed a summary as if every host had reported:\n%s", stdout)
+	}
 }
 
 const osUpdatesRunAnswer = `{"operation_id":"run-9","order":[{"resource_id":"r1","name":"cp-1","role":"control_plane"},
