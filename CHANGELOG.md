@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ankra services setup --from <name>` asks for the id when an active and a retired service share the name.** A retired service's backups can be restored too, so once a service has been retired and set up again under its name, `--from <name>` could mean either of them. It took the active one without saying so, and with `--yes` it created the new service from that one's data, which for a service set up a moment ago is an empty database. It now stops before anything is prepared, exits 2 and lists each service of the name with its id and whether it is active or when it was retired: pass the id of the one you mean to `--from`. A name only one service has resolves as before, whatever its state. The other commands are unchanged and still take the active service of a name (`get`, `delete`, `connect`, `disconnect`); where they refuse a name two services share, the list now says each one's state as well.
+
 ## v0.83.0 - 2026-11-20
 
 Create a PostgreSQL service from another one's backups with

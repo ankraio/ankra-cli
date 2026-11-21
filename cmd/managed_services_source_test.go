@@ -149,10 +149,124 @@ func TestServicesSetupFromRefusesAnAmbiguousSourceName(t *testing.T) {
 	twin["cluster_id"] = "c1a2b3c4-0000-4000-8000-0000000000bb"
 	apiClient = &twinInstancesClient{Client: platform.client(), items: []map[string]any{fakeServiceInstance(), twin}}
 	t.Cleanup(func() { apiClient = previousClient })
-	_, resolveError := resolveServiceInstanceOn(t.Context(), "orders-db", "", "pass the service id to --from instead")
+	_, resolveError := resolveServiceBackupSource(t.Context(), "orders-db")
 	if resolveError == nil || exitCodeFor(resolveError) != exitUsage ||
 		!strings.Contains(resolveError.Error(), "pass the service id to --from instead") || strings.Contains(resolveError.Error(), "--cluster") {
 		t.Fatalf("expected an ambiguity refusal naming the id and not --cluster, got %v", resolveError)
+	}
+}
+
+// fakeRetiredServiceTwinID is a retired service that carries the name of the
+// fake platform's active one, as a service does after 'ankra services delete'
+// and a new setup under the same name.
+const fakeRetiredServiceTwinID = "c9b96bb8-0000-4000-8000-0000000000cc"
+
+// fakeRetiredServiceTwin is that retired service's record.
+func fakeRetiredServiceTwin(id string, retiredAt string) map[string]any {
+	retired := fakeServiceInstance()
+	retired["id"] = id
+	retired["released_at"] = retiredAt
+	retired["deployment_state"] = "released"
+	return retired
+}
+
+// The source of --from may be a retired service: its backups outlive it. So
+// where every other lookup lets the active service of a name win, a name an
+// active and a retired service share is not answered for the caller. Each
+// candidate is named with its id and whether it is active or when it was
+// retired. A name only one service has resolves whatever its state.
+func TestServicesBackupSourceNameSharedAcrossStatesAsksForTheID(t *testing.T) {
+	const otherRetiredID = "c9b96bb8-0000-4000-8000-0000000000dd"
+	cases := []struct {
+		name       string
+		inventory  []map[string]any
+		resolvesTo string
+		candidates []string
+	}{
+		{"an active and a retired service", []map[string]any{
+			fakeServiceInstance(), fakeRetiredServiceTwin(fakeRetiredServiceTwinID, "2026-11-20T23:12:52Z")}, "",
+			[]string{fakeServiceInstanceID + " on cluster " + fakeServiceClusterID + ", active",
+				fakeRetiredServiceTwinID + " on cluster " + fakeServiceClusterID + ", retired 2026-11-20T23:12:52Z"}},
+		{"two retired services", []map[string]any{
+			fakeRetiredServiceTwin(fakeRetiredServiceTwinID, "2026-11-20T23:12:52Z"),
+			fakeRetiredServiceTwin(otherRetiredID, "2026-11-20T23:21:40Z")}, "",
+			[]string{fakeRetiredServiceTwinID + " on cluster " + fakeServiceClusterID + ", retired 2026-11-20T23:12:52Z",
+				otherRetiredID + " on cluster " + fakeServiceClusterID + ", retired 2026-11-20T23:21:40Z"}},
+		{"one retired service", []map[string]any{
+			fakeRetiredServiceTwin(fakeRetiredServiceTwinID, "2026-11-20T23:12:52Z")}, fakeRetiredServiceTwinID, nil},
+		{"one active service", []map[string]any{fakeServiceInstance()}, fakeServiceInstanceID, nil},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			platform := newFakeServicesPlatform(t)
+			previousClient := apiClient
+			apiClient = adaptMockClient(&twinInstancesClient{Client: platform.client(), items: testCase.inventory})
+			t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
+			resolved, resolveError := resolveServiceBackupSource(t.Context(), "orders-db")
+			if testCase.resolvesTo != "" {
+				if resolveError != nil || resolved == nil || resolved.ID != testCase.resolvesTo {
+					t.Fatalf("expected the one service of the name (%s), got %v, %v", testCase.resolvesTo, resolved, resolveError)
+				}
+				return
+			}
+			if resolveError == nil || exitCodeFor(resolveError) != exitUsage ||
+				!strings.Contains(resolveError.Error(), "pass the service id to --from instead") {
+				t.Fatalf("expected a usage refusal asking for the id, got %v (resolved %v)", resolveError, resolved)
+			}
+			for _, candidate := range testCase.candidates {
+				if !strings.Contains(resolveError.Error(), candidate) {
+					t.Errorf("the refusal does not name %q:\n%v", candidate, resolveError)
+				}
+			}
+		})
+	}
+}
+
+// The commands that act on a service in use keep their rule: the active
+// service of a name wins over a retired one, so retiring a service and
+// setting it up again does not make its name ambiguous for them.
+func TestResolveServiceInstanceStillTakesTheActiveServiceOverARetiredOne(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	previousClient := apiClient
+	apiClient = adaptMockClient(&twinInstancesClient{Client: platform.client(), items: []map[string]any{
+		fakeRetiredServiceTwin(fakeRetiredServiceTwinID, "2026-11-20T23:12:52Z"), fakeServiceInstance()}})
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
+	resolved, resolveError := resolveServiceInstance(newServicesGetCommand(), "orders-db")
+	if resolveError != nil || resolved == nil || resolved.ID != fakeServiceInstanceID {
+		t.Fatalf("expected the active service (%s), got %v, %v", fakeServiceInstanceID, resolved, resolveError)
+	}
+}
+
+// A setup whose --from name an active and a retired service share stops
+// before a review is prepared: with --yes nothing else would stand between
+// the name and a service created from the wrong one's data.
+func TestServicesSetupFromPreparesNothingForANameSharedAcrossStates(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	previousClient := apiClient
+	apiClient = adaptMockClient(&twinInstancesClient{Client: platform.client(), items: []map[string]any{
+		fakeServiceInstance(), fakeRetiredServiceTwin(fakeRetiredServiceTwinID, "2026-11-20T23:12:52Z")}})
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
+	servicesCommand := newServicesCommand()
+	var stdout, stderr strings.Builder
+	servicesCommand.SetOut(&stdout)
+	servicesCommand.SetErr(&stderr)
+	servicesCommand.SetIn(strings.NewReader(""))
+	servicesCommand.SetArgs([]string{"setup", "orders-db-copy", "--package", "postgresql", "--cluster", fakeServiceClusterID,
+		"--from", "orders-db", "--yes"})
+	runError := servicesCommand.Execute()
+	if runError == nil || exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "--from: 2 services are named") {
+		t.Fatalf("expected the shared name refused as a usage error, got %v (exit %d)", runError, exitCodeFor(runError))
+	}
+	for _, candidate := range []string{fakeServiceInstanceID, fakeRetiredServiceTwinID, "active", "retired 2026-11-20T23:12:52Z"} {
+		if !strings.Contains(runError.Error(), candidate) {
+			t.Errorf("the refusal does not name %q:\n%v", candidate, runError)
+		}
+	}
+	if prepares := platform.requests(http.MethodPost, "/reviews"); len(prepares) != 0 {
+		t.Errorf("a setup refused for its source name prepared %d review(s)", len(prepares))
+	}
+	if strings.Contains(stdout.String(), "is being set up") {
+		t.Errorf("a refused setup must not read as started:\n%s", stdout.String())
 	}
 }
 
