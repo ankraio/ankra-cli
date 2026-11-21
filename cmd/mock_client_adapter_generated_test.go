@@ -174,6 +174,14 @@ func (m mockClientAdapter) AdoptStackProfile(a0 context.Context, a1 string, a2 c
 	}
 	return baseMock{}.AdoptStackProfile(a0, a1, a2)
 }
+func (m mockClientAdapter) AdvanceZoneMove(a0 context.Context, a1 string, a2 client.ZoneMoveAction) (*client.ZoneMove, error) {
+	if target, ok := m.target.(interface {
+		AdvanceZoneMove(a0 context.Context, a1 string, a2 client.ZoneMoveAction) (*client.ZoneMove, error)
+	}); ok {
+		return target.AdvanceZoneMove(a0, a1, a2)
+	}
+	return baseMock{}.AdvanceZoneMove(a0, a1, a2)
+}
 func (m mockClientAdapter) AnkraCloudNodeCloudInitLog(a0 string, a1 string) (*client.NodeCloudInitLogResult, error) {
 	if target, ok := m.target.(interface {
 		AnkraCloudNodeCloudInitLog(a0 string, a1 string) (*client.NodeCloudInitLogResult, error)
@@ -4862,6 +4870,14 @@ func (m mockClientAdapter) GetWorkspaceRun(a0 context.Context, a1 string, a2 str
 	}
 	return baseMock{}.GetWorkspaceRun(a0, a1, a2)
 }
+func (m mockClientAdapter) GetZoneMove(a0 context.Context, a1 string) (*client.ZoneMove, error) {
+	if target, ok := m.target.(interface {
+		GetZoneMove(a0 context.Context, a1 string) (*client.ZoneMove, error)
+	}); ok {
+		return target.GetZoneMove(a0, a1)
+	}
+	return baseMock{}.GetZoneMove(a0, a1)
+}
 func (m mockClientAdapter) GrantMCPTool(a0 context.Context, a1 string, a2 string, a3 string) (*client.MCPToolGrant, error) {
 	if target, ok := m.target.(interface {
 		GrantMCPTool(a0 context.Context, a1 string, a2 string, a3 string) (*client.MCPToolGrant, error)
@@ -8681,6 +8697,14 @@ func (m mockClientAdapter) StartWorkspaceRun(a0 context.Context, a1 string, a2 c
 		return target.StartWorkspaceRun(a0, a1, a2)
 	}
 	return baseMock{}.StartWorkspaceRun(a0, a1, a2)
+}
+func (m mockClientAdapter) StartZoneMove(a0 context.Context, a1 string, a2 client.ZoneMoveRequest) (*client.ZoneMove, error) {
+	if target, ok := m.target.(interface {
+		StartZoneMove(a0 context.Context, a1 string, a2 client.ZoneMoveRequest) (*client.ZoneMove, error)
+	}); ok {
+		return target.StartZoneMove(a0, a1, a2)
+	}
+	return baseMock{}.StartZoneMove(a0, a1, a2)
 }
 func (m mockClientAdapter) StopAnkraCloudCluster(a0 string, a1 client.StopClusterOptions) (*client.ProviderStopClusterResponse, error) {
 	if target, ok := m.target.(interface {
@@ -13282,3 +13306,18 @@ var _ interface {
 var _ interface {
 	GetHetznerWorkerCount(a0 string) (*client.WorkerCountResult, error)
 } = (*wrongKindMock)(nil)
+var _ interface {
+	AdvanceZoneMove(a0 context.Context, a1 string, a2 client.ZoneMoveAction) (*client.ZoneMove, error)
+} = (*zoneMoveMock)(nil)
+var _ interface {
+	GetCluster(a0 string) (client.ClusterListItem, error)
+} = (*zoneMoveMock)(nil)
+var _ interface {
+	GetClusterByID(a0 string) (client.ClusterListItem, error)
+} = (*zoneMoveMock)(nil)
+var _ interface {
+	GetZoneMove(a0 context.Context, a1 string) (*client.ZoneMove, error)
+} = (*zoneMoveMock)(nil)
+var _ interface {
+	StartZoneMove(a0 context.Context, a1 string, a2 client.ZoneMoveRequest) (*client.ZoneMove, error)
+} = (*zoneMoveMock)(nil)

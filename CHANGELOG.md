@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **Move a cluster to another Ankra Cloud zone: `ankra cluster move <cluster> --zone <zone>`.** `--plan` shows what the move would build and carry and writes nothing: the target cluster's shape, the stacks carried, the data volumes copied with their sizes, what is not carried, and every public hostname with how it is cut over. Without `--plan` the platform builds a twin of the cluster in the zone (or uses an empty cluster named with `--target-cluster`), copies the stacks and their data into it and keeps it in standby while the source goes on serving; `--control-plane-count`, `--control-plane-plan`, `--worker-plan`, `--worker-count`, `--storage-tier` and `--soak-days` override the shape it derives. Traffic moves only when you run `--cutover`, which puts up a maintenance page, takes the final copy and switches traffic. While the move soaks, `--rollback` sends traffic back (writes made on the target since the cutover are not copied back) and `--retire` deprovisions the source, which cannot be undone. `--status` shows the move and its steps, `--wait` follows it until it rests, and every step asks for confirmation unless `--yes` is given. `--zone` and `--organisation` cannot be combined. Needs a platform release that serves zone moves.
+
 ## v0.83.0 - 2026-11-20
 
 Create a PostgreSQL service from another one's backups with

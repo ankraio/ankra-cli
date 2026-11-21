@@ -153,6 +153,18 @@ func (m baseMock) MoveCluster(ctx context.Context, clusterID string, destination
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) StartZoneMove(ctx context.Context, sourceClusterID string, request client.ZoneMoveRequest) (*client.ZoneMove, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetZoneMove(ctx context.Context, sourceClusterID string) (*client.ZoneMove, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AdvanceZoneMove(ctx context.Context, sourceClusterID string, action client.ZoneMoveAction) (*client.ZoneMove, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) SetClusterEnvironment(context.Context, string, string, string) (*client.ClusterEnvironmentResult, error) {
 	return nil, errors.New("not implemented")
 }
