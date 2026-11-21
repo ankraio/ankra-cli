@@ -60,6 +60,11 @@ type serviceReviewPlanView struct {
 	// asked for, or the platform's own choice for a service created from
 	// another one. A plan that names none carries none.
 	BackupVault *client.ServiceReviewBackupVault `json:"backup_vault"`
+	// Backups is what the plan says the install does about the service's
+	// backups: backed up into a vault, or not backed up and why. A plan
+	// that says nothing carries none, and so does every plan of a platform
+	// from before a plan said it.
+	Backups *client.ServiceReviewBackups `json:"backups"`
 }
 
 func parseServiceReviewPlan(plan map[string]any) (serviceReviewPlanView, error) {
@@ -121,7 +126,7 @@ func printServiceReviewPlan(out io.Writer, names *serviceNames, packageLabel str
 				strings.Join(serviceSortedKeys(plan.SecretReferences), ", "))
 		}
 		printServiceReviewSource(out, plan.Source)
-		printServiceReviewBackupVault(out, plan.BackupVault)
+		printServiceReviewBackups(out, plan.Backups, plan.BackupVault)
 		if len(plan.Consumers) == 0 && plan.Source != nil {
 			_, _ = fmt.Fprintln(out, "  Consumers:      none ('ankra services connect' adds an application once the service runs)")
 		} else {
@@ -182,7 +187,7 @@ func printServiceReviewSummary(out io.Writer, names *serviceNames, review client
 		_, _ = fmt.Fprintf(out, "  Secret inputs:  %s\n", strings.Join(review.SecretInputs, ", "))
 	}
 	printServiceReviewSource(out, review.Source)
-	printServiceReviewBackupVault(out, review.BackupVault)
+	printServiceReviewBackups(out, review.Backups, review.BackupVault)
 	if len(review.Destinations) == 0 {
 		_, _ = fmt.Fprintln(out, "  Destinations:   none ('ankra services connect' adds an application once the service runs)")
 	} else {
@@ -298,6 +303,39 @@ func printServiceReviewBackupVault(out io.Writer, vault *client.ServiceReviewBac
 	_, _ = fmt.Fprintf(out, "  Backup vault:   %s\n", vault.Name)
 	if vault.Statement != "" {
 		_, _ = fmt.Fprintf(out, "                  %s\n", vault.Statement)
+	}
+}
+
+// printServiceReviewBackups says what a reviewed setup does about the
+// service's backups, on the row a named backup vault has always had. A plan
+// that says the service is backed up shows the vault and the platform's
+// sentence, whether the request named the vault or the platform took the
+// organisation's one. A plan that says it is not backed up shows that on the
+// same row, then the platform's sentence: why, and what changes it. Before a
+// plan said this, an organisation with one vault and one with several read
+// the same review, and only the first was backed up.
+//
+// A plan that says nothing (a package that keeps no backups, backups not
+// enabled, an older platform) prints what its backup vault block names, which
+// is nothing when it names none: the CLI never fills in an answer the
+// platform did not give. A state this CLI does not know is shown as the
+// platform sent it.
+func printServiceReviewBackups(out io.Writer, backups *client.ServiceReviewBackups, vault *client.ServiceReviewBackupVault) {
+	if backups == nil || (vault != nil && vault.Name != "" && backups.State == client.ServiceBackupsOn) {
+		printServiceReviewBackupVault(out, vault)
+		return
+	}
+	switch {
+	case backups.State == client.ServiceBackupsOn && backups.Vault != "":
+		printServiceReviewBackupVault(out, &client.ServiceReviewBackupVault{Name: backups.Vault, Statement: backups.Statement})
+		return
+	case backups.State == client.ServiceBackupsOff:
+		_, _ = fmt.Fprintln(out, "  Backup vault:   none, this service is not backed up")
+	default:
+		_, _ = fmt.Fprintf(out, "  Backups:        %s\n", backups.State)
+	}
+	if backups.Statement != "" {
+		_, _ = fmt.Fprintf(out, "                  %s\n", backups.Statement)
 	}
 }
 
@@ -424,8 +462,10 @@ with the other's data as of --at (a time in RFC 3339, for example
 is left out. The moment must be inside the window Ankra can confirm from the
 other service's backups: the platform refuses any other moment, and a window
 it could not read. The other service is not changed and may be retired or on
-a cluster that no longer exists, as long as its backups are still kept. The
-review names the source and the moment before anything is set up. The new
+a cluster that no longer exists, as long as its backups are still kept. A
+name that an active and a retired service share, or two of either, is refused
+with the id of each: pass the id of the one you mean. The review names the
+source and the moment before anything is set up. The new
 service starts with no applications: connect them with 'ankra services
 connect' once it runs. --consumer is refused with --from.
 
@@ -548,7 +588,7 @@ func runServicesSetup(command *cobra.Command, arguments []string) error {
 	// flag names where the new service runs, and the source may run elsewhere.
 	var source *client.ServiceInstance
 	if sourceReference != "" {
-		resolved, sourceError := resolveServiceInstanceOn(ctx, sourceReference, "", "pass the service id to --from instead")
+		resolved, sourceError := resolveServiceBackupSource(ctx, sourceReference)
 		if sourceError != nil {
 			return fmt.Errorf("--from: %w", sourceError)
 		}
@@ -656,12 +696,16 @@ func runServicesSetup(command *cobra.Command, arguments []string) error {
 }
 
 // serviceReviewConfirmError adds the way forward to a confirmation the
-// platform refused as a conflict: the ten-minute window ended, or something
-// the plan was resolved from (policy, binding, package, name) changed since.
-// Either way the review can no longer be confirmed and a new one is needed.
+// platform refused because the review can no longer be confirmed: the
+// ten-minute window ended, or something the plan was resolved from (policy,
+// binding, package, name, the backup vaults) changed since. The platform
+// answers the first kind as a conflict and a plan that no longer matches
+// what would be installed as unprocessable. Either way a new review is
+// needed.
 func serviceReviewConfirmError(confirmError error, serviceName string) error {
 	var unexpected *client.UnexpectedResponseError
-	if errors.As(confirmError, &unexpected) && unexpected.StatusCode == http.StatusConflict {
+	if errors.As(confirmError, &unexpected) &&
+		(unexpected.StatusCode == http.StatusConflict || unexpected.StatusCode == http.StatusUnprocessableEntity) {
 		return fmt.Errorf("%w - nothing was set up: the review expired or what it was resolved from changed since it was prepared; "+
 			"run 'ankra services setup %s ...' again to review the current plan", confirmError, serviceName)
 	}
