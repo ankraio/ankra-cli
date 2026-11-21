@@ -315,7 +315,7 @@ with 'run'.
 Making hosts advisory removes the node OS update hold from them, so unattended
 upgrades install the held packages again. That change is refused while a run
 or a node OS policy operation is in flight. To clear the cluster's mode, or to
-give a node group a mode of its own, use the API or Ankra's AI. Needs
+give a node group a mode of its own, use 'ankra cluster os-updates set'. Needs
 clusters.write.
 
   ankra cluster hetzner os-patches policy set prod --enable --window-days sat,sun --window-start-hour 2 --window-duration-hours 4
