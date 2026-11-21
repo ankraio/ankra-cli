@@ -209,8 +209,64 @@ func resolveServiceInstance(command *cobra.Command, reference string) (*client.S
 // resolveServiceInstanceOn finds a service by id or by name, on the cluster
 // clusterID names or, when it is empty, anywhere in the organisation.
 // ambiguousHint is what a name several services share is told to do instead,
-// since only some callers have a --cluster that narrows the search.
+// since only some callers have a --cluster that narrows the search. An active
+// service wins over retired ones of the same name.
 func resolveServiceInstanceOn(ctx context.Context, reference string, clusterID string, ambiguousHint string) (*client.ServiceInstance, error) {
+	return resolveServiceInstanceBy(ctx, reference, clusterID, ambiguousHint, activeServiceWins)
+}
+
+// resolveServiceBackupSource finds the service whose backups a new service is
+// created from, by id or by name, anywhere in the organisation. Here a
+// retired service is as likely to be meant as an active one, because its
+// backups outlive it and restoring them is what the option is for. So a name
+// an active and a retired service share is refused with every candidate's id
+// and state, where every other lookup takes the active one: taking it here
+// would create the new service from the wrong service's data without a word.
+func resolveServiceBackupSource(ctx context.Context, reference string) (*client.ServiceInstance, error) {
+	return resolveServiceInstanceBy(ctx, reference, "",
+		"a retired service's backups can be restored too, so pass the service id to --from instead", everyServiceIsACandidate)
+}
+
+// serviceNameRule says which of the services sharing a name a lookup by name
+// may mean.
+type serviceNameRule int
+
+const (
+	// activeServiceWins is the rule of a command that acts on a service in
+	// use: a retired service keeps its record, so the active service of the
+	// name is the one meant, and the retired ones are candidates only when no
+	// active service has the name.
+	activeServiceWins serviceNameRule = iota
+	// everyServiceIsACandidate is the rule of a lookup that may mean a
+	// retired service as well as an active one.
+	everyServiceIsACandidate
+)
+
+// candidates are the services of one name a lookup under this rule may mean.
+func (rule serviceNameRule) candidates(active []client.ServiceInstance, released []client.ServiceInstance) []client.ServiceInstance {
+	if rule == everyServiceIsACandidate {
+		return append(append([]client.ServiceInstance{}, active...), released...)
+	}
+	if len(active) > 0 {
+		return active
+	}
+	return released
+}
+
+// serviceCandidateLine describes one of several services sharing a name, so
+// the id to pass instead can be picked: its id, where it runs, and whether
+// it is active or when it was retired.
+func serviceCandidateLine(instance client.ServiceInstance) string {
+	state := "active"
+	if instance.ReleasedAt != nil {
+		state = "retired " + *instance.ReleasedAt
+	}
+	return fmt.Sprintf("%s on cluster %s, %s", instance.ID, instance.ClusterID, state)
+}
+
+// resolveServiceInstanceBy is the lookup behind every way of naming a
+// service: an id first, then the name among the services rule admits.
+func resolveServiceInstanceBy(ctx context.Context, reference string, clusterID string, ambiguousHint string, rule serviceNameRule) (*client.ServiceInstance, error) {
 	reference = strings.TrimSpace(reference)
 	if reference == "" {
 		return nil, errServiceReferenceRequired()
@@ -248,10 +304,7 @@ func resolveServiceInstanceOn(ctx context.Context, reference string, clusterID s
 			active = append(active, instance)
 		}
 	}
-	matches := active
-	if len(matches) == 0 {
-		matches = released
-	}
+	matches := rule.candidates(active, released)
 	switch len(matches) {
 	case 1:
 		return &matches[0], nil
@@ -268,7 +321,7 @@ func resolveServiceInstanceOn(ctx context.Context, reference string, clusterID s
 	default:
 		candidates := make([]string, 0, len(matches))
 		for _, instance := range matches {
-			candidates = append(candidates, fmt.Sprintf("%s on cluster %s", instance.ID, instance.ClusterID))
+			candidates = append(candidates, serviceCandidateLine(instance))
 		}
 		return nil, withExitCode(exitUsage, fmt.Errorf(
 			"%d services are named %q - %s (%s)",

@@ -424,8 +424,10 @@ with the other's data as of --at (a time in RFC 3339, for example
 is left out. The moment must be inside the window Ankra can confirm from the
 other service's backups: the platform refuses any other moment, and a window
 it could not read. The other service is not changed and may be retired or on
-a cluster that no longer exists, as long as its backups are still kept. The
-review names the source and the moment before anything is set up. The new
+a cluster that no longer exists, as long as its backups are still kept. A
+name that an active and a retired service share, or two of either, is refused
+with the id of each: pass the id of the one you mean. The review names the
+source and the moment before anything is set up. The new
 service starts with no applications: connect them with 'ankra services
 connect' once it runs. --consumer is refused with --from.
 
@@ -548,7 +550,7 @@ func runServicesSetup(command *cobra.Command, arguments []string) error {
 	// flag names where the new service runs, and the source may run elsewhere.
 	var source *client.ServiceInstance
 	if sourceReference != "" {
-		resolved, sourceError := resolveServiceInstanceOn(ctx, sourceReference, "", "pass the service id to --from instead")
+		resolved, sourceError := resolveServiceBackupSource(ctx, sourceReference)
 		if sourceError != nil {
 			return fmt.Errorf("--from: %w", sourceError)
 		}
