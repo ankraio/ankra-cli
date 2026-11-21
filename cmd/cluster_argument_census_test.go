@@ -54,6 +54,7 @@ var clusterSelectionFallbacks = map[string]string{
 	"ankra cluster gitops conflicts list":        "reads the open merge conflicts",
 	"ankra cluster gitops preserved list":        "reads the preserved paths",
 	"ankra cluster node-group list":              "reads the node groups",
+	"ankra cluster os-updates get":               "reads the cluster's OS updates mode and window",
 	"ankra cluster hetzner node-group list":      "reads the node groups",
 	"ankra cluster ovh node-group list":          "reads the node groups",
 	"ankra cluster upcloud node-group list":      "reads the node groups",

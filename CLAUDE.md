@@ -116,11 +116,17 @@ Every user-visible change gets an entry in the `## Unreleased` section of
 `CHANGELOG.md`, written in the file's established prose style (bold lead-in,
 explains the user-facing consequence, not the implementation).
 
-Cutting a release: promote `## Unreleased` to `## vX.Y.Z` on `master`, tag
-`vX.Y.Z`, push the tag. `.github/workflows/release.yml` then builds all six
-OS/arch binaries and creates the GitHub release, extracting notes from the
-CHANGELOG section whose heading matches the tag. Tags containing a hyphen
-(e.g. `v0.5.0-rc1`) are marked prerelease automatically.
+Cutting a release: a `release: vX.Y.Z ...` pull request promotes
+`## Unreleased` to `## vX.Y.Z - YYYY-MM-DD`, and merging it is the release.
+Nobody pushes a tag: the pipeline's `release-tag` stage
+(`scripts/release-tag.sh`) runs on every push to `master` once the other
+stages pass, and when the newest version heading has no tag yet it creates
+the annotated tag on that commit. It refuses a heading that is not newer than
+every existing `v*` tag and never moves a tag. The tag starts
+`.github/workflows/release.yml`, which builds all six OS/arch binaries and
+creates the GitHub release, extracting notes from the CHANGELOG section whose
+heading matches the tag. A prerelease (a tag containing a hyphen, e.g.
+`v0.5.0-rc1`, marked prerelease automatically) is still tagged by hand.
 
 ## Commit style
 
