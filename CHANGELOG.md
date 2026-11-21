@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra services setup` says before you confirm whether the service will be backed up.** The review's `Backup vault` row now shows the vault whenever the service is backed up, also when you named none and the platform took the organisation's only vault, and it reads `none, this service is not backed up` when it is not, followed by the platform's sentence on why and what changes it. Before, an organisation with one verified backup vault and one with several read the same review, and only the first got backups. `ankra services reviews get` shows the same row, and `-o json` carries it as `backups` (`state`, `reason`, `vault`, `statement`). It needs a platform that says it: against an older one the row is printed as before, only for a vault the plan names.
+
+### Changed
+
+- **A setup the platform no longer confirms because its plan changed says what to do.** When a backup vault is added or removed between the review and the confirmation, the platform refuses to confirm what you reviewed. `ankra services setup` and `ankra services reviews confirm` now add that nothing was set up and that running the setup again shows the current plan, as they already did for a review that expired.
+
 ### Fixed
 
 - **`ankra services setup --from <name>` asks for the id when an active and a retired service share the name.** A retired service's backups can be restored too, so once a service has been retired and set up again under its name, `--from <name>` could mean either of them. It took the active one without saying so, and with `--yes` it created the new service from that one's data, which for a service set up a moment ago is an empty database. It now stops before anything is prepared, exits 2 and lists each service of the name with its id and whether it is active or when it was retired: pass the id of the one you mean to `--from`. A name only one service has resolves as before, whatever its state. The other commands are unchanged and still take the active service of a name (`get`, `delete`, `connect`, `disconnect`); where they refuse a name two services share, the list now says each one's state as well.

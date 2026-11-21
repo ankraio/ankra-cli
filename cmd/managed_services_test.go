@@ -144,6 +144,13 @@ type fakeServicesPlatform struct {
 	// planVaultName replaces the vault the plan names.
 	vaultIgnored  bool
 	planVaultName string
+	// planBackups is what the prepared plan and the stored review say the
+	// install does about the service's backups. Nil sends no block, as a
+	// platform from before a plan said it does. confirmBackupsMoved makes a
+	// confirm answer the platform's 422 for a review whose answer moved
+	// since it was prepared.
+	planBackups         map[string]any
+	confirmBackupsMoved bool
 	// connectConflict makes connecting an application answer the platform's
 	// 409 for a service that changed since it was read.
 	connectConflict bool
@@ -152,6 +159,10 @@ type fakeServicesPlatform struct {
 // fakeServiceSourceStatement is the sentence a plan carries for a service
 // created from another service's backups.
 const fakeServiceSourceStatement = "This service is created from the archive of the service orders-db. The service orders-db is not changed."
+
+// fakeServiceReviewMovedDetail is the platform's answer to a confirm of a
+// review whose plan is no longer what would be installed.
+const fakeServiceReviewMovedDetail = "The reviewed setup or its deploy authority has changed or expired; prepare and confirm a new review."
 
 // fakeServiceArchiveVault is the vault that holds the fake source's backups.
 const fakeServiceArchiveVault = "archive-backups"
@@ -434,6 +445,9 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		if vault := platform.planBackupVault(prepared); vault != nil {
 			review["plan"].(map[string]any)["backup_vault"] = vault
 		}
+		if platform.planBackups != nil {
+			review["plan"].(map[string]any)["backups"] = platform.planBackups
+		}
 		fakeServiceJSON(t, writer, http.StatusOK, review)
 	case request.Method == http.MethodGet && path == admission+"/reviews/"+fakeServiceReviewID:
 		summary := map[string]any{"id": fakeServiceReviewID, "package_version_id": fakeServicePackageID,
@@ -451,10 +465,17 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 				"statement": "This service is backed up into the backup vault " + fakeServiceArchiveVault +
 					", which holds the archive of the service orders-db."}
 		}
+		if platform.planBackups != nil {
+			summary["backups"] = platform.planBackups
+		}
 		fakeServiceJSON(t, writer, http.StatusOK, summary)
 	case request.Method == http.MethodPost && path == admission+"/reviews/"+fakeServiceReviewID+"/confirm":
 		var body struct{ Digest string }
 		_ = json.Unmarshal(bodyBytes, &body)
+		if platform.confirmBackupsMoved {
+			fakeServiceJSON(t, writer, http.StatusUnprocessableEntity, map[string]any{"detail": fakeServiceReviewMovedDetail})
+			return
+		}
 		if body.Digest != fakeServiceReviewDigest || platform.reviewChanged {
 			fakeServiceJSON(t, writer, http.StatusConflict, map[string]any{"detail": "Service review has changed"})
 			return

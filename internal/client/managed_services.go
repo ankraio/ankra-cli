@@ -378,6 +378,30 @@ type ServiceReviewSummary struct {
 	// BackupVault is the backup vault the reviewed plan names. Absent when
 	// the plan names none, and on a platform that does not report it.
 	BackupVault *ServiceReviewBackupVault `json:"backup_vault,omitempty" yaml:"backup_vault,omitempty"`
+	// Backups is what the reviewed plan says the install does about the
+	// service's backups. Absent when the plan says nothing: a package that
+	// keeps no backups, an organisation whose backups are not enabled, and
+	// a platform that does not report it.
+	Backups *ServiceReviewBackups `json:"backups,omitempty" yaml:"backups,omitempty"`
+}
+
+// The states a reviewed plan gives a service's backups.
+const (
+	// ServiceBackupsOn: the service is backed up into the plan's vault.
+	ServiceBackupsOn = "backed_up"
+	// ServiceBackupsOff: the service is set up without backups.
+	ServiceBackupsOff = "not_backed_up"
+)
+
+// ServiceReviewBackups is what a reviewed setup does about the service's
+// backups: backed up into Vault, or not backed up for Reason (no_vault,
+// many_vaults or playground), and the sentence the platform asks the person
+// to approve. The platform decides it; the CLI only shows it.
+type ServiceReviewBackups struct {
+	State     string `json:"state" yaml:"state"`
+	Reason    string `json:"reason,omitempty" yaml:"reason,omitempty"`
+	Vault     string `json:"vault,omitempty" yaml:"vault,omitempty"`
+	Statement string `json:"statement" yaml:"statement"`
 }
 
 // ServiceReviewBackupVault is the backup vault a reviewed setup is backed up
