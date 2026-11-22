@@ -113,13 +113,12 @@ var ovhCreateCmd = &cobra.Command{
 
 		fmt.Printf("OVH cluster '%s' created successfully!\n", result.Name)
 		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
-		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
-			strings.TrimRight(baseURL, "/"), result.ClusterID)
+		fmt.Printf("\nView it in the UI:\n  %s\n", portalClusterURLByID(result.ClusterID))
 		return nil
 	},
 }
 
-var ovhDeprovisionCmd = &cobra.Command{
+var ovhDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "deprovision <cluster_id|name>",
 	Short: "Deprovision an OVH cluster",
 	Args:  cobra.ExactArgs(1),
@@ -140,7 +139,7 @@ var ovhDeprovisionCmd = &cobra.Command{
 		if force {
 			warning = "This deletes all its servers, networks, SSH keys and load balancers!"
 		}
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Deprovision OVH cluster %s? %s [y/N]: ", clusterTarget(args[0], clusterID), warning),
 			yes); err != nil {
 			return err
@@ -170,9 +169,9 @@ var ovhDeprovisionCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
-var ovhWorkersCmd = &cobra.Command{
+var ovhWorkersCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for an OVH cluster",
 	Args:  cobra.ExactArgs(1),
@@ -198,9 +197,9 @@ var ovhWorkersCmd = &cobra.Command{
 		fmt.Printf("  Max: %d\n", result.Max)
 		return nil
 	},
-}
+})
 
-var ovhScaleCmd = &cobra.Command{
+var ovhScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "scale <cluster_id|name> <worker_count>",
 	Short: "Scale workers for an OVH cluster",
 	Long:  "Scale the number of worker nodes up or down for an OVH cluster.",
@@ -237,9 +236,9 @@ var ovhScaleCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
-var ovhK8sVersionCmd = &cobra.Command{
+var ovhK8sVersionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for an OVH cluster",
 	Args:  cobra.ExactArgs(1),
@@ -268,9 +267,9 @@ var ovhK8sVersionCmd = &cobra.Command{
 		fmt.Printf("  Distribution: %s\n", result.Distribution)
 		return nil
 	},
-}
+})
 
-var ovhUpgradeCmd = &cobra.Command{
+var ovhUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:        "upgrade <cluster_id|name> <target_version>",
 	Short:      "Upgrade Kubernetes version for an OVH cluster",
 	Long:       "Upgrade the Kubernetes version on all nodes in an OVH cluster. This deprecated form always runs the safe non-forced rollout; use `ankra cluster upgrade` for --force (PodDisruptionBudget override) and operation progress tracking.",
@@ -304,7 +303,7 @@ var ovhUpgradeCmd = &cobra.Command{
 		fmt.Printf("  Nodes affected:   %d\n", result.NodesAffected)
 		return nil
 	},
-}
+})
 
 var ovhRegionsCmd = &cobra.Command{
 	Use:   "regions",
@@ -352,7 +351,7 @@ var ovhRegionsCmd = &cobra.Command{
 	},
 }
 
-var ovhStopCmd = &cobra.Command{
+var ovhStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "stop <cluster_id|name>",
 	Short: "Stop an OVH cluster",
 	Long:  "Stop an OVH cluster's compute while keeping its configuration so it can be started again later.",
@@ -392,9 +391,9 @@ var ovhStopCmd = &cobra.Command{
 		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
 		return nil
 	},
-}
+})
 
-var ovhStartCmd = &cobra.Command{
+var ovhStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped OVH cluster",
 	Long:  "Start (re-provision) a stopped OVH cluster. Use --scope control_plane to bring up only the control plane.",
@@ -409,7 +408,7 @@ var ovhStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, err := apiClient.StartOvhCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd)})
+		result, err := apiClient.StartOvhCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd), RestoreSnapshotID: restoreSnapshotIDFlag(cmd), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(cmd)})
 		if err != nil {
 			return fmt.Errorf("starting cluster: %w", err)
 		}
@@ -426,12 +425,12 @@ var ovhStartCmd = &cobra.Command{
 			fmt.Printf("  Marked to start at: %s\n", result.MarkedToStartAt)
 		}
 		fmt.Printf("  Created operations: %d\n", result.CreatedOperations)
-		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
+		printStartStateOutcome(result.StateRestore, result.StateSnapshotID, result.StateRestoreMessage)
 		return nil
 	},
-}
+})
 
-var ovhAccessInfoCmd = &cobra.Command{
+var ovhAccessInfoCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "access-info <cluster_id|name>",
 	Short: "Show SSH access details for an OVH cluster",
 	Long:  "Show the gateway (bastion) and control plane IPs plus ready-to-use SSH jump and Kubernetes API port-forward commands.",
@@ -484,7 +483,7 @@ var ovhAccessInfoCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
 var ovhSSHKeysCmd = &cobra.Command{
 	Use:     "ssh-keys",
@@ -493,7 +492,7 @@ var ovhSSHKeysCmd = &cobra.Command{
 	Long:    "Get and set the SSH key credentials authorised to access an OVH cluster's nodes.",
 }
 
-var ovhSSHKeysGetCmd = &cobra.Command{
+var ovhSSHKeysGetCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "get <cluster_id|name>",
 	Short: "Show SSH keys attached to an OVH cluster",
 	Args:  cobra.ExactArgs(1),
@@ -517,9 +516,9 @@ var ovhSSHKeysGetCmd = &cobra.Command{
 		printClusterSSHKeys(result)
 		return nil
 	},
-}
+})
 
-var ovhSSHKeysSetCmd = &cobra.Command{
+var ovhSSHKeysSetCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "set <cluster_id|name>",
 	Short: "Set the SSH keys attached to an OVH cluster",
 	Long:  "Replace the SSH key credentials attached to an OVH cluster. Changes take effect on the next reconciliation.",
@@ -552,7 +551,7 @@ var ovhSSHKeysSetCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
 var ovhNodeGroupCmd = &cobra.Command{
 	Use:   "node-group",
@@ -560,11 +559,11 @@ var ovhNodeGroupCmd = &cobra.Command{
 	Long:  "List, add, scale, upgrade, label, taint, and delete node groups.",
 }
 
-var ovhNodeGroupLabelsCmd = &cobra.Command{
+var ovhNodeGroupLabelsCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "labels <cluster_id|name> <group_name>",
 	Short: "Set labels on all nodes in a node group",
 	Long:  "Replace the labels on every node in the group. Pass --labels as a comma-separated list of key=value pairs, or --clear to remove all labels.",
-	Args:  cobra.ExactArgs(2),
+	Args:  nodeGroupArgs(2, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -598,12 +597,12 @@ var ovhNodeGroupLabelsCmd = &cobra.Command{
 			return asyncWriteError("updating node group labels", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group labels update")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group labels update", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group labels update")
+			printNodeGroupWriteSubmitted("Node group labels update", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -614,13 +613,13 @@ var ovhNodeGroupLabelsCmd = &cobra.Command{
 		fmt.Printf("Node group '%s' labels updated. %d node(s) affected.\n", result.GroupName, result.Updated)
 		return nil
 	},
-}
+})
 
-var ovhNodeGroupTaintsCmd = &cobra.Command{
+var ovhNodeGroupTaintsCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "taints <cluster_id|name> <group_name>",
 	Short: "Set taints on all nodes in a node group",
 	Long:  "Replace the taints on every node in the group. Pass --taints as a comma-separated list of key=value:Effect (value optional, effect defaults to NoSchedule), or --clear to remove all taints.",
-	Args:  cobra.ExactArgs(2),
+	Args:  nodeGroupArgs(2, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -654,12 +653,12 @@ var ovhNodeGroupTaintsCmd = &cobra.Command{
 			return asyncWriteError("updating node group taints", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group taints update")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group taints update", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group taints update")
+			printNodeGroupWriteSubmitted("Node group taints update", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -670,14 +669,14 @@ var ovhNodeGroupTaintsCmd = &cobra.Command{
 		fmt.Printf("Node group '%s' taints updated. %d node(s) affected.\n", result.GroupName, result.Updated)
 		return nil
 	},
-}
+})
 
-var ovhNodeGroupListCmd = &cobra.Command{
-	Use:   "list <cluster_id|name>",
+var ovhNodeGroupListCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
+	Use:   "list [cluster_id|name]",
 	Short: "List node groups",
-	Args:  cobra.ExactArgs(1),
+	Args:  nodeGroupListArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		clusterID, resolveError := resolveClusterArg(args[0])
+		_, clusterID, resolveError := resolveOptionalClusterArg(cmd, args)
 		if resolveError != nil {
 			return resolveError
 		}
@@ -702,12 +701,12 @@ var ovhNodeGroupListCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
-var ovhNodeGroupAddCmd = &cobra.Command{
+var ovhNodeGroupAddCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "add <cluster_id|name>",
 	Short: "Add a node group",
-	Args:  cobra.ExactArgs(1),
+	Args:  nodeGroupAddArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -749,12 +748,12 @@ var ovhNodeGroupAddCmd = &cobra.Command{
 			return asyncWriteError("adding node group", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group add")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group add", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group add")
+			printNodeGroupWriteSubmitted("Node group add", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -762,15 +761,15 @@ var ovhNodeGroupAddCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' created with %d node(s).\n", result.GroupName, result.Count)
+		printNodeGroupAdded(result, clusterID)
 		return nil
 	},
-}
+})
 
-var ovhNodeGroupScaleCmd = &cobra.Command{
+var ovhNodeGroupScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "scale <cluster_id|name> <group_name> <count>",
 	Short: "Scale a node group",
-	Args:  cobra.ExactArgs(3),
+	Args:  nodeGroupArgs(3, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -793,12 +792,12 @@ var ovhNodeGroupScaleCmd = &cobra.Command{
 			return asyncWriteError("scaling node group", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group scale")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group scale", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group scale")
+			printNodeGroupWriteSubmitted("Node group scale", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -806,15 +805,15 @@ var ovhNodeGroupScaleCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' scaled from %d to %d.\n", result.GroupName, result.PreviousCount, result.NewCount)
+		printNodeGroupScaled(result, clusterID)
 		return nil
 	},
-}
+})
 
-var ovhNodeGroupUpgradeCmd = &cobra.Command{
+var ovhNodeGroupUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "upgrade <cluster_id|name> <group_name> <instance_type>",
 	Short: "Upgrade instance type for a node group (cannot be reversed)",
-	Args:  cobra.ExactArgs(3),
+	Args:  nodeGroupArgs(3, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -834,12 +833,12 @@ var ovhNodeGroupUpgradeCmd = &cobra.Command{
 			return asyncWriteError("upgrading node group", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group instance-type update")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group instance-type update", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group instance-type update")
+			printNodeGroupWriteSubmitted("Node group instance-type update", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -847,15 +846,15 @@ var ovhNodeGroupUpgradeCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' instance type upgraded. %d node(s) affected.\n", result.GroupName, result.Updated)
+		printNodeGroupResized(result, clusterID, "instance type")
 		return nil
 	},
-}
+})
 
-var ovhNodeGroupDeleteCmd = &cobra.Command{
+var ovhNodeGroupDeleteCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "delete <cluster_id|name> <group_name>",
 	Short: "Delete a node group and all its nodes",
-	Args:  cobra.ExactArgs(2),
+	Args:  nodeGroupArgs(2, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
 		if resolveError != nil {
@@ -864,7 +863,7 @@ var ovhNodeGroupDeleteCmd = &cobra.Command{
 		groupName := args[1]
 		yes, _ := cmd.Flags().GetBool("yes")
 
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete node group %q and all its nodes? This action is irreversible! [y/N]: ", groupName),
 			yes); err != nil {
 			return err
@@ -881,12 +880,12 @@ var ovhNodeGroupDeleteCmd = &cobra.Command{
 			return asyncWriteError("deleting node group", wait, err)
 		}
 		if submitted {
-			if handled, err := renderStructured(cmd, newAsyncSubmittedResult("Node group delete")); err != nil {
+			if handled, err := renderStructured(cmd, newNodeGroupSubmittedResult("Node group delete", clusterID, waitUntilRecorded)); err != nil {
 				return err
 			} else if handled {
 				return nil
 			}
-			printAsyncWriteSubmitted("Node group delete")
+			printNodeGroupWriteSubmitted("Node group delete", clusterID, waitUntilRecorded)
 			return nil
 		}
 		if handled, err := renderStructured(cmd, result); err != nil {
@@ -894,10 +893,10 @@ var ovhNodeGroupDeleteCmd = &cobra.Command{
 		} else if handled {
 			return nil
 		}
-		fmt.Printf("Node group '%s' deleted. %d node(s) removed.\n", result.GroupName, result.Deleted)
+		printNodeGroupDeleted(result, clusterID)
 		return nil
 	},
-}
+})
 
 func parseLabelsFlag(raw string) (map[string]string, error) {
 	labels := map[string]string{}
@@ -975,7 +974,7 @@ func init() {
 	ovhCreateCmd.Flags().Int("worker-count", 1, "Number of worker nodes")
 	ovhCreateCmd.Flags().String("worker-flavor-id", "", "Worker instance flavor (server default: b3-16)")
 	ovhCreateCmd.Flags().String("distribution", "kubeadm", "Kubernetes distribution: kubeadm (default, vanilla upstream Kubernetes with Cilium) or k3s")
-	ovhCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see `ankra cluster kubeadm-versions` or `ankra cluster k3s-versions`)")
+	ovhCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see 'ankra cluster kubeadm-versions' or 'ankra cluster k3s-versions')")
 	ovhCreateCmd.Flags().String("etcd-topology", "stacked", "etcd topology for kubeadm clusters: stacked (on control planes) or external (dedicated VMs)")
 	ovhCreateCmd.Flags().Int("etcd-node-count", 3, "Number of dedicated etcd nodes when --etcd-topology=external (3 or 5)")
 	ovhCreateCmd.Flags().String("etcd-flavor-id", "", "Instance flavor for dedicated etcd nodes when --etcd-topology=external (server default: b3-16)")
@@ -994,7 +993,7 @@ func init() {
 	_ = ovhCreateCmd.MarkFlagRequired("region")
 
 	ovhStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(ovhStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(ovhStartCmd)
 
 	ovhSSHKeysSetCmd.Flags().StringSlice("ssh-key-credential-ids", nil, "SSH key credential IDs to attach (comma-separated or repeated)")
 	_ = ovhSSHKeysSetCmd.MarkFlagRequired("ssh-key-credential-ids")
@@ -1008,12 +1007,12 @@ func init() {
 	ovhNodeGroupAddCmd.Flags().String("taints", "", "Comma-separated key=value:Effect taints to apply to the node group")
 	ovhNodeGroupAddCmd.Flags().String("availability-zone", "", "Pin every node of the group to one availability zone, in a 3-AZ region (e.g. eu-west-par-b). See 'ankra cluster ovh regions --with-zones'. Pin the group when it runs zonal storage: an OVH volume cannot attach from another zone. Omitted on a zone-spread cluster, each node takes the zone with the fewest instances cluster-wide, so a one-node group lands wherever the cluster is thinnest, not where its name suggests; on a cluster with no zone pool OVH chooses")
 	_ = ovhNodeGroupAddCmd.MarkFlagRequired("name")
-	registerAsyncWriteFlags(ovhNodeGroupAddCmd)
-	registerAsyncWriteFlags(ovhNodeGroupScaleCmd)
-	registerAsyncWriteFlags(ovhNodeGroupUpgradeCmd)
-	registerAsyncWriteFlags(ovhNodeGroupLabelsCmd)
-	registerAsyncWriteFlags(ovhNodeGroupTaintsCmd)
-	registerAsyncWriteFlags(ovhNodeGroupDeleteCmd)
+	registerNodeGroupWriteFlags(ovhNodeGroupAddCmd)
+	registerNodeGroupWriteFlags(ovhNodeGroupScaleCmd)
+	registerNodeGroupWriteFlags(ovhNodeGroupUpgradeCmd)
+	registerNodeGroupWriteFlags(ovhNodeGroupLabelsCmd)
+	registerNodeGroupWriteFlags(ovhNodeGroupTaintsCmd)
+	registerNodeGroupWriteFlags(ovhNodeGroupDeleteCmd)
 
 	ovhNodeGroupLabelsCmd.Flags().String("labels", "", "Comma-separated key=value pairs to set on the group")
 	ovhNodeGroupLabelsCmd.Flags().Bool("clear", false, "Remove all labels from the node group")

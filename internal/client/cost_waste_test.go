@@ -122,3 +122,55 @@ func TestKindConsentFor_FindsNothingWhereThePlatformNamesNone(t *testing.T) {
 		}
 	}
 }
+
+// The failed scans are read in the savings read's cost scope, unlike the
+// consent listing above, so they are the scans that read's scan_incomplete
+// stands for (cluster#6020): a named credential, a scan no organisation
+// credential stands behind, and the one entry for the scans outside the
+// reader's projects, which has no provider, name or time.
+func TestGetCloudWasteCredentialErrors_ReadsTheScopedListingsFailedScans(t *testing.T) {
+	body := strings.Replace(cloudWasteGolden, `"credential_errors":[]`,
+		`"credential_errors":[{"provider":"hetzner","credential_name":"prod-hetzner","error":"401 Unauthorized","scanned_at":"2026-11-05T22:00:00",`+
+			`"credential_outside_projects":false},{"provider":"ovh","credential_name":"","error":"token expired","scanned_at":null,`+
+			`"credential_outside_projects":false},{"provider":"","credential_name":"","error":"A waste scan by a credential outside your projects did not finish.",`+
+			`"scanned_at":null,"credential_outside_projects":true}]`, 1)
+	testClient, platform := newRecordingClient(t, http.StatusOK, body)
+	testClient.SetCostProjectScope(CostProjectScopeAll)
+	failures, err := testClient.GetCloudWasteCredentialErrors()
+	if err != nil {
+		t.Fatalf("GetCloudWasteCredentialErrors: %v", err)
+	}
+	request := platform.last(t)
+	if request.method != http.MethodGet || request.path != "/api/v1/org/cloud-cost/waste" || request.query != "project_id=all" {
+		t.Fatalf("request = %s %s?%s, want GET /api/v1/org/cloud-cost/waste?project_id=all", request.method, request.path, request.query)
+	}
+	if len(failures) != 3 {
+		t.Fatalf("want 3 failed scans, got %+v", failures)
+	}
+	named, nameless, outside := failures[0], failures[1], failures[2]
+	if named.Provider != "hetzner" || named.CredentialName != "prod-hetzner" || named.Error != "401 Unauthorized" ||
+		named.ScannedAt == nil || *named.ScannedAt != "2026-11-05T22:00:00" || named.CredentialOutsideProjects {
+		t.Fatalf("the named failure did not decode: %+v", named)
+	}
+	if nameless.Provider != "ovh" || nameless.CredentialName != "" || nameless.ScannedAt != nil || nameless.CredentialOutsideProjects {
+		t.Fatalf("the nameless failure did not decode: %+v", nameless)
+	}
+	if !outside.CredentialOutsideProjects || outside.Provider != "" || outside.CredentialName != "" || outside.ScannedAt != nil {
+		t.Fatalf("the outside entry did not decode: %+v", outside)
+	}
+}
+
+// A listing that names no failed scan, and one from a platform that has no
+// credential_errors at all, are both an empty list, never nil.
+func TestGetCloudWasteCredentialErrors_NoneListedIsAnEmptyList(t *testing.T) {
+	for _, body := range []string{cloudWasteGolden, `{"findings":[],"consent":{"kinds":[]}}`} {
+		testClient, _ := newRecordingClient(t, http.StatusOK, body)
+		failures, err := testClient.GetCloudWasteCredentialErrors()
+		if err != nil {
+			t.Fatalf("GetCloudWasteCredentialErrors: %v", err)
+		}
+		if failures == nil || len(failures) != 0 {
+			t.Fatalf("want an empty list, got %#v", failures)
+		}
+	}
+}

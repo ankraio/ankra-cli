@@ -179,7 +179,7 @@ with your name and the reason.`,
 	Annotations: map[string]string{annotationRequiresAuth: "false"},
 }
 
-var clusterOperationsHoldSetCmd = &cobra.Command{
+var clusterOperationsHoldSetCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Annotations: map[string]string{annotationClusterIDOnly: staffClusterIDOnlyReason},
 	Use:         "set <cluster_id> --for <duration> --reason <text>",
 	Short:       "Hold the cluster for a duration (1m to 24h), replacing any hold in force",
@@ -187,7 +187,7 @@ var clusterOperationsHoldSetCmd = &cobra.Command{
 or shortens the hold to the new duration; both are audited.
 
 Examples:
-  ankra cluster operations hold set 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 --for 4h --reason "k3s hop failed, manual rollback"`,
+  ankra cluster operations hold set 0b7c4d0e-5f6a-4b8c-9d0e-1f2a3b4c5d6e --for 4h --reason "k3s hop failed, manual rollback"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		duration, _ := cmd.Flags().GetDuration("for")
@@ -218,9 +218,9 @@ Examples:
 		printOperationsHold(cmd.OutOrStdout(), hold)
 		return nil
 	},
-}
+})
 
-var clusterOperationsHoldGetCmd = &cobra.Command{
+var clusterOperationsHoldGetCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Annotations: map[string]string{annotationClusterIDOnly: staffClusterIDOnlyReason},
 	Use:         "get <cluster_id>",
 	Short:       "Show the cluster's operations hold and any pending version record check",
@@ -242,9 +242,9 @@ var clusterOperationsHoldGetCmd = &cobra.Command{
 		printOperationsHold(cmd.OutOrStdout(), hold)
 		return nil
 	},
-}
+})
 
-var clusterOperationsHoldLiftCmd = &cobra.Command{
+var clusterOperationsHoldLiftCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Annotations: map[string]string{annotationClusterIDOnly: staffClusterIDOnlyReason},
 	Use:         "lift <cluster_id> --reason <text>",
 	Short:       "Lift the cluster's operations hold so the platform acts on it again",
@@ -295,9 +295,9 @@ is recorded on the audit row; it asks for confirmation unless --yes is given.`,
 		}
 		return nil
 	},
-}
+})
 
-var clusterUpgradeRollbackRecordCmd = &cobra.Command{
+var clusterUpgradeRollbackRecordCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "rollback-record <cluster_id> <version> --reason <text>",
 	Short: "Put the Kubernetes version record back after a manual rollback (Ankra staff only)",
 	Long: `Repair a cluster's Kubernetes version record after its nodes were rolled back
@@ -317,7 +317,7 @@ This is an Ankra staff operation: set ANKRA_STAFF_SESSION and pass the cluster
 by id. It asks for confirmation unless --yes is given.
 
 Examples:
-  ankra cluster upgrade rollback-record 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 v1.34.5+k3s1 --reason "cp-0 rolled back (tier 1)"`,
+  ankra cluster upgrade rollback-record 0b7c4d0e-5f6a-4b8c-9d0e-1f2a3b4c5d6e v1.34.5+k3s1 --reason "cp-0 rolled back (tier 1)"`,
 	Args:        cobra.ExactArgs(2),
 	Annotations: map[string]string{annotationRequiresAuth: "false", annotationClusterIDOnly: staffClusterIDOnlyReason},
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -367,7 +367,7 @@ Examples:
 			formatInstant(repair.BlockedUntil), repair.ClusterID)
 		return nil
 	},
-}
+})
 
 func init() {
 	clusterOperationsHoldSetCmd.Flags().Duration("for", 0, "how long to hold the cluster from now (1m to 24h, e.g. 4h)")

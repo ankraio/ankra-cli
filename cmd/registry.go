@@ -48,6 +48,7 @@ policy that frees it, and asks Ankra for more.`,
 	registryCommand.AddCommand(newRegistryRobotsCommand())
 	registryCommand.AddCommand(newRegistryProjectsCommand())
 	registryCommand.AddCommand(newRegistryStorageCommand())
+	registryCommand.AddCommand(newRegistryConnectionsCommand())
 	return registryCommand
 }
 
@@ -95,7 +96,7 @@ bind a robot to with 'ankra registry robots create <name> --registry ...
 --registry-project <project>'. That listing acts as the admin credential, so it needs
 credentials.reveal.`,
 		Example: "  ankra registry projects list\n  ankra registry projects list -o json\n" +
-			"  ankra registry projects list --registry smartoptics-harbor --admin-credential smartoptics-harbor-robot-admin",
+			"  ankra registry projects list --registry my-harbor --admin-credential my-harbor-robot-admin",
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -319,7 +320,7 @@ shows them) and, with --admin-credential, a registry credential of the organisat
 that may manage robot accounts there (project administrator on the project).
 Ankra acts on that registry only with that credential, never its own; a robot
 login Ankra manages cannot be used. --registry-project is required there: the
-project of that registry the robot is bound to, such as collectorcharts, and
+project of that registry the robot is bound to, such as platform-charts, and
 the only one it reaches ('ankra registry projects list --registry ...
 --admin-credential ...' shows them). Rotate, delete, get and list work the
 same afterwards.
@@ -351,10 +352,10 @@ it is deleted again before its secret is shown.`,
   ankra registry robots create contractor --scope pull --expires-in-days 30
   ankra registry robots create cleanup --permission repository:pull,artifact:list,artifact:delete
   ankra registry robots create staging-ci --registry-project staging
-  ankra registry robots create jenkins --registry smartoptics-harbor \
-    --admin-credential smartoptics-harbor-robot-admin --registry-project smart-hub-images
-  ankra registry robots create consumer --scope pull --registry smartoptics-harbor \
-    --admin-credential smartoptics-harbor-robot-admin --registry-project commerce-charts,commerce-images
+  ankra registry robots create jenkins --registry my-harbor \
+    --admin-credential my-harbor-robot-admin --registry-project platform-images
+  ankra registry robots create consumer --scope pull --registry my-harbor \
+    --admin-credential my-harbor-robot-admin --registry-project commerce-charts,commerce-images
   ankra registry robots create jenkins -o json | jq -r .secret`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {

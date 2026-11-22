@@ -25,7 +25,7 @@ For Ankra Cloud Kubernetes, where the Ankra team runs the control plane, use
 same Ankra Cloud credential ('ankra credentials ankracloud create').`,
 }
 
-var ankraCloudStopCmd = &cobra.Command{
+var ankraCloudStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "stop <cluster_id|name>",
 	Short: "Stop an Ankra Cloud cluster",
 	Long:  "Stop an Ankra Cloud cluster. A plain stop powers the servers off and keeps them with their disks; only a forced stop or a deprovision deletes servers.",
@@ -59,9 +59,9 @@ var ankraCloudStopCmd = &cobra.Command{
 		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
 		return nil
 	},
-}
+})
 
-var ankraCloudStartCmd = &cobra.Command{
+var ankraCloudStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped Ankra Cloud cluster",
 	Long:  "Start a stopped Ankra Cloud cluster. Use --scope control_plane to bring up only the control plane.",
@@ -79,7 +79,7 @@ var ankraCloudStartCmd = &cobra.Command{
 			return withExitCode(exitUsage, fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope))
 		}
 
-		result, startError := apiClient.StartAnkraCloudCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command)})
+		result, startError := apiClient.StartAnkraCloudCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command), RestoreSnapshotID: restoreSnapshotIDFlag(command), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(command)})
 		if startError != nil {
 			return fmt.Errorf("starting Ankra Cloud cluster: %w", startError)
 		}
@@ -90,14 +90,14 @@ var ankraCloudStartCmd = &cobra.Command{
 			fmt.Printf("  Marked to start at: %s\n", result.MarkedToStartAt)
 		}
 		fmt.Printf("  Created operations: %d\n", result.CreatedOperations)
-		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
+		printStartStateOutcome(result.StateRestore, result.StateSnapshotID, result.StateRestoreMessage)
 		return nil
 	},
-}
+})
 
 func init() {
 	ankraCloudStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(ankraCloudStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(ankraCloudStartCmd)
 	ankraCloudStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and delete the servers instead of powering them off. The cluster's volumes are kept: only a deprovision deletes them")
 	registerThreeStateFlag(ankraCloudStopCmd, "preserve-state", preserveStateFlagUsage)
 	ankraCloudStopCmd.Flags().String("mode", "", stopModeFlagUsage)
@@ -116,6 +116,7 @@ func init() {
 	)
 
 	ankraCloudDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	ankraCloudDeprovisionCmd.Flags().Bool("force", false, deprovisionForceFlagUsage)
 	registerAcceptVolumeDataLossFlag(ankraCloudDeprovisionCmd)
 	ankraCloudCmd.AddCommand(
 		ankraCloudCreateCmd, ankraCloudPreflightCmd, ankraCloudDeprovisionCmd,
@@ -228,6 +229,9 @@ func ankraCloudCreateRequestFromFlags(cmd *cobra.Command) (client.CreateAnkraClo
 		workerCount, _ := cmd.Flags().GetInt("worker-count")
 		request.WorkerCount = &workerCount
 	}
+	if sandboxError := applyAnkraCloudSandboxNodes(cmd, &request); sandboxError != nil {
+		return client.CreateAnkraCloudClusterRequest{}, sandboxError
+	}
 	if cmd.Flags().Changed("include-networking") {
 		includeNetworking, _ := cmd.Flags().GetBool("include-networking")
 		request.IncludeNetworking = &includeNetworking
@@ -280,14 +284,21 @@ var ankraCloudCreateCmd = &cobra.Command{
 	Short: "Create a kubeadm or k3s cluster on Ankra Cloud servers",
 	Long: `Create an Ankra-managed kubeadm (default) or k3s cluster on Ankra Cloud
 servers. Ankra builds the private network (unless --private-network-id adopts
-one), a NAT router for the nodes' IPv4 egress, the per-server firewalls, a
-bastion with a public IPv4 address, and the control plane and worker servers.
-The kube-apiserver stays private and is reached through the bastion.
+one), the per-server firewalls, a bastion, and the control plane and worker
+servers. The kube-apiserver stays private and is reached through the bastion.
 
-That is the ipv4_nat network mode, the server default. A zone with no public
-IPv4 left takes --network-mode ipv6_only instead: no NAT router, the bastion
-is reached over IPv6 through the Cloud's port forward, and the nodes reach
-IPv4 through the zone's NAT64. The preflight names the mode a zone needs.
+The network mode is ipv6_only unless --network-mode says otherwise (the
+server default): no NAT router, the bastion holds only a public IPv6 address
+and is reached through the Cloud's port forward, and the nodes reach IPv4
+through the zone's NAT64. --network-mode ipv4_nat adds a NAT router for the
+nodes' IPv4 egress and gives the bastion a public IPv4 address; public IPv4
+is a paid add-on under a per-account quota. The preflight says whether a zone
+can serve the mode you chose.
+
+--credential-id may be left out where the platform provides a built-in Ankra
+Cloud credential, which it then uses; a platform without one refuses the
+create. Without --ssh-key-credential-id the cluster uses an SSH key Ankra
+generates for it; add your own later with 'ankra cluster ssh-keys set'.
 
 Servers are sized by plan: list them with 'ankra cluster ankracloud plans'.
 Each server's root disk is its plan's included disk unless a --*-disk-gib
@@ -326,8 +337,7 @@ Examples:
 
 		fmt.Printf("Ankra Cloud cluster '%s' created successfully!\n", result.Name)
 		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
-		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
-			strings.TrimRight(baseURL, "/"), result.ClusterID)
+		fmt.Printf("\nView it in the UI:\n  %s\n", portalClusterURLByID(result.ClusterID))
 		return nil
 	},
 }
@@ -372,7 +382,7 @@ Takes the same flags as 'create'.`,
 	},
 }
 
-var ankraCloudDeprovisionCmd = &cobra.Command{
+var ankraCloudDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "deprovision <cluster_id|name>",
 	Short: "Deprovision an Ankra Cloud cluster and release its servers",
 	Long: `Permanently delete an Ankra Cloud cluster and the servers, network, router
@@ -397,14 +407,15 @@ pass --accept-volume-data-loss (--yes does not imply it).`,
 		if volumeError != nil {
 			return volumeError
 		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Deprovision Ankra Cloud cluster %s? This permanently deletes its servers and the cluster record! [y/N]: ",
 				clusterTarget(args[0], clusterID)),
 			skipConfirmation); confirmError != nil {
 			return confirmError
 		}
+		force, _ := cmd.Flags().GetBool("force")
 		result, deprovisionError := apiClient.DeprovisionAnkraCloudCluster(clusterID,
-			client.DeprovisionOptions{AcceptVolumeDataLoss: acceptsVolumeDataLoss})
+			client.DeprovisionOptions{Force: force, AcceptVolumeDataLoss: acceptsVolumeDataLoss})
 		if deprovisionError != nil {
 			return fmt.Errorf("deprovisioning Ankra Cloud cluster: %w", deprovisionError)
 		}
@@ -422,9 +433,9 @@ pass --accept-volume-data-loss (--yes does not imply it).`,
 		}
 		return nil
 	},
-}
+})
 
-var ankraCloudWorkersCmd = &cobra.Command{
+var ankraCloudWorkersCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for an Ankra Cloud cluster",
 	Args:  cobra.ExactArgs(1),
@@ -449,9 +460,9 @@ var ankraCloudWorkersCmd = &cobra.Command{
 		fmt.Printf("  Max: %d\n", result.Max)
 		return nil
 	},
-}
+})
 
-var ankraCloudK8sVersionCmd = &cobra.Command{
+var ankraCloudK8sVersionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for an Ankra Cloud cluster",
 	Args:  cobra.ExactArgs(1),
@@ -479,7 +490,7 @@ var ankraCloudK8sVersionCmd = &cobra.Command{
 		fmt.Printf("  Distribution: %s\n", result.Distribution)
 		return nil
 	},
-}
+})
 
 func newAnkraCloudTable() table.Writer {
 	catalogTable := table.NewWriter()
@@ -773,6 +784,60 @@ var ankraCloudPricingCmd = &cobra.Command{
 	},
 }
 
+// The node group --sandbox-nodes asks for, and the group the workers become
+// beside it.
+const (
+	ankraCloudSandboxGroupName = "sandbox"
+	ankraCloudWorkerGroupName  = "workers"
+	ankraCloudSandboxLabelKey  = "ankra.cloud/sandbox-runtime"
+	ankraCloudSandboxRuntime   = "gvisor"
+	ankraCloudDefaultWorkers   = 1
+)
+
+// applyAnkraCloudSandboxNodes turns --sandbox-nodes into the request's node
+// groups. Naming any group replaces the default pool, so the workers become a
+// group of their own beside the sandbox one, and the plain worker fields are
+// cleared so the request says one thing. A cluster of only sandbox nodes is
+// refused: Ankra AI's workspaces can run there, but image builds cannot.
+func applyAnkraCloudSandboxNodes(cmd *cobra.Command, request *client.CreateAnkraCloudClusterRequest) error {
+	sandboxNodes, _ := cmd.Flags().GetInt("sandbox-nodes")
+	sandboxPlan, _ := cmd.Flags().GetString("sandbox-node-plan")
+	if sandboxNodes < 0 {
+		return withExitCode(exitUsage, errors.New("--sandbox-nodes cannot be negative"))
+	}
+	if sandboxNodes == 0 {
+		if sandboxPlan != "" {
+			return withExitCode(exitUsage, errors.New("--sandbox-node-plan needs --sandbox-nodes"))
+		}
+		return nil
+	}
+	if request.Distribution == client.AnkraCloudDistributionK3s {
+		return withExitCode(exitUsage, errors.New("--sandbox-nodes needs --distribution kubeadm: the gVisor sandbox runtime is set up on kubeadm clusters only"))
+	}
+	workerCount := ankraCloudDefaultWorkers
+	if request.WorkerCount != nil {
+		workerCount = *request.WorkerCount
+	}
+	if workerCount <= 0 {
+		return withExitCode(exitUsage, errors.New("--sandbox-nodes needs workers beside it: image builds cannot run "+
+			"under gVisor, so a cluster of only sandbox nodes could not build"))
+	}
+	if request.WorkerPlan == "" {
+		return withExitCode(exitUsage, errors.New("--sandbox-nodes needs --worker-plan"))
+	}
+	if sandboxPlan == "" {
+		sandboxPlan = request.WorkerPlan
+	}
+	request.NodeGroups = []client.AddNodeGroupRequest{
+		{Name: ankraCloudWorkerGroupName, InstanceType: request.WorkerPlan, Count: workerCount},
+		{Name: ankraCloudSandboxGroupName, InstanceType: sandboxPlan, Count: sandboxNodes,
+			Labels: map[string]string{ankraCloudSandboxLabelKey: ankraCloudSandboxRuntime}},
+	}
+	request.WorkerCount = nil
+	request.WorkerPlan = ""
+	return nil
+}
+
 // registerAnkraCloudCreateFlags declares the create/preflight flag set once
 // so the two commands can never drift.
 func registerAnkraCloudCreateFlags(commands ...*cobra.Command) {
@@ -780,20 +845,22 @@ func registerAnkraCloudCreateFlags(commands ...*cobra.Command) {
 	for _, command := range commands {
 		command.Flags().String("name", "", "Cluster name (required)")
 		command.Flags().String("description", "", "Cluster description")
-		command.Flags().String("credential-id", "", "Ankra Cloud credential ID (required)")
+		command.Flags().String("credential-id", "", "Ankra Cloud credential ID (optional where the platform provides a built-in Ankra Cloud credential, which it then uses)")
 		command.Flags().String("runtime-credential-id", "", "Ankra Cloud credential for the in-cluster CCM/CSI (defaults to the provisioning credential)")
-		command.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (required)")
+		command.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (default: an SSH key Ankra generates for the cluster)")
 		command.Flags().String("zone", "", "Ankra Cloud zone (required; see 'ankracloud zones')")
 		command.Flags().String("template", "", "Server template (server default: debian-13; see 'ankracloud templates')")
 		command.Flags().String("private-network-id", "", "Adopt an existing private network instead of creating one")
 		command.Flags().String("network-ip-range", "", "RFC 1918 CIDR (/16 to /29) for the created private network (server default: a /24 derived from the cluster)")
-		command.Flags().String("network-mode", "", "Network mode: ipv4_nat (NAT router and a public-IPv4 bastion) or ipv6_only (for a zone without public IPv4: no router, bastion reached over IPv6 and the Cloud's port forward, IPv4 egress through NAT64). Server default: ipv4_nat")
+		command.Flags().String("network-mode", "", "Network mode: ipv6_only (the server default: no NAT router, the bastion reached over IPv6 and the Cloud's port forward, IPv4 egress through the zone's NAT64) or ipv4_nat (a NAT router and a bastion with a public IPv4 address; public IPv4 is a paid add-on)")
 		command.Flags().String("bastion-plan", "", "Bastion server plan (required)")
 		command.Flags().StringSlice("bastion-allowed-ips", nil, "CIDRs allowed to reach the bastion over SSH (default: anywhere)")
 		command.Flags().Int("control-plane-count", 0, "Control plane node count (server default: 1)")
 		command.Flags().String("control-plane-plan", "", "Control plane server plan (required)")
 		command.Flags().Int("worker-count", 0, "Default-pool worker count (server default: 1)")
 		command.Flags().String("worker-plan", "", "Worker server plan (required while workers are above zero)")
+		command.Flags().Int("sandbox-nodes", 0, "Nodes in a separate node group running the gVisor sandbox runtime, beside the workers (kubeadm only). Ankra AI runs code on its own, to fix a build or regenerate a lockfile, only behind a sandbox, so set this on a cluster that will run CI: 1 is enough to start")
+		command.Flags().String("sandbox-node-plan", "", "Server plan of the sandbox nodes (default: --worker-plan)")
 		command.Flags().String("distribution", client.AnkraCloudDistributionKubeadm, "Kubernetes distribution: kubeadm or k3s")
 		command.Flags().String("kubernetes-version", "", "Pin a Kubernetes version (default: latest supported)")
 		command.Flags().String("etcd-topology", "", "etcd topology: stacked or external (server default: stacked)")
@@ -815,7 +882,7 @@ func registerAnkraCloudCreateFlags(commands ...*cobra.Command) {
 		command.Flags().Bool("include-networking", true, "Provision the networking stack")
 		command.Flags().Bool("include-dns", true, "Provision the DNS zone")
 		registerGatewayAPIFlag(command)
-		for _, required := range []string{"name", "credential-id", "ssh-key-credential-id", "zone", "bastion-plan", "control-plane-plan"} {
+		for _, required := range []string{"name", "zone", "bastion-plan", "control-plane-plan"} {
 			_ = command.MarkFlagRequired(required)
 		}
 	}

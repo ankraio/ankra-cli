@@ -37,7 +37,7 @@ func cloudLedgerFixture() *client.CloudLedger {
 				VerificationStatus: ledgerPointer("not_applicable"), VerificationDays: &[]client.CloudLedgerVerificationDay{},
 			},
 			{
-				DecisionID: "1c8d5e2f-6a7b-4c9d-8e1f-2a3b4c5d6e7f", ClusterID: ledgerPointer("11111111-1111-4111-8111-111111111111"),
+				DecisionID: "1c8d5e2f-6a7b-4c9d-8e1f-2a3b4c5d6e7f", ClusterID: ledgerPointer("0b7c4d0c-1111-4111-8111-111111111111"),
 				ClusterName: ledgerPointer("prod-eu"), Lever: "right_size", Summary: "Resize workers from cpx51 to cpx41",
 				Status: "succeeded", ExpectedMonthlyCents: ledgerPointer(int64(12000)), BaselineMonthlyCents: ledgerPointer(int64(200000)),
 				MeasurementStatus: "pending", Days: ledgerPointer(3),

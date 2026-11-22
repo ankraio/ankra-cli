@@ -36,7 +36,7 @@ Withdrawing a zone removes the controller Ankra rendered; the zone's records
 are yours and are left untouched.`,
 }
 
-var clusterCustomDNSListCmd = &cobra.Command{
+var clusterCustomDNSListCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "list <cluster>",
 	Short: "List the zones declared on a cluster",
 	Args:  cobra.ExactArgs(1),
@@ -67,7 +67,7 @@ var clusterCustomDNSListCmd = &cobra.Command{
 		zoneTable.Render()
 		return nil
 	},
-}
+})
 
 // customDNSZoneSourceLabel names where a listed zone was declared. A platform
 // that predates the organisation-wide lane sends no source; that is the
@@ -85,7 +85,7 @@ var (
 	clusterCustomDNSCloudflareCredential string
 )
 
-var clusterCustomDNSAddCmd = &cobra.Command{
+var clusterCustomDNSAddCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "add <cluster>",
 	Short: "Declare a zone the cluster also serves",
 	Long: `Declare a zone the cluster also serves, with the DNS credential that can
@@ -138,9 +138,9 @@ own external-dns publishes.`,
 		fmt.Println("Ankra renders its external-dns on the next reconciler pass (within ~2 minutes).")
 		return nil
 	},
-}
+})
 
-var clusterCustomDNSRemoveCmd = &cobra.Command{
+var clusterCustomDNSRemoveCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "remove <cluster>",
 	Short: "Withdraw a declared zone",
 	Long: `Withdraw a declared zone. Ankra removes the controller it rendered on the
@@ -162,7 +162,7 @@ next reconciler pass. The zone's records are yours and are left untouched.`,
 		fmt.Printf("Zone %s withdrawn. Its controller is removed on the next reconciler pass; the zone's records are untouched.\n", removedZone)
 		return nil
 	},
-}
+})
 
 func init() {
 	clusterCustomDNSAddCmd.Flags().StringVar(&clusterCustomDNSZone, "zone", "", "Zone to declare, e.g. launch.example.com (required)")

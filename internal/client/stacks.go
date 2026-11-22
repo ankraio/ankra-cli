@@ -23,6 +23,12 @@ type ClusterStackListItem struct {
 	DeployWave        *int   `json:"deploy_wave,omitempty"`
 	State             string `json:"state"`
 	DeletePermanently bool   `json:"delete_permanently"`
+	// Uninstalled is true when a person uninstalled the stack: its members
+	// are off the cluster, or being taken off, while the stack stays
+	// declared, and State still reads as the stack's own row does. The
+	// platform sends it only when true (ankraio/cluster#6021), so a stack
+	// that was never uninstalled encodes exactly as before.
+	Uninstalled bool `json:"uninstalled,omitempty" yaml:"uninstalled,omitempty"`
 	// PortalURL is the resource's page in the portal. The CLI fills it in
 	// for display when the platform sent none.
 	PortalURL string `json:"portal_url,omitempty" yaml:"portal_url,omitempty"`

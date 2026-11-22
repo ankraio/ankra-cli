@@ -65,10 +65,10 @@ func newCustomDNSServer(t *testing.T) *customDNSServer {
 		}))
 	previousClient := apiClient
 	previousBaseURL := baseURL
-	apiClient = client.New("test-token", recorder.server.URL)
+	apiClient = adaptMockClient(client.New("test-token", recorder.server.URL))
 	baseURL = recorder.server.URL
 	t.Cleanup(func() {
-		apiClient = previousClient
+		apiClient = adaptMockClient(previousClient)
 		baseURL = previousBaseURL
 		recorder.server.Close()
 	})

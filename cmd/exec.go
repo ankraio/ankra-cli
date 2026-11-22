@@ -69,7 +69,7 @@ const (
 // execForwardEnv is the bash client's FORWARD_ENV, plus GOMEMLIMIT: the
 // environment a remote command sees from this machine, plus the names in
 // ANKRA_EXEC_FORWARD_ENV. GOMEMLIMIT lets a caller hold a Go build to the
-// soft memory ceiling its CI uses (ankra-cli's own lint-build.yml sets 5GiB);
+// soft memory ceiling its CI supplies through GOMEMLIMIT;
 // unset, the workspace's own default applies.
 var execForwardEnv = []string{
 	"E2E_TARGET", "BASE_URL", "PLAYWRIGHT_BASE_URL", "GOFLAGS", "CGO_ENABLED", "GOEXPERIMENT", "GODEBUG",
@@ -280,7 +280,7 @@ func isTransientWorkspaceError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) || isRefusedBeforeSending(err) {
 		return false
 	}
 	var workspaceError *client.WorkspaceAPIError
@@ -623,7 +623,8 @@ func (runner *execRunner) follow(ctx context.Context, runID string) execAttempt 
 			}
 			lastProblem = streamError.Error()
 			var workspaceError *client.WorkspaceAPIError
-			if errors.As(streamError, &workspaceError) && !workspaceError.IsRetryable() {
+			if isRefusedBeforeSending(streamError) ||
+				(errors.As(streamError, &workspaceError) && !workspaceError.IsRetryable()) {
 				// The stream itself was refused (the run or the workspace is
 				// gone): the run's state is the answer.
 				return runner.settle(ctx, runID, hasOutput, lastProblem)

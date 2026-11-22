@@ -317,23 +317,49 @@ func TestAttributionDoesNotFollowARedirectToAnotherHost(t *testing.T) {
 	}
 }
 
-func TestIsAPIRequestComparesHostAndPort(t *testing.T) {
+func TestDestinationComparesHostAndPort(t *testing.T) {
 	baseURL := "https://Platform.Ankra.app"
 	transport := &scopeOverrideTransport{baseURL: &baseURL}
-	cases := map[string]bool{
-		"https://platform.ankra.app/api/v1/clusters":     true,
-		"https://platform.ankra.app:443/api/v1/clusters": true,
-		"https://platform.ankra.app:8443/api":            false,
-		"https://platform.ankra.app.evil.example/api":    false,
-		"https://storage.example/bucket":                 false,
+	cases := map[string]requestDestination{
+		"https://platform.ankra.app/api/v1/clusters":     destinationAPI,
+		"https://platform.ankra.app:443/api/v1/clusters": destinationAPI,
+		"https://platform.ankra.app:8443/api":            destinationOtherHost,
+		"https://platform.ankra.app.evil.example/api":    destinationOtherHost,
+		"https://storage.example/bucket":                 destinationOtherHost,
 	}
 	for address, want := range cases {
 		parsed, _ := url.Parse(address)
-		if got := transport.isAPIRequest(parsed); got != want {
-			t.Fatalf("isAPIRequest(%q) = %v, want %v", address, got, want)
+		if got := transport.destination(parsed); got != want {
+			t.Fatalf("destination(%q) = %v, want %v", address, got, want)
 		}
 	}
-	if (&scopeOverrideTransport{}).isAPIRequest(&url.URL{Host: "platform.ankra.app"}) {
-		t.Fatal("a transport without a base URL must attribute nothing")
+	unreadable := "://no host"
+	for _, unknown := range []*scopeOverrideTransport{{}, {baseURL: &unreadable}} {
+		if got := unknown.destination(&url.URL{Host: "platform.ankra.app"}); got != destinationUnknown {
+			t.Fatalf("a transport without a readable base URL must not know where a request goes, got %v", got)
+		}
+	}
+}
+
+// DetectedAgentName reads the process environment through the same markers
+// the attribution headers use.
+func TestDetectedAgentNameReadsTheEnvironment(t *testing.T) {
+	t.Setenv(envAnkraAgent, "")
+	t.Setenv("AI_AGENT", "")
+	for _, marker := range agentMarkers {
+		for _, variable := range marker.variables {
+			t.Setenv(variable, "")
+		}
+	}
+	if got := DetectedAgentName(); got != "" {
+		t.Fatalf("no markers: DetectedAgentName = %q, want empty", got)
+	}
+	t.Setenv("CLAUDECODE", "1")
+	if got := DetectedAgentName(); got != "claude-code" {
+		t.Fatalf("CLAUDECODE=1: DetectedAgentName = %q, want claude-code", got)
+	}
+	t.Setenv(envAnkraAgent, "my-agent/2.0")
+	if got := DetectedAgentName(); got != "my-agent" {
+		t.Fatalf("ANKRA_AGENT: DetectedAgentName = %q, want my-agent", got)
 	}
 }

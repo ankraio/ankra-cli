@@ -18,7 +18,7 @@ func TestLoginGitHubOIDCExchangesAndSavesTheToken(t *testing.T) {
 		_ = loginCmd.Flags().Set("github-oidc", "false")
 		_ = loginCmd.Flags().Set("organisation-id", "")
 	})
-	const organisationID = "3b7dccca-0788-4470-9910-19478ae345ae"
+	const organisationID = "0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 	var requestedAudience, runnerBearer string
 	runner := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -70,6 +70,48 @@ func TestLoginGitHubOIDCExchangesAndSavesTheToken(t *testing.T) {
 	}
 }
 
+// The ID token URL is GitHub's, read from the runner's environment, not a
+// path of the platform's built from an argument: its shape is not the path
+// check's business, and it must not fail login as a blank argument (exit 2).
+func TestLoginGitHubOIDCLeavesTheRunnersURLAlone(t *testing.T) {
+	for name, tokenPath := range map[string]string{
+		"an empty segment": "/_apis//token",
+		"a trailing slash": "/_apis/token/",
+	} {
+		t.Run(name, func(t *testing.T) {
+			withFreshViperAndEnv(t)
+			withTempHome(t)
+			t.Cleanup(func() {
+				_ = loginCmd.Flags().Set("github-oidc", "false")
+				_ = loginCmd.Flags().Set("organisation-id", "")
+			})
+			var requestedPath string
+			runner := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				requestedPath = request.URL.Path
+				_, _ = writer.Write([]byte(`{"value":"gh.id.token"}`))
+			}))
+			defer runner.Close()
+			platform := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				_, _ = writer.Write([]byte(`{"access_token":"ankra_exchanged","token_type":"Bearer","expires_in":900,"token_id":"tid"}`))
+			}))
+			defer platform.Close()
+			t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", runner.URL+tokenPath)
+			t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "runner-secret")
+			t.Setenv("ANKRA_ORG", "")
+			viper.Set("base-url", platform.URL)
+
+			output, executeError := executeCommand("login", "--github-oidc",
+				"--organisation-id", "0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e")
+			if executeError != nil {
+				t.Fatalf("login --github-oidc: %v\n%s", executeError, output)
+			}
+			if requestedPath != tokenPath {
+				t.Fatalf("the runner saw %q, want %q", requestedPath, tokenPath)
+			}
+		})
+	}
+}
+
 func TestLoginGitHubOIDCRefusesOutsideActionsAndWithoutOrganisation(t *testing.T) {
 	withFreshViperAndEnv(t)
 	withTempHome(t)
@@ -111,7 +153,7 @@ func TestLoginGitHubOIDCExplainsARefusedExchange(t *testing.T) {
 	t.Setenv("ANKRA_ORG", "")
 	viper.Set("base-url", platform.URL)
 	_, executeError := executeCommand("login", "--github-oidc",
-		"--organisation-id", "3b7dccca-0788-4470-9910-19478ae345ae")
+		"--organisation-id", "0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e")
 	if executeError == nil || !strings.Contains(executeError.Error(), "no trust policy") {
 		t.Fatalf("want an explanation of the refusal, got %v", executeError)
 	}

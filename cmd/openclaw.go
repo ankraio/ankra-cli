@@ -86,8 +86,7 @@ running. This command will be removed in v0.22.0.`,
 	Deprecated: "it only prints the AI Agents page URL (no conversation is transferred) and will be removed in v0.22.0",
 	Args:       cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		url := strings.TrimRight(baseURL, "/") + "/organisation/ai/agents"
-		fmt.Printf("Ankra AI Agents: %s\n", url)
+		fmt.Printf("Ankra AI Agents: %s\n", portalPageURL("ai", "agent-runs"))
 		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "No conversation is transferred; start or continue the work in the Ankra UI.")
 		return nil
 	},
@@ -165,7 +164,7 @@ below with full audit, approval flow, and sandboxed execution.
   than wiring a local cron.
 
 To look at runs or approve proposed actions in the browser, open the
-Ankra AI Agents page: %s/organisation/ai/agents
+Ankra AI Agents page: %s/next/ai/agent-runs
 
 ## Useful endpoints (token auth)
 
@@ -178,7 +177,7 @@ Ankra AI Agents page: %s/organisation/ai/agents
 
 - Cluster ID: %s
 - Cluster name: %s
-- Portal: %s/organisation/clusters/cluster/imported/%s/overview
+- Portal: %s/next/clusters/%s
 `,
 		sanitiseSkillName(clusterName),
 		clusterName,

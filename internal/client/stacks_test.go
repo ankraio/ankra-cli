@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -129,6 +130,41 @@ func TestListClusterStacksToleratesNullApplicationMembers(t *testing.T) {
 	application := stacks[0].Applications[0]
 	if application.Namespace != "" || application.PlatformApplicationVersion != "" || application.Health != "" {
 		t.Errorf("null members should decode empty, got %+v", application)
+	}
+}
+
+// TestListClusterStacksKeepsTheUninstalledFlag pins the listing's uninstalled
+// member (ankraio/cluster#6021): an uninstalled stack's own state still reads
+// "up", so without the flag it would list as running. The platform sends it
+// only when true, and it is encoded only when true, so a stack that was never
+// uninstalled keeps its -o json shape.
+func TestListClusterStacksKeepsTheUninstalledFlag(t *testing.T) {
+	const responseBody = `{"stacks":[{"name":"web","state":"up","uninstalled":true},{"name":"db","state":"up"}],` +
+		`"pagination":{"total_count":2,"page":1,"page_size":100,"total_pages":1}}`
+	testClient := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if _, writeError := w.Write([]byte(responseBody)); writeError != nil {
+			t.Fatalf("writing test response: %v", writeError)
+		}
+	})
+	stacks, err := testClient.ListClusterStacks("cluster-id")
+	if err != nil {
+		t.Fatalf("ListClusterStacks() error = %v", err)
+	}
+	if len(stacks) != 2 || !stacks[0].Uninstalled || stacks[1].Uninstalled {
+		t.Fatalf("uninstalled flags = %+v, want web uninstalled and db not", stacks)
+	}
+	installed, marshalError := json.Marshal(stacks[1])
+	if marshalError != nil {
+		t.Fatalf("encoding: %v", marshalError)
+	}
+	if strings.Contains(string(installed), "uninstalled") {
+		t.Fatalf("a stack never uninstalled must encode as before, got %s", installed)
+	}
+	uninstalled, _ := json.Marshal(stacks[0])
+	if !strings.Contains(string(uninstalled), `"uninstalled":true`) {
+		t.Fatalf("an uninstalled stack must say so in -o json, got %s", uninstalled)
 	}
 }
 

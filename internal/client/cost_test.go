@@ -159,6 +159,33 @@ func TestGetCloudSavings_DecodesConfidenceAndLeavesItAbsentOnAnOlderPlatform(t *
 	}
 }
 
+// TestGetCloudSavings_DecodesScanIncompleteAndLeavesItAbsentOnAnOlderPlatform
+// pins cluster#6020's scan_incomplete: true and false decode as said, and a
+// platform that predates it leaves the field nil, which the command reads as
+// it always read the waste block.
+func TestGetCloudSavings_DecodesScanIncompleteAndLeavesItAbsentOnAnOlderPlatform(t *testing.T) {
+	for _, testCase := range []struct {
+		waste string
+		want  *bool
+	}{
+		{`{"available":true,"has_data":true,"finding_count":0,"scan_incomplete":true}`, func() *bool { value := true; return &value }()},
+		{`{"available":true,"has_data":true,"finding_count":0,"scan_incomplete":false}`, func() *bool { value := false; return &value }()},
+		{`{"available":true,"has_data":true,"finding_count":0}`, nil},
+	} {
+		handler := func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"currency":"eur","recommendations":[],"waste":` + testCase.waste + `}`))
+		}
+		result, err := newTestClient(t, handler).GetCloudSavings()
+		if err != nil {
+			t.Fatalf("GetCloudSavings: %v", err)
+		}
+		got := result.Waste.ScanIncomplete
+		if (got == nil) != (testCase.want == nil) || (got != nil && *got != *testCase.want) {
+			t.Fatalf("waste %s: scan_incomplete = %v, want %v", testCase.waste, got, testCase.want)
+		}
+	}
+}
+
 func TestGetClusterCost_Success(t *testing.T) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/org/clusters/cluster-123/cost" {

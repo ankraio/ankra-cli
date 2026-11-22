@@ -266,7 +266,7 @@ func runPipelineSchedulesDelete(command *cobra.Command, selector client.Pipeline
 	scheduleID = strings.TrimSpace(scheduleID)
 	skipConfirmation, _ := command.Flags().GetBool("yes")
 	confirmMessage := fmt.Sprintf("Delete pipeline schedule %s? [y/N] ", scheduleID)
-	if confirmError := confirmPrompt(command.InOrStdin(), command.OutOrStdout(), confirmMessage, skipConfirmation); confirmError != nil {
+	if confirmError := confirmPrompt(command.InOrStdin(), command.ErrOrStderr(), confirmMessage, skipConfirmation); confirmError != nil {
 		return confirmError
 	}
 	if deleteError := apiClient.DeletePipelineSchedule(command.Context(), selector, scheduleID); deleteError != nil {

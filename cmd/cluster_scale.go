@@ -40,7 +40,7 @@ func scaleFunctionForKind(kind string) (workerScaleFunc, bool) {
 	}
 }
 
-var clusterScaleCmd = &cobra.Command{
+var clusterScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "scale <cluster_id|name> <worker_count>",
 	Short: "Scale the default worker pool of a cloud cluster",
 	Long: `Scale the number of default-pool worker nodes up or down for a cloud cluster.
@@ -53,8 +53,8 @@ remember which provider it runs on. To scale a named node group instead, use
 A scale-down picks the workers to remove. ` + guardedDrainHelp + `
 
 Examples:
-  ankra cluster scale 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 3
-  ankra cluster scale 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 2 --force-drain`,
+  ankra cluster scale 0b7c4d0e-5f6a-4b8c-9d0e-1f2a3b4c5d6e 3
+  ankra cluster scale 0b7c4d0e-5f6a-4b8c-9d0e-1f2a3b4c5d6e 2 --force-drain`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
@@ -99,7 +99,7 @@ Examples:
 		}
 		return nil
 	},
-}
+})
 
 func init() {
 	registerStructuredOutputFlags(clusterScaleCmd)

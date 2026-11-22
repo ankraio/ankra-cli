@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	otherOrgClusterID = "11111111-1111-1111-1111-111111111111"
+	otherOrgClusterID = "0b7c4d0c-1111-1111-1111-111111111111"
 	selectedOrgID     = "org-depict"
 	owningOrgID       = "org-ankra"
 )
@@ -24,7 +24,6 @@ const (
 // backend resolves every cluster reference *inside* the organisation the
 // request is scoped to, and answers 404 for anything outside it.
 type orgScopeMock struct {
-	baseMock
 	override      string
 	selected      string
 	organisations []client.OrganisationSummary
@@ -126,8 +125,8 @@ func crossOrgMock() *orgScopeMock {
 }
 
 // withOrgScopeMock installs the mock and an isolated HOME carrying the
-// persistently selected organisation, so nothing reads the developer's real
-// ~/.ankra state.
+// persistently selected organisation of the saved login, so nothing reads the
+// developer's real ~/.ankra state.
 func withOrgScopeMock(t *testing.T, mock *orgScopeMock) *orgScopeMock {
 	t.Helper()
 	home := t.TempDir()
@@ -144,11 +143,14 @@ func withOrgScopeMock(t *testing.T, mock *orgScopeMock) *orgScopeMock {
 	}
 	originalClient := apiClient
 	originalBaseURL := baseURL
-	apiClient = mock
+	originalTokenSource := organisationScopeTokenSource
+	apiClient = adaptMockClient(mock)
 	baseURL = "https://test.ankra.app"
+	organisationScopeTokenSource = sourceConfigFile
 	t.Cleanup(func() {
-		apiClient = originalClient
+		apiClient = adaptMockClient(originalClient)
 		baseURL = originalBaseURL
+		organisationScopeTokenSource = originalTokenSource
 	})
 	return mock
 }

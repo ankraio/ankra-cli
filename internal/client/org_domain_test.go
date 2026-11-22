@@ -19,7 +19,7 @@ func TestGetOrganisationDomain_ReadsTheAiEnvironmentTwin(t *testing.T) {
 			t.Errorf("path = %s, want /api/v1/org/ai-environment", r.URL.Path)
 		}
 		jsonResponse(t, w, http.StatusOK, map[string]any{
-			"dns_root_domain": "smartoptics.dev", "dns_root_domain_default": "ankra.cc"})
+			"dns_root_domain": "example-org.dev", "dns_root_domain_default": "ankra.cc"})
 	}
 	testClient := newTestClient(t, handler)
 
@@ -27,7 +27,7 @@ func TestGetOrganisationDomain_ReadsTheAiEnvironmentTwin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrganisationDomain: %v", err)
 	}
-	if domain.DNSRootDomain != "smartoptics.dev" || domain.DNSRootDomainDefault != "ankra.cc" {
+	if domain.DNSRootDomain != "example-org.dev" || domain.DNSRootDomainDefault != "ankra.cc" {
 		t.Errorf("domain = %+v", domain)
 	}
 }
@@ -59,14 +59,14 @@ func TestSetOrganisationDomain_SendsOnlyTheRootDomainMember(t *testing.T) {
 			t.Fatalf("request body is not json: %v", unmarshalError)
 		}
 		jsonResponse(t, w, http.StatusOK, map[string]any{
-			"dns_root_domain": "smartoptics.dev", "dns_root_domain_default": "ankra.cc"})
+			"dns_root_domain": "example-org.dev", "dns_root_domain_default": "ankra.cc"})
 	}
 	testClient := newTestClient(t, handler)
 
-	if _, err := testClient.SetOrganisationDomain(context.Background(), "smartoptics.dev"); err != nil {
+	if _, err := testClient.SetOrganisationDomain(context.Background(), "example-org.dev"); err != nil {
 		t.Fatalf("SetOrganisationDomain: %v", err)
 	}
-	if len(receivedBody) != 1 || receivedBody["dns_root_domain"] != "smartoptics.dev" {
+	if len(receivedBody) != 1 || receivedBody["dns_root_domain"] != "example-org.dev" {
 		t.Errorf("body = %v, want only dns_root_domain", receivedBody)
 	}
 }
@@ -103,7 +103,7 @@ func TestSetOrganisationDomain_SurfacesTheBlockingRows(t *testing.T) {
 	}
 	testClient := newTestClient(t, handler)
 
-	_, err := testClient.SetOrganisationDomain(context.Background(), "smartoptics.dev")
+	_, err := testClient.SetOrganisationDomain(context.Background(), "example-org.dev")
 	var blocked *OrganisationDomainBlockedError
 	if !errors.As(err, &blocked) {
 		t.Fatalf("error = %v, want an OrganisationDomainBlockedError", err)

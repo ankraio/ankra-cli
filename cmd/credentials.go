@@ -188,32 +188,16 @@ var credentialsDeleteCmd = &cobra.Command{
 		yes, _ := cmd.Flags().GetBool("yes")
 
 		if err := confirmPrompt(
-			cmd.InOrStdin(), cmd.OutOrStdout(),
+			cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete credential %q? Clusters using it will fail to reconcile! [y/N]: ", credentialID),
 			yes,
 		); err != nil {
 			return err
 		}
 
-		var orgID string
-		local, err := loadSelectedOrganisation()
-		if err == nil && local.OrganisationID != "" {
-			orgID = local.OrganisationID
-		} else {
-			orgs, err := apiClient.ListOrganisations()
-			if err != nil {
-				return fmt.Errorf("fetching organisation: %w", err)
-			}
-			for _, org := range orgs {
-				if org.UserCurrent {
-					orgID = org.OrganisationID
-					break
-				}
-			}
-		}
-
-		if orgID == "" {
-			return fmt.Errorf("no organisation selected: run `ankra org switch <org_id>` first")
+		orgID, organisationError := resolveOrganisationID()
+		if organisationError != nil {
+			return fmt.Errorf("%w: run `ankra org switch <org_id>` first", organisationError)
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

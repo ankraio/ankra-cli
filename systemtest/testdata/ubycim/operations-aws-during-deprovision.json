@@ -1,0 +1,112 @@
+[
+  {
+    "id": "faa71572-bb64-42eb-9960-218094f0c4fa",
+    "name": "reconcile",
+    "display_name": "Reconcile 39 resources across 3 stacks",
+    "type": "write",
+    "status": "running",
+    "error_excerpt": null,
+    "attention_state": "none",
+    "created_at": "2026-11-09T22:46:06.611153Z",
+    "updated_at": "2026-11-09T22:46:06.611153Z"
+  },
+  {
+    "id": "b93bbd7e-65f7-4f0e-8c7d-f97b21e9d079",
+    "name": "reconcile",
+    "display_name": "Reconcile 1 resource",
+    "type": "write",
+    "status": "success",
+    "error_excerpt": null,
+    "attention_state": "none",
+    "created_at": "2026-11-09T22:40:34.091675Z",
+    "updated_at": "2026-11-09T22:40:36.405108Z"
+  },
+  {
+    "id": "be3b5487-15a4-4fb0-bbf7-b0356af4cbff",
+    "name": "reconcile",
+    "display_name": "Reconcile 2 resources",
+    "type": "write",
+    "status": "failed",
+    "error_excerpt": "draining node ip-10-0-9-52.eu-north-1.compute.internal is blocked by a PodDisruptionBudget, so its upgrade is parked instead of retried on a timer: pod(s) cert-manager/cert-manager-84c97585b-msfht (PodDisruptionBudget cert-manager), traefik/traefik-564c77bf66-km7dh (PodDisruptionBudget traefik) cannot be evicted without violating their budget. To continue, give the blocking workloads eviction headroom (add replicas or relax the PodDisruptionBudget), then retry the upgrade - …",
+    "attention_state": "open",
+    "created_at": "2026-11-09T22:38:58.582190Z",
+    "updated_at": "2026-11-09T22:45:48.791421Z"
+  },
+  {
+    "id": "43abeffb-994d-4a94-9cc8-7b43234c52bf",
+    "name": "reconcile",
+    "display_name": "Reconcile 36 resources across 3 stacks",
+    "type": "write",
+    "status": "success",
+    "error_excerpt": null,
+    "attention_state": "none",
+    "created_at": "2026-11-09T22:36:04.908552Z",
+    "updated_at": "2026-11-09T22:38:48.917036Z"
+  },
+  {
+    "id": "9842257c-dd14-4022-b5a3-4378480b69ae",
+    "name": "reconcile",
+    "display_name": "Reconcile 11 resources",
+    "type": "write",
+    "status": "success",
+    "error_excerpt": null,
+    "attention_state": "none",
+    "created_at": "2026-11-09T22:35:11.946227Z",
+    "updated_at": "2026-11-09T22:35:51.561314Z"
+  },
+  {
+    "id": "08c6a357-cab2-45c8-9401-5dc1d89c412a",
+    "name": "reconcile",
+    "display_name": "Reconcile stack ankra-security-baseline",
+    "type": "write",
+    "status": "success",
+    "error_excerpt": null,
+    "attention_state": "none",
+    "created_at": "2026-11-09T22:33:41.922750Z",
+    "updated_at": "2026-11-09T22:35:03.013025Z"
+  },
+  {
+    "id": "5b99a9f2-ce47-40b7-a9d3-cc6c9eeac424",
+    "name": "reconcile",
+    "display_name": "Reconcile stack networking",
+    "type": "write",
+    "status": "success",
+    "error_excerpt": null,
+    "attention_state": "none",
+    "created_at": "2026-11-09T22:33:41.852007Z",
+    "updated_at": "2026-11-09T22:34:56.366127Z"
+  },
+  {
+    "id": "56185559-b7ae-4efc-8e2a-41f25bd5e4ae",
+    "name": "reconcile",
+    "display_name": "Reconcile stack aws-cloud-provider",
+    "type": "write",
+    "status": "success",
+    "error_excerpt": null,
+    "attention_state": "none",
+    "created_at": "2026-11-09T22:33:41.768273Z",
+    "updated_at": "2026-11-09T22:34:19.641665Z"
+  },
+  {
+    "id": "67057b75-8c13-4310-aed0-bf91d7724f71",
+    "name": "reconcile",
+    "display_name": "Reconcile 1 resource",
+    "type": "write",
+    "status": "success",
+    "error_excerpt": null,
+    "attention_state": "none",
+    "created_at": "2026-11-09T22:33:41.709385Z",
+    "updated_at": "2026-11-09T22:33:43.829292Z"
+  },
+  {
+    "id": "e9508430-f622-47a2-a600-320d0086ac6d",
+    "name": "reconcile",
+    "display_name": "Reconcile 13 resources",
+    "type": "write",
+    "status": "success",
+    "error_excerpt": null,
+    "attention_state": "none",
+    "created_at": "2026-11-09T22:30:34.812299Z",
+    "updated_at": "2026-11-09T22:34:25.699898Z"
+  }
+]

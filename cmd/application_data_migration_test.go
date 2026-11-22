@@ -10,10 +10,9 @@ import (
 	"ankra/internal/client"
 )
 
-const dataMigrationTestRunID = "6b257030-1d8f-4a9d-92a3-88f346f248bf"
+const dataMigrationTestRunID = "0b7c4d08-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 type applicationDataMigrationMock struct {
-	baseMock
 	run           *client.DataMigrationRun
 	runs          []client.DataMigrationRun
 	rollbackError error

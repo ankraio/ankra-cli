@@ -125,13 +125,12 @@ var proxmoxCreateCmd = &cobra.Command{
 
 		fmt.Printf("Proxmox VE cluster '%s' created successfully!\n", result.Name)
 		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
-		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
-			strings.TrimRight(baseURL, "/"), result.ClusterID)
+		fmt.Printf("\nView it in the UI:\n  %s\n", portalClusterURLByID(result.ClusterID))
 		return nil
 	},
 }
 
-var proxmoxStopCmd = &cobra.Command{
+var proxmoxStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "stop <cluster_id|name>",
 	Short: "Stop a Proxmox VE cluster",
 	Long:  "Stop a Proxmox VE cluster's virtual machines while keeping its configuration so it can be started again later.",
@@ -165,9 +164,9 @@ var proxmoxStopCmd = &cobra.Command{
 		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
 		return nil
 	},
-}
+})
 
-var proxmoxStartCmd = &cobra.Command{
+var proxmoxStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped Proxmox VE cluster",
 	Long:  "Start (re-provision) a stopped Proxmox VE cluster. Use --scope control_plane to bring up only the control plane.",
@@ -182,7 +181,7 @@ var proxmoxStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, startError := apiClient.StartProxmoxCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd)})
+		result, startError := apiClient.StartProxmoxCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd), RestoreSnapshotID: restoreSnapshotIDFlag(cmd), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(cmd)})
 		if startError != nil {
 			return fmt.Errorf("starting cluster: %w", startError)
 		}
@@ -193,12 +192,12 @@ var proxmoxStartCmd = &cobra.Command{
 			fmt.Printf("  Marked to start at: %s\n", result.MarkedToStartAt)
 		}
 		fmt.Printf("  Created operations: %d\n", result.CreatedOperations)
-		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
+		printStartStateOutcome(result.StateRestore, result.StateSnapshotID, result.StateRestoreMessage)
 		return nil
 	},
-}
+})
 
-var proxmoxWorkersCmd = &cobra.Command{
+var proxmoxWorkersCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for a Proxmox VE cluster",
 	Args:  cobra.ExactArgs(1),
@@ -224,9 +223,9 @@ var proxmoxWorkersCmd = &cobra.Command{
 		fmt.Printf("  Max: %d\n", result.Max)
 		return nil
 	},
-}
+})
 
-var proxmoxK8sVersionCmd = &cobra.Command{
+var proxmoxK8sVersionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for a Proxmox VE cluster",
 	Args:  cobra.ExactArgs(1),
@@ -255,7 +254,7 @@ var proxmoxK8sVersionCmd = &cobra.Command{
 		fmt.Printf("  Distribution: %s\n", result.Distribution)
 		return nil
 	},
-}
+})
 
 var proxmoxHostsCmd = &cobra.Command{
 	Use:   "hosts",
@@ -396,18 +395,18 @@ func init() {
 	proxmoxCreateCmd.Flags().String("description", "", "Cluster description")
 	proxmoxCreateCmd.Flags().String("credential-id", "", "Proxmox VE API credential ID (required)")
 	proxmoxCreateCmd.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (required)")
-	proxmoxCreateCmd.Flags().String("node", "", "Proxmox VE host node to deploy on (required; see `ankra cluster proxmox hosts`)")
+	proxmoxCreateCmd.Flags().String("node", "", "Proxmox VE host node to deploy on (required; see 'ankra cluster proxmox hosts')")
 	proxmoxCreateCmd.Flags().StringSlice("placement-nodes", nil, "Two or more host nodes for host-spread placement (comma-separated or repeated; optional)")
-	proxmoxCreateCmd.Flags().String("bridge", "", "Network bridge for cluster VMs (required; see `ankra cluster proxmox bridges`)")
-	proxmoxCreateCmd.Flags().String("storage", "", "Storage for VM disks (default local-lvm; see `ankra cluster proxmox storages`)")
-	proxmoxCreateCmd.Flags().String("template", "", "VM template name (optional; the first available template on the node is used when omitted)")
+	proxmoxCreateCmd.Flags().String("bridge", "", "Network bridge for cluster VMs (required; see 'ankra cluster proxmox bridges')")
+	proxmoxCreateCmd.Flags().String("storage", "", "Storage for VM disks (default local-lvm; see 'ankra cluster proxmox storages')")
+	proxmoxCreateCmd.Flags().String("template", "", "VM template name (optional). Omitted, Ankra clones its own template, ankra-ubuntu-24-04, which saving the Proxmox credential builds, and refuses the create when that template is not on the node; it never picks one of your own templates unless you name it")
 	proxmoxCreateCmd.Flags().String("bastion-instance-type", "", "Bastion instance-size preset (server default: px-small)")
 	proxmoxCreateCmd.Flags().Int("control-plane-count", 1, "Number of control plane nodes")
 	proxmoxCreateCmd.Flags().String("control-plane-instance-type", "", "Control plane instance-size preset (server default: px-medium)")
 	proxmoxCreateCmd.Flags().Int("worker-count", 1, "Number of worker nodes")
 	proxmoxCreateCmd.Flags().String("worker-instance-type", "", "Worker instance-size preset (server default: px-medium)")
 	proxmoxCreateCmd.Flags().String("distribution", "kubeadm", "Kubernetes distribution: kubeadm (default, vanilla upstream Kubernetes with Cilium) or k3s")
-	proxmoxCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see `ankra cluster kubeadm-versions` or `ankra cluster k3s-versions`)")
+	proxmoxCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see 'ankra cluster kubeadm-versions' or 'ankra cluster k3s-versions')")
 	proxmoxCreateCmd.Flags().String("etcd-topology", "stacked", "etcd topology for kubeadm clusters: stacked (on control plane) or external (dedicated VMs)")
 	proxmoxCreateCmd.Flags().Int("etcd-node-count", 3, "Number of dedicated etcd nodes when --etcd-topology=external (3 or 5)")
 	proxmoxCreateCmd.Flags().String("etcd-instance-type", "", "Instance-size preset for dedicated etcd nodes when --etcd-topology=external (server default: px-medium)")
@@ -426,13 +425,13 @@ func init() {
 	_ = proxmoxCreateCmd.MarkFlagRequired("bridge")
 
 	proxmoxStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(proxmoxStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(proxmoxStartCmd)
 
 	proxmoxHostsCmd.Flags().String("credential-id", "", "Proxmox VE API credential ID (required)")
 	_ = proxmoxHostsCmd.MarkFlagRequired("credential-id")
 	for _, nodeScopedCatalogCmd := range []*cobra.Command{proxmoxStoragesCmd, proxmoxBridgesCmd, proxmoxTemplatesCmd} {
 		nodeScopedCatalogCmd.Flags().String("credential-id", "", "Proxmox VE API credential ID (required)")
-		nodeScopedCatalogCmd.Flags().String("node", "", "Proxmox VE host node (required; see `ankra cluster proxmox hosts`)")
+		nodeScopedCatalogCmd.Flags().String("node", "", "Proxmox VE host node (required; see 'ankra cluster proxmox hosts')")
 		_ = nodeScopedCatalogCmd.MarkFlagRequired("credential-id")
 		_ = nodeScopedCatalogCmd.MarkFlagRequired("node")
 	}

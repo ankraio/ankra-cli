@@ -136,17 +136,17 @@ func TestOpenclawSkillPromisesNoHandoff(t *testing.T) {
 			t.Fatalf("the skill must not mention %q:\n%s", forbidden, body)
 		}
 	}
-	if !strings.Contains(body, "https://platform.ankra.app/organisation/ai/agents") {
+	if !strings.Contains(body, "https://platform.ankra.app/next/ai/agent-runs") {
 		t.Fatalf("the skill should link the AI Agents page that exists:\n%s", body)
 	}
 }
 
 // TestOpenclawSkillLinksTheClusterOverview pins the skill's cluster portal
-// link to the overview page: the portal has no page at the bare
-// /organisation/clusters/cluster/imported/<id> path (ankra-3dd8y).
+// link to the cluster's overview page in the web app under /next: the
+// Classic /organisation/... pages are being retired (ankra-t5jf5.6.15).
 func TestOpenclawSkillLinksTheClusterOverview(t *testing.T) {
 	body := buildSkillMarkdown("prod", "c-1", "https://platform.ankra.app")
-	expected := "- Portal: https://platform.ankra.app/organisation/clusters/cluster/imported/c-1/overview\n"
+	expected := "- Portal: https://platform.ankra.app/next/clusters/c-1\n"
 	if !strings.Contains(body, expected) {
 		t.Fatalf("the skill should link the cluster overview page, want %q in:\n%s", expected, body)
 	}
@@ -172,7 +172,7 @@ func TestOpenclawHandoffIsDeprecatedAndHonest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "https://platform.example.test/organisation/ai/agents") {
+	if !strings.Contains(out, "https://platform.example.test/next/ai/agent-runs") {
 		t.Fatalf("want the AI Agents page URL, got %q", out)
 	}
 	if strings.Contains(out, "openclaw=") || strings.Contains(out, "conv-1") {

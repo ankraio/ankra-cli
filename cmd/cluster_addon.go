@@ -359,7 +359,7 @@ var clusterAddonsUninstallCmd = &cobra.Command{
 		} else {
 			msg = fmt.Sprintf("Uninstall addon %q from cluster %q? [y/N]: ", addonName, cluster.Name)
 		}
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(), msg, yes); err != nil {
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), msg, yes); err != nil {
 			return err
 		}
 
@@ -714,7 +714,7 @@ func init() {
 	clusterAddonsUpgradeCmd.Flags().String("registry-url", "", "New helm registry URL")
 	clusterAddonsUpgradeCmd.Flags().String("registry-credential-name", "", "New helm registry credential name")
 	clusterAddonsUpgradeCmd.Flags().String("values-from-file", "", "Path to YAML values file (REPLACES the entire values document)")
-	clusterAddonsUpgradeCmd.Flags().String("values", "", "Use `-` to read values YAML from stdin (REPLACES the entire values document)")
+	clusterAddonsUpgradeCmd.Flags().String("values", "", "Use '-' to read values YAML from stdin (REPLACES the entire values document)")
 	clusterAddonsUpgradeCmd.Flags().StringArray("set", nil, "Helm-style values mutation, e.g. --set image.tag=1.0.0 (MUTATES existing values; repeatable, comma-separated)")
 	clusterAddonsUpgradeCmd.Flags().StringArray("set-string", nil, "Like --set but always treats the value as a string")
 	clusterAddonsUpgradeCmd.Flags().StringArray("set-file", nil, "Like --set but reads the value from a file: key=path or key=@path")

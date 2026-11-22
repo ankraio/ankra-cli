@@ -228,6 +228,14 @@ cluster** is wired by hand: read the value with `--reveal` above, set it as an e
 and give it an address your own network path exposes. Wait for **Readiness: Ready** before relying
 on the service.
 
+A credential a managed service takes as an input (the password of a database you already run) lives
+in the service credential registry: `ankra services credentials create <name>` makes a family,
+`ankra services credentials values add <name> --first --value-stdin` stores its first value and
+`--expected-value-id <id>` rotates it (the previous value's grants are revoked and replaced), and
+`ankra services credentials grants issue <name> --package-digest <digest> --input-name <INPUT> --mode existing`
+binds a value to one input of one package version. The value is never an argument and no command
+shows one; `ankra services credentials list` and `values list <name>` show metadata only.
+
 ## Pattern: an internal API or third-party SaaS
 
 - In-cluster: `http://<service>.<namespace>.svc.cluster.local:<port>`, no credential if the API

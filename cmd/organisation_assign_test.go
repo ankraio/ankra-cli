@@ -64,9 +64,9 @@ func newAssignMock() *assignMock {
 	}}
 }
 
-// runOrgCommand runs an `ankra org ...` command with a saved organisation
-// selection, so no organisation listing is needed.
-func runOrgCommand(t *testing.T, mock APIClient, args ...string) (string, error) {
+// runOrgCommand runs an `ankra org ...` command on the saved login with a
+// saved organisation selection, so no organisation listing is needed.
+func runOrgCommand(t *testing.T, mock any, args ...string) (string, error) {
 	t.Helper()
 	withTempHome(t)
 	t.Setenv(envAnkraProject, "")
@@ -76,6 +76,7 @@ func runOrgCommand(t *testing.T, mock APIClient, args ...string) (string, error)
 		t.Fatal(err)
 	}
 	setMockClient(t, mock)
+	useSavedLogin(t)
 	reset := func() { resetGlobalProjectFlag(t); resetTreeFlags(t, orgAssignCmd, orgMemberRoleCmd) }
 	reset()
 	t.Cleanup(reset)

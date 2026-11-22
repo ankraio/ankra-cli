@@ -6,13 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"ankra/internal/client"
 
 	"github.com/jedib0t/go-pretty/v6/table"
-	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
 )
 
@@ -86,22 +84,19 @@ var clusterListCmd = &cobra.Command{
 			{Number: 8, WidthMin: 15},
 		})
 		for _, cluster := range clusters {
-			state := cluster.State
-			if strings.ToLower(state) == "online" {
-				state = text.FgGreen.Sprint(state)
-			}
 			t.AppendRow(table.Row{
 				cluster.Name,
 				cluster.Environment,
 				cluster.KubeVersion,
 				cluster.Nodes,
 				cluster.ControlPlanes,
-				state,
+				clusterStateCell(cluster),
 				cluster.Kind,
 				formatTimeAgo(cluster.CreatedAt),
 			})
 		}
 		t.Render()
+		printStoppedSetupHint(os.Stdout, clusters)
 		return nil
 	},
 }
@@ -151,7 +146,8 @@ If no cluster is given, shows details for the currently selected cluster.`,
 		fmt.Printf("  Name: %s\n", cluster.Name)
 		fmt.Printf("  Environment: %s\n", cluster.Environment)
 		fmt.Printf("  Kube Version: %s\n", cluster.KubeVersion)
-		fmt.Printf("  State: %s\n", cluster.State)
+		fmt.Printf("  State: %s\n", clusterStateText(cluster))
+		printStoppedSetup(os.Stdout, cluster)
 		fmt.Printf("  Control Planes: %d\n", cluster.ControlPlanes)
 		fmt.Printf("  Nodes: %d\n", cluster.Nodes)
 		fmt.Printf("  Kind: %s\n", cluster.Kind)
@@ -214,7 +210,7 @@ func resolveClusterInfoTarget(cmd *cobra.Command, args []string) (client.Cluster
 	return cluster, nil
 }
 
-var clusterReconcileCmd = &cobra.Command{
+var clusterReconcileCmd = withClusterArgument(clusterSelectionAllowed, &cobra.Command{
 	Use:   "reconcile [cluster_name]",
 	Short: "Trigger cluster reconciliation",
 	Long: `Trigger a reconciliation for a cluster to sync desired state with actual state.
@@ -256,7 +252,7 @@ If a cluster name is provided, reconciles that specific cluster.`,
 		}
 		return nil
 	},
-}
+})
 
 func resolveClusterFromArgs(cmd *cobra.Command, args []string) (string, string, error) {
 	if len(args) > 0 {
@@ -274,8 +270,8 @@ func resolveClusterFromArgs(cmd *cobra.Command, args []string) (string, string, 
 	return selected.ID, selected.Name, nil
 }
 
-var clusterProvisionCmd = &cobra.Command{
-	Use:   "provision [cluster_name]",
+var clusterProvisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "provision <cluster_name>",
 	Short: "Provision a managed cluster (build its infrastructure and redeploy its stacks)",
 	Long: `Provision a managed cluster that is not running.
 
@@ -290,11 +286,17 @@ resources from the cluster's stored stack definition. Verify anything you patche
 in place afterwards - see "ankra cluster addons list <addon>" and
 "ankra cluster manifests list".
 
-This is not a power-on. To resume a cluster you powered off, use the provider's
-start command (for example "ankra hetzner cluster start") or
+This is not a power-on. To resume a cluster you powered off, use its provider's
+start command (for example "ankra cluster hetzner start") or
 "ankra cluster power-schedules".
 
-If no cluster name is provided, uses the currently selected cluster.`,
+Name the cluster as the argument or with --cluster. Provisioning builds
+infrastructure that bills, so it never falls back to the cluster selected with
+'ankra cluster select': that selection is shared by every shell and agent
+session on the machine.`,
+	// The cluster argument may be left out for --cluster, which the run
+	// reads itself, by name or id, as it always has; named nowhere, the
+	// resolver refuses before the run (clusterMustBeNamed).
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		format, err := structuredFormatFromFlags(cmd)
@@ -334,7 +336,7 @@ If no cluster name is provided, uses the currently selected cluster.`,
 				"verify in-place patches with 'ankra cluster addons list <addon>' once the cluster is online")
 		return nil
 	},
-}
+})
 
 // cloudClusterKind enumerates the cluster kinds that must be deprovisioned
 // through provider-specific endpoints. The backend's generic deprovision
@@ -388,6 +390,14 @@ var allCloudClusterKinds = []cloudClusterKind{
 	cloudClusterKindMorpheus,
 }
 
+// deprovisionForceFlagUsage is --force on the provider deprovision commands
+// that had none (Scaleway, Ankra Cloud): what the platform does with force on
+// every cloud kind, and what it leaves to the volume consent.
+const deprovisionForceFlagUsage = "Force teardown: skip the in-cluster agent's uninstall of the stack resources " +
+	"and tolerate infrastructure that can no longer be reached. It never decides the persistent volumes: a cluster " +
+	"whose retention_policy is retain keeps them, and a delete cluster's are deleted only with " +
+	"--accept-volume-data-loss or a yes at the prompt"
+
 // isCloudClusterKind reports whether deprovisioning this kind goes to the
 // provider endpoint, which deletes the cluster record along with its
 // resources. The generic imported lane keeps the record, so the two are not
@@ -401,8 +411,8 @@ func isCloudClusterKind(kind cloudClusterKind) bool {
 	return false
 }
 
-var clusterDeprovisionCmd = &cobra.Command{
-	Use:   "deprovision [cluster_name]",
+var clusterDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "deprovision <cluster_name>",
 	Short: "Deprovision a managed cluster (tear it down and release everything it runs on)",
 	Long: `Tear down a managed cluster: everything it runs on is released.
 
@@ -421,19 +431,25 @@ This is a teardown, not a power-off:
 
   - all cloud resources are released (servers, networks, SSH keys);
   - every stack resource on the cluster is uninstalled;
-  - on hetzner, ovh, upcloud, digitalocean, scaleway, ankracloud and aws the cluster's
-    persistent volumes (the cloud volumes its CSI driver provisioned) are
-    deleted with it, and the data on them. The command names them first and
-    deletes them only when you accept that: answer the prompt on a terminal,
+  - on hetzner, ovh, upcloud, digitalocean, scaleway, ankracloud, aws and proxmox
+    the cluster's persistent volumes (the cloud volumes or, on proxmox, the
+    disks its CSI driver provisioned) are deleted with it, and the data on
+    them. The command names them first and deletes them only when you accept
+    that: answer the prompt on a terminal,
     or pass --accept-volume-data-loss (--yes does not imply it). A cluster
     whose retention_policy is retain (aws, scaleway, ankracloud) keeps its volumes, which
     keep billing in your cloud account.
 
-To power a cluster off and back on while keeping its state, use the provider's
-stop/start commands (for example "ankra hetzner cluster stop" and
-"ankra hetzner cluster start") or "ankra cluster power-schedules" instead.
+To power a cluster off and back on while keeping its state, use its provider's
+stop and start commands (for example "ankra cluster hetzner stop" and
+"ankra cluster hetzner start") or "ankra cluster power-schedules" instead.
 
-If no cluster name is provided, uses the currently selected cluster.`,
+Name the cluster as the argument or with --cluster. Deprovision never falls
+back to the cluster selected with 'ankra cluster select': that selection is
+shared by every shell and agent session on the machine.`,
+	// The cluster argument may be left out for --cluster, which the run
+	// reads itself, by name or id, as it always has; named nowhere, the
+	// resolver refuses before the run (clusterMustBeNamed).
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		force, _ := cmd.Flags().GetBool("force")
@@ -455,19 +471,13 @@ If no cluster name is provided, uses the currently selected cluster.`,
 			return refusal
 		}
 
-		// The Hetzner, UpCloud, OVH, DigitalOcean, AWS and Proxmox
-		// deprovision endpoints honor force; the Morpheus lane and the
-		// generic imported deprovision drop it, so say so instead of
-		// implying a forced teardown that never happens.
-		if force {
-			switch cloudClusterKind(clusterKind) {
-			case cloudClusterKindHetzner, cloudClusterKindUpcloud,
-				cloudClusterKindOvh, cloudClusterKindDigitalocean, cloudClusterKindAws,
-				cloudClusterKindProxmox:
-			default:
-				_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
-					"warning: --force has no effect for this cluster type")
-			}
+		// Every cloud kind's deprovision endpoint honours force: it skips the
+		// in-cluster agent's uninstall and force-deletes every resource. Only
+		// the generic imported deprovision takes no force, so that is the one
+		// lane told the flag does nothing.
+		if force && !isCloudClusterKind(cloudClusterKind(clusterKind)) {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
+				"warning: --force has no effect on an imported cluster's deprovision")
 		}
 
 		// The persistent volumes go with the cluster only when the operator
@@ -487,7 +497,7 @@ If no cluster name is provided, uses the currently selected cluster.`,
 			recordWarning = " The cluster record itself is DELETED - this cannot be provisioned again, only recreated."
 		}
 		if err := confirmPrompt(
-			cmd.InOrStdin(), cmd.OutOrStdout(),
+			cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Deprovision cluster %q? This deletes all its cloud resources (servers, networks, SSH keys) "+
 				"and uninstalls every stack resource on it - this is a teardown, not a power-off.%s [y/N]: ",
 				clusterName, recordWarning),
@@ -611,7 +621,7 @@ If no cluster name is provided, uses the currently selected cluster.`,
 			}
 			return nil
 		case cloudClusterKindMorpheus:
-			result, deprovisionError := apiClient.DeprovisionMorpheusCluster(clusterID)
+			result, deprovisionError := apiClient.DeprovisionMorpheusCluster(clusterID, deprovisionOptions)
 			if deprovisionError != nil {
 				return fmt.Errorf("deprovisioning HPE Morpheus cluster: %w", deprovisionError)
 			}
@@ -644,7 +654,7 @@ If no cluster name is provided, uses the currently selected cluster.`,
 		}
 		return nil
 	},
-}
+})
 
 func resolveClusterFromArgsWithKind(cmd *cobra.Command, args []string) (string, string, string, error) {
 	if len(args) > 0 {
@@ -745,7 +755,7 @@ func init() {
 	// so existing scripts don't break on an unknown flag; see DEPRECATIONS.md.
 	_ = clusterDeprovisionCmd.Flags().MarkDeprecated("auto-delete",
 		"the backend does not support it; deprovision never deletes the cluster record (use 'ankra delete cluster' afterwards)")
-	clusterDeprovisionCmd.Flags().Bool("force", false, "Force deprovision even if cluster is in an unexpected state; on UpCloud, Hetzner, OVH, DigitalOcean and AWS also deletes leftover load balancers (the persistent volumes are deleted forced or not, and only with --accept-volume-data-loss or a yes at the prompt); on Proxmox finishes the teardown when the host or jumphost is unreachable, leaving the VMs behind")
+	clusterDeprovisionCmd.Flags().Bool("force", false, "Force the teardown of a cloud cluster of any kind: skip the in-cluster agent's uninstall of the stack resources and tolerate infrastructure that can no longer be reached. On UpCloud, Hetzner, OVH, DigitalOcean and AWS it also deletes leftover load balancers; on Proxmox it finishes the teardown when the host or jumphost is unreachable, leaving the VMs behind. It never decides the persistent volumes: they are deleted only with --accept-volume-data-loss or a yes at the prompt, and a cluster whose retention_policy is retain keeps them. No effect on an imported cluster")
 	clusterDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt (not the persistent volume acknowledgement)")
 	registerAcceptVolumeDataLossFlag(clusterDeprovisionCmd)
 

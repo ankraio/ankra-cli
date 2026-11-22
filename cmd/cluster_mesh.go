@@ -106,7 +106,7 @@ var clusterMeshDeleteCmd = &cobra.Command{
 	},
 }
 
-var clusterMeshJoinCmd = &cobra.Command{
+var clusterMeshJoinCmd = withClusterArgumentAt(1, clusterMustBeNamed, &cobra.Command{
 	Use:   "join <mesh_id> <cluster_id|name>",
 	Short: "Add a cluster to a mesh",
 	Long: "Add a cluster to a mesh. The platform mints the mesh's shared certificate authority on the first join, " +
@@ -124,9 +124,9 @@ var clusterMeshJoinCmd = &cobra.Command{
 		fmt.Printf("Cluster %s joined mesh %s.\n", clusterTarget(args[1], clusterID), args[0])
 		return nil
 	},
-}
+})
 
-var clusterMeshLeaveCmd = &cobra.Command{
+var clusterMeshLeaveCmd = withClusterArgumentAt(1, clusterMustBeNamed, &cobra.Command{
 	Use:   "leave <mesh_id> <cluster_id|name>",
 	Short: "Remove a cluster from a mesh",
 	Args:  cobra.ExactArgs(2),
@@ -141,14 +141,14 @@ var clusterMeshLeaveCmd = &cobra.Command{
 		fmt.Printf("Cluster %s left mesh %s.\n", clusterTarget(args[1], clusterID), args[0])
 		return nil
 	},
-}
+})
 
 var (
 	clusterMeshMakeReadySiteIP  string
 	clusterMeshMakeReadyPodCIDR string
 )
 
-var clusterMeshMakeReadyCmd = &cobra.Command{
+var clusterMeshMakeReadyCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "make-ready <cluster_id|name>",
 	Short: "Turn an existing cluster mesh-capable without recreating it",
 	Long: "Turn an existing cluster mesh-capable, day-2: allocate its Cilium identity and overlay range, stamp the " +
@@ -186,9 +186,9 @@ var clusterMeshMakeReadyCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
-var clusterMeshReadinessCmd = &cobra.Command{
+var clusterMeshReadinessCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "readiness <cluster_id|name> [cluster_id|name...]",
 	Short: "Check whether clusters can mesh together, and why not",
 	Long: "Check whether the given clusters could form one mesh. Each cluster is reported ready or not, with the " +
@@ -244,7 +244,7 @@ var clusterMeshReadinessCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
 func init() {
 	clusterMeshCmd.AddCommand(clusterMeshListCmd)

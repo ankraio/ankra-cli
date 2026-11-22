@@ -8,6 +8,8 @@ import (
 
 	"ankra/internal/client"
 
+	"github.com/spf13/cobra"
+
 	"github.com/spf13/pflag"
 )
 
@@ -15,8 +17,6 @@ import (
 // keeping the exact change map so the present-vs-absent contract can be
 // asserted: the endpoint distinguishes "not in the body" from "null".
 type orgPreviewSettingsMock struct {
-	baseMock
-
 	settings   client.OrganisationPreviewSettings
 	updateSeen []map[string]any
 }
@@ -79,8 +79,8 @@ func TestRunOrgAIEnvironmentGet_NamesTheFallbackWhenNoPreviewDomainIsSet(t *test
 // the backend's and this command only has to surface it (PLA-773).
 func TestRunOrgAIEnvironmentGet_SurfacesTheBackendsPlainHTTPWarning(t *testing.T) {
 	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
-		DemoBaseDomain: "previews.smartoptics.dev",
-		PreviewTLSWarning: "Demos on previews.smartoptics.dev will be served over plain http: " +
+		DemoBaseDomain: "previews.example-org.dev",
+		PreviewTLSWarning: "Demos on previews.example-org.dev will be served over plain http: " +
 			"the staging cluster carries no ACME HTTP-01 ClusterIssuer to request a certificate from."}}
 	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get")
 	if executeError != nil {
@@ -93,7 +93,7 @@ func TestRunOrgAIEnvironmentGet_SurfacesTheBackendsPlainHTTPWarning(t *testing.T
 
 func TestRunOrgAIEnvironmentGet_StaysQuietWhenTheBackendReportsNoProblem(t *testing.T) {
 	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
-		DemoBaseDomain: "previews.smartoptics.dev", DemoCertIssuerName: "letsencrypt-prod"}}
+		DemoBaseDomain: "previews.example-org.dev", DemoCertIssuerName: "letsencrypt-prod"}}
 	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get")
 	if executeError != nil {
 		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
@@ -110,11 +110,11 @@ func TestRunOrgAIEnvironmentGet_StaysQuietWhenTheBackendReportsNoProblem(t *test
 // rather than reporting success and nothing else.
 func TestRunOrgAIEnvironmentSet_ReportsThePlainHTTPWarningOnTheWrite(t *testing.T) {
 	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
-		DemoBaseDomain:    "previews.smartoptics.dev",
-		PreviewTLSWarning: "Demos on previews.smartoptics.dev will be served over plain http.",
+		DemoBaseDomain:    "previews.example-org.dev",
+		PreviewTLSWarning: "Demos on previews.example-org.dev will be served over plain http.",
 	}}
 	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "set",
-		"--demo-base-domain", "previews.smartoptics.dev")
+		"--demo-base-domain", "previews.example-org.dev")
 	if executeError != nil {
 		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
 	}
@@ -191,7 +191,7 @@ func TestRunOrgAIEnvironmentGet_PrintsAWarningEvenWithNoPreviewDomain(t *testing
 // wrong keys.
 func TestRunOrgAIEnvironmentGet_YAMLKeysMatchTheJSONKeys(t *testing.T) {
 	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
-		DemoBaseDomain: "previews.smartoptics.dev", DemoCertIssuerName: "letsencrypt-prod"}}
+		DemoBaseDomain: "previews.example-org.dev", DemoCertIssuerName: "letsencrypt-prod"}}
 	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get", "-o", "yaml")
 	if executeError != nil {
 		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
@@ -282,8 +282,8 @@ func TestPreviewSettingFlagsAreRegisteredForEveryWireField(t *testing.T) {
 // thing that costs you the URL and the certificate together (PLA-773).
 func TestRunOrgAIEnvironmentGet_SurfacesTheBackendsDNSWarning(t *testing.T) {
 	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
-		DemoBaseDomain: "smartoptics.dev",
-		PreviewDNSWarning: "Demos on smartoptics.dev will be given hostnames that do not resolve: " +
+		DemoBaseDomain: "example-org.dev",
+		PreviewDNSWarning: "Demos on example-org.dev will be given hostnames that do not resolve: " +
 			"Ankra publishes DNS only inside its own subzones."}}
 	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get")
 	if executeError != nil {
@@ -298,7 +298,7 @@ func TestRunOrgAIEnvironmentGet_SurfacesTheBackendsDNSWarning(t *testing.T) {
 // so reading the TLS complaint first sends people to the wrong setting.
 func TestRunOrgAIEnvironmentGet_PutsTheDNSWarningBeforeTheTLSOne(t *testing.T) {
 	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
-		DemoBaseDomain:    "smartoptics.dev",
+		DemoBaseDomain:    "example-org.dev",
 		PreviewDNSWarning: "hostnames that do not resolve",
 		PreviewTLSWarning: "served over plain http",
 	}}
@@ -318,7 +318,7 @@ func TestRunOrgAIEnvironmentGet_PutsTheDNSWarningBeforeTheTLSOne(t *testing.T) {
 
 func TestRunOrgAIEnvironmentGet_YAMLCarriesTheDNSWarningKey(t *testing.T) {
 	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
-		DemoBaseDomain: "smartoptics.dev", PreviewDNSWarning: "hostnames that do not resolve"}}
+		DemoBaseDomain: "example-org.dev", PreviewDNSWarning: "hostnames that do not resolve"}}
 	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get", "-o", "yaml")
 	if executeError != nil {
 		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
@@ -333,7 +333,7 @@ func TestRunOrgAIEnvironmentGet_YAMLCarriesTheDNSWarningKey(t *testing.T) {
 // absent-answer trap this lane has spent its length undoing.
 func TestRunOrgAIEnvironmentGet_SaysWhenThePlatformNeverReportedDNS(t *testing.T) {
 	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
-		DemoBaseDomain: "smartoptics.dev", PreviewDNSReported: false}}
+		DemoBaseDomain: "example-org.dev", PreviewDNSReported: false}}
 	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get")
 	if executeError != nil {
 		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
@@ -345,7 +345,7 @@ func TestRunOrgAIEnvironmentGet_SaysWhenThePlatformNeverReportedDNS(t *testing.T
 
 func TestRunOrgAIEnvironmentGet_StaysQuietWhenThePlatformReportedNoDNSProblem(t *testing.T) {
 	mock := &orgPreviewSettingsMock{settings: client.OrganisationPreviewSettings{
-		DemoBaseDomain: "smartoptics.dev", PreviewDNSReported: true}}
+		DemoBaseDomain: "example-org.dev", PreviewDNSReported: true}}
 	output, executeError := runOrgAIEnvironment(t, mock, "org", "ai-environment", "get")
 	if executeError != nil {
 		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
@@ -440,5 +440,21 @@ func TestRunOrgAIEnvironmentGet_ShowsTheWorkspaceSettings(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Errorf("get output missing %q:\n%s", want, output)
 		}
+	}
+}
+
+// A write that named a cluster with no sandbox says so and hands over the
+// command; a read carries no warning to print (ankra-oznf7k.2).
+func TestRenderPreviewSettingsPrintsTheSandboxWarning(t *testing.T) {
+	const warning = "This cluster offers no sandbox runtime. ankra cluster node-group add ci --name sandbox"
+	command := &cobra.Command{}
+	var output bytes.Buffer
+	command.SetOut(&output)
+	if renderError := renderOrganisationPreviewSettings(command,
+		&client.OrganisationPreviewSettings{WorkspaceSandboxWarning: warning}, outputDefault); renderError != nil {
+		t.Fatalf("render: %v", renderError)
+	}
+	if !strings.Contains(output.String(), warning) {
+		t.Fatalf("output %q does not carry the warning", output.String())
 	}
 }

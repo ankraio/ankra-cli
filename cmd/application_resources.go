@@ -132,12 +132,16 @@ func registerApplicationResourceCommands(applicationCommand *cobra.Command) {
 	applicationCommand.AddCommand(newApplicationDemoCommand())
 	applicationCommand.AddCommand(newApplicationRegistryCommand())
 	applicationCommand.AddCommand(newApplicationCredentialCommand())
+	applicationCommand.AddCommand(newApplicationTrackedBranchCommand())
 	applicationCommand.AddCommand(newApplicationAIConfigCommand())
+	applicationCommand.AddCommand(newApplicationOverviewLayoutCommand())
 	applicationCommand.AddCommand(newApplicationPublishAddonCommand())
 	applicationCommand.AddCommand(newApplicationPublishedAddonCommand())
 	applicationCommand.AddCommand(newApplicationEnvSecretsCommand())
 	applicationCommand.AddCommand(newApplicationAutoDeployCommand())
 	applicationCommand.AddCommand(newApplicationEnvironmentsCommand())
+	applicationCommand.AddCommand(newApplicationAlertsCommand())
+	applicationCommand.AddCommand(newApplicationLogSearchesCommand())
 	applicationCommand.AddCommand(newApplicationProvenanceCommand())
 	applicationCommand.AddCommand(newApplicationBuildCommand())
 	applicationCommand.AddCommand(newApplicationSettingsCommand())
@@ -150,6 +154,7 @@ func registerApplicationResourceCommands(applicationCommand *cobra.Command) {
 	applicationCommand.AddCommand(newApplicationProtectCommand())
 	applicationCommand.AddCommand(newApplicationBackupCommand())
 	applicationCommand.AddCommand(newApplicationPipelineCommand())
+	registerApplicationAutonomyCommands(applicationCommand)
 }
 
 func newApplicationDeleteCommand() *cobra.Command {
@@ -167,7 +172,7 @@ func newApplicationDeleteCommand() *cobra.Command {
 			}
 			yes, _ := command.Flags().GetBool("yes")
 			if confirmError := confirmPrompt(
-				command.InOrStdin(), command.OutOrStdout(),
+				command.InOrStdin(), command.ErrOrStderr(),
 				fmt.Sprintf("Delete application %q? This removes its platform record and cannot be undone! [y/N]: ", strings.TrimSpace(arguments[0])),
 				yes,
 			); confirmError != nil {
@@ -247,7 +252,20 @@ func newApplicationDeployCommand() *cobra.Command {
 
 --cluster takes the cluster's name, as ankra cluster list shows it, or its ID.
 Use --set key=value (repeatable) to pass deploy inputs declared by the
-application's chart.
+application's chart. A value set this way stays the deployment's own: a later
+change to its default in .ankra/ankra.yaml does not reach it.
+
+--reset <input> (repeatable) hands an input back to the repository: the
+deployment stops keeping its own value and follows the default in
+.ankra/ankra.yaml from this deploy on, the same as "Use repository default" on
+the deploy form. ankra application deployments shows which inputs a deployment
+keeps as its own (source override). An input cannot be set and reset in one
+deploy, and the platform refuses an input that has no default.
+
+Without --set image_tag=<tag> the platform deploys the newest build it
+recorded. When it has no tag recorded for that build, the command deploys the
+newest published build of the tracked branch instead (or the newest image in
+the application's registry) and says on stderr which tag it chose.
 
 --environment names the environment the deployment belongs to.
 --follow-branches gives that environment a branch rule from the start, so
@@ -255,6 +273,7 @@ pushes to matching branches deploy to it: for example main for production and
 develop for development. It needs --environment.`,
 		Example: `  ankra application deploy <app-id> --cluster <cluster>
   ankra application deploy <app-id> --cluster <cluster> --namespace prod --set replicas=3
+  ankra application deploy <app-id> --cluster <cluster> --namespace prod --reset memory_limit --reset memory_request
   ankra application deploy <app-id> --cluster <cluster> --environment production --follow-branches main
   ankra application deploy <app-id> --cluster <cluster> --environment development --follow-branches develop`,
 		Args: cobra.ExactArgs(1),
@@ -278,6 +297,11 @@ develop for development. It needs --environment.`,
 			if parseError != nil {
 				return withExitCode(exitUsage, parseError)
 			}
+			resetValues, _ := command.Flags().GetStringArray("reset")
+			resetInputs, resetError := deployResetInputs(resetValues, inputs)
+			if resetError != nil {
+				return withExitCode(exitUsage, resetError)
+			}
 			environmentName, _ := command.Flags().GetString("environment")
 			environmentName = strings.TrimSpace(environmentName)
 			followBranchesValue, _ := command.Flags().GetString("follow-branches")
@@ -296,15 +320,21 @@ develop for development. It needs --environment.`,
 			if clusterError != nil {
 				return clusterError
 			}
-			payload, deployError := apiClient.DeployApplication(command.Context(), applicationID,
-				client.DeployApplicationRequest{
-					ClusterID:       clusterID,
-					Namespace:       strings.TrimSpace(namespace),
-					DeployMode:      deployMode,
-					Inputs:          inputs,
-					EnvironmentName: environmentName,
-					FollowBranches:  followBranches,
-				})
+			deployRequest := client.DeployApplicationRequest{
+				ClusterID:       clusterID,
+				Namespace:       strings.TrimSpace(namespace),
+				DeployMode:      deployMode,
+				Inputs:          inputs,
+				ResetInputs:     resetInputs,
+				EnvironmentName: environmentName,
+				FollowBranches:  followBranches,
+			}
+			payload, deployError := apiClient.DeployApplication(command.Context(), applicationID, deployRequest)
+			if deployError != nil && isDeployTagNotRecorded(deployError) {
+				if _, isPinned := inputs[imageTagInputName]; !isPinned {
+					payload, deployError = deployNewestPublishedImage(command, applicationID, deployRequest, deployError)
+				}
+			}
 			if deployError != nil {
 				return deployError
 			}
@@ -315,10 +345,37 @@ develop for development. It needs --environment.`,
 	deployCommand.Flags().String("namespace", "", "Target namespace (defaults to the platform default)")
 	deployCommand.Flags().String("mode", "", "Deploy mode: quick or high_availability")
 	deployCommand.Flags().StringArray("set", nil, "Deploy input as key=value (repeatable)")
+	deployCommand.Flags().StringArray("reset", nil, "Input to hand back to the repository default in .ankra/ankra.yaml (repeatable)")
 	deployCommand.Flags().String("environment", "", "Environment the deployment belongs to, e.g. production")
 	deployCommand.Flags().String("follow-branches", "", "Comma-separated branch patterns the environment follows, e.g. main or release/* (needs --environment)")
 	registerStructuredOutputFlags(deployCommand)
 	return deployCommand
+}
+
+// deployResetInputs reads --reset: the inputs a deploy hands back to the
+// repository's defaults, in the order given, each once. A blank name, or one
+// --set also gives a value, is a usage error before anything is asked of the
+// platform; whether the input has a default is the platform's to answer.
+func deployResetInputs(values []string, inputs map[string]string) ([]string, error) {
+	names := make([]string, 0, len(values))
+	seen := make(map[string]bool, len(values))
+	for _, value := range values {
+		name := strings.TrimSpace(value)
+		if name == "" {
+			return nil, errors.New("--reset needs an input name, e.g. --reset memory_limit")
+		}
+		if _, isSet := inputs[name]; isSet {
+			return nil, fmt.Errorf("--reset %s and --set %s=... contradict: keep one of the two", name, name)
+		}
+		if !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return nil, nil
+	}
+	return names, nil
 }
 
 func newApplicationPlatformCommand() *cobra.Command {

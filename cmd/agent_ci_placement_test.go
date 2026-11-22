@@ -33,7 +33,7 @@ func TestClusterAgentCISetParsesSelectorsTolerationsAndMode(t *testing.T) {
 	mock := &agentCIMock{settings: newAgentCISettings()}
 	if _, runError := runAgentCICommand(t, mock, "cluster", "agent", "ci", "set", "--workers", "4",
 		"--node-selector", "pool=ci", "--node-selector", "disk=ssd",
-		"--toleration", "smartoptics.dev/pipelines=true:NoSchedule", "--toleration", "dedicated:NoExecute",
+		"--toleration", "example-org.dev/pipelines=true:NoSchedule", "--toleration", "dedicated:NoExecute",
 		"--placement", "preferred"); runError != nil {
 		t.Fatalf("set: %v", runError)
 	}
@@ -43,7 +43,7 @@ func TestClusterAgentCISetParsesSelectorsTolerationsAndMode(t *testing.T) {
 		t.Fatalf("placement = %+v", placement)
 	}
 	want := []client.AgentCIPlacementToleration{
-		{Key: "smartoptics.dev/pipelines", Operator: "Equal", Value: "true", Effect: "NoSchedule"},
+		{Key: "example-org.dev/pipelines", Operator: "Equal", Value: "true", Effect: "NoSchedule"},
 		{Key: "dedicated", Operator: "Exists", Effect: "NoExecute"},
 	}
 	if len(placement.Tolerations) != 2 || placement.Tolerations[0] != want[0] || placement.Tolerations[1] != want[1] {
@@ -123,7 +123,7 @@ func TestClusterAgentCIGetPrintsThePlacementBlock(t *testing.T) {
 		NodeGroup:    "pipelines",
 		NodeSelector: map[string]string{"ankra.cloud/node-group": "pipelines"},
 		Tolerations: []client.AgentCIPlacementToleration{
-			{Key: "smartoptics.dev/pipelines", Operator: "Equal", Value: "true", Effect: "NoSchedule"},
+			{Key: "example-org.dev/pipelines", Operator: "Equal", Value: "true", Effect: "NoSchedule"},
 			{Key: "dedicated", Operator: "Exists", Effect: "NoExecute"},
 		},
 		Mode: client.AgentCIPlacementModeRequired,
@@ -136,7 +136,7 @@ func TestClusterAgentCIGetPrintsThePlacementBlock(t *testing.T) {
 	for _, expected := range []string{
 		"Node group:          pipelines",
 		"Node selector:       ankra.cloud/node-group=pipelines",
-		"Tolerations:         smartoptics.dev/pipelines=true:NoSchedule, dedicated:NoExecute",
+		"Tolerations:         example-org.dev/pipelines=true:NoSchedule, dedicated:NoExecute",
 		"Mode:                required",
 		"Admitting nodes:     2 Ready",
 	} {
@@ -153,7 +153,6 @@ func TestClusterAgentCIGetPrintsThePlacementBlock(t *testing.T) {
 }
 
 type nodeGroupAddPlacementMock struct {
-	baseMock
 	gotRequest client.AddNodeGroupRequest
 }
 
@@ -175,7 +174,7 @@ func TestClusterNodeGroupAddSendsLabelsAndTaints(t *testing.T) {
 	_ = captureStdout(t, func() {
 		if _, runError := executeCommand("cluster", "node-group", "add", testClusterID, "--name", "pipelines",
 			"--instance-type", "4xCPU-8GB", "--labels", "team=ci,tier=build",
-			"--taints", "smartoptics.dev/pipelines=true:NoSchedule,dedicated", "--wait"); runError != nil {
+			"--taints", "example-org.dev/pipelines=true:NoSchedule,dedicated", "--wait"); runError != nil {
 			t.Fatalf("add: %v", runError)
 		}
 	})
@@ -183,7 +182,7 @@ func TestClusterNodeGroupAddSendsLabelsAndTaints(t *testing.T) {
 	if request.Labels["team"] != "ci" || request.Labels["tier"] != "build" {
 		t.Errorf("labels = %v", request.Labels)
 	}
-	if len(request.Taints) != 2 || request.Taints[0].Key != "smartoptics.dev/pipelines" ||
+	if len(request.Taints) != 2 || request.Taints[0].Key != "example-org.dev/pipelines" ||
 		request.Taints[0].Value != "true" || request.Taints[1].Effect != "NoSchedule" {
 		t.Errorf("taints = %+v", request.Taints)
 	}

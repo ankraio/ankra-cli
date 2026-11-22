@@ -126,7 +126,7 @@ func singleControllerLiveInfo() client.ControlPlaneInfo {
 
 // runHetznerSetInstanceType runs the real command tree against platformClient and
 // returns stdout, the combined cobra output and the error.
-func runHetznerSetInstanceType(t *testing.T, platformClient APIClient, extraArguments ...string) (string, string, error) {
+func runHetznerSetInstanceType(t *testing.T, platformClient any, extraArguments ...string) (string, string, error) {
 	t.Helper()
 	command := findSetInstanceTypeCommand(t, "hetzner")
 	arguments := append([]string{"cluster", "hetzner", "control-plane", "set-instance-type", testClusterID, "cx32"}, extraArguments...)
@@ -218,6 +218,7 @@ func TestSetInstanceTypeSendsAcceptAPIDowntimeWhenGiven(t *testing.T) {
 // When the read fails the command does not guess a lane: the request goes out
 // as given, and the platform's 409 is the explanation the operator sees.
 func TestSetInstanceTypeSendsAsGivenWhenTheReadFails(t *testing.T) {
+	withFastClientRetries(t)
 	recorder, realClient := newAPIDowntimeServer(t, singleControllerLiveInfo())
 	recorder.getStatus = http.StatusServiceUnavailable
 

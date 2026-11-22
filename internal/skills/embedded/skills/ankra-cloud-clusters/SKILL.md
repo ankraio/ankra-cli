@@ -210,8 +210,12 @@ the API answers 400. Choose it at create time, or turn it on later for a cluster
 exists (CLI v0.66.0+): `ankra cluster gateway-api status --cluster <c>` shows the platform's
 plan, and `ankra cluster gateway-api enable --cluster <c> --yes --wait` records the option,
 installs the CRDs (or uses the ones the cluster already has), then writes the Traefik and
-cert-manager values in one stack write. Values you wrote yourself are never changed: a key that
-says the opposite is reported as a conflict (exit 1), and nothing is written until you decide.
+cert-manager values in one stack write; Traefik and the cert-manager controller each restart once
+to pick them up. Values you wrote yourself are never changed: a key that says the opposite is
+reported as a conflict (exit 1), and nothing is written until you decide. A values hold (the
+cluster offline, its GitOps sync paused on open conflicts, or a values file edited in git and kept
+for its owner) also exits 1 and names itself: `--wait` stops on it at once instead of waiting out
+`--timeout`. Clear the hold, then run `enable --wait` again.
 There is no disable: to stop the shared Gateway, set `gateway.enabled: false` in Traefik's values.
 
 - Listener ports are Traefik entry-point container ports: `8000` (`web`, served on 80) and `8443`

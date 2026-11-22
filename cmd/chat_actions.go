@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -40,10 +41,10 @@ The platform re-checks the action against live cluster state before running
 it. If the state drifted since the proposal, the command reports the drift and
 exits without running anything; pass --force to run it anyway.`,
 	Example: `  # Confirm the action id printed by the chat stream
-  ankra chat actions confirm 6f1c2f9e-6d5a-4a1e-9f0b-6d4c2b8a1e77
+  ankra chat actions confirm 0b7c4d0b-5f6a-4b8c-9d0e-1f2a3b4c5d6e
 
   # Apply it even though the cluster drifted since it was proposed
-  ankra chat actions confirm 6f1c2f9e-6d5a-4a1e-9f0b-6d4c2b8a1e77 --force \
+  ankra chat actions confirm 0b7c4d0b-5f6a-4b8c-9d0e-1f2a3b4c5d6e --force \
     --force-reason "drift is an unrelated label change"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -270,7 +271,9 @@ func decodeActionProposal(data any) (*client.ChatActionProposal, error) {
 func resolvePendingProposals(reader *bufio.Reader, proposals []*client.ChatActionProposal) {
 	for _, proposal := range proposals {
 		renderActionProposal(proposal)
-		fmt.Print("Run this action? [y/N]: ")
+		// The question goes to stderr with every other prompt; the proposal and
+		// the outcome are the session's output.
+		_, _ = fmt.Fprint(os.Stderr, "Run this action? [y/N]: ")
 		answer, readError := reader.ReadString('\n')
 		if readError != nil && readError != io.EOF {
 			fmt.Printf("Could not read your answer (%v); leaving the action pending.\n", readError)

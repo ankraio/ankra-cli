@@ -356,10 +356,15 @@ func effectiveOrganisationID() string {
 
 // scopedOrganisationLabel names the organisation this invocation runs
 // against, without an API call — error messages must not depend on a second
-// request succeeding. Returns "" when nothing local identifies it.
+// request succeeding. Returns "" when nothing local identifies it, which is
+// the case for a --token or ANKRA_API_TOKEN token without --org: the saved
+// selection does not scope such a token.
 func scopedOrganisationLabel() string {
 	if override := apiClient.OrganisationOverride(); override != "" && !organisationScopedByLocalSelection {
 		return override
+	}
+	if !savedOrganisationSelectionApplies(organisationScopeTokenSource) {
+		return ""
 	}
 	if selected, err := loadSelectedOrganisation(); err == nil && selected.OrganisationID != "" {
 		if name := trimmedOptional(selected.Name); name != "" {

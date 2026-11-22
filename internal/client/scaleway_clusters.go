@@ -16,7 +16,7 @@ const scalewayKind = "scaleway"
 // Omitted optional members take the server's default, so the zero value of an
 // omitempty field means "let the server decide" rather than "send zero":
 // gateway_type VPC-GW-S, bastion_port 61000, control_plane_type / worker_type /
-// etcd_type DEV1-M, distribution k3s, etcd_topology stacked, etcd_node_count 3,
+// etcd_type DEV1-M, distribution kubeadm, etcd_topology stacked, etcd_node_count 3,
 // gitops_branch master, retention_policy retain.
 //
 // Scaleway has no external_cloud_provider member: its networking rides the
@@ -205,7 +205,7 @@ func (c *Client) UpdateScalewayNodeGroupInstanceType(ctx context.Context, cluste
 }
 
 func (c *Client) UpdateScalewayNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/scaleway/%s/node-groups/%s/labels", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/scaleway/%s/node-groups/%s/labels", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, marshalError := json.Marshal(UpdateLabelsRequest{Labels: labels})
 	if marshalError != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", marshalError)
@@ -214,7 +214,7 @@ func (c *Client) UpdateScalewayNodeGroupLabels(ctx context.Context, clusterID, g
 }
 
 func (c *Client) UpdateScalewayNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []NodeTaint, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/scaleway/%s/node-groups/%s/taints", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/scaleway/%s/node-groups/%s/taints", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, marshalError := json.Marshal(UpdateTaintsRequest{Taints: taints})
 	if marshalError != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", marshalError)

@@ -21,8 +21,6 @@ import (
 // tracking, so a test can assert both what was returned and what the CLI
 // asked for.
 type pipelineLaneMock struct {
-	baseMock
-
 	lastSelector client.PipelineSelector
 
 	listOptions client.ListPipelineRunsOptions
@@ -184,7 +182,7 @@ func (mock *pipelineLaneMock) ListApplicationsRaw(ctx context.Context, page int,
 		return nil, failure
 	}
 	if mock.applicationsListing == "" {
-		return mock.baseMock.ListApplicationsRaw(ctx, page, pageSize, search)
+		return baseMock{}.ListApplicationsRaw(ctx, page, pageSize, search)
 	}
 	return json.RawMessage(mock.applicationsListing), nil
 }
@@ -417,11 +415,11 @@ func (mock *pipelineLaneMock) DisconnectPipelineRepository(ctx context.Context, 
 	return mock.disconnectRepositoryError
 }
 
-func runPipelineCommand(t *testing.T, mockClient APIClient, arguments ...string) (string, error) {
+func runPipelineCommand(t *testing.T, mockClient any, arguments ...string) (string, error) {
 	t.Helper()
 	previousClient := apiClient
-	apiClient = mockClient
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mockClient)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	pipelineCommand := newPipelineCommand()
 	var output bytes.Buffer
@@ -1342,14 +1340,14 @@ func TestPipelineRunDetailSaysANeverScheduledStepNeverStarted(t *testing.T) {
 
 // TestPipelineRunDetailPrintsTheRecordedErrorClass pins PLA-851's ask: a
 // failed run must name its error class where a caller reads the run, not only
-// under -o json. The push case is the reported one - Smartoptics read
+// under -o json. The push case is the reported one - a customer read
 // `ankra pipeline get` on five failed builds and nothing on the run said the
 // failure was their registry's.
 func TestPipelineRunDetailPrintsTheRecordedErrorClass(t *testing.T) {
 	pushFailed := "registry_push_failed"
 	pushMessage := "The build ran, and its image could not be pushed to the image registry it publishes to; " +
 		"its builder reported \"push_failed\". BuildKit stopped with: failed to solve: " +
-		"failed to push artifact.example.dev/smart-hub/backend:sha-abc1234: 401 Unauthorized"
+		"failed to push artifact.example.dev/workspace/backend:sha-abc1234: 401 Unauthorized"
 	outcome := "infra_error"
 	var output bytes.Buffer
 	printPipelineRunDetail(&output, client.PipelineRunDetail{
@@ -1432,8 +1430,8 @@ func TestPipelineRunConclusionErrorNamesTheErrorClass(t *testing.T) {
 func TestPipelineSchedulesDeleteConfirms(t *testing.T) {
 	mockClient := &pipelineLaneMock{}
 	previousClient := apiClient
-	apiClient = mockClient
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mockClient)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	pipelineCommand := newPipelineCommand()
 	var output bytes.Buffer
@@ -1620,8 +1618,8 @@ func TestPipelineDefinitionsApproveErrorsAreVerbatimAndExitNonZero(t *testing.T)
 func TestPipelineDefinitionsApproveConfirms(t *testing.T) {
 	mockClient := &pipelineLaneMock{}
 	previousClient := apiClient
-	apiClient = mockClient
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mockClient)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	pipelineCommand := newPipelineCommand()
 	var output bytes.Buffer
@@ -1892,7 +1890,7 @@ func TestPipelineGetOfACancelledRunNamesNoSupersession(t *testing.T) {
 
 // TestPipelineGetNamesWhoCancelledTheRunAndWhy pins ankra-57z1w's CLI half
 // (PLA-866 ask j): a cancelled run says who stopped it and why, under a Status
-// line that used to be the whole answer. Smartoptics had two cancelled runs
+// line that used to be the whole answer. A customer had two cancelled runs
 // and no way to tell a person's press from the concurrency policy.
 func TestPipelineGetNamesWhoCancelledTheRunAndWhy(t *testing.T) {
 	mockClient := &pipelineLaneMock{getResult: &client.PipelineRunDetail{PipelineRun: client.PipelineRun{
@@ -2039,7 +2037,7 @@ func TestPipelineGetJSONCarriesTheSupersession(t *testing.T) {
 
 // TestPipelineRunDetailPrintsWhyAQueuedRunIsWaiting pins ankra-a0yh3's ask:
 // a queued run has to say what it is waiting for where a person reads the run.
-// The reported case is Smartoptics watching four repositories' runs sit behind
+// The reported case is a customer watching four repositories' runs sit behind
 // one pull request's for up to thirty-eight minutes, with "Queued: 14 minutes
 // ago" as the only answer any surface gave.
 func TestPipelineRunDetailPrintsWhyAQueuedRunIsWaiting(t *testing.T) {

@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	testProjectID      = "071d45b1-f8fe-4f47-b13a-4f13a01689f1"
+	testProjectID      = "0b7c4d12-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	testOtherProjectID = "3d2720de-4956-439b-b672-c0d1cf83b98a"
-	testClusterID      = "1834920e-3001-4157-8938-33c447031033"
+	testClusterID      = "0b7c4d11-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 )
 
 // recordingPlatform answers one fixed status and body and keeps every
@@ -254,7 +254,7 @@ func TestMoveResourceToProjectClassifiesProjectsOff(t *testing.T) {
 
 func TestProjectOverrideIsSentAsTheProjectHeaderOnEveryRequest(t *testing.T) {
 	testClient, platform := newRecordingClient(t, http.StatusOK, `[]`)
-	testClient.SetOrganisationOverride("3b7dccca-0788-4470-9910-19478ae345ae")
+	testClient.SetOrganisationOverride("0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e")
 	testClient.SetProjectOverride(testProjectID)
 	if got := testClient.ProjectOverride(); got != testProjectID {
 		t.Fatalf("ProjectOverride = %q", got)
@@ -266,7 +266,7 @@ func TestProjectOverrideIsSentAsTheProjectHeaderOnEveryRequest(t *testing.T) {
 	if got := request.headers.Get("X-Ankra-Project-Id"); got != testProjectID {
 		t.Fatalf("project header = %q, want %q", got, testProjectID)
 	}
-	if got := request.headers.Get("X-Ankra-Organisation-Id"); got != "3b7dccca-0788-4470-9910-19478ae345ae" {
+	if got := request.headers.Get("X-Ankra-Organisation-Id"); got != "0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e" {
 		t.Fatalf("organisation header = %q: the project header must not displace it", got)
 	}
 
@@ -313,6 +313,7 @@ func TestCostProjectScopeIsSentOnTheFleetCostReads(t *testing.T) {
 		{name: "reconciliation with month", read: func() error { _, err := testClient.GetCostReconciliation("2026-09"); return err }, path: "/api/v1/org/cloud-cost/reconciliation", want: "month=2026-09&project_id=all"},
 		{name: "budgets", read: func() error { _, err := testClient.ListCostBudgets(); return err }, path: "/api/v1/org/cloud-cost/budgets", want: "project_id=all"},
 		{name: "autopilot", read: func() error { _, err := testClient.GetCostAutopilot(); return err }, path: "/api/v1/org/cloud-cost/autopilot", want: "project_id=all"},
+		{name: "failed waste scans", read: func() error { _, err := testClient.GetCloudWasteCredentialErrors(); return err }, path: "/api/v1/org/cloud-cost/waste", want: "project_id=all"},
 	}
 	for _, read := range reads {
 		t.Run(read.name, func(t *testing.T) {

@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"time"
 
 	"ankra/internal/client"
 
@@ -28,6 +29,11 @@ const (
 	envActionsIDTokenRequestToken = "ACTIONS_ID_TOKEN_REQUEST_TOKEN"
 	maxIDTokenResponseBytes       = 64 * 1024
 )
+
+// githubIDTokenHTTPClient talks to GitHub's ID token endpoint, at the URL the
+// Actions runner gives. That URL is not a path of the platform's, so it stays
+// off the client that checks those.
+var githubIDTokenHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 // requestGitHubIDToken asks the Actions runtime for an ID token carrying
 // audience. The bearer is the runner's own request token.
@@ -107,7 +113,7 @@ func runGitHubOIDCLogin(cmd *cobra.Command) error {
 		return fmt.Errorf("invalid base URL: %w", normaliseError)
 	}
 
-	idToken, idTokenError := requestGitHubIDToken(cmd.Context(), loginHTTPClient, requestURL, requestToken, audience)
+	idToken, idTokenError := requestGitHubIDToken(cmd.Context(), githubIDTokenHTTPClient, requestURL, requestToken, audience)
 	if idTokenError != nil {
 		return idTokenError
 	}

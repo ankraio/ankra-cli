@@ -10,7 +10,6 @@ import (
 )
 
 type rotateMock struct {
-	baseMock
 	personalCalls, serviceCalls int
 	gotID                       string
 	gotOverlap                  *int

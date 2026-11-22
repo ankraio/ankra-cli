@@ -20,7 +20,6 @@ import (
 const contentsVaultID = "61688482-0000-4000-8000-000000000001"
 
 type backupVaultContentsMock struct {
-	baseMock
 	vaults          []client.BackupVault
 	contents        *client.BackupVaultContents
 	contentsError   error

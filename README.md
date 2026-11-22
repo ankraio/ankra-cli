@@ -25,7 +25,49 @@ and answer in them is fabricated.</sub>
 
 ## Installation
 
-### Homebrew (Recommended for macOS and Linux)
+### Install script (macOS and Linux)
+
+```bash
+curl -fsSL https://ankra.ai/install | sh
+```
+
+On Windows, in PowerShell:
+
+```powershell
+irm https://ankra.ai/install.ps1 | iex
+```
+
+The script installs `ankra` and then runs `ankra onboard`, which signs you up
+or in through your browser and sets up only what your account still needs: an
+organisation, a free playground cluster if you have none, and the Ankra skills
+for the coding agents on your machine. To install without onboarding:
+
+```bash
+curl -fsSL https://ankra.ai/install | sh -s -- --no-onboard
+```
+
+The script:
+- Detects your OS and architecture and downloads the matching binary from
+  the [GitHub releases](https://github.com/ankraio/ankra-cli/releases)
+- Verifies it against the published SHA-256 checksum, and refuses to install
+  when the checksum is missing or does not match
+- Never asks a question and never uses `sudo`: it installs next to an `ankra`
+  you already have when it can write there, else into `/usr/local/bin` when
+  that is writable, else into `~/.ankra/bin`, and adds that to your `PATH`
+- Leaves a Homebrew-managed `ankra` alone and tells you to `brew upgrade ankra`
+
+Other options: `--version vX.Y.Z` pins a release, `--install-dir DIR` picks the
+directory and `--no-modify-path` leaves your shell startup files alone (or set
+`ANKRA_VERSION`, `ANKRA_INSTALL_DIR`, `ANKRA_NO_ONBOARD=1` or
+`ANKRA_NO_MODIFY_PATH=1`). `ankra.ai/install` redirects to
+`https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh`, so
+you can also run that URL directly.
+
+Coding agents can drive the same onboarding: `ankra onboard --json` prints one
+JSON event per step, each with an `instruction` for the agent and the
+`next_command` to run. See [Getting Started](#getting-started).
+
+### Homebrew
 
 ```bash
 brew install ankraio/tap/ankra
@@ -40,20 +82,6 @@ brew update && brew upgrade ankra
 A Homebrew-managed `ankra` refuses to self-update via `ankra upgrade` and
 points you at `brew upgrade ankra` instead, so Homebrew stays the single
 owner of the binary.
-
-### Quick Install Script
-
-For **macOS** and **Linux** without Homebrew, use the universal installer:
-
-```bash
-bash <(curl -sL https://github.com/ankraio/ankra-cli/releases/latest/download/install.sh)
-```
-
-This script will:
-- Auto-detect OS & architecture
-- Download the correct binary
-- Handle macOS security attributes
-- Install to `/usr/local/bin`
 
 ### Manual Installation
 
@@ -97,8 +125,8 @@ Downloads are verified against the published SHA-256 checksum and the running
 binary is replaced atomically; if it lives somewhere you cannot write (such as
 `/usr/local/bin`), re-run with `sudo ankra upgrade`. Pre-release (beta) builds
 are opt-in via `ankra config beta enable` or a one-off `ankra upgrade --beta`;
-the quick-install script can also pin one directly with
-`install.sh --version <pre-release-tag>`. See the
+the install script can also pin one directly with
+`curl -fsSL https://ankra.ai/install | sh -s -- --version <pre-release-tag>`. See the
 [upgrade](https://docs.ankra.ai/reference/cli/upgrade) and
 [config](https://docs.ankra.ai/reference/cli/config) reference pages for all
 flags and the beta-channel details.
@@ -111,7 +139,25 @@ deprecated command also prints a warning at runtime.
 
 ## Getting Started
 
-Authenticate with the browser-based login, then select a cluster to work with:
+`ankra onboard` takes a new or returning user from nothing to ready: it signs
+you up or in through the browser, picks your organisation, offers a free
+playground cluster when the organisation has none, and installs the Ankra
+skills for your coding agents. Run again, it skips what is already done. The
+install script runs it for you.
+
+A coding agent drives the same flow without a terminal:
+
+```bash
+ankra onboard --json          # prints a login_url event: show that link to the user
+ankra onboard --wait --json   # waits for the approval, then finishes the setup
+```
+
+Rerunning `ankra onboard --json` hands out the same link until it expires
+(`--new` starts over), so an agent never invalidates the link it already
+showed. `--yes` accepts the playground and skills offers, and `--no-playground`
+and `--no-agent-setup` skip them.
+
+To sign in by hand instead, then select a cluster to work with:
 
 ```bash
 ankra login                     # opens your browser, saves the token to ~/.ankra.yaml

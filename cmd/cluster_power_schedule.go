@@ -383,7 +383,7 @@ schedule while keeping its configuration, use
 		}
 		scheduleID := strings.TrimSpace(args[0])
 		yes, _ := cmd.Flags().GetBool("yes")
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete power schedule %s from cluster %s? [y/N]: ", scheduleID, cluster.Name), yes); err != nil {
 			return err
 		}

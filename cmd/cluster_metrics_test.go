@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
@@ -144,5 +145,78 @@ func TestMetricsCommandWiring(t *testing.T) {
 	}
 	if metricsCmd.PersistentFlags().Lookup("cluster") == nil {
 		t.Error("metrics command should expose a --cluster flag")
+	}
+}
+
+// downsampledRangeResult is the answer that passed for a real baseline on
+// PLA-928: 385 points produced, every seventh returned, truncated false, and
+// nothing that says either.
+func downsampledRangeResult() *client.PrometheusQueryResult {
+	values := make([]interface{}, 0, 50)
+	for index := 0; index < 50; index++ {
+		values = append(values, []interface{}{float64(1000 + index*12600), "1"})
+	}
+	return &client.PrometheusQueryResult{
+		Status:      "success",
+		TotalSeries: 2,
+		Result: []interface{}{
+			map[string]interface{}{"metric": map[string]interface{}{"__name__": "a"}, "values": values, "original_point_count": float64(385)},
+			map[string]interface{}{"metric": map[string]interface{}{"__name__": "b"}, "values": []interface{}{[]interface{}{float64(1000), "1"}}, "original_point_count": float64(1)},
+		},
+	}
+}
+
+func TestRangeDownsamplingNoticeNamesTheRealSpacing(t *testing.T) {
+	var out bytes.Buffer
+	printRangeDownsamplingNotice(&out, downsampledRangeResult())
+	for _, want := range []string{"Downsampled: 1 of 2 series", "(50 of 385)", "about 3h30m0s apart"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("notice %q does not say %q", out.String(), want)
+		}
+	}
+}
+
+func TestRangeDownsamplingNoticePrefersThePlatformsEffectiveStep(t *testing.T) {
+	result := downsampledRangeResult()
+	result.StepSeconds = 1800
+	result.EffectiveStepSeconds = 7200
+
+	var out bytes.Buffer
+	printRangeDownsamplingNotice(&out, result)
+	if !strings.Contains(out.String(), "about 2h0m0s apart") {
+		t.Errorf("notice %q ignores effective_step_seconds", out.String())
+	}
+}
+
+func TestRangeDownsamplingNoticeSaysNothingAboutACompleteAnswer(t *testing.T) {
+	complete := &client.PrometheusQueryResult{Status: "success", TotalSeries: 1, Result: []interface{}{
+		map[string]interface{}{"values": []interface{}{[]interface{}{float64(1), "1"}}, "original_point_count": float64(1)},
+		// A platform that predates original_point_count: unknown, so no claim.
+		map[string]interface{}{"values": []interface{}{[]interface{}{float64(1), "1"}}},
+	}}
+	var out bytes.Buffer
+	printRangeDownsamplingNotice(&out, complete)
+	if out.Len() != 0 {
+		t.Errorf("a complete answer printed %q", out.String())
+	}
+}
+
+func TestFormatRangePointCount(t *testing.T) {
+	cases := []struct {
+		name     string
+		series   map[string]interface{}
+		returned int
+		want     string
+	}{
+		{"downsampled", map[string]interface{}{"original_point_count": float64(385)}, 50, "50 of 385"},
+		{"complete", map[string]interface{}{"original_point_count": float64(50)}, 50, "50"},
+		{"platform does not say", map[string]interface{}{}, 50, "50"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := formatRangePointCount(testCase.series, testCase.returned); got != testCase.want {
+				t.Errorf("formatRangePointCount() = %q, want %q", got, testCase.want)
+			}
+		})
 	}
 }

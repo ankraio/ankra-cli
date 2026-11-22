@@ -366,7 +366,7 @@ resize it needs --accept-api-downtime, otherwise it needs a stopped cluster.
 Run "control-plane get" to see which of the two is available right now.`,
 	}
 
-	getCmd := &cobra.Command{
+	getCmd := withClusterArgument(clusterMustBeNamed, &cobra.Command{
 		Use:   "get <cluster_id|name>",
 		Short: "Show the current control plane configuration",
 		Args:  cobra.ExactArgs(1),
@@ -377,9 +377,9 @@ Run "control-plane get" to see which of the two is available right now.`,
 			}
 			return runControlPlaneGet(cmd, opsFn, clusterID)
 		},
-	}
+	})
 
-	setCountCmd := &cobra.Command{
+	setCountCmd := withClusterArgument(clusterMustBeNamed, &cobra.Command{
 		Use:   "set-count <cluster_id|name> <count>",
 		Short: fmt.Sprintf("Change the controller count (%s)", supportedCountsText),
 		Long: fmt.Sprintf(`Change the number of controllers (%s; etcd needs an odd number of
@@ -408,9 +408,9 @@ Run "control-plane get" to see whether a count change is possible right now.`, s
 			}
 			return runControlPlaneSetCount(cmd, opsFn, clusterID, count)
 		},
-	}
+	})
 
-	setInstanceTypeCmd := &cobra.Command{
+	setInstanceTypeCmd := withClusterArgument(clusterMustBeNamed, &cobra.Command{
 		Use:   "set-instance-type <cluster_id|name> <instance_type>",
 		Short: "Change the controller instance type",
 		Long:  setInstanceTypeLong(provider, catalogCommand),
@@ -422,7 +422,7 @@ Run "control-plane get" to see whether a count change is possible right now.`, s
 			}
 			return runControlPlaneSetInstanceType(cmd, opsFn, clusterID, args[1])
 		},
-	}
+	})
 
 	registerForceDrainFlag(setInstanceTypeCmd, forceDrainControlPlaneResizeUsage)
 	setInstanceTypeCmd.Flags().Bool(acceptAPIDowntimeFlag, false, acceptAPIDowntimeUsage)

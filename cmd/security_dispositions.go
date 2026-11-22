@@ -237,8 +237,8 @@ var securityDispositionsCmd = &cobra.Command{
 	Long: `List the organisation's vulnerability-disposition policies. A disposition
 acknowledges a finding (it stays visible but leaves the actionable set) or
 accepts its risk, for every occurrence its selector matches - one CVE and
-package inside one add-on across the organisation, or pinned to one workload
-or one image digest when no add-on owns the image.
+package inside one add-on across the organisation, or pinned to one
+namespace, one workload or one image digest when no add-on owns the image.
 
 Each policy has a lifecycle status: active, expiring (the review deadline
 is near), fix_available (a fixed version exists, so the acceptance should be
@@ -383,13 +383,19 @@ Anchor a new policy on one occurrence with --occurrence (an id from
 
 --scope chooses what the policy is pinned to. organisation_addon (the
 default) covers the add-on that owns the occurrence, on every cluster.
-workload covers one workload on one cluster and image covers one image
-digest wherever it runs; use either when no add-on owns the image, such as
-operator-managed pods, plain manifests or control-plane pods.
+When no add-on owns the image - your own application, operator-managed
+pods, plain manifests or control-plane pods - pick one of:
+  namespace  every workload in the occurrence's namespace on its cluster;
+             survives rollouts and image rebuilds (the usual choice for a
+             transitive dependency's CVE in one application)
+  workload   one workload on one cluster; a Deployment's pods pin the
+             Deployment, so the policy survives rollouts
+  image      one image digest wherever it runs; lapses on the next build
 
 Examples:
   ankra security dispositions preview --occurrence 4f1c... --disposition accepted_risk --expires-at 2026-12-31
-  ankra security dispositions preview --occurrence 4f1c... --scope workload --disposition acknowledged`,
+  ankra security dispositions preview --occurrence 4f1c... --scope workload --disposition acknowledged
+  ankra security dispositions preview --occurrence 4f1c... --scope namespace --disposition accepted_risk --expires-at 2026-12-31`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		request, err := securityDispositionPreviewRequestFromFlags(cmd)
@@ -490,6 +496,12 @@ func securitySelectorTarget(selector client.SecurityDispositionSelector) string 
 			target += " on cluster " + selector.ClusterID
 		}
 		return target
+	case selector.WorkloadNamespace != "":
+		target := "namespace " + selector.WorkloadNamespace
+		if selector.ClusterID != "" {
+			target += " on cluster " + selector.ClusterID
+		}
+		return target
 	case selector.ImageDigest != "":
 		return "image " + selector.ImageDigest
 	default:
@@ -530,12 +542,15 @@ moment a fixed version appears. --allow-unmatched stores a policy whose
 anchor no longer matches anything.
 
 --scope chooses what the policy is pinned to: organisation_addon (the
-default) for the add-on that owns the occurrence, or workload or image when
-no add-on owns the image.
+default) for the add-on that owns the occurrence, or, when no add-on owns
+the image, namespace (every workload in the namespace on its cluster,
+surviving rollouts and rebuilds), workload (one workload; a Deployment
+survives rollouts) or image (one digest; lapses on the next build).
 
 Examples:
   ankra security dispositions create --occurrence 4f1c... --disposition acknowledged --reason "tracked in PLA-812" --expires-at 2026-10-31
-  ankra security dispositions create --occurrence 4f1c... --scope workload --disposition accepted_risk --reason "operator-managed, not reachable from outside the cluster"`,
+  ankra security dispositions create --occurrence 4f1c... --scope workload --disposition accepted_risk --reason "operator-managed, not reachable from outside the cluster"
+  ankra security dispositions create --occurrence 4f1c... --scope namespace --disposition accepted_risk --reason "transitive via crewai, feature unused" --expires-at 2026-12-31`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		preview, err := securityDispositionPreviewRequestFromFlags(cmd)
@@ -562,7 +577,7 @@ Examples:
 		}
 		renderSecurityDispositionPreview(narration, blastRadius)
 		prompt := fmt.Sprintf("Record %s for %d occurrences? [y/N]: ", preview.Disposition, blastRadius.AffectedOccurrences)
-		if confirmError := confirmPrompt(cmd.InOrStdin(), narration, prompt, yes); confirmError != nil {
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), prompt, yes); confirmError != nil {
 			return confirmError
 		}
 		request := client.SecurityDispositionCreateRequest{
@@ -631,15 +646,10 @@ the security.manage permission; the write asks for confirmation unless
 		if request.Reason == nil && request.ExpiresAt == nil && request.ExpireWhenFixAvailable == nil {
 			return withExitCode(exitUsage, fmt.Errorf("nothing to change: pass --reason, --expires-at or --expire-when-fix-available"))
 		}
-		structured, err := structuredFormatFromFlags(cmd)
-		if err != nil {
-			return err
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
 		}
-		narration := cmd.OutOrStdout()
-		if structured != outputDefault {
-			narration = cmd.ErrOrStderr()
-		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), narration, fmt.Sprintf("Update disposition policy %s? [y/N]: ", policyID), yes); confirmError != nil {
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), fmt.Sprintf("Update disposition policy %s? [y/N]: ", policyID), yes); confirmError != nil {
 			return confirmError
 		}
 		policy, err := apiClient.UpdateSecurityDisposition(policyID, request)
@@ -668,15 +678,10 @@ Needs the security.manage permission; asks for confirmation unless --yes.`,
 		if strings.TrimSpace(reason) == "" {
 			return withExitCode(exitUsage, fmt.Errorf("--reason is required"))
 		}
-		structured, err := structuredFormatFromFlags(cmd)
-		if err != nil {
-			return err
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
 		}
-		narration := cmd.OutOrStdout()
-		if structured != outputDefault {
-			narration = cmd.ErrOrStderr()
-		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), narration, fmt.Sprintf("Revoke disposition policy %s? Its occurrences become actionable again. [y/N]: ", policyID), yes); confirmError != nil {
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), fmt.Sprintf("Revoke disposition policy %s? Its occurrences become actionable again. [y/N]: ", policyID), yes); confirmError != nil {
 			return confirmError
 		}
 		policy, err := apiClient.RevokeSecurityDisposition(policyID, client.SecurityDispositionRevokeRequest{Reason: strings.TrimSpace(reason)})
@@ -730,7 +735,7 @@ func init() {
 
 	for _, command := range []*cobra.Command{securityDispositionsPreviewCmd, securityDispositionsCreateCmd} {
 		command.Flags().String("occurrence", "", "Occurrence id to anchor the disposition on (from 'ankra security finding <id>')")
-		command.Flags().String("scope", "organisation_addon", "Selector scope: organisation_addon, workload or image; use workload or image when no add-on owns the occurrence's image")
+		command.Flags().String("scope", "organisation_addon", "Selector scope: organisation_addon, namespace, workload or image; use namespace (survives rollouts and rebuilds), workload or image when no add-on owns the occurrence's image")
 		command.Flags().String("disposition", "", "acknowledged or accepted_risk")
 		command.Flags().String("expires-at", "", "Review deadline as a date (2026-12-31) or RFC3339 timestamp")
 		command.Flags().Bool("expire-when-fix-available", false, "End the disposition the moment a fixed version appears")

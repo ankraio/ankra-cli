@@ -358,7 +358,7 @@ func (c *Client) UpdateAwsNodeGroupInstanceType(ctx context.Context, clusterID, 
 }
 
 func (c *Client) UpdateAwsNodeGroupLabels(ctx context.Context, clusterID, groupName string, labels map[string]string, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/aws/%s/node-groups/%s/labels", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/aws/%s/node-groups/%s/labels", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, marshalError := json.Marshal(UpdateLabelsRequest{Labels: labels})
 	if marshalError != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", marshalError)
@@ -367,7 +367,7 @@ func (c *Client) UpdateAwsNodeGroupLabels(ctx context.Context, clusterID, groupN
 }
 
 func (c *Client) UpdateAwsNodeGroupTaints(ctx context.Context, clusterID, groupName string, taints []NodeTaint, wait bool) (*UpdateNodeGroupResult, bool, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/aws/%s/node-groups/%s/taints", c.BaseURL, clusterID, groupName)
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/aws/%s/node-groups/%s/taints", c.BaseURL, url.PathEscape(clusterID), url.PathEscape(groupName))
 	payload, marshalError := json.Marshal(UpdateTaintsRequest{Taints: taints})
 	if marshalError != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", marshalError)

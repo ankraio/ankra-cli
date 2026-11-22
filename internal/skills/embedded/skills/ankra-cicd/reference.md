@@ -406,7 +406,9 @@ on: [failure, timeout, infra_error]}`.
 Kind blocks: `build {component, dockerfile, context, target, platforms, build_args, provenance,
 sbom, cache_to, bundle {path, manifest}}` · `scan {scanners, fail_on}` · `gate {approval_roles, require_stages}` · `publish {tags,
 promote_from: pull_request}` · `preview`,
-`verify`, `agent`, `approval`, `webhook`, `external` (validate, not yet executed).
+`verify`, `agent`, `approval`, `webhook`, `external` (validate, not yet executed). `environment`: one ephemeral
+cluster per `matrix` leg, the build deployed and tested on it, the result recorded and the cluster
+torn down; read with `ankra pipeline environments <run-id>`.
 
 Build attribution (application-bound repositories): `build.component: <name>` names the component
 a build stage belongs to; without it a `build-<component>` stage name does, and a single-component
@@ -423,7 +425,8 @@ Resolution order: stage `network` → `defaults.network` → kind default.
 
 Protected sections (the hash a human approves): `permissions`, `secrets`, `credentials`,
 `on.pull_request.fork_policy`, `defaults.network` above `egress-https`, the `services` catalog, and
-per stage: `network` above `egress-https`, `runs_on.*`, `resources.*`, `timeout`, `cache`, `with`,
+per stage: `network` above `egress-https`, `runs_on.cluster|node_selector|tolerations|runtime_class`
+(not `runs_on.arch`: a build target, so a pull request may change it), `resources.*`, `timeout`, `cache`, `with`,
 `gate.approval_roles`/`require_stages`, `publish.promote_from`, `approval.roles`/`min_approvals`, `agent.mode: agent` and
 its tool profile, `kind: external`. Everything else is logic and runs as the head says.
 

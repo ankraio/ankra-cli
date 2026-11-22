@@ -148,7 +148,6 @@ func TestGetNodesNamedReadAnnouncesOnlyWhenNoFormatWasAsked(t *testing.T) {
 }
 
 type cachedPodsMock struct {
-	baseMock
 	cacheInfo client.CacheInfo
 }
 

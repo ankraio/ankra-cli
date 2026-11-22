@@ -93,6 +93,19 @@ func (c *Client) sendJSON(method string, url string, payload any, target any) er
 // owns a deadline or a cancellable context can stop the request instead of
 // waiting out the shared client's timeout.
 func (c *Client) sendJSONContext(ctx context.Context, method string, url string, payload any, target any) error {
+	return c.sendJSONThrough(ctx, c.HTTP, method, url, payload, target)
+}
+
+// sendJSONSlow is sendJSONContext for a call the platform answers only once
+// a job it dispatched reports or its wait budget runs out, which can be past
+// the shared client's 30s response-header timeout: it rides
+// httpClientForSlowWrite and is bounded by ctx instead.
+func (c *Client) sendJSONSlow(ctx context.Context, method string, url string, payload any, target any) error {
+	return c.sendJSONThrough(ctx, c.httpClientForSlowWrite(), method, url, payload, target)
+}
+
+// sendJSONThrough is the shared body of sendJSONContext and sendJSONSlow.
+func (c *Client) sendJSONThrough(ctx context.Context, httpClient *http.Client, method string, url string, payload any, target any) error {
 	var bodyReader *bytes.Reader
 	if payload != nil {
 		encoded, marshalError := json.Marshal(payload)
@@ -111,7 +124,7 @@ func (c *Client) sendJSONContext(ctx context.Context, method string, url string,
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+c.Token)
 
-	response, doError := c.HTTP.Do(request)
+	response, doError := httpClient.Do(request)
 	if doError != nil {
 		return fmt.Errorf("request failed: %w", doError)
 	}
@@ -121,20 +134,8 @@ func (c *Client) sendJSONContext(ctx context.Context, method string, url string,
 	if readError != nil {
 		return fmt.Errorf("read response: %w", readError)
 	}
-	if response.StatusCode == http.StatusUnauthorized {
-		return ErrUnauthorized
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		if denied := PermissionDeniedFromResponse(response.StatusCode, body); denied != nil {
-			return denied
-		}
-		if restricted := BillingRestrictedFromResponse(body); restricted != nil {
-			return restricted
-		}
-		if detail := detailFromBody(body); detail != "" {
-			return newBackendDetailError(response.StatusCode, detail)
-		}
-		return newUnexpectedResponseError("request failed", response.StatusCode, redactedBodyForError(body, 500))
+	if responseError := errorFromResponse(response.StatusCode, body); responseError != nil {
+		return responseError
 	}
 	if target == nil {
 		return nil
@@ -143,6 +144,37 @@ func (c *Client) sendJSONContext(ctx context.Context, method string, url string,
 		return fmt.Errorf("parse response: %w", unmarshalError)
 	}
 	return nil
+}
+
+// errorFromResponse is the error sendJSON answers for a status that is not
+// 2xx, nil for a 2xx: ErrUnauthorized for a 401, the RBAC and billing
+// refusals, the backend's detail sentence, else the redacted body. A caller
+// that reads one refusal's body as a document of its own (the Overview
+// layout's 409) answers that one first and hands every other status here.
+func errorFromResponse(statusCode int, body []byte) error {
+	if statusCode == http.StatusUnauthorized {
+		return ErrUnauthorized
+	}
+	if statusCode >= 200 && statusCode < 300 {
+		return nil
+	}
+	if denied := PermissionDeniedFromResponse(statusCode, body); denied != nil {
+		return denied
+	}
+	if restricted := BillingRestrictedFromResponse(body); restricted != nil {
+		return restricted
+	}
+	if detail := detailFromBody(body); detail != "" {
+		return newBackendDetailError(statusCode, detail)
+	}
+	unexpected := newUnexpectedResponseError("request failed", statusCode, redactedBodyForError(body, 500))
+	if statusCode == http.StatusConflict {
+		// Kept only for a 409, the one answer a caller reads as a
+		// document (ResolveCloudWasteBatch); every other body is
+		// dropped with the request.
+		unexpected.body = body
+	}
+	return unexpected
 }
 
 // detailFromBody extracts the FastAPI `detail` string from a JSON error

@@ -41,8 +41,13 @@ func IsGitPushFailureResponse(body []byte) bool {
 // must print it unchanged, because the deploy tooling still substring-matches
 // it (cluster scripts/deploy_upgrade_addons.sh, pinned by
 // enginekit/clusterengine/gitsync_deploy_marker_test.go).
+//
+// OperationID names the operation the saved change started, when the platform
+// answers one (cluster ankra-s3ep2f). The change is deploying, so a caller that
+// waits on the operation needs it on the deferral as much as on a 200.
 type GitPushDeferral struct {
-	Message string
+	Message     string
+	OperationID string
 }
 
 // gitPushDeferralFromResponse classifies a response as a git-push deferral:
@@ -54,8 +59,9 @@ func gitPushDeferralFromResponse(statusCode int, body []byte) *GitPushDeferral {
 		return nil
 	}
 	var parsed struct {
-		Detail    string `json:"detail"`
-		ErrorCode string `json:"error_code"`
+		Detail      string `json:"detail"`
+		ErrorCode   string `json:"error_code"`
+		OperationID string `json:"operation_id"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return nil
@@ -63,5 +69,5 @@ func gitPushDeferralFromResponse(statusCode int, body []byte) *GitPushDeferral {
 	if parsed.ErrorCode != gitPushErrorCodeDeferred {
 		return nil
 	}
-	return &GitPushDeferral{Message: parsed.Detail}
+	return &GitPushDeferral{Message: parsed.Detail, OperationID: parsed.OperationID}
 }

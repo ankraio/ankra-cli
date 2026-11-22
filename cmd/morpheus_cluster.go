@@ -101,13 +101,12 @@ var morpheusCreateCmd = &cobra.Command{
 
 		fmt.Printf("HPE Morpheus cluster '%s' created successfully!\n", result.Name)
 		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
-		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
-			strings.TrimRight(baseURL, "/"), result.ClusterID)
+		fmt.Printf("\nView it in the UI:\n  %s\n", portalClusterURLByID(result.ClusterID))
 		return nil
 	},
 }
 
-var morpheusStopCmd = &cobra.Command{
+var morpheusStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "stop <cluster_id|name>",
 	Short: "Stop an HPE Morpheus cluster",
 	Long:  "Stop an HPE Morpheus cluster's instances while keeping its configuration so it can be started again later.",
@@ -141,9 +140,9 @@ var morpheusStopCmd = &cobra.Command{
 		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
 		return nil
 	},
-}
+})
 
-var morpheusStartCmd = &cobra.Command{
+var morpheusStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped HPE Morpheus cluster",
 	Long:  "Start (re-provision) a stopped HPE Morpheus cluster. Use --scope control_plane to bring up only the control plane.",
@@ -158,7 +157,7 @@ var morpheusStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, startError := apiClient.StartMorpheusCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd)})
+		result, startError := apiClient.StartMorpheusCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(cmd), RestoreSnapshotID: restoreSnapshotIDFlag(cmd), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(cmd)})
 		if startError != nil {
 			return fmt.Errorf("starting cluster: %w", startError)
 		}
@@ -169,12 +168,12 @@ var morpheusStartCmd = &cobra.Command{
 			fmt.Printf("  Marked to start at: %s\n", result.MarkedToStartAt)
 		}
 		fmt.Printf("  Created operations: %d\n", result.CreatedOperations)
-		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
+		printStartStateOutcome(result.StateRestore, result.StateSnapshotID, result.StateRestoreMessage)
 		return nil
 	},
-}
+})
 
-var morpheusWorkersCmd = &cobra.Command{
+var morpheusWorkersCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for an HPE Morpheus cluster",
 	Args:  cobra.ExactArgs(1),
@@ -200,9 +199,9 @@ var morpheusWorkersCmd = &cobra.Command{
 		fmt.Printf("  Max: %d\n", result.Max)
 		return nil
 	},
-}
+})
 
-var morpheusK8sVersionCmd = &cobra.Command{
+var morpheusK8sVersionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for an HPE Morpheus cluster",
 	Args:  cobra.ExactArgs(1),
@@ -231,7 +230,7 @@ var morpheusK8sVersionCmd = &cobra.Command{
 		fmt.Printf("  Distribution: %s\n", result.Distribution)
 		return nil
 	},
-}
+})
 
 var morpheusGroupsCmd = &cobra.Command{
 	Use:   "groups",
@@ -380,18 +379,18 @@ func init() {
 	morpheusCreateCmd.Flags().String("description", "", "Cluster description")
 	morpheusCreateCmd.Flags().String("credential-id", "", "HPE Morpheus API credential ID (required)")
 	morpheusCreateCmd.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (required)")
-	morpheusCreateCmd.Flags().Int64("group-id", 0, "Morpheus group ID (required; see `ankra cluster morpheus groups`)")
-	morpheusCreateCmd.Flags().Int64("cloud-id", 0, "Morpheus cloud ID (required; see `ankra cluster morpheus clouds`)")
-	morpheusCreateCmd.Flags().Int64("network-id", 0, "Morpheus network ID (required; see `ankra cluster morpheus networks`)")
-	morpheusCreateCmd.Flags().Int64("layout-id", 0, "Morpheus instance-type layout ID (required; see `ankra cluster morpheus layouts`)")
+	morpheusCreateCmd.Flags().Int64("group-id", 0, "Morpheus group ID (required; see 'ankra cluster morpheus groups')")
+	morpheusCreateCmd.Flags().Int64("cloud-id", 0, "Morpheus cloud ID (required; see 'ankra cluster morpheus clouds')")
+	morpheusCreateCmd.Flags().Int64("network-id", 0, "Morpheus network ID (required; see 'ankra cluster morpheus networks')")
+	morpheusCreateCmd.Flags().Int64("layout-id", 0, "Morpheus instance-type layout ID (required; see 'ankra cluster morpheus layouts')")
 	morpheusCreateCmd.Flags().Int64("virtual-image-id", 0, "Morpheus virtual image ID (optional)")
-	morpheusCreateCmd.Flags().Int64("bastion-plan-id", 0, "Service plan ID for the bastion (required; see `ankra cluster morpheus plans`)")
+	morpheusCreateCmd.Flags().Int64("bastion-plan-id", 0, "Service plan ID for the bastion (required; see 'ankra cluster morpheus plans')")
 	morpheusCreateCmd.Flags().Int("control-plane-count", 1, "Number of control plane nodes")
 	morpheusCreateCmd.Flags().Int64("control-plane-plan-id", 0, "Service plan ID for control plane nodes (required)")
 	morpheusCreateCmd.Flags().Int("worker-count", 1, "Number of worker nodes")
 	morpheusCreateCmd.Flags().Int64("worker-plan-id", 0, "Service plan ID for worker nodes (required)")
 	morpheusCreateCmd.Flags().String("distribution", "kubeadm", "Kubernetes distribution: kubeadm (default, vanilla upstream Kubernetes with Cilium) or k3s")
-	morpheusCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see `ankra cluster kubeadm-versions` or `ankra cluster k3s-versions`)")
+	morpheusCreateCmd.Flags().String("kubernetes-version", "", "Kubernetes version (optional; see 'ankra cluster kubeadm-versions' or 'ankra cluster k3s-versions')")
 	morpheusCreateCmd.Flags().String("etcd-topology", "stacked", "etcd topology for kubeadm clusters: stacked (on control plane) or external (dedicated instances)")
 	morpheusCreateCmd.Flags().Int("etcd-node-count", 3, "Number of dedicated etcd nodes when --etcd-topology=external (3 or 5)")
 	morpheusCreateCmd.Flags().Int64("etcd-plan-id", 0, "Service plan ID for dedicated etcd nodes when --etcd-topology=external (optional)")
@@ -413,7 +412,7 @@ func init() {
 	_ = morpheusCreateCmd.MarkFlagRequired("worker-plan-id")
 
 	morpheusStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(morpheusStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(morpheusStartCmd)
 
 	for _, catalogCmd := range []*cobra.Command{morpheusGroupsCmd, morpheusCloudsCmd, morpheusPlansCmd, morpheusLayoutsCmd, morpheusNetworksCmd} {
 		catalogCmd.Flags().String("credential-id", "", "HPE Morpheus API credential ID (required)")

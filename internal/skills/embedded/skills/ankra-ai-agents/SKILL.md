@@ -1,6 +1,6 @@
 ---
 name: ankra-ai-agents
-description: Run and govern Ankra's AI agents - choosing the model provider and catalogue (Ankra, Anthropic, OpenRouter, or an OpenAI-compatible endpoint such as LiteLLM or vLLM), choosing the model per AI function (lanes), registering MCP tool servers and granting individual tools to organisation roles, the AI kill switch and pause, the auto-remediation policy, daily AI spend caps, the board identity, dispatching and supervising agent runs and their transcripts, working the AI board of tickets, and confirming or rejecting the writes an agent proposes. Use when the user mentions Ankra AI, AI agents, sub-agents, agent runs, MCP servers or tools, the AI board or tickets, the model catalogue, or configuring which model Ankra uses.
+description: Run and govern Ankra's AI agents - choosing the model provider and catalogue (Ankra, Anthropic, OpenRouter, or an OpenAI-compatible endpoint such as LiteLLM or vLLM), a member's own Anthropic or OpenRouter API keys for the chats and pull request reviews they start, choosing the model per AI function (lanes), registering MCP tool servers and granting individual tools to organisation roles, the AI kill switch and pause, the auto-remediation policy, daily AI spend caps, the board identity, dispatching and supervising agent runs and their transcripts, working the AI board of tickets, and confirming or rejecting the writes an agent proposes. Use when the user mentions Ankra AI, AI agents, sub-agents, agent runs, MCP servers or tools, the AI board or tickets, the model catalogue, personal AI keys, or configuring which model Ankra uses.
 ---
 
 # Ankra AI agents
@@ -85,6 +85,35 @@ generation, deploy analysis) fall back to the Ankra platform provider; stack des
 summaries run natively against your endpoint. The **What runs where** matrix on the settings page
 is authoritative — check it before promising an air-gapped setup.
 
+### A member's own AI keys
+
+Separate from the organisation's provider: each member can put their own Claude Console API keys
+(they start with `sk-ant-`) or OpenRouter API keys (`sk-or-...`) on their profile, and the chats
+they send and the reviews of their GitHub and Bitbucket Cloud pull requests run on those keys, in
+their order, billed to their own account. GitLab reviews, background work, scheduled runs and
+alert analysis stay on the organisation's AI. A key only ever serves the member who added it, and
+no admin role is needed to add one.
+
+```bash
+ankra ai keys list                    # your keys, in the order tried, with status, and whether the org uses them
+ankra ai keys add --label work        # asks for the key with the input hidden
+pass show anthropic | ankra ai keys add --key-stdin   # or pipe it in; the key is never a flag
+ankra ai keys test work               # re-check with the provider; exits 1 when it fails
+ankra ai keys order work              # named keys first, the rest keep their order after them
+ankra ai keys rename work "Personal Max plan"
+ankra ai keys remove work             # asks first; --yes to skip
+ankra ai keys policy                  # does this organisation use members' keys?
+ankra ai keys policy disable          # admin: stop it (members keep their keys, shown as not in use)
+```
+
+`<key>` is the key's id or its label. Never put a key in a flag or a command line, and never echo it
+back: only the masked preview (`sk-ant-...1234`) is ever shown. A Claude subscription token
+(`sk-ant-oat...`) or an Anthropic admin key is refused before anything is sent; the member creates an
+API key in the Claude Console instead. Up to 10 keys per member; a second key of the same Anthropic
+account is refused (they share one balance). An out-of-credit key is tried again an hour later; a
+rejected key stays unused until `test` passes. Members can do the same in the portal: Profile,
+Connected accounts, Your AI keys.
+
 ## 2. Tools: MCP servers
 
 An agent can only call tools it has been given. MCP servers are how you extend that set beyond
@@ -160,6 +189,32 @@ Statuses: `pending`, `running`, `awaiting_user`, `completed`, `failed`, `cancell
 `agents transcript` is the audit trail: it shows what the agent read, which tools it called, and
 what it concluded. Read it before accepting a conclusion, and always before approving a write.
 
+The agents themselves are **agent tasks**: a goal, a trigger (mission, cron, alert or manual), a
+tool profile, an autonomy level and a budget. A task is named by its id or its exact name; reading
+needs `ai.use`, every change `ai.manage` and an organisation admin.
+
+```bash
+ankra ai tasks list                                # the organisation's agents
+ankra ai tasks templates list                      # the built-in roles, and which are hired
+ankra ai tasks templates hire <template> [--cluster <name|id>]
+ankra ai tasks create --name "Nightly cost review" --goal "..." --trigger cron --cron "0 6 * * *"
+ankra ai tasks update <task> --autonomy-level propose          # only what you name changes; -f for the rest
+ankra ai tasks run <task>                          # queue it now
+ankra ai tasks pause <task>                        # stop scheduling; a live run finishes its turn
+ankra ai tasks stop <task>                         # pause and cancel the live run; confirms
+ankra ai tasks resume <task>
+ankra ai tasks runs <task>                         # this agent's recent runs
+ankra ai tasks reapply-template <task>             # bring a hired agent up to its role; --force replaces a customised one
+ankra ai tasks delete <task>                       # confirms
+```
+
+What the ticket lane has learned is readable too: `ankra ai conditions list [--chronic]` and
+`conditions get <id>` (the recurring problems tickets are filed against, with their evidence
+timeline), `ankra ai playbooks list|adopt|retire` (the reviewed procedures remediation runs;
+adopting and retiring confirm and need an organisation admin), and `ankra ai handoffs list` with
+`handoffs acknowledge <id> --tracker-reference ENG-482` for the platform-level conditions handed to
+your engineering tracker.
+
 ### Autonomy, remediation and cost
 
 ```bash
@@ -222,6 +277,13 @@ ankra tickets link T-50 T-31 --relation recurrence_of
 ankra tickets unlink T-50 T-31
 ankra tickets close T-50 --duplicate-of T-42       # closes as duplicate and links the keeper
 ankra tickets close T-50 --resolution fixed --note "Renewed the certificate"
+ankra tickets assign T-42 --agent <agent-task-id>  # or --user <user-id>, or --unassign
+ankra tickets plan draft T-42 --file plan.md       # record a plan you wrote; `-` reads stdin
+ankra tickets plan review T-42 --verdict approve   # or request_changes --rationale "..."
+ankra tickets workspace T-42 --workspace <id>      # attach an AI workspace; --detach removes it
+ankra tickets sync connections list                # tickets mirrored to Jira, Linear or a webhook
+ankra tickets sync connections create --name linear --provider linear --team-id <id> --secret-stdin   # the key is never an argument
+ankra tickets sync destinations --provider linear --connection <connection-id>   # the teams a key can file into
 ```
 
 `close --duplicate-of` names the open ticket covering the same cause. The platform links the
@@ -277,10 +339,16 @@ ankra chat --mode agent "open a PR fixing the failing lint job"
 ankra chat health                                  # AI-analysed cluster health
 ankra chat history ; ankra chat show <conversation-id> ; ankra chat delete <id>
 ankra ai memories list ; ankra ai memories clear   # what the assistant remembers about you
+ankra ai memories profile get                      # the profile it learned of you; `set --learning off`, `reset --yes`
 
 ankra chat actions list <conversation-id>          # writes awaiting confirmation
 ankra chat actions confirm <action-id>
 ankra chat actions reject <action-id>
+
+ankra chat plans list <conversation-id>            # multi-step plans awaiting approval
+ankra chat plans get <plan-id>                     # the steps, their risk and whether each is reversible
+ankra chat plans approve <plan-id>                 # runs the steps; --acknowledge 2,4 names high-risk or irreversible ones
+ankra chat plans reject <plan-id> --reason "not now"
 ```
 
 Agent-mode chat **halts before every write** and proposes it as a pending action. Pending actions

@@ -20,7 +20,6 @@ import (
 // called with. The cluster is a Hetzner one; the kind dispatch itself is
 // pinned by TestNodeGroupSelectorsForKind.
 type forceDrainNodeGroupMock struct {
-	baseMock
 	cluster      client.ClusterListItem
 	scaleDrains  []client.DrainOptions
 	resizeDrains []client.DrainOptions
@@ -161,6 +160,7 @@ func TestForceDrainFlagIsOffByDefaultAndNamesPodDisruptionBudgets(t *testing.T) 
 		clusterNodeGroupScaleCmd,
 		clusterNodeGroupUpgradeCmd,
 		clusterNodeGroupDeleteCmd,
+		clusterNodeGroupRemoveNodeCmd,
 	} {
 		flag := command.Flags().Lookup(forceDrainFlag)
 		if flag == nil {
@@ -190,7 +190,6 @@ type controlPlaneResizeCall struct {
 // instance-type change, so a command routed to the wrong provider's method is
 // caught as well as a flag that never reaches the call.
 type forceDrainControlPlaneMock struct {
-	baseMock
 	calls []controlPlaneResizeCall
 }
 

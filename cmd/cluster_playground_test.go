@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"ankra/internal/client"
 )
@@ -15,7 +16,6 @@ import (
 const playgroundTestClusterID = "8f6a4d2e-1c3b-4a5d-9e7f-0123456789ab"
 
 type playgroundMock struct {
-	baseMock
 
 	// clusters answers ListClusters for the name-resolution tests; nil
 	// keeps the base mock's "not implemented".
@@ -41,7 +41,7 @@ type playgroundMock struct {
 
 func (m *playgroundMock) ListClusters(page int, pageSize int) (*client.ClusterListResponse, error) {
 	if m.clusters == nil {
-		return m.baseMock.ListClusters(page, pageSize)
+		return baseMock{}.ListClusters(page, pageSize)
 	}
 	return &client.ClusterListResponse{Result: m.clusters, Pagination: client.Pagination{TotalPages: 1, Page: page, PageSize: pageSize}}, nil
 }
@@ -81,8 +81,8 @@ func (m *playgroundMock) DestroyPlayground(clusterID string) (*client.DestroyPla
 func withPlaygroundMock(t *testing.T, mock *playgroundMock) {
 	t.Helper()
 	previous := apiClient
-	apiClient = mock
-	t.Cleanup(func() { apiClient = previous })
+	apiClient = adaptMockClient(mock)
+	t.Cleanup(func() { apiClient = adaptMockClient(previous) })
 }
 
 func TestPlaygroundCreatePrintsTheClusterIDAndTheFollowUpCommand(t *testing.T) {
@@ -128,9 +128,11 @@ func TestPlaygroundPlansListsSizesWithPricesAndAvailability(t *testing.T) {
 		plansCatalog: &client.PlaygroundPlanCatalog{
 			DefaultPlanID: "trial",
 			Currency:      "eur",
-			// No paid billing plan: the listing must say so instead of
-			// letting the order fail at the end.
+			// Neither the billing plan nor the memory budget decides what a
+			// playground on Ankra Cloud can be ordered at, so the listing
+			// must not print a line about either.
 			OrganisationHasPaidPlan: false,
+			Quota:                   client.PlaygroundMemoryQuota{LimitMiB: 8192},
 			Plans: []client.PlaygroundPlan{
 				{ID: "trial", DisplayName: "Trial", Vcpus: 1, MemoryGB: 2, StorageGB: 20, PriceMonthlyCents: 0, Currency: "eur", Available: true},
 				{ID: "small", DisplayName: "Small", Vcpus: 2, MemoryGB: 4, StorageGB: 50, PriceMonthlyCents: 1350, Currency: "eur", Available: true},
@@ -146,9 +148,14 @@ func TestPlaygroundPlansListsSizesWithPricesAndAvailability(t *testing.T) {
 	}
 	output := buffer.String()
 	for _, expected := range []string{"trial", "free", "small", "€13.50/mo", "large", "at capacity right now",
-		"create --size", "billing plan"} {
+		"create --size"} {
 		if !strings.Contains(output, expected) {
 			t.Errorf("expected %q in the listing, got: %s", expected, output)
+		}
+	}
+	for _, unexpected := range []string{"billing plan", "Memory budget", "playground-memory"} {
+		if strings.Contains(output, unexpected) {
+			t.Errorf("did not expect %q in the listing, got: %s", unexpected, output)
 		}
 	}
 }
@@ -176,18 +183,27 @@ func TestPlaygroundResizePassesTheSizeAndPrintsTheOutcome(t *testing.T) {
 		t.Errorf("resize call = %q, want "+playgroundTestClusterID+":medium", mock.resizeRequested)
 	}
 	output := buffer.String()
-	for _, expected := range []string{"Medium", "€28.80/mo", "pro-rata"} {
+	for _, expected := range []string{"resize started", "Medium", "€28.80/mo", "bills it to your Ankra Cloud account from the change"} {
 		if !strings.Contains(output, expected) {
 			t.Errorf("expected %q in output, got: %s", expected, output)
 		}
 	}
+	if strings.Contains(output, "pro-rata") {
+		t.Errorf("Ankra Cloud does not bill a resize pro-rata, got: %s", output)
+	}
 }
 
+// `plans` lists what a new playground is created at, not the plans an
+// existing one can move to, so the refusal must not send the reader there.
 func TestPlaygroundResizeRequiresTheSizeFlag(t *testing.T) {
 	withPlaygroundMock(t, &playgroundMock{})
 	clusterPlaygroundResizeSize = ""
-	if err := clusterPlaygroundResizeCmd.RunE(clusterPlaygroundResizeCmd, []string{playgroundTestClusterID}); err == nil {
+	err := clusterPlaygroundResizeCmd.RunE(clusterPlaygroundResizeCmd, []string{playgroundTestClusterID})
+	if err == nil {
 		t.Fatal("resize without --size must refuse")
+	}
+	if strings.Contains(err.Error(), "playground plans") {
+		t.Errorf("the refusal points at `plans`, which does not list resize sizes: %v", err)
 	}
 }
 
@@ -426,22 +442,20 @@ func TestPlaygroundDestroySurfacesTheServerError(t *testing.T) {
 	}
 }
 
-// A custom plan is invoiced against its agreement rather than collected by
-// Stripe, so the order gate never asks for a card and the listing must not
-// either. Every other plan still says so - including against a server too old
-// to send the field, where an absent answer is not an exemption.
-func TestPlaygroundPlansAsksForACardOnlyWhereStripeCollects(t *testing.T) {
+// A playground on Ankra Cloud is paid for through the organisation's Ankra
+// Cloud account, never through a card on Ankra's own billing page, so the
+// listing asks for no card whatever the billing plan answers.
+func TestPlaygroundPlansNeverAsksForACardOnTheBillingPage(t *testing.T) {
 	requiresCard := true
 	exemptFromCard := false
 
 	for _, testCase := range []struct {
 		name          string
 		requiresField *bool
-		wantCardLine  bool
 	}{
-		{name: "custom plan", requiresField: &exemptFromCard, wantCardLine: false},
-		{name: "Stripe-collected plan", requiresField: &requiresCard, wantCardLine: true},
-		{name: "server predating the field", requiresField: nil, wantCardLine: true},
+		{name: "custom plan", requiresField: &exemptFromCard},
+		{name: "Stripe-collected plan", requiresField: &requiresCard},
+		{name: "server predating the field", requiresField: nil},
 	} {
 		withPlaygroundMock(t, &playgroundMock{
 			plansCatalog: &client.PlaygroundPlanCatalog{
@@ -463,9 +477,8 @@ func TestPlaygroundPlansAsksForACardOnlyWhereStripeCollects(t *testing.T) {
 		}
 		output := buffer.String()
 		clusterPlaygroundPlansCmd.SetOut(nil)
-		if hasCardLine := strings.Contains(output, "payment card on file"); hasCardLine != testCase.wantCardLine {
-			t.Errorf("%s: card line present = %v, want %v; output: %s",
-				testCase.name, hasCardLine, testCase.wantCardLine, output)
+		if strings.Contains(output, "payment card on file") {
+			t.Errorf("%s: the listing asks for a card on the billing page; output: %s", testCase.name, output)
 		}
 	}
 }
@@ -477,7 +490,7 @@ func TestPlaygroundPlansAsksForACardOnlyWhereStripeCollects(t *testing.T) {
 func TestPlaygroundCommandsResolveAClusterName(t *testing.T) {
 	mock := &playgroundMock{
 		clusters: []client.ClusterListItem{
-			{ID: "11111111-2222-4333-8444-555555555555", Name: "other"},
+			{ID: "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f", Name: "other"},
 			{ID: playgroundTestClusterID, Name: "playground"},
 		},
 		status:        &client.PlaygroundStatus{ClusterID: playgroundTestClusterID, Phase: "ready", ExpiresAt: "2026-08-14T09:00:00Z"},
@@ -531,5 +544,54 @@ func TestPlaygroundCommandsNameAnUnknownClusterInsteadOfA404(t *testing.T) {
 	}
 	if mock.statusRequested != "" {
 		t.Errorf("no request must be made for an unresolved name, got %q", mock.statusRequested)
+	}
+}
+
+// An Ankra Cloud playground has no idle expiry, so the API sends an empty
+// expires_at; the status must leave the line out rather than print a bare
+// "Expires at:" label (seen in the product film audit, 2026-11-07).
+func TestPlaygroundStatusOmitsAnEmptyExpiry(t *testing.T) {
+	trialEnd := time.Now().Add(50 * time.Hour).UTC().Format(time.RFC3339)
+	withPlaygroundMock(t, &playgroundMock{status: &client.PlaygroundStatus{
+		ClusterID:      playgroundTestClusterID,
+		Phase:          "ready",
+		IsTrial:        true,
+		TrialExpiresAt: &trialEnd,
+	}})
+	output := captureStdout(t, func() {
+		if err := clusterPlaygroundStatusCmd.RunE(clusterPlaygroundStatusCmd, []string{playgroundTestClusterID}); err != nil {
+			t.Fatalf("status failed: %v", err)
+		}
+	})
+	if strings.Contains(output, "Expires at:") {
+		t.Errorf("expected no Expires at line for an empty expiry, got: %s", output)
+	}
+	if !strings.Contains(output, "Trial ends: "+trialEnd+" (in 2d 1h)") &&
+		!strings.Contains(output, "Trial ends: "+trialEnd+" (in 2d 2h)") {
+		t.Errorf("expected the trial end with the time left, got: %s", output)
+	}
+}
+
+func TestFormatPlaygroundDeadline(t *testing.T) {
+	now := time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
+	testCases := []struct {
+		name      string
+		timestamp string
+		want      string
+	}{
+		{"absent", "", ""},
+		{"days ahead", "2026-11-09T15:30:00Z", "2026-11-09T15:30:00Z (in 2d 3h)"},
+		{"hours ahead", "2026-11-07T15:20:00Z", "2026-11-07T15:20:00Z (in 3h 20m)"},
+		{"minutes ahead", "2026-11-07T12:09:00Z", "2026-11-07T12:09:00Z (in 9m)"},
+		{"seconds ahead", "2026-11-07T12:00:30Z", "2026-11-07T12:00:30Z (in under a minute)"},
+		{"passed", "2026-11-07T11:00:00Z", "2026-11-07T11:00:00Z (expired)"},
+		{"unparseable is kept", "tomorrow", "tomorrow"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := formatPlaygroundDeadline(testCase.timestamp, now); got != testCase.want {
+				t.Errorf("formatPlaygroundDeadline(%q) = %q, want %q", testCase.timestamp, got, testCase.want)
+			}
+		})
 	}
 }

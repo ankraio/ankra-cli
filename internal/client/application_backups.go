@@ -47,6 +47,58 @@ type ApplicationBackupDeployment struct {
 	HasDatabase      bool                `json:"has_database" yaml:"has_database"`
 	HasDatabaseKnown bool                `json:"has_database_known" yaml:"has_database_known"`
 	Posture          *StackBackupPosture `json:"posture" yaml:"posture"`
+	// Keeping is what the stack's backups keep. It is nil both when the
+	// platform sent null (the deployment has not created its stack yet) and
+	// when it sent no key at all (a platform that predates the block); the
+	// structured output tells the two apart because it prints the platform's
+	// own document (see ApplicationBackups), not this struct.
+	Keeping *ApplicationBackupKeeping `json:"keeping,omitempty" yaml:"keeping,omitempty"`
+}
+
+// ApplicationBackupKeeping is what one deployment's backups keep: what the
+// retention policy asks for, and the restore points actually kept now.
+//
+// State is known, no_policy or unknown, and a reader branches on it first.
+// With unknown every other field is null or false and none of them means
+// "none". With known or no_policy, KeptCount and UnattributedKeptCount are
+// set (zero is a stack that keeps no restore point of its own) and a nil
+// OldestKeptAt means it keeps none of its own. ProtectedSince and
+// LastRestoreTest each carry their own state (known, none or unknown) and
+// are set only when it is known.
+type ApplicationBackupKeeping struct {
+	State string `json:"state" yaml:"state"`
+	// Policy is the stored retention, nil unless State is known.
+	Policy *BackupRetention `json:"policy" yaml:"policy"`
+	// KeepsDays is the policy's longest period in whole days, nil when the
+	// policy keeps everything, keeps a minimum count only, keeps less than a
+	// day, or State is not known.
+	KeepsDays       *int    `json:"keeps_days" yaml:"keeps_days"`
+	KeepsEverything bool    `json:"keeps_everything" yaml:"keeps_everything"`
+	OldestKeptAt    *string `json:"oldest_kept_at" yaml:"oldest_kept_at"`
+	KeptCount       *int    `json:"kept_count" yaml:"kept_count"`
+	// UnattributedKeptCount counts restore points carrying the stack's name
+	// that record no source stack, so whether they are this stack's cannot be
+	// told. They are not in KeptCount.
+	UnattributedKeptCount *int    `json:"unattributed_kept_count" yaml:"unattributed_kept_count"`
+	ProtectedSince        *string `json:"protected_since" yaml:"protected_since"`
+	// ProtectedSinceState is known (ProtectedSince is set), none (no restore
+	// point of this stack ever completed) or unknown (the answer cannot be
+	// told).
+	ProtectedSinceState string                        `json:"protected_since_state" yaml:"protected_since_state"`
+	LastRestoreTest     *ApplicationBackupRestoreTest `json:"last_restore_test" yaml:"last_restore_test"`
+	// LastRestoreTestState is known (LastRestoreTest is set), none (no
+	// restore was ever tested) or unknown (the answer cannot be told).
+	LastRestoreTestState string `json:"last_restore_test_state" yaml:"last_restore_test_state"`
+}
+
+// ApplicationBackupRestoreTest is the newest restore test of any of the
+// stack's restore points. TookSeconds and BytesBack are nil when the test did
+// not record them.
+type ApplicationBackupRestoreTest struct {
+	TestedAt    *string `json:"tested_at" yaml:"tested_at"`
+	State       string  `json:"state" yaml:"state"`
+	TookSeconds *int64  `json:"took_seconds" yaml:"took_seconds"`
+	BytesBack   *int64  `json:"bytes_back" yaml:"bytes_back"`
 }
 
 // StackBackupPosture is the stack's protection verdict as the backup posture
@@ -80,7 +132,13 @@ type StackBackupPosture struct {
 // for an application that has never been decided on is ON, so a bare bool
 // would read a response that carries no setting as "off" - the opposite of
 // what the next deploy of that application will do.
+//
+// The value keeps the platform's own response document beside the decode,
+// and -o json|yaml prints that document: a field sent as null stays null, a
+// field the platform did not send stays out, and a field this CLI does not
+// declare yet is passed through rather than dropped.
 type ApplicationBackups struct {
+	RawDocument     `json:"-" yaml:"-"`
 	ApplicationID   string                        `json:"application_id" yaml:"application_id"`
 	ApplicationName string                        `json:"application_name" yaml:"application_name"`
 	Database        ApplicationDatabase           `json:"database" yaml:"database"`

@@ -120,7 +120,7 @@ func runPipelineDefinitionsApprove(command *cobra.Command, definitionID string) 
 	skipConfirmation, _ := command.Flags().GetBool("yes")
 	confirmMessage := fmt.Sprintf("Approve pipeline definition %s as trusted authority? This grants whatever "+
 		"permissions, credentials and network access its protected sections declare. [y/N] ", definitionID)
-	if confirmError := confirmPrompt(command.InOrStdin(), command.OutOrStdout(), confirmMessage, skipConfirmation); confirmError != nil {
+	if confirmError := confirmPrompt(command.InOrStdin(), command.ErrOrStderr(), confirmMessage, skipConfirmation); confirmError != nil {
 		return confirmError
 	}
 	approval, approveError := apiClient.ApprovePipelineDefinition(command.Context(), definitionID)

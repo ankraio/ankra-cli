@@ -30,8 +30,6 @@ func resetOrgDnsFlags(t *testing.T) {
 // shapes and the id/name resolution. It embeds baseMock for the rest of the
 // APIClient surface.
 type dnsMock struct {
-	baseMock
-
 	zone        client.DnsZone
 	records     []client.DnsRecord
 	createCalls []createDnsCall
@@ -63,7 +61,7 @@ func (m *dnsMock) CreateOrganisationDnsRecord(ctx context.Context, name, recordT
 	if m.createErr != nil {
 		return nil, m.createErr
 	}
-	return &client.DnsRecord{ID: "3f0a2f7e-0000-4000-8000-000000000001",
+	return &client.DnsRecord{ID: "0b7c4d0a-5f6a-4b8c-9d0e-1f2a3b4c5d6e",
 		Name: name + ".org1234.ankra.cc", RecordType: recordType, Content: content, TTL: ttl, State: "pending"}, nil
 }
 
@@ -169,8 +167,8 @@ func TestRunOrgDnsAdd_OmittedTTLStaysAuto(t *testing.T) {
 
 func TestRunOrgDnsUpdate_ResolvesNameToID(t *testing.T) {
 	mock := &dnsMock{records: []client.DnsRecord{
-		{ID: "3f0a2f7e-0000-4000-8000-0000000000aa", Name: "chat.org1234.ankra.cc", RecordType: "CNAME", Content: "old.example.com", State: "active"},
-		{ID: "3f0a2f7e-0000-4000-8000-0000000000bb", Name: "app.org1234.ankra.cc", RecordType: "A", Content: "203.0.113.10", State: "active"},
+		{ID: "0b7c4d0a-0000-4000-8000-0000000000aa", Name: "chat.org1234.ankra.cc", RecordType: "CNAME", Content: "old.example.com", State: "active"},
+		{ID: "0b7c4d0a-0000-4000-8000-0000000000bb", Name: "app.org1234.ankra.cc", RecordType: "A", Content: "203.0.113.10", State: "active"},
 	}}
 	setMockClient(t, mock)
 	resetOrgDnsFlags(t)
@@ -187,15 +185,15 @@ func TestRunOrgDnsUpdate_ResolvesNameToID(t *testing.T) {
 		t.Fatalf("expected one update call, got %d", len(mock.updateCalls))
 	}
 	got := mock.updateCalls[0]
-	if got.RecordID != "3f0a2f7e-0000-4000-8000-0000000000aa" || got.Content != "new.example.com" || got.TTL != nil {
+	if got.RecordID != "0b7c4d0a-0000-4000-8000-0000000000aa" || got.Content != "new.example.com" || got.TTL != nil {
 		t.Errorf("update call = %+v", got)
 	}
 }
 
 func TestRunOrgDnsDelete_AmbiguousNameNeedsType(t *testing.T) {
 	mock := &dnsMock{records: []client.DnsRecord{
-		{ID: "3f0a2f7e-0000-4000-8000-0000000000aa", Name: "eu.org1234.ankra.cc", RecordType: "A", Content: "203.0.113.10", State: "active"},
-		{ID: "3f0a2f7e-0000-4000-8000-0000000000bb", Name: "eu.org1234.ankra.cc", RecordType: "TXT", Content: "v=spf1 ~all", State: "active"},
+		{ID: "0b7c4d0a-0000-4000-8000-0000000000aa", Name: "eu.org1234.ankra.cc", RecordType: "A", Content: "203.0.113.10", State: "active"},
+		{ID: "0b7c4d0a-0000-4000-8000-0000000000bb", Name: "eu.org1234.ankra.cc", RecordType: "TXT", Content: "v=spf1 ~all", State: "active"},
 	}}
 	setMockClient(t, mock)
 	resetOrgDnsFlags(t)
@@ -216,7 +214,7 @@ func TestRunOrgDnsDelete_AmbiguousNameNeedsType(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute failed: %v\noutput: %s", err, out.String())
 	}
-	if len(mock.deleteCalls) != 1 || mock.deleteCalls[0] != "3f0a2f7e-0000-4000-8000-0000000000bb" {
+	if len(mock.deleteCalls) != 1 || mock.deleteCalls[0] != "0b7c4d0a-0000-4000-8000-0000000000bb" {
 		t.Fatalf("delete calls = %v", mock.deleteCalls)
 	}
 }

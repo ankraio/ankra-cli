@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -14,7 +15,6 @@ type workerScaleCall struct {
 }
 
 type clusterScaleMock struct {
-	baseMock
 	cluster client.ClusterListItem
 
 	hetznerCalls  []workerScaleCall
@@ -70,7 +70,7 @@ func (m *clusterScaleMock) ScaleAwsWorkers(clusterID string, workerCount int, dr
 }
 
 func TestClusterScale_DispatchesByKind(t *testing.T) {
-	const clusterID = "62f4559a-a44d-46d7-aab3-a57c9dd6b4c6"
+	const clusterID = "0b7c4d0e-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 	cases := []struct {
 		kind         string
@@ -149,26 +149,31 @@ func TestScaleFunctionForKind_SupportedAndUnsupported(t *testing.T) {
 	}
 }
 
+// Every kind in nodeGroupKinds answers every node-group call, so a kind is
+// added in one place and in full; a kind without node groups answers none.
 func TestNodeGroupSelectorsForKind(t *testing.T) {
 	mock := &clusterScaleMock{}
 	setMockClient(t, mock)
 
-	for _, kind := range []string{"hetzner", "ovh", "upcloud", "digitalocean", "scaleway", "aws", "proxmox", "morpheus"} {
-		if nodeGroupListForKind(kind) == nil ||
-			nodeGroupAddForKind(kind) == nil ||
-			nodeGroupScaleForKind(kind) == nil ||
-			nodeGroupUpgradeForKind(kind) == nil ||
-			nodeGroupDeleteForKind(kind) == nil {
-			t.Errorf("kind %q should resolve all node-group operations", kind)
+	for _, kind := range []string{"hetzner", "ovh", "upcloud", "digitalocean", "scaleway", "ankracloud", "aws", "proxmox", "morpheus"} {
+		if _, listed := nodeGroupKinds[kind]; !listed {
+			t.Errorf("kind %q should have node groups", kind)
+		}
+	}
+	for kind := range nodeGroupKinds {
+		calls := reflect.ValueOf(nodeGroupCallsFor(kind))
+		for index := 0; index < calls.NumField(); index++ {
+			if calls.Field(index).IsNil() {
+				t.Errorf("kind %q does not resolve the node-group call %s", kind, calls.Type().Field(index).Name)
+			}
 		}
 	}
 	for _, kind := range []string{"imported", "ankra", ""} {
-		if nodeGroupListForKind(kind) != nil ||
-			nodeGroupAddForKind(kind) != nil ||
-			nodeGroupScaleForKind(kind) != nil ||
-			nodeGroupUpgradeForKind(kind) != nil ||
-			nodeGroupDeleteForKind(kind) != nil {
-			t.Errorf("kind %q should not resolve node-group operations", kind)
+		calls := reflect.ValueOf(nodeGroupCallsFor(kind))
+		for index := 0; index < calls.NumField(); index++ {
+			if !calls.Field(index).IsNil() {
+				t.Errorf("kind %q should not resolve the node-group call %s", kind, calls.Type().Field(index).Name)
+			}
 		}
 	}
 }

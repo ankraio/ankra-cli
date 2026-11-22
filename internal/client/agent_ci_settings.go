@@ -114,7 +114,35 @@ type AgentCISettings struct {
 	// is nil on a platform older than the setting, which is "not reported",
 	// never "inherits": nobody chose anything there.
 	AnkraWorkspaceStorageClass *string `json:"ankra_workspace_storage_class,omitempty" yaml:"ankra_workspace_storage_class,omitempty"`
+	// CIStorageClassEffective is the StorageClass a new pipeline run's
+	// workspace claim names on the cluster: the stored class when one is set,
+	// ankra-ci-node-local when the run's workspace is kept on the disk of its
+	// node, and "" when the claim names none and the cluster's default class
+	// decides. CINodeLocalStorage says why, as one of the
+	// AgentCINodeLocalStorage verdicts. Both are nil when the platform could
+	// not read the cluster's StorageClasses or predates the fields, which is
+	// "not reported", never "the default". SupportsNodeLocalStorage says
+	// whether the cluster's agent advertises that it can keep workspaces on
+	// its nodes' disks; nil on a platform older than the field.
+	CIStorageClassEffective  *string `json:"ci_storage_class_effective,omitempty" yaml:"ci_storage_class_effective,omitempty"`
+	CINodeLocalStorage       *string `json:"ci_node_local_storage,omitempty" yaml:"ci_node_local_storage,omitempty"`
+	SupportsNodeLocalStorage *bool   `json:"supports_node_local_storage,omitempty" yaml:"supports_node_local_storage,omitempty"`
 }
+
+// The verdicts of ci_node_local_storage: why a new run's workspace is kept
+// where it is. in_effect keeps it on the disk of the run's node, because the
+// cluster has no StorageClass Ankra may use that creates volumes;
+// agent_unsupported is that same cluster with an agent that cannot do it, so
+// the workspace gets no volume; storage_class_set uses the class a person
+// named; default_storage_class leaves it to the cluster's default class; and
+// unknown is a cluster whose StorageClasses the platform has not read.
+const (
+	AgentCINodeLocalStorageInEffect            = "in_effect"
+	AgentCINodeLocalStorageAgentUnsupported    = "agent_unsupported"
+	AgentCINodeLocalStorageStorageClassSet     = "storage_class_set"
+	AgentCINodeLocalStorageDefaultStorageClass = "default_storage_class"
+	AgentCINodeLocalStorageUnknown             = "unknown"
+)
 
 // The run reservation modes. off computes nothing (every cluster's default),
 // shadow computes and records each run's reservation without holding any

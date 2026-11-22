@@ -10,7 +10,6 @@ import (
 )
 
 type adoptMock struct {
-	baseMock
 	clusters   []client.ClusterListItem
 	requests   []client.AdoptStackProfileRequest
 	clusterIDs []string
@@ -39,7 +38,7 @@ func (mock *adoptMock) ListClusters(page int, pageSize int) (*client.ClusterList
 func newAdoptMock() *adoptMock {
 	return &adoptMock{
 		clusters: []client.ClusterListItem{
-			{ID: "11111111-1111-1111-1111-111111111111", Name: "so-upcloud-production"},
+			{ID: "0b7c4d0c-1111-1111-1111-111111111111", Name: "so-upcloud-production"},
 		},
 		result: &client.AdoptStackProfileResult{
 			StackName:      "so-cilium",
@@ -67,7 +66,7 @@ func TestStackProfilesAdoptSendsTheStackAndCluster(t *testing.T) {
 	if mock.requests[0].Version != nil {
 		t.Errorf("version = %v, want nil so the platform picks the current version", *mock.requests[0].Version)
 	}
-	if mock.clusterIDs[0] != "11111111-1111-1111-1111-111111111111" {
+	if mock.clusterIDs[0] != "0b7c4d0c-1111-1111-1111-111111111111" {
 		t.Errorf("cluster id = %q, want the resolved id of so-upcloud-production", mock.clusterIDs[0])
 	}
 	if !strings.Contains(output, "Nothing was written to the cluster") {

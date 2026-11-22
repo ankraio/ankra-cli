@@ -25,7 +25,6 @@ const (
 // surfaces, and records what the commands sent, so the tests assert the
 // wire-facing behaviour without a server.
 type backupLaneMock struct {
-	baseMock
 	cluster client.ClusterListItem
 
 	listing *client.RestorePointListResult
@@ -219,7 +218,7 @@ func newBackupLaneMock() *backupLaneMock {
 
 // runBackupCommand executes rootCmd with stdin scripted and stdout and stderr
 // captured together, then restores the flags of the commands it touched.
-func runBackupCommand(t *testing.T, mock APIClient, input string, resets []*cobra.Command,
+func runBackupCommand(t *testing.T, mock any, input string, resets []*cobra.Command,
 	args ...string) (string, error) {
 	t.Helper()
 	return runConfirmCommand(t, mock, input, resets, args...)
@@ -538,7 +537,7 @@ func TestResolveRestorePointIDPassesAUUIDStraightThrough(t *testing.T) {
 	mock := newBackupLaneMock()
 	mock.listError = errors.New("listing must not be called for a uuid")
 
-	resolved, resolveError := resolveRestorePointID(mock, testClusterID, backupTestStack, backupTestRestorePointID)
+	resolved, resolveError := resolveRestorePointID(adaptMockClient(mock), testClusterID, backupTestStack, backupTestRestorePointID)
 
 	if resolveError != nil {
 		t.Fatalf("a uuid must resolve to itself: %v", resolveError)
@@ -555,7 +554,7 @@ func TestResolveRestorePointIDAcceptsAnUnambiguousPrefix(t *testing.T) {
 		{ID: "ffffffff-1111-4111-8111-111111111111"},
 	}}
 
-	resolved, resolveError := resolveRestorePointID(mock, testClusterID, backupTestStack, "0b2f")
+	resolved, resolveError := resolveRestorePointID(adaptMockClient(mock), testClusterID, backupTestStack, "0b2f")
 
 	if resolveError != nil {
 		t.Fatalf("an unambiguous prefix must resolve: %v", resolveError)
@@ -574,7 +573,7 @@ func TestResolveRestorePointIDRefusesAnAmbiguousPrefix(t *testing.T) {
 		{ID: "0b2f2222-2222-4222-8222-222222222222"},
 	}}
 
-	_, resolveError := resolveRestorePointID(mock, testClusterID, backupTestStack, "0b2f")
+	_, resolveError := resolveRestorePointID(adaptMockClient(mock), testClusterID, backupTestStack, "0b2f")
 
 	if resolveError == nil {
 		t.Fatal("an ambiguous prefix must be refused")
@@ -591,7 +590,7 @@ func TestResolveRestorePointIDReportsAnUnknownPrefixAsNotFound(t *testing.T) {
 	mock := newBackupLaneMock()
 	mock.listing = &client.RestorePointListResult{RestorePoints: []client.RestorePoint{sampleRestorePoint()}}
 
-	_, resolveError := resolveRestorePointID(mock, testClusterID, backupTestStack, "dead")
+	_, resolveError := resolveRestorePointID(adaptMockClient(mock), testClusterID, backupTestStack, "dead")
 
 	if exitCodeFor(resolveError) != exitNotFound {
 		t.Fatalf("an unknown prefix must exit not-found, got %d (%v)", exitCodeFor(resolveError), resolveError)
@@ -618,7 +617,7 @@ func TestResolveRestorePointIDFollowsEveryPage(t *testing.T) {
 		[]client.RestorePoint{sampleRestorePoint()},
 	)
 
-	resolved, resolveError := resolveRestorePointID(mock, testClusterID, backupTestStack, "0b2f")
+	resolved, resolveError := resolveRestorePointID(adaptMockClient(mock), testClusterID, backupTestStack, "0b2f")
 
 	if resolveError != nil {
 		t.Fatalf("a prefix on the second page must resolve: %v", resolveError)
@@ -646,7 +645,7 @@ func TestResolveRestorePointIDRefusesAPrefixAmbiguousAcrossPages(t *testing.T) {
 		[]client.RestorePoint{{ID: "0b2f2222-2222-4222-8222-222222222222"}},
 	)
 
-	_, resolveError := resolveRestorePointID(mock, testClusterID, backupTestStack, "0b2f")
+	_, resolveError := resolveRestorePointID(adaptMockClient(mock), testClusterID, backupTestStack, "0b2f")
 
 	if resolveError == nil {
 		t.Fatal("a prefix shared with an older page must be refused")
@@ -980,6 +979,53 @@ func TestRestorePointsDeleteReportsRetainedObjects(t *testing.T) {
 	}
 	if !strings.Contains(output, "the source cluster no longer exists") {
 		t.Fatalf("the retained-objects reason must be printed, got:\n%s", output)
+	}
+}
+
+// The platform's reason can be a sentence with its own full stop; the line that
+// carries it must not end the reason twice.
+func TestRestorePointsDeleteEndsARetainedObjectsSentenceOnce(t *testing.T) {
+	mock := newBackupLaneMock()
+	mock.deleteResult = &client.DeleteRestorePointResult{
+		RestorePointID: backupTestRestorePointID, Status: client.RestorePointStatusDeleted,
+		ObjectsRetainedReason: "The archive is shared by every restore point of the database, so it is left to its own retention. ",
+	}
+
+	output, executeError := runBackupCommand(t, mock, "",
+		[]*cobra.Command{clusterStacksRestorePointsDeleteCmd},
+		"cluster", "stacks", "restore-points", "delete", backupTestStack, backupTestRestorePointID,
+		"--cluster", "demo", "--yes")
+
+	if executeError != nil {
+		t.Fatalf("deleting a restore point: %v", executeError)
+	}
+	if !strings.Contains(output, "left to its own retention. Remove them yourself") {
+		t.Fatalf("the reason must end with one full stop before the next sentence, got:\n%s", output)
+	}
+	if strings.Contains(output, "..") {
+		t.Fatalf("the output must not carry a double full stop, got:\n%s", output)
+	}
+}
+
+// Only the reason's own closing full stop is taken off: a reason that ends in
+// an ellipsis reads with its three dots, not with one.
+func TestRestorePointsDeleteKeepsAnEllipsisThatEndsTheRetainedObjectsReason(t *testing.T) {
+	mock := newBackupLaneMock()
+	mock.deleteResult = &client.DeleteRestorePointResult{
+		RestorePointID: backupTestRestorePointID, Status: client.RestorePointStatusDeleted,
+		ObjectsRetainedReason: "the vault is still being verified...",
+	}
+
+	output, executeError := runBackupCommand(t, mock, "",
+		[]*cobra.Command{clusterStacksRestorePointsDeleteCmd},
+		"cluster", "stacks", "restore-points", "delete", backupTestStack, backupTestRestorePointID,
+		"--cluster", "demo", "--yes")
+
+	if executeError != nil {
+		t.Fatalf("deleting a restore point: %v", executeError)
+	}
+	if !strings.Contains(output, "the vault is still being verified... Remove them yourself") {
+		t.Fatalf("the reason's ellipsis must be kept and the sentence ended once, got:\n%s", output)
 	}
 }
 

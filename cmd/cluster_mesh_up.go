@@ -140,7 +140,7 @@ var (
 	clusterMeshUpInterval time.Duration
 )
 
-var clusterMeshUpCmd = &cobra.Command{
+var clusterMeshUpCmd = withClusterArgumentAt(1, clusterMustBeNamed, &cobra.Command{
 	Use:   "up <mesh_name|mesh_id> <cluster_id|name> [cluster_id|name...]",
 	Short: "Prepare clusters and join them into one mesh, end to end",
 	Long: "Bring a set of clusters into one mesh from wherever they are: read their readiness, run make-ready on " +
@@ -230,7 +230,7 @@ var clusterMeshUpCmd = &cobra.Command{
 			time.Sleep(clusterMeshUpInterval)
 		}
 	},
-}
+})
 
 func printMeshUpPlan(cmd *cobra.Command, actions []meshUpAction) {
 	for _, action := range actions {
@@ -329,7 +329,7 @@ func waitForMeshMembersReady(cmd *cobra.Command, meshID string, deadline time.Ti
 
 func init() {
 	clusterMeshUpCmd.Flags().BoolVar(&clusterMeshUpRenumber, "renumber-pods", false,
-		"Ask `up` to move every colliding cluster after the first onto a fresh pod range (the platform refuses that move while it is redesigned, so the flag has no effect for now)")
+		"Ask 'up' to move every colliding cluster after the first onto a fresh pod range (the platform refuses that move while it is redesigned, so the flag has no effect for now)")
 	clusterMeshUpCmd.Flags().BoolVar(&clusterMeshUpPlan, "plan", false,
 		"Print what one pass would do and change nothing")
 	clusterMeshUpCmd.Flags().DurationVar(&clusterMeshUpWait, "wait", 45*time.Minute,

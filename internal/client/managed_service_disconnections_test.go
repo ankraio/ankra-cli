@@ -14,7 +14,7 @@ import (
 
 const (
 	testServiceDisconnectionID = "d15c0000-0000-4000-8000-000000000001"
-	testServiceConsumerID      = "5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11"
+	testServiceConsumerID      = "0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f"
 	testServiceOtherInstanceID = "c9b96bb8-0000-4000-8000-0000000000a1"
 )
 

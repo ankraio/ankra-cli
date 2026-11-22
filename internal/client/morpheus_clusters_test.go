@@ -87,12 +87,60 @@ func TestDeprovisionMorpheusCluster_Success(t *testing.T) {
 		}
 		jsonResponse(t, w, http.StatusOK, expectedResponse)
 	})
-	result, deprovisionError := testClient.DeprovisionMorpheusCluster("morpheus-cluster-123")
+	result, deprovisionError := testClient.DeprovisionMorpheusCluster("morpheus-cluster-123", DeprovisionOptions{})
 	if deprovisionError != nil {
 		t.Fatalf("DeprovisionMorpheusCluster: %v", deprovisionError)
 	}
 	if !result.Success {
 		t.Error("Success = false, want true")
+	}
+}
+
+// The Morpheus deprovision used to send no options at all, so a --force the
+// platform honours never reached it (ankra-v3qdto.6).
+func TestDeprovisionMorpheusClusterSendsTheOptions(t *testing.T) {
+	var gotQuery string
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		jsonResponse(t, w, http.StatusOK, ProviderDeprovisionClusterResponse{Success: true, ClusterID: "c-1"})
+	})
+	if _, deprovisionError := testClient.DeprovisionMorpheusCluster("c-1",
+		DeprovisionOptions{Force: true, AcceptVolumeDataLoss: true}); deprovisionError != nil {
+		t.Fatalf("DeprovisionMorpheusCluster: %v", deprovisionError)
+	}
+	if gotQuery != "accept_volume_data_loss=true&force=true" {
+		t.Errorf("query = %q, want force and the volume consent", gotQuery)
+	}
+}
+
+// A deprovision that was not forced sends no force parameter at all, with or
+// without the volume consent: the platform's shared DELETE handler honours
+// force on every cloud kind, so a stray one would skip the agent uninstall
+// and carry on past unreachable infrastructure unasked.
+func TestDeprovisionMorpheusClusterSendsNoForceUnlessAsked(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		options   DeprovisionOptions
+		wantQuery string
+	}{
+		{name: "no options", options: DeprovisionOptions{}, wantQuery: ""},
+		{name: "volume consent only", options: DeprovisionOptions{AcceptVolumeDataLoss: true}, wantQuery: "accept_volume_data_loss=true"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			var gotQuery string
+			var forceSent bool
+			testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				gotQuery = r.URL.RawQuery
+				forceSent = r.URL.Query().Has("force")
+				jsonResponse(t, w, http.StatusOK, ProviderDeprovisionClusterResponse{Success: true, ClusterID: "c-1"})
+			})
+			if _, deprovisionError := testClient.DeprovisionMorpheusCluster("c-1", testCase.options); deprovisionError != nil {
+				t.Fatalf("DeprovisionMorpheusCluster: %v", deprovisionError)
+			}
+			if forceSent || gotQuery != testCase.wantQuery {
+				t.Errorf("query = %q, want %q with no force", gotQuery, testCase.wantQuery)
+			}
+		})
 	}
 }
 

@@ -77,7 +77,9 @@ const defaultSlowWriteTimeout = 5 * time.Minute
 // headers, and the client attribution headers (attribution.go), on every
 // request routed through the client, so no individual call site needs to be
 // aware of either. Every transport that talks to the Ankra API is one of
-// these.
+// these, which makes it the one place a request to the API passes through
+// before it is sent: it refuses a path the platform's edge would rewrite to
+// another route (request_path_guard.go) before anything else happens.
 type scopeOverrideTransport struct {
 	base      http.RoundTripper
 	orgID     *string
@@ -95,6 +97,14 @@ type scopeOverrideTransport struct {
 }
 
 func (t *scopeOverrideTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	destination := t.destination(req.URL)
+	// Checked outside the retry loop, so a refused request is never retried,
+	// and for every request except one positively bound for another host.
+	if destination != destinationOtherHost {
+		if refusal := refuseUnsafeRequestPath(req); refusal != nil {
+			return nil, refusal
+		}
+	}
 	organisationID := ""
 	if t.orgID != nil {
 		organisationID = *t.orgID
@@ -104,7 +114,7 @@ func (t *scopeOverrideTransport) RoundTrip(req *http.Request) (*http.Response, e
 		projectID = *t.projectID
 	}
 	clone := req.Clone(req.Context())
-	if t.isAPIRequest(clone.URL) {
+	if destination == destinationAPI {
 		applyClientAttribution(clone.Header, t.environment())
 	}
 	if organisationID != "" {
@@ -114,7 +124,7 @@ func (t *scopeOverrideTransport) RoundTrip(req *http.Request) (*http.Response, e
 		clone.Header.Set(projectOverrideHeader, projectID)
 	}
 	response, requestError := t.base.RoundTrip(clone)
-	if requestError == nil && t.isAPIRequest(clone.URL) {
+	if requestError == nil && destination == destinationAPI {
 		t.projectScopeWarning.observe(clone, response, projectID)
 	}
 	return response, requestError

@@ -105,7 +105,7 @@ Examples:
 
 		prompt := fmt.Sprintf("Drain node %q on cluster %q (cordon it and delete %d pods)? [y/N]: ",
 			nodeName, cluster.Name, len(plan.evictable))
-		if err := confirmPrompt(cmd.InOrStdin(), out, prompt, yes); err != nil {
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), prompt, yes); err != nil {
 			return err
 		}
 

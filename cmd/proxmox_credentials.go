@@ -41,9 +41,9 @@ are not joined retrospectively.
 The auth key is collected via a masked prompt, never on the command line.
 
 Examples:
-  ankra credentials proxmox tailscale set 63fe1425-4ec1-4058-9fef-7e4caec04c79 \
+  ankra credentials proxmox tailscale set 0b7c4d20-5f6a-4b8c-9d0e-1f2a3b4c5d6e \
     --login-server https://headscale.example
-  ankra credentials proxmox tailscale set 63fe1425-4ec1-4058-9fef-7e4caec04c79 \
+  ankra credentials proxmox tailscale set 0b7c4d20-5f6a-4b8c-9d0e-1f2a3b4c5d6e \
     --login-server https://headscale.example --advertise-routes 10.20.0.0/16`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

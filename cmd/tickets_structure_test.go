@@ -50,10 +50,10 @@ func structuredRootMock() *ticketsMock {
 	return &ticketsMock{
 		tickets: []client.Ticket{rootTicket(), symptom, second, subtask},
 		links: map[string]*client.TicketLinkList{rootTicketID: {
-			Links: []client.TicketLink{ticketLink("11111111-0000-4000-8000-000000000001", rootTicketID, "outgoing",
+			Links: []client.TicketLink{ticketLink("0b7c4d0c-0000-4000-8000-000000000001", rootTicketID, "outgoing",
 				"recurrence_of", &client.TicketLinkedTicket{TicketNumber: 31, Title: "Ingress certificate expired",
 					Status: "done", Resolution: stringPointer("fixed")})},
-			IncomingLinks: []client.TicketLink{ticketLink("11111111-0000-4000-8000-000000000002", holderTicketID, "incoming",
+			IncomingLinks: []client.TicketLink{ticketLink("0b7c4d0c-0000-4000-8000-000000000002", holderTicketID, "incoming",
 				"duplicate_of", &client.TicketLinkedTicket{ID: holderTicketID, TicketNumber: 50,
 					Title: "Certificate warning on prod", Status: "done", Resolution: stringPointer("duplicate")})},
 		}},
@@ -74,7 +74,7 @@ func TestTicketsGetShowsWhatIsUnderARootAndItsLinks(t *testing.T) {
 		"T-53", "sub-ticket", "Renew the wildcard certificate",
 		"Recurrence of", "T-31", "done, fixed",
 		"Duplicate of this ticket", "T-50", "Certificate warning on prod",
-		"11111111-0000-4000-8000-000000000002",
+		"0b7c4d0c-0000-4000-8000-000000000002",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("tickets get output lacks %q:\n%s", want, out)
@@ -194,7 +194,7 @@ func TestTicketsUnlinkFindsTheLinkInEitherDirection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tickets unlink failed: %v", err)
 	}
-	if len(mock.removedLinks) != 1 || mock.removedLinks[0] != holderTicketID+"/11111111-0000-4000-8000-000000000002" {
+	if len(mock.removedLinks) != 1 || mock.removedLinks[0] != holderTicketID+"/0b7c4d0c-0000-4000-8000-000000000002" {
 		t.Fatalf("removal must go to the holder: %+v", mock.removedLinks)
 	}
 	if !strings.Contains(out, `Removed from T-42: duplicate of this ticket T-50 "Certificate warning on prod".`) {
@@ -203,8 +203,8 @@ func TestTicketsUnlinkFindsTheLinkInEitherDirection(t *testing.T) {
 
 	resetTreeFlags(t, ticketsUnlinkCmd)
 	_, err = runConfirmCommand(t, mock, "", []*cobra.Command{ticketsUnlinkCmd},
-		"tickets", "unlink", "T-42", "11111111-0000-4000-8000-000000000001")
-	if err != nil || len(mock.removedLinks) != 2 || mock.removedLinks[1] != rootTicketID+"/11111111-0000-4000-8000-000000000001" {
+		"tickets", "unlink", "T-42", "0b7c4d0c-0000-4000-8000-000000000001")
+	if err != nil || len(mock.removedLinks) != 2 || mock.removedLinks[1] != rootTicketID+"/0b7c4d0c-0000-4000-8000-000000000001" {
 		t.Fatalf("unlink by link id: err=%v removed=%+v", err, mock.removedLinks)
 	}
 }
@@ -212,7 +212,7 @@ func TestTicketsUnlinkFindsTheLinkInEitherDirection(t *testing.T) {
 func TestTicketsUnlinkRefusesWhatItCannotPick(t *testing.T) {
 	mock := structuredRootMock()
 	list := mock.links[rootTicketID]
-	list.Links = append(list.Links, ticketLink("11111111-0000-4000-8000-000000000003", rootTicketID, "outgoing",
+	list.Links = append(list.Links, ticketLink("0b7c4d0c-0000-4000-8000-000000000003", rootTicketID, "outgoing",
 		"relates_to", &client.TicketLinkedTicket{TicketNumber: 31, Title: "Ingress certificate expired", Status: "done"}))
 
 	_, err := runConfirmCommand(t, mock, "", []*cobra.Command{ticketsUnlinkCmd}, "tickets", "unlink", "T-42", "T-31")
@@ -227,7 +227,7 @@ func TestTicketsUnlinkRefusesWhatItCannotPick(t *testing.T) {
 	resetTreeFlags(t, ticketsUnlinkCmd)
 	_, err = runConfirmCommand(t, mock, "", []*cobra.Command{ticketsUnlinkCmd},
 		"tickets", "unlink", "T-42", "T-31", "--relation", "relates_to")
-	if err != nil || len(mock.removedLinks) != 1 || !strings.HasSuffix(mock.removedLinks[0], "/11111111-0000-4000-8000-000000000003") {
+	if err != nil || len(mock.removedLinks) != 1 || !strings.HasSuffix(mock.removedLinks[0], "/0b7c4d0c-0000-4000-8000-000000000003") {
 		t.Fatalf("--relation picks the one link: err=%v removed=%+v", err, mock.removedLinks)
 	}
 

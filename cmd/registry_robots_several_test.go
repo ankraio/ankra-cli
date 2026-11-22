@@ -21,17 +21,17 @@ func severalProjectsRobot(registry string, projectNames ...string) *client.Regis
 }
 
 func TestRegistryRobotsCreateOnSeveralProjectsOfAnIntegratedRegistry(t *testing.T) {
-	mock := &registryRobotsMock{created: severalProjectsRobot("smartoptics-harbor", "commerce-charts", "commerce-images")}
+	mock := &registryRobotsMock{created: severalProjectsRobot("example-org-harbor", "commerce-charts", "commerce-images")}
 	output, runError := runRegistryCommand(t, mock, "", "robots", "create", "consumer", "--scope", "pull",
-		"--registry", "smartoptics-harbor", "--admin-credential", "smartoptics-harbor-robot-admin",
+		"--registry", "example-org-harbor", "--admin-credential", "example-org-harbor-robot-admin",
 		"--registry-project", "Commerce-Charts,commerce-images", "--registry-project", "commerce-charts")
 	if runError != nil || mock.deleted != "" || !strings.Contains(output, "s3cret") {
 		t.Fatalf("create on several projects: error=%v deleted=%q\n%s", runError, mock.deleted, output)
 	}
 	encoded, _ := json.Marshal(mock.createRequest)
 	if string(encoded) != `{"name":"consumer","projects":[{"project":"commerce-charts","scope":"pull"},`+
-		`{"project":"commerce-images","scope":"pull"}],"registry":"smartoptics-harbor",`+
-		`"admin_credential_name":"smartoptics-harbor-robot-admin"}` {
+		`{"project":"commerce-images","scope":"pull"}],"registry":"example-org-harbor",`+
+		`"admin_credential_name":"example-org-harbor-robot-admin"}` {
 		t.Fatalf("wire body = %s", encoded)
 	}
 }

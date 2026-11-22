@@ -206,10 +206,11 @@ func TestPipelineRepositoriesListShowsCICluster(t *testing.T) {
 }
 
 // TestPipelineRepositoriesConnectPassesApplicationAndCluster pins that
-// --application/--cluster (cluster PR #2509) reach the request unmodified.
+// --application/--cluster (cluster PR #2509) reach the request unmodified
+// when --cluster is already an id.
 func TestPipelineRepositoriesConnectPassesApplicationAndCluster(t *testing.T) {
 	applicationID := "app-1"
-	clusterID := "cluster-1"
+	clusterID := "4b1f0f8e-9c1a-4c2f-9e6f-2a1d8b3c4d5e"
 	mockClient := &pipelineLaneMock{connectRepositoryResult: &client.ConnectPipelineRepositoryResult{
 		PipelineRepository: client.PipelineRepository{
 			ID: "repo-1", Provider: "github", Owner: "acme", Name: "webapp",
@@ -229,6 +230,59 @@ func TestPipelineRepositoriesConnectPassesApplicationAndCluster(t *testing.T) {
 	if !strings.Contains(output, applicationID) || !strings.Contains(output, clusterID) {
 		t.Errorf("output = %q, want it to show the linked application and CI cluster", output)
 	}
+}
+
+// TestPipelineRepositoriesConnectResolvesAClusterName pins that --cluster
+// takes a cluster name the way set-cluster does: the platform takes only an
+// id, and a name sent raw was answered "Cluster not found in this
+// organisation" (ankra-594qvm).
+func TestPipelineRepositoriesConnectResolvesAClusterName(t *testing.T) {
+	clusterID := "4b1f0f8e-9c1a-4c2f-9e6f-2a1d8b3c4d5e"
+	mockClient := &pipelineConnectClusterNameMock{
+		pipelineLaneMock: pipelineLaneMock{connectRepositoryResult: &client.ConnectPipelineRepositoryResult{
+			PipelineRepository: client.PipelineRepository{
+				ID: "repo-1", Provider: "github", Owner: "acme", Name: "webapp", ClusterID: &clusterID,
+			},
+		}},
+		clusters: []client.ClusterListItem{{ID: clusterID, Name: "mac-mini"}},
+	}
+	if _, executeError := runPipelineCommand(t, mockClient, "repositories", "connect",
+		"--provider", "github", "--owner", "acme", "--name", "webapp", "--cluster", "mac-mini"); executeError != nil {
+		t.Fatalf("connect error = %v", executeError)
+	}
+	if mockClient.connectRepositoryRequest.ClusterID != clusterID {
+		t.Errorf("sent cluster %q, want the resolved id %q", mockClient.connectRepositoryRequest.ClusterID, clusterID)
+	}
+}
+
+// A cluster name that matches no cluster is refused before anything is
+// connected, with the not-found exit code the id path would also give.
+func TestPipelineRepositoriesConnectUnknownClusterNameConnectsNothing(t *testing.T) {
+	mockClient := &pipelineConnectClusterNameMock{
+		clusters: []client.ClusterListItem{{ID: "4b1f0f8e-9c1a-4c2f-9e6f-2a1d8b3c4d5e", Name: "mac-mini"}},
+	}
+	_, executeError := runPipelineCommand(t, mockClient, "repositories", "connect",
+		"--provider", "github", "--owner", "acme", "--name", "webapp", "--cluster", "no-such-cluster")
+	if executeError == nil || exitCodeFor(executeError) != exitNotFound {
+		t.Fatalf("error = %v (exit %d), want a not-found error", executeError, exitCodeFor(executeError))
+	}
+	if mockClient.connectRepositoryCalls != 0 {
+		t.Errorf("ConnectPipelineRepository calls = %d, want 0", mockClient.connectRepositoryCalls)
+	}
+}
+
+// pipelineConnectClusterNameMock serves a cluster listing so connect can
+// resolve a --cluster name.
+type pipelineConnectClusterNameMock struct {
+	pipelineLaneMock
+
+	clusters []client.ClusterListItem
+}
+
+func (m *pipelineConnectClusterNameMock) ListClusters(page int, pageSize int) (*client.ClusterListResponse, error) {
+	response := &client.ClusterListResponse{Result: m.clusters}
+	response.Pagination.TotalPages = 1
+	return response, nil
 }
 
 func TestPipelineRepositoriesConnectApplicationNotFound(t *testing.T) {
@@ -286,8 +340,8 @@ func TestPipelineRepositoriesDisconnectDeclinedConfirmationDoesNotCall(t *testin
 	repositoryID := "3fa85f64-5717-4562-b3fc-2c963f66afa6"
 	mockClient := &pipelineLaneMock{}
 	previousClient := apiClient
-	apiClient = mockClient
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mockClient)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	pipelineCommand := newPipelineCommand()
 	var output bytes.Buffer
@@ -336,8 +390,8 @@ func TestPipelineRepositoriesDisconnectStructuredOutputStaysCleanOfThePrompt(t *
 	repositoryID := "3fa85f64-5717-4562-b3fc-2c963f66afa6"
 	mockClient := &pipelineLaneMock{}
 	previousClient := apiClient
-	apiClient = mockClient
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mockClient)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	pipelineCommand := newPipelineCommand()
 	var stdout, stderr bytes.Buffer
@@ -413,8 +467,6 @@ func TestPipelineRepositoriesSetClusterRequiresTheFlagAndAUUID(t *testing.T) {
 
 // pipelineSetClusterMock records the repository cluster change.
 type pipelineSetClusterMock struct {
-	baseMock
-
 	clusters     []client.ClusterListItem
 	result       *client.PipelineRepository
 	called       bool
@@ -516,8 +568,6 @@ func TestPipelineRepositoriesConnectWorkspacesOnlyNamesTheRepositoryWhenTheUndoF
 
 // pipelineSetModeMock records the repository mode change.
 type pipelineSetModeMock struct {
-	baseMock
-
 	called           bool
 	repositoryID     string
 	isWorkspacesOnly bool

@@ -619,7 +619,7 @@ You must be an organisation administrator, as well as hold pipelines.operate.
 Being the pull request's author or having write access is not enough, because
 moving it delays pull requests other people added.`,
 		Example: `  ankra pipeline train front 776
-  ankra pipeline train front 59a73935-a162-4c30-8a17-616a1cfcedee`,
+  ankra pipeline train front 0b7c4d1f-5f6a-4b8c-9d0e-1f2a3b4c5d6e`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			selector, selectorError := resolvePipelineTrainSelector(command)

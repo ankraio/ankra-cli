@@ -26,7 +26,6 @@ spec:
 `
 
 type rolloutMock struct {
-	baseMock
 	deployments    string
 	exportDocument string
 	exportVersion  int
@@ -154,7 +153,7 @@ func newRolloutMock() *rolloutMock {
 	return &rolloutMock{
 		deployments: fleetDeploymentsPayload,
 		clusters: []client.ClusterListItem{
-			{ID: "11111111-1111-1111-1111-111111111111", Name: "prod-eu"},
+			{ID: "0b7c4d0c-1111-1111-1111-111111111111", Name: "prod-eu"},
 			{ID: "22222222-2222-2222-2222-222222222222", Name: "prod-us"},
 			{ID: "33333333-3333-3333-3333-333333333333", Name: "staging"},
 		},
@@ -192,7 +191,7 @@ func TestStackProfilesRolloutViaApplyRenamesStackToTheDeployedName(t *testing.T)
 	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
 	mock := newRolloutMock()
 	mock.deployments = `{"current_version": 2, "result": [
-	  {"id": "i-1", "target_cluster_id": "11111111-1111-1111-1111-111111111111", "cluster_name": "prod-eu", "stack_name": "web-blue", "stack_state": "up", "version": 1, "outdated": true}
+	  {"id": "i-1", "target_cluster_id": "0b7c4d0c-1111-1111-1111-111111111111", "cluster_name": "prod-eu", "stack_name": "web-blue", "stack_state": "up", "version": 1, "outdated": true}
 	]}`
 	if _, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--cluster", "prod-eu", "--via-apply"); executeError != nil {
 		t.Fatalf("rollout failed: %v", executeError)
@@ -393,7 +392,7 @@ func TestUnifiedDiffShowsATrailingNewlineOnlyChange(t *testing.T) {
 func TestStackProfilesDeploymentsWithoutCurrentVersion(t *testing.T) {
 	resetStackProfileCommandFlags(t, stackProfilesDeploymentsCmd)
 	mock := &stackProfileManageMock{payload: json.RawMessage(`{"result": [
-	  {"id": "i-1", "target_cluster_id": "11111111-1111-1111-1111-111111111111", "cluster_name": "prod-eu", "stack_name": "hello-fleet", "stack_state": "up", "version": 1, "outdated": true}
+	  {"id": "i-1", "target_cluster_id": "0b7c4d0c-1111-1111-1111-111111111111", "cluster_name": "prod-eu", "stack_name": "hello-fleet", "stack_state": "up", "version": 1, "outdated": true}
 	]}`)}
 	output, executeError := runStackProfilesCommand(t, mock, "", "deployments", "profile-1")
 	if executeError != nil {
@@ -426,7 +425,7 @@ func TestStackProfilesRolloutInPlaceAllOutdated(t *testing.T) {
 	if !request.UpgradeExisting || !request.Deploy || request.NewStackName != "hello-fleet" || request.Version == nil || *request.Version != 2 {
 		t.Errorf("request = %+v", request)
 	}
-	if mock.upgradeClusters[0] != "11111111-1111-1111-1111-111111111111" {
+	if mock.upgradeClusters[0] != "0b7c4d0c-1111-1111-1111-111111111111" {
 		t.Errorf("cluster = %q", mock.upgradeClusters[0])
 	}
 	for _, want := range []string{"prod-eu / hello-fleet: v1 -> v2 applied, 4 jobs scheduled", "now reports the new version"} {
@@ -440,7 +439,7 @@ func TestStackProfilesRolloutInPlaceCarriesRecordedBindingsAndOverrides(t *testi
 	resetStackProfileCommandFlags(t, stackProfilesRolloutCmd)
 	mock := newRolloutMock()
 	mock.deployments = `{"current_version": 2, "result": [
-	  {"id": "i-1", "target_cluster_id": "11111111-1111-1111-1111-111111111111", "cluster_name": "prod-eu", "stack_name": "web-blue", "stack_state": "up", "version": 1, "outdated": true,
+	  {"id": "i-1", "target_cluster_id": "0b7c4d0c-1111-1111-1111-111111111111", "cluster_name": "prod-eu", "stack_name": "web-blue", "stack_state": "up", "version": 1, "outdated": true,
 	   "parameters": [{"name": "host", "value": "web.prod-eu.example"}, {"name": "replicas", "value": "2"}]}
 	]}`
 	if _, executeError := runStackProfilesCommand(t, mock, "", "rollout", "hello-fleet", "--cluster", "prod-eu", "--set", "replicas=3"); executeError != nil {
@@ -467,7 +466,7 @@ func TestStackProfilesRolloutInPlaceDetectsALegacyPlatform(t *testing.T) {
 	if !strings.Contains(output, "predates in-place upgrades") || !strings.Contains(output, "hello-fleet-copy") || !strings.Contains(output, "removed again") {
 		t.Errorf("output = %s", output)
 	}
-	if len(mock.deletedStacks) != 1 || mock.deletedStacks[0] != "11111111-1111-1111-1111-111111111111/hello-fleet-copy" {
+	if len(mock.deletedStacks) != 1 || mock.deletedStacks[0] != "0b7c4d0c-1111-1111-1111-111111111111/hello-fleet-copy" {
 		t.Errorf("the stray draft must be removed on the cluster it was created on: %v", mock.deletedStacks)
 	}
 	if len(mock.upgraded) != 1 {

@@ -21,12 +21,17 @@ var ErrClusterNotFound = errors.New("cluster not found")
 // currently render (operation, agent_*, resources, *_count, etc.) are
 // silently ignored by Go's JSON decoder.
 type ClusterListItem struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	State          string `json:"state"`
-	Description    string `json:"description"`
-	Environment    string `json:"environment"`
-	OrganisationID string `json:"organisation_id"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	State       string `json:"state"`
+	Description string `json:"description"`
+	Environment string `json:"environment"`
+	// EnvironmentSource is how the environment label was set: person,
+	// automation, default (a create lane's fallback nobody chose) or unknown
+	// (set before the platform recorded it). Empty from a platform that
+	// predates the field.
+	EnvironmentSource string `json:"environment_source,omitempty" yaml:"environment_source,omitempty"`
+	OrganisationID    string `json:"organisation_id"`
 	// ProjectID is the project the cluster belongs to (ADR 0022), when the
 	// platform serves it; nil on platforms whose cluster list predates it.
 	ProjectID         *string         `json:"project_id,omitempty" yaml:"project_id,omitempty"`
@@ -39,9 +44,34 @@ type ClusterListItem struct {
 	DeletedAt         *string         `json:"deleted_at"`
 	Kind              string          `json:"kind"`
 	Network           *ClusterNetwork `json:"network,omitempty"`
+	// SetupStopped names the operation the setup of a cluster Ankra builds
+	// stopped at. A failed create leaves State at creating (or one of the
+	// access stages after it), so this is what tells a stopped setup from
+	// one that is progressing. Nil when the cluster is not being set up,
+	// when its setup has not stopped, and from a platform that predates the
+	// field (ankra-2v9ewh).
+	SetupStopped *ClusterSetupStopped `json:"setup_stopped,omitempty" yaml:"setup_stopped,omitempty"`
 	// PortalURL is the resource's page in the portal. The CLI fills it in
 	// for display when the platform sent none.
 	PortalURL string `json:"portal_url,omitempty" yaml:"portal_url,omitempty"`
+}
+
+// ClusterSetupStopped mirrors the platform's ClusterSetupStopped: the
+// newest operation of a cluster still being set up that ended failed,
+// critical or cancelled and still needs a person, with no reconcile under
+// way that could finish the setup.
+type ClusterSetupStopped struct {
+	// ExecutionID is the operation the setup stopped at, the id
+	// `ankra cluster operations list <id>` reads.
+	ExecutionID string `json:"execution_id" yaml:"execution_id"`
+	// Status is the operation's terminal status: failed, critical or
+	// cancelled.
+	Status string `json:"status" yaml:"status"`
+	// ErrorExcerpt is the operation's error excerpt, nil when it recorded
+	// none, as a cancelled operation often does.
+	ErrorExcerpt *string `json:"error_excerpt" yaml:"error_excerpt"`
+	// StoppedAt is when the operation ended (RFC 3339).
+	StoppedAt *string `json:"stopped_at" yaml:"stopped_at"`
 }
 
 // ClusterNetwork mirrors the backend's optional provider network identifiers
@@ -475,8 +505,15 @@ type CreateResourceSpec struct {
 }
 
 type CreateImportClusterRequest struct {
-	Name        string             `json:"name"`
-	Description string             `json:"description,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// Environment is the file's metadata.environment, what the cluster is
+	// for; omitted when the file declares none. The platform applies it only
+	// when this import creates the cluster, recording who chose it from the
+	// credential (a person's own token: the person; a service account:
+	// automation). An existing cluster's label is changed through
+	// SetClusterEnvironment instead.
+	Environment *string            `json:"environment,omitempty"`
 	Spec        CreateResourceSpec `json:"spec"`
 	// AllowRepoint acknowledges that moving the cluster to a different GitOps
 	// repository or branch prunes whatever the new source does not define.
@@ -492,6 +529,14 @@ type CreateImportClusterRequest struct {
 	// nothing - a file saved before those members were added looks the same.
 	Prune                   bool     `json:"prune,omitempty"`
 	ConfirmedMemberRemovals []string `json:"confirmed_member_removals,omitempty"`
+	// CreateOnly holds the import to creating a cluster: the platform refuses
+	// a name a cluster already has with *ClusterAlreadyExistsError and writes
+	// nothing, instead of applying the request to that cluster. Omitted
+	// unless asked for, so an apply keeps the platform's create-or-update. A
+	// platform from before the field ignores it and applies the request as it
+	// always did, so a caller that must never update still reads the name
+	// first.
+	CreateOnly bool `json:"create_only,omitempty"`
 }
 
 type ImportResponseErrorItem struct {
@@ -588,6 +633,29 @@ func (c *Client) SetClusterEnvironment(ctx context.Context, clusterID string, en
 	var result ClusterEnvironmentResult
 	if err := c.sendJSONContext(ctx, http.MethodPatch, url, payload, &result); err != nil {
 		return nil, err
+	}
+	return &result, nil
+}
+
+// ClusterRenameResult is the platform's answer to a rename: the cluster's
+// name after the write, the name it had before, and the GitOps directory it
+// resolves to, which a rename never moves. Changed is false when the cluster
+// already had the name and nothing was written.
+type ClusterRenameResult struct {
+	ClusterID    string `json:"cluster_id"`
+	Name         string `json:"name"`
+	PreviousName string `json:"previous_name"`
+	IacDirectory string `json:"iac_directory"`
+	Changed      bool   `json:"changed"`
+}
+
+// RenameCluster renames a cluster in place. The cluster id, its servers,
+// node names, DNS zone and every id-keyed binding stay as they are.
+func (c *Client) RenameCluster(ctx context.Context, clusterID string, newName string) (*ClusterRenameResult, error) {
+	url := fmt.Sprintf("%s/api/v1/org/clusters/imported/%s/name", c.BaseURL, neturl.PathEscape(clusterID))
+	var result ClusterRenameResult
+	if sendError := c.sendJSONContext(ctx, http.MethodPatch, url, map[string]any{"name": newName}, &result); sendError != nil {
+		return nil, sendError
 	}
 	return &result, nil
 }

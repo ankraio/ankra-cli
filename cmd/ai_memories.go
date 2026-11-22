@@ -54,7 +54,7 @@ learned before. Other members' memories are not affected.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		skipConfirm, _ := cmd.Flags().GetBool("yes")
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			"Delete every AI memory stored for you in this organisation? [y/N]: ", skipConfirm); confirmError != nil {
 			return confirmError
 		}

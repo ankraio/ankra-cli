@@ -237,7 +237,7 @@ full fqdn). When several records share a name, disambiguate with --type.`,
 		}
 
 		if err := confirmPrompt(
-			cmd.InOrStdin(), cmd.OutOrStdout(),
+			cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete DNS record %q? [y/N]: ", reference),
 			yes,
 		); err != nil {

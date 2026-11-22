@@ -257,7 +257,6 @@ func TestPrintCollapsedExecutionsNoticeSaysNothingWhenNothingFolded(t *testing.T
 // executionsPageMock serves a fixed set of pages, recording what each call
 // asked for.
 type executionsPageMock struct {
-	baseMock
 	pages            [][]client.ExecutionSummary
 	requestedOptions []client.ListExecutionsOptions
 }

@@ -8,7 +8,6 @@ import (
 )
 
 type aiLanesMock struct {
-	baseMock
 	lanes        []client.AILaneModel
 	setLane      string
 	setModelKey  string

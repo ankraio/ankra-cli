@@ -116,7 +116,7 @@ The cloud provider (Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, Ankra Cloud, 
 HPE Morpheus) is detected automatically from the cluster.`,
 }
 
-var clusterSSHKeysGetCmd = &cobra.Command{
+var clusterSSHKeysGetCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "get <cluster_id|name>",
 	Short: "Show SSH keys attached to a cluster",
 	Args:  cobra.ExactArgs(1),
@@ -144,7 +144,7 @@ var clusterSSHKeysGetCmd = &cobra.Command{
 		printClusterSSHKeys(result)
 		return nil
 	},
-}
+})
 
 // printClusterSSHKeys prints the attached SSH key credentials by id and
 // name, then every credential that can be attached. The response names only
@@ -178,7 +178,7 @@ func printClusterSSHKeys(result *client.ClusterSSHKeysResult) {
 	}
 }
 
-var clusterSSHKeysSetCmd = &cobra.Command{
+var clusterSSHKeysSetCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "set <cluster_id|name>",
 	Short: "Set the SSH keys attached to a cluster",
 	Long: `Replace the SSH key credentials attached to a cluster. Changes take effect on
@@ -227,9 +227,9 @@ Pass --clear to remove all user SSH keys (the Ankra-managed key always remains).
 		}
 		return nil
 	},
-}
+})
 
-var clusterSSHKeysResyncCmd = &cobra.Command{
+var clusterSSHKeysResyncCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "resync <cluster_id|name>",
 	Short: "Re-sync a cluster's SSH keys with the cloud provider",
 	Long: `Re-sync the cluster's SSH key with the cloud provider. Use this to repair a
@@ -264,7 +264,7 @@ re-apply the authorised keys to running nodes.`,
 		}
 		return nil
 	},
-}
+})
 
 func init() {
 	clusterSSHKeysSetCmd.Flags().StringSlice("ssh-key-credential-ids", nil, "SSH key credential IDs (comma-separated or repeated)")

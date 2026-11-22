@@ -61,9 +61,13 @@ original's change list. A re-run of a tag, manual, API or agent run is planned a
 ## Stages
 
 Every stage: `name` (`^[a-z0-9][a-z0-9_-]*$`, unique across `stages`/`on_failure`/`finally`) and a
-`kind` from the closed vocabulary. Seven execute today: `checkout`, `run`, `build`, `scan`, `gate`,
-`publish`, `deploy`; `gate`, `publish` and `deploy` are settled by the platform, never a Job. The
-other eight (`preview`, `verify`, `agent`, `approval`, `webhook`, `automation`, `ankra`,
+`kind` from the closed vocabulary. Eight execute today: `checkout`, `run`, `build`, `scan`, `gate`,
+`publish`, `deploy`, `environment`; `gate`, `publish`, `deploy` and `environment` are settled by the
+platform, never a Job in the CI cluster. `environment` builds one ephemeral Ankra Cloud cluster per
+matrix leg, deploys the build under test, runs `test_environment.test` against it and tears it
+down when the leg ends (`teardown: always`, the default; `on_success` keeps a failed leg's cluster
+until its lifetime ends; a protected section; at most six live per organisation, 2h default and 6h maximum
+lifetime). The other eight (`preview`, `verify`, `agent`, `approval`, `webhook`, `automation`, `ankra`,
 `external`) warn at validation and are skipped by the planner (`kind_unavailable`). `deploy` rolls a
 signed release bundle out to **host targets** (machines outside Kubernetes running
 `ankra-host-agent`, `ankra targets`), never to a cluster: an application's push-to-deploy does that.
@@ -78,7 +82,7 @@ runs without when their own path filter left them out), `paths` (affected-only: 
 `artifacts` (`name`, `paths`, `retention_days`), `test_results` (`junit`|`go-test`|`pytest`|`playwright`;
 every test's outcome recorded, `ankra pipeline tests <run>`), `outputs`, `timeout` (default 30m, max 6h), `resources.cpu|memory|gpu`
 (500m/1Gi default; ≤ 8 cores, 32Gi, 4 GPUs; requests = limits), `runs_on.cluster|node_selector|
-tolerations|runtime_class|arch` (all protected), `network`, `shm_size` (64Mi), `working_directory`,
+tolerations|runtime_class|arch` (protected, except `arch`: a build target a pull request may change), `network`, `shm_size` (64Mi), `working_directory`,
 `allow_failure`, `continue_on_error`, `retry` (accepted, not applied), `environment`.
 
 Path filters, three shapes:
@@ -240,7 +244,9 @@ added here would validate as `warn` and be skipped — say so in the PR that add
 Exit codes, every command: `0` ok · `1` API/runtime failure or a run that concluded without success ·
 `2` usage, bad flag, ambiguous selection · `3` target does not exist / no run matched · `4`
 confirmation declined · `5` `--wait`/`--timeout` expired, or `--exit-code` on an unconcluded run ·
-`6` not logged in / token rejected · `7` authenticated but forbidden. `-o json` is per command
+`6` not logged in / token rejected · `7` authenticated but forbidden · `8` a preflight blocked the
+change, nothing changed (a blocked `application promote`) · `9` waiting, not a failure: the work
+waits on a pause or a person's step (`application ship` waiting on its setup pull request). `-o json` is per command
 (`json`|`yaml`); the Kubernetes reads under `ankra cluster get|logs|events|describe` use `-o
 table|json|yaml`. Progress goes to stderr; stdout stays parseable.
 
@@ -313,8 +319,9 @@ All under `/api/v1/org/applications/{application_id}` with a bearer token (the s
 | Lane | Call | Body / answer |
 |---|---|---|
 | Auto-fix builds (default on) | `GET` / `PUT …/auto-fix-builds` | `{"enabled": false}` |
-| Rollback targets | `GET …/rollback-targets` | `targets[]` of `image_tag`, `pushed_at`, `is_current`; `not_reverted[]`; `auto_deploy_enabled`; browser session only |
-| Roll back | `POST …/rollbacks` | `{"cluster_id": "…", "image_tag": "sha-1a2b3c4"}`; holds until a newer build is observed |
+| Rollback targets | `GET …/rollback-targets?cluster_id=…` | `targets[]` of `image_tag`, `pushed_at`, `is_current`; `not_reverted[]`; `auto_deploy_enabled`. CLI: `ankra application rollback <application> --cluster <cluster>` |
+| Roll back | `POST …/rollbacks` | `{"cluster_id": "…", "image_tag": "sha-1a2b3c4"}`; holds until a newer build is observed. CLI: `ankra application rollback <application> --cluster <cluster> --to sha-1a2b3c4` |
+| Rollback history | `GET …/rollbacks?cluster_id=…` | `rollbacks[]`, newest first. CLI: `ankra application rollbacks <application> --cluster <cluster>` |
 | Promotion preview | `GET …/promotions/preview?source_environment_id=…&target_environment_id=…` | `state` (`ready`\|`already_current`\|`blocked`), `blocker` (`source_not_settled`, `target_follows_pushes`, `secrets_missing`, …), config differences, `fingerprint` |
 | Promote | `POST …/promotions` | `{"source_environment_id","target_environment_id","expected_fingerprint"}` — the fingerprint from the preview; the tag and only the tag moves |
 | Deploy runs | `GET …/deploy-runs`, `GET …/deploy-runs/{run_id}` | the journey phases `analyse` → `build` → `stacks` → `dns` → `certificate` → `serving` |
@@ -498,8 +505,10 @@ stages:
 
 Caches: `hashFiles` is evaluated after checkout in the stage's `working_directory`; the exact key
 restores first, then each `restore_keys` prefix in order. A default-branch run reads and saves only
-its own scope; a branch or PR run reads its own scope then the default branch's and saves only its
-own; fork and tag runs get none. A save happens only after the step passes (a `hashFiles` key once,
+its own scope; a branch, PR or merge train car run reads the default branch's scope first,
+then its own (a key main holds restores main's entry, a key only the branch holds still restores
+the branch's), and saves only its own; fork and tag runs get none.
+A save happens only after the step passes (a `hashFiles` key once,
 a static key every time). 14 days unused, 10 GiB per repository, 4 GiB per path. On an agent
 without cache archives a cache is a shared 5Gi volume per path - `fallback: none` makes it an
 empty directory instead, which never wedges overlapping runs. The generated `test` stage declares
@@ -511,8 +520,8 @@ appended to `$ANKRA_OUTPUT` become `${{ needs.test.outputs.<name> }}` downstream
 
 ## What is not there yet, in full
 
-Say this out loud rather than promising it. The spec accepts fifteen stage kinds; **seven execute**:
-`checkout`, `run`, `build`, `scan`, `gate`, `publish`, `deploy`. `deploy` releases a signed bundle
+Say this out loud rather than promising it. The spec accepts sixteen stage kinds; **eight execute**:
+`checkout`, `run`, `build`, `scan`, `gate`, `publish`, `deploy`, `environment`. `deploy` releases a signed bundle
 to host targets outside Kubernetes (`ankra targets`), never to a cluster. `preview`, `verify`, `agent`,
 `approval`, `webhook`, `automation`, `ankra` and `external` validate with a warning and are skipped
 as `kind_unavailable`; `uses:` is refused outright (write the step as `run:`); `retry:` is

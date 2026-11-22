@@ -71,7 +71,7 @@ shown to administrators alongside the switch.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		reason, _ := cmd.Flags().GetString("reason")
 		skipConfirm, _ := cmd.Flags().GetBool("yes")
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			"Stop all AI for this organisation? Running sessions and agent runs are cancelled. [y/N]: ",
 			skipConfirm); err != nil {
 			return err
@@ -182,7 +182,7 @@ ineligible again on the next dispatcher pass.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		skipConfirm, _ := cmd.Flags().GetBool("yes")
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			"Stand the board identity down? Designated agents stop working tickets. [y/N]: ",
 			skipConfirm); err != nil {
 			return err

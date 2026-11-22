@@ -276,6 +276,7 @@ func (c *Client) patchClusterStack(ctx context.Context, clusterID, stackName str
 			// re-applying a live change (ankra-qezdv).
 			return &PatchStackResult{
 				StackName:       stackName,
+				OperationID:     deferral.OperationID,
 				GitPushDeferred: true,
 				GitPushMessage:  deferral.Message,
 			}, nil

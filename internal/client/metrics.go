@@ -15,6 +15,12 @@ type PrometheusQueryResult struct {
 	Result      []interface{} `json:"result"`
 	TotalSeries int           `json:"total_series"`
 	Truncated   bool          `json:"truncated"`
+	// StepSeconds is the resolution the platform asked the metrics source
+	// for, and EffectiveStepSeconds the spacing of the points it returned.
+	// They differ only when a series was downsampled. Both are zero on an
+	// instant query and on a platform that predates them.
+	StepSeconds          int `json:"step_seconds,omitempty" yaml:"step_seconds,omitempty"`
+	EffectiveStepSeconds int `json:"effective_step_seconds,omitempty" yaml:"effective_step_seconds,omitempty"`
 }
 
 type prometheusInstantRequest struct {

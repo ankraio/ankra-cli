@@ -458,9 +458,15 @@ func explainInstallFailure(target skills.Target, installError error) error {
 
 // installForTarget installs the selected skills and the client's supporting
 // artefacts (rule, skill index, workflow commands, guard hook) for one
-// target, reporting each step.
+// target, reporting each step on stdout.
 func installForTarget(fsys fs.FS, target skills.Target, names []string, options skillsInstallOptions, writtenDirectories map[string]string) error {
-	output := os.Stdout
+	return installForTargetTo(os.Stdout, fsys, target, names, options, writtenDirectories)
+}
+
+// installForTargetTo is installForTarget reporting to output, so a caller
+// whose stdout is machine-readable (`ankra onboard --json`) can send the
+// report elsewhere.
+func installForTargetTo(output io.Writer, fsys fs.FS, target skills.Target, names []string, options skillsInstallOptions, writtenDirectories map[string]string) error {
 	style := newSkillsStyle(output)
 	style.heading(output, target.Client.DisplayName, target.Scope, skills.DisplayPath(target.SkillsDirectory))
 

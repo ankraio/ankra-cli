@@ -23,6 +23,8 @@ const (
 		"you have decided to lose. Has no effect on a scale-up"
 	forceDrainDeleteUsage = "Bypass PodDisruptionBudgets: each node of the group is removed even if its pods' " +
 		"disruption budget refuses the drain, instead of being kept. Use it only for nodes you have decided to lose"
+	forceDrainRemoveNodeUsage = "Bypass PodDisruptionBudgets: the node is removed even if its pods' disruption " +
+		"budget refuses the drain, instead of being kept. Use it only for a node you have decided to lose"
 	forceDrainResizeUsage = "Bypass PodDisruptionBudgets when draining each node before its resize: a node is " +
 		"power-cycled even if its pods' disruption budget refuses the drain, so those pods lose the " +
 		"availability their budget protects. Use it only when you accept that disruption"

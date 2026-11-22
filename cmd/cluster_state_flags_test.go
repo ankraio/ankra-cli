@@ -8,7 +8,6 @@ import (
 )
 
 type hetznerStateMock struct {
-	baseMock
 	stopOptions  *client.StopClusterOptions
 	startOptions *client.StartClusterOptions
 }
@@ -113,6 +112,67 @@ func TestHetznerStartRestoreStateFlagIsThreeState(t *testing.T) {
 	}
 }
 
+func TestHetznerStartRestoreSnapshotIDFlagIsSentAndValidated(t *testing.T) {
+	const snapshotID = "6f1c2b3a-0d4e-4f5a-8b6c-7d8e9f0a1b2c"
+	t.Cleanup(func() {
+		_ = hetznerStartCmd.Flags().Set("restore-snapshot-id", "")
+		_ = hetznerStartCmd.Flags().Set("scope", "all")
+	})
+	mock := &hetznerStateMock{}
+	setMockClient(t, mock)
+	var executeError error
+	output := captureStdout(t, func() {
+		_, executeError = executeCommand("cluster", "hetzner", "start", testClusterID, "--restore-snapshot-id", snapshotID)
+	})
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if mock.startOptions == nil || mock.startOptions.RestoreSnapshotID != snapshotID {
+		t.Fatalf("start options = %+v, want restore snapshot %s", mock.startOptions, snapshotID)
+	}
+
+	invalid := &hetznerStateMock{}
+	setMockClient(t, invalid)
+	_ = captureStdout(t, func() {
+		_, executeError = executeCommand("cluster", "hetzner", "start", testClusterID, "--restore-snapshot-id", "not-a-snapshot")
+	})
+	if executeError == nil {
+		t.Fatal("expected a usage error for a snapshot id that is not a UUID")
+	}
+	if invalid.startOptions != nil {
+		t.Fatalf("no start may be requested with an invalid snapshot id: %+v", invalid.startOptions)
+	}
+}
+
+func TestHetznerStartRefusesContradictoryRestoreFlags(t *testing.T) {
+	const snapshotID = "6f1c2b3a-0d4e-4f5a-8b6c-7d8e9f0a1b2c"
+	cases := map[string][]string{
+		"snapshot with restore-state=false": {"--restore-snapshot-id", snapshotID, "--restore-state=false"},
+		"over-kept-etcd without snapshot":   {"--restore-over-kept-etcd"},
+	}
+	for name, flags := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Cleanup(func() {
+				_ = hetznerStartCmd.Flags().Set("restore-snapshot-id", "")
+				_ = hetznerStartCmd.Flags().Set("restore-state", "")
+				_ = hetznerStartCmd.Flags().Set("restore-over-kept-etcd", "false")
+			})
+			mock := &hetznerStateMock{}
+			setMockClient(t, mock)
+			var executeError error
+			_ = captureStdout(t, func() {
+				_, executeError = executeCommand(append([]string{"cluster", "hetzner", "start", testClusterID}, flags...)...)
+			})
+			if exitCodeFor(executeError) != exitUsage {
+				t.Fatalf("exit code = %d (%v), want usage", exitCodeFor(executeError), executeError)
+			}
+			if mock.startOptions != nil {
+				t.Fatalf("no start may be requested: %+v", mock.startOptions)
+			}
+		})
+	}
+}
+
 func TestHetznerStopModeFlagIsSentAndValidated(t *testing.T) {
 	t.Cleanup(func() {
 		_ = hetznerStopCmd.Flags().Set("mode", "")
@@ -140,5 +200,28 @@ func TestHetznerStopModeFlagIsSentAndValidated(t *testing.T) {
 	}
 	if mock.stopOptions != nil {
 		t.Fatal("a refused mode must not reach the client")
+	}
+}
+
+// A start over a kept control plane restores nothing, and the platform says
+// the control plane is kept with its state. The CLI used to print its own
+// "no captured snapshot to restore; the cluster starts fresh" there, which
+// read as data loss after a restore (ankra-k2gaer).
+func TestPrintStartStateOutcomePrintsThePlatformsSentence(t *testing.T) {
+	message := "Nothing is restored: the running control plane is kept with its etcd, including any state an earlier restore brought back, and this start only brings back parked workers."
+	output := captureStdout(t, func() { printStartStateOutcome("none", nil, message) })
+	if !strings.Contains(output, "Cluster state: "+message) || strings.Contains(output, "starts fresh") {
+		t.Fatalf("the platform's sentence must be printed as is, got %q", output)
+	}
+}
+
+// Without the platform's sentence (an older backend) the fallback claims
+// neither a fresh cluster nor a kept one.
+func TestPrintStartStateOutcomeFallbackNeverClaimsAFreshCluster(t *testing.T) {
+	for _, stateRestore := range []string{"none", "skipped"} {
+		output := captureStdout(t, func() { printStartStateOutcome(stateRestore, nil, "") })
+		if !strings.Contains(output, "no state snapshot is restored") || strings.Contains(output, "fresh") {
+			t.Fatalf("%s: fallback = %q", stateRestore, output)
+		}
 	}
 }

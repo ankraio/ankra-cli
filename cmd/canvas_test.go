@@ -27,8 +27,6 @@ func resetCanvasFlags(t *testing.T) {
 }
 
 type canvasMock struct {
-	baseMock
-
 	publishRequests []client.CanvasPublicationRequest
 	publishResult   *client.CanvasPublicationResult
 	publishError    error
@@ -60,14 +58,14 @@ func (m *canvasMock) UnpublishCanvasPublication(ctx context.Context, publication
 func newCanvasPublished(created bool) *client.CanvasPublicationResult {
 	return &client.CanvasPublicationResult{
 		CanvasPublication: client.CanvasPublication{
-			ID: "11111111-1111-4111-8111-111111111111", Title: "Report", Language: "html", SizeBytes: 12,
+			ID: "0b7c4d0c-1111-4111-8111-111111111111", Title: "Report", Language: "html", SizeBytes: 12,
 			URL: "https://pages.example/org/slug", ExpiresAt: "2026-10-19T00:00:00Z",
 		},
 		Created: created,
 	}
 }
 
-func runCanvas(t *testing.T, mock APIClient, args ...string) (string, error) {
+func runCanvas(t *testing.T, mock any, args ...string) (string, error) {
 	t.Helper()
 	setMockClient(t, mock)
 	resetCanvasFlags(t)

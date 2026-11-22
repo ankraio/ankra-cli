@@ -239,7 +239,7 @@ func runManifestsCreate(cmd *cobra.Command, args []string) error {
 func init() {
 	clusterManifestsCreateCmd.Flags().String("stack", "", "Existing stack the manifest joins (required)")
 	clusterManifestsCreateCmd.Flags().String("from-file", "", "Path to the manifest YAML file")
-	clusterManifestsCreateCmd.Flags().String("manifest", "", "Use `-` to read the manifest YAML from stdin")
+	clusterManifestsCreateCmd.Flags().String("manifest", "", "Use '-' to read the manifest YAML from stdin")
 	clusterManifestsCreateCmd.Flags().String("namespace", "", "Namespace for the manifest")
 	clusterManifestsCreateCmd.Flags().StringArray("parent", nil, "Dependency parent, e.g. --parent name=langfuse-namespace,kind=manifest (kind defaults to manifest; repeatable)")
 	clusterManifestsCreateCmd.Flags().StringArray("encrypted-path", nil, "Declare a YAML key name that is (or must stay) SOPS-encrypted; merged with auto-detected ENC[...] keys (repeatable)")

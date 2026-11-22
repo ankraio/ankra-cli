@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
-	"net/http"
 
 	"ankra/internal/client"
 
@@ -43,7 +41,7 @@ func upgradeFunctionForKind(kind string) (k8sVersionUpgrade, bool) {
 
 var clusterUpgradeForce bool
 
-var clusterUpgradeCmd = &cobra.Command{
+var clusterUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "upgrade <cluster_id|name> <target_version>",
 	Short: "Upgrade the Kubernetes version of a cloud cluster",
 	Long: `Upgrade the Kubernetes version on all nodes in a cloud cluster.
@@ -67,8 +65,8 @@ with exit code 8 and nothing changed; --force goes past only the
 PodDisruptionBudget block, never the version, catalogue or restore-point checks.
 
 Examples:
-  ankra cluster upgrade 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 v1.33.2         # kubeadm
-  ankra cluster upgrade 62f4559a-a44d-46d7-aab3-a57c9dd6b4c6 v1.36.1+k3s1    # k3s`,
+  ankra cluster upgrade 0b7c4d0e-5f6a-4b8c-9d0e-1f2a3b4c5d6e v1.33.2         # kubeadm
+  ankra cluster upgrade 0b7c4d0e-5f6a-4b8c-9d0e-1f2a3b4c5d6e v1.36.1+k3s1    # k3s`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, resolveError := resolveClusterArg(args[0])
@@ -126,7 +124,7 @@ Examples:
 		}
 		return nil
 	},
-}
+})
 
 func init() {
 	clusterUpgradeCmd.Flags().BoolVar(&clusterUpgradeForce, "force", false,
@@ -139,9 +137,5 @@ func init() {
 // upgrade goes ahead after. The cluster was found just before, so a 404 here
 // is the route, not the cluster.
 func upgradePreflightRouteAbsent(preflightError error) bool {
-	var unexpected *client.UnexpectedResponseError
-	if !errors.As(preflightError, &unexpected) || unexpected.StatusCode != http.StatusNotFound {
-		return false
-	}
-	return unexpected.Detail == "" || unexpected.Detail == routeAbsentDetail
+	return isRouteAbsent(preflightError)
 }

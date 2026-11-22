@@ -16,14 +16,14 @@ func TestOrgCustomDNSListRendersZonesAndTheEmptyAnswer(t *testing.T) {
 	recorder := newCustomDNSServer(t)
 	listPath := "GET /api/v1/org/custom-dns-zones"
 	recorder.zonesByPath[listPath] = `{"success":true,"zones":[
-		{"zone":"smartoptics.dev","credential_name":"avura-smartoptics"}]}`
+		{"zone":"example-org.dev","credential_name":"avura-example-org"}]}`
 
 	output := captureStdout(t, func() {
 		if runError := orgCustomDNSListCmd.RunE(orgCustomDNSListCmd, nil); runError != nil {
 			t.Fatalf("list returned an error: %v", runError)
 		}
 	})
-	for _, want := range []string{"smartoptics.dev", "avura-smartoptics"} {
+	for _, want := range []string{"example-org.dev", "avura-example-org"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output = %q, want it to mention %q", output, want)
 		}
@@ -43,20 +43,20 @@ func TestOrgCustomDNSListRendersZonesAndTheEmptyAnswer(t *testing.T) {
 func TestOrgCustomDNSAddSendsTheDeclarationAndReportsItsReach(t *testing.T) {
 	recorder := newCustomDNSServer(t)
 	recorder.zonesByPath["POST /api/v1/org/custom-dns-zones"] =
-		`{"success":true,"zone":"smartoptics.dev","credential_name":"avura-smartoptics"}`
+		`{"success":true,"zone":"example-org.dev","credential_name":"avura-example-org"}`
 
-	orgCustomDNSZone = "Smartoptics.DEV."
-	orgCustomDNSCredential = "avura-smartoptics"
+	orgCustomDNSZone = "Example-Org.DEV."
+	orgCustomDNSCredential = "avura-example-org"
 	output := captureStdout(t, func() {
 		if runError := orgCustomDNSAddCmd.RunE(orgCustomDNSAddCmd, nil); runError != nil {
 			t.Fatalf("add returned an error: %v", runError)
 		}
 	})
 
-	if recorder.lastBody["zone"] != "Smartoptics.DEV." || recorder.lastBody["credential_name"] != "avura-smartoptics" {
+	if recorder.lastBody["zone"] != "Example-Org.DEV." || recorder.lastBody["credential_name"] != "avura-example-org" {
 		t.Fatalf("request body = %v, want the zone and credential as given (the platform normalises)", recorder.lastBody)
 	}
-	if !strings.Contains(output, "smartoptics.dev") || !strings.Contains(output, "every cluster") {
+	if !strings.Contains(output, "example-org.dev") || !strings.Contains(output, "every cluster") {
 		t.Fatalf("output = %q, want the normalised zone and its organisation-wide reach reported", output)
 	}
 	if !strings.Contains(output, "created from now on") {
@@ -73,7 +73,7 @@ func TestOrgCustomDNSAddSurfacesTheRefusalDetail(t *testing.T) {
 	recorder.refusalDetail = "Custom DNS zone overlaps the zone Ankra already serves for this organisation"
 
 	orgCustomDNSZone = "app.ankra.cc"
-	orgCustomDNSCredential = "avura-smartoptics"
+	orgCustomDNSCredential = "avura-example-org"
 	runError := orgCustomDNSAddCmd.RunE(orgCustomDNSAddCmd, nil)
 	if runError == nil {
 		t.Fatal("a refused declaration must return an error")
@@ -85,10 +85,10 @@ func TestOrgCustomDNSAddSurfacesTheRefusalDetail(t *testing.T) {
 
 func TestOrgCustomDNSRemoveEscapesTheZoneAndReportsTheWithdrawal(t *testing.T) {
 	recorder := newCustomDNSServer(t)
-	recorder.zonesByPath["DELETE /api/v1/org/custom-dns-zones/smartoptics.dev"] =
-		`{"success":true,"zone":"smartoptics.dev"}`
+	recorder.zonesByPath["DELETE /api/v1/org/custom-dns-zones/example-org.dev"] =
+		`{"success":true,"zone":"example-org.dev"}`
 
-	orgCustomDNSZone = "smartoptics.dev"
+	orgCustomDNSZone = "example-org.dev"
 	output := captureStdout(t, func() {
 		if runError := orgCustomDNSRemoveCmd.RunE(orgCustomDNSRemoveCmd, nil); runError != nil {
 			t.Fatalf("remove returned an error: %v", runError)
@@ -107,7 +107,7 @@ func TestOrgCustomDNSRemoveEscapesTheZoneAndReportsTheWithdrawal(t *testing.T) {
 func TestClusterCustomDNSListShowsWhereEachZoneWasDeclared(t *testing.T) {
 	recorder := newCustomDNSServer(t)
 	recorder.zonesByPath["GET /api/v1/clusters/"+customDNSClusterID+"/custom-dns-zones"] = `{"success":true,"zones":[
-		{"zone":"smartoptics.dev","credential_name":"avura-smartoptics","source":"organisation"},
+		{"zone":"example-org.dev","credential_name":"avura-example-org","source":"organisation"},
 		{"zone":"launch.example.com","credential_name":"example-dns","source":"cluster"},
 		{"zone":"legacy.example.net","credential_name":"example-dns"}]}`
 

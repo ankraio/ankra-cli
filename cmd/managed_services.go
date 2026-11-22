@@ -54,7 +54,13 @@ disconnects the application. Every confirmation asks first; --yes skips the
 question for scripts. Retiring a service deletes its data, so delete also
 needs --acknowledge-data-loss. 'ankra services disconnect' takes one
 application off a service that keeps running for the others, and deletes
-nothing.
+nothing. 'ankra services connect' adds one more application to a service
+that already runs.
+
+A PostgreSQL service can be created from the backups of another one: 'ankra
+services setup <name> --from <service>' starts the new service with the
+other's data, as of --at or as of the newest point its backups reach, and
+leaves the other unchanged.
 
 An application namespace on the service's own cluster receives the connection
 once the service is running: a <service>-connection Secret in its namespace,
@@ -72,9 +78,10 @@ generated credentials, for every engine) and connection: its endpoints, the
 Secret holding its credentials, and how each consumer receives them.
 Credential values are never shown; they stay in the cluster.`,
 		Example: `  ankra services packages list
-  ankra services setup orders-db --package postgresql --cluster prod --consumer 5b1f0c7e-...
+  ankra services setup orders-db --package postgresql --cluster prod --consumer 0b7c4d19-...
   ankra services list
   ankra services get orders-db
+  ankra services connect orders-db --consumer 0b7c4d19-...
   ankra services disconnect orders-db --application storefront
   ankra services delete orders-db --acknowledge-data-loss`,
 	}
@@ -82,12 +89,14 @@ Credential values are never shown; they stay in the cluster.`,
 	servicesCommand.AddCommand(newServicesGetCommand())
 	servicesCommand.AddCommand(newServicesSetupCommand())
 	servicesCommand.AddCommand(newServicesDeleteCommand())
+	servicesCommand.AddCommand(newServicesConnectCommand())
 	servicesCommand.AddCommand(newServicesDisconnectCommand())
 	servicesCommand.AddCommand(newServicesPackagesCommand())
 	servicesCommand.AddCommand(newServicesPolicyCommand())
 	servicesCommand.AddCommand(newServicesConsumersCommand())
 	servicesCommand.AddCommand(newServicesReviewsCommand())
 	servicesCommand.AddCommand(newServicesRetirementsCommand())
+	servicesCommand.AddCommand(newServicesCredentialsCommand())
 	return servicesCommand
 }
 
@@ -169,17 +178,23 @@ func isServiceNotFound(lookupError error) bool {
 	return errors.As(lookupError, &unexpected) && unexpected.StatusCode == http.StatusNotFound
 }
 
+// errServiceReferenceRequired is the usage refusal of a command that names
+// no service.
+func errServiceReferenceRequired() error {
+	return withExitCode(exitUsage, errors.New("a service name or id is required"))
+}
+
 // resolveServiceInstance finds the service a command names, by id or by
 // name. A name is matched against the whole inventory; --cluster narrows it
 // when the same name runs on several clusters. A retired service keeps its
 // record (deployment state released), so an active service wins over
 // released ones of the same name.
 func resolveServiceInstance(command *cobra.Command, reference string) (*client.ServiceInstance, error) {
-	reference = strings.TrimSpace(reference)
-	if reference == "" {
-		return nil, withExitCode(exitUsage, errors.New("a service name or id is required"))
+	// A blank reference is refused before --cluster is read, so a command
+	// that names no service says so whatever else is wrong with it.
+	if strings.TrimSpace(reference) == "" {
+		return nil, errServiceReferenceRequired()
 	}
-	ctx := command.Context()
 	clusterID := ""
 	if clusterReference, _ := command.Flags().GetString("cluster"); strings.TrimSpace(clusterReference) != "" {
 		resolvedID, resolveError := resolveClusterID(strings.TrimSpace(clusterReference))
@@ -187,6 +202,74 @@ func resolveServiceInstance(command *cobra.Command, reference string) (*client.S
 			return nil, resolveError
 		}
 		clusterID = resolvedID
+	}
+	return resolveServiceInstanceOn(command.Context(), reference, clusterID, "pass --cluster or the service id instead")
+}
+
+// resolveServiceInstanceOn finds a service by id or by name, on the cluster
+// clusterID names or, when it is empty, anywhere in the organisation.
+// ambiguousHint is what a name several services share is told to do instead,
+// since only some callers have a --cluster that narrows the search. An active
+// service wins over retired ones of the same name.
+func resolveServiceInstanceOn(ctx context.Context, reference string, clusterID string, ambiguousHint string) (*client.ServiceInstance, error) {
+	return resolveServiceInstanceBy(ctx, reference, clusterID, ambiguousHint, activeServiceWins)
+}
+
+// resolveServiceBackupSource finds the service whose backups a new service is
+// created from, by id or by name, anywhere in the organisation. Here a
+// retired service is as likely to be meant as an active one, because its
+// backups outlive it and restoring them is what the option is for. So a name
+// an active and a retired service share is refused with every candidate's id
+// and state, where every other lookup takes the active one: taking it here
+// would create the new service from the wrong service's data without a word.
+func resolveServiceBackupSource(ctx context.Context, reference string) (*client.ServiceInstance, error) {
+	return resolveServiceInstanceBy(ctx, reference, "",
+		"a retired service's backups can be restored too, so pass the service id to --from instead", everyServiceIsACandidate)
+}
+
+// serviceNameRule says which of the services sharing a name a lookup by name
+// may mean.
+type serviceNameRule int
+
+const (
+	// activeServiceWins is the rule of a command that acts on a service in
+	// use: a retired service keeps its record, so the active service of the
+	// name is the one meant, and the retired ones are candidates only when no
+	// active service has the name.
+	activeServiceWins serviceNameRule = iota
+	// everyServiceIsACandidate is the rule of a lookup that may mean a
+	// retired service as well as an active one.
+	everyServiceIsACandidate
+)
+
+// candidates are the services of one name a lookup under this rule may mean.
+func (rule serviceNameRule) candidates(active []client.ServiceInstance, released []client.ServiceInstance) []client.ServiceInstance {
+	if rule == everyServiceIsACandidate {
+		return append(append([]client.ServiceInstance{}, active...), released...)
+	}
+	if len(active) > 0 {
+		return active
+	}
+	return released
+}
+
+// serviceCandidateLine describes one of several services sharing a name, so
+// the id to pass instead can be picked: its id, where it runs, and whether
+// it is active or when it was retired.
+func serviceCandidateLine(instance client.ServiceInstance) string {
+	state := "active"
+	if instance.ReleasedAt != nil {
+		state = "retired " + *instance.ReleasedAt
+	}
+	return fmt.Sprintf("%s on cluster %s, %s", instance.ID, instance.ClusterID, state)
+}
+
+// resolveServiceInstanceBy is the lookup behind every way of naming a
+// service: an id first, then the name among the services rule admits.
+func resolveServiceInstanceBy(ctx context.Context, reference string, clusterID string, ambiguousHint string, rule serviceNameRule) (*client.ServiceInstance, error) {
+	reference = strings.TrimSpace(reference)
+	if reference == "" {
+		return nil, errServiceReferenceRequired()
 	}
 	// An id-shaped reference is read as an id first. Service names may look
 	// like ids too (lower-case words joined by hyphens), so a not-found falls
@@ -221,10 +304,7 @@ func resolveServiceInstance(command *cobra.Command, reference string) (*client.S
 			active = append(active, instance)
 		}
 	}
-	matches := active
-	if len(matches) == 0 {
-		matches = released
-	}
+	matches := rule.candidates(active, released)
 	switch len(matches) {
 	case 1:
 		return &matches[0], nil
@@ -241,12 +321,26 @@ func resolveServiceInstance(command *cobra.Command, reference string) (*client.S
 	default:
 		candidates := make([]string, 0, len(matches))
 		for _, instance := range matches {
-			candidates = append(candidates, fmt.Sprintf("%s on cluster %s", instance.ID, instance.ClusterID))
+			candidates = append(candidates, serviceCandidateLine(instance))
 		}
 		return nil, withExitCode(exitUsage, fmt.Errorf(
-			"%d services are named %q - pass --cluster or the service id instead (%s)",
-			len(matches), reference, strings.Join(candidates, "; ")))
+			"%d services are named %q - %s (%s)",
+			len(matches), reference, ambiguousHint, strings.Join(candidates, "; ")))
 	}
+}
+
+// readServiceInstanceDetail is the service as the platform answers a read of
+// one service. A name resolves through the inventory, whose rows leave out
+// what the platform reads for one service only: how each consumer receives
+// the connection, and the disconnections in progress. So a service found by
+// its name is read again by its id, and naming a service either way shows
+// the same record. A reference that is the service's id was answered by that
+// read already.
+func readServiceInstanceDetail(ctx context.Context, reference string, resolved *client.ServiceInstance) (*client.ServiceInstance, error) {
+	if strings.TrimSpace(reference) == resolved.ID {
+		return resolved, nil
+	}
+	return apiClient.GetServiceInstance(ctx, resolved.ID)
 }
 
 // serviceNames turns the ids a service record carries into names for human
@@ -624,9 +718,13 @@ A name that runs on more than one cluster needs --cluster.`,
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
-			instance, resolveError := resolveServiceInstance(command, arguments[0])
+			resolved, resolveError := resolveServiceInstance(command, arguments[0])
 			if resolveError != nil {
 				return resolveError
+			}
+			instance, detailError := readServiceInstanceDetail(command.Context(), arguments[0], resolved)
+			if detailError != nil {
+				return detailError
 			}
 			if rendered, renderError := renderStructured(command, instance); rendered || renderError != nil {
 				return renderError

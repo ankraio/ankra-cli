@@ -105,8 +105,11 @@ spec:
 - A spoke in agent mode holds no queryable data: point its `prometheus_metrics` at a hub query
   endpoint (an Ingress with basic auth) with `credential_name` and `verify_ssl: true`.
 - **Credentials never go in Git.** `username`, `password`, `token` or `auth_scheme` inside either
-  block is refused by name. Create the credential in the portal (**Settings → Integrations**) and
-  reference it with `credential_name`. Use read-only, index-scoped credentials.
+  block is refused by name. Create the credential in the portal (**Settings → Integrations**) or
+  with `ankra credentials datasource create --name <name>` (add `--username <user>` for basic
+  auth), and reference it with `credential_name`. The token or password is never an argument: pipe
+  it with `--secret-stdin` or let the command prompt for it. `ankra credentials datasource list`
+  shows what exists, never a secret. Use read-only, index-scoped credentials.
 - Removing a block does **not** disconnect the source; disconnect in **Settings → Integrations**.
 - External Prometheus-compatible endpoints: self-hosted Prometheus, Grafana Cloud, Thanos Query,
   VictoriaMetrics. Amazon Managed Prometheus, Google Cloud Managed Prometheus and Azure Monitor

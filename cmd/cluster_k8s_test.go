@@ -15,7 +15,6 @@ import (
 // table renderer and panicked on the named-pod path's nil formatRow; the up-front
 // output-format validation must reject the value before any API call.
 type k8sResourcesMock struct {
-	baseMock
 	called bool
 }
 
@@ -127,7 +126,6 @@ func findClusterGetSubcommand(t *testing.T, name string) *cobra.Command {
 // capturedResourcesMock records the resource request it received and serves
 // a canned response.
 type capturedResourcesMock struct {
-	baseMock
 	lastRequest client.GetResourcesRequest
 	response    *client.GetResourcesResponse
 }
@@ -173,7 +171,6 @@ func TestGetDeploymentsEmptyJSONStaysParseable(t *testing.T) {
 
 // podsPagedMock serves the pod listing across a fixed number of pages.
 type podsPagedMock struct {
-	baseMock
 	pages      map[int][]client.PodSummary
 	totalPages int
 	totalCount int
@@ -300,9 +297,10 @@ func TestResourcesGroupHint(t *testing.T) {
 		args     []string
 		wantHint bool
 	}{
-		{name: "non_core_kind_without_group", args: []string{"cluster", "get", "resources", "StorageClass"}, wantHint: true},
+		{name: "custom_kind_without_group", args: []string{"cluster", "get", "resources", "Certificate"}, wantHint: true},
 		{name: "core_kind_without_group", args: []string{"cluster", "get", "resources", "ConfigMap"}, wantHint: false},
-		{name: "non_core_kind_with_group", args: []string{"cluster", "get", "resources", "StorageClass", "--group", "storage.k8s.io"}, wantHint: false},
+		{name: "table_kind_without_group", args: []string{"cluster", "get", "resources", "StorageClass"}, wantHint: false},
+		{name: "custom_kind_with_group", args: []string{"cluster", "get", "resources", "Certificate", "--group", "cert-manager.io"}, wantHint: false},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

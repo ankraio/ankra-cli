@@ -11,13 +11,11 @@ import (
 	"github.com/spf13/pflag"
 )
 
-const domainTestClusterID = "3f0a2f7e-0000-4000-8000-0000000000aa"
+const domainTestClusterID = "0b7c4d0a-0000-4000-8000-0000000000aa"
 
 // clusterDomainMock records which DNS-zone verb the command reached for, so
 // the tests can prove the plain lookup never mutates.
 type clusterDomainMock struct {
-	baseMock
-
 	readCalls    []string
 	enableCalls  []string
 	disableCalls []string
@@ -208,8 +206,8 @@ func TestRunClusterDomain_ReportsThePreviewDomainAsThePublicDomain(t *testing.T)
 	// the generated ankra.cc zone is only the row behind it.
 	mock := &clusterDomainMock{zone: client.ClusterDNSZoneResponse{
 		Success: true, FQDN: "41k4sso94j.qh4thi04cs.ankra.cc", State: "active",
-		PublicDomain: "smartoptics.dev", PublicDomainSource: clusterPublicDomainSourcePreviewDomain,
-		PublicDomainPublishedZone: "smartoptics.dev"}}
+		PublicDomain: "example-org.dev", PublicDomainSource: clusterPublicDomainSourcePreviewDomain,
+		PublicDomainPublishedZone: "example-org.dev"}}
 
 	output, executeError := runClusterDomain(t, mock, domainTestClusterID)
 	if executeError != nil {
@@ -218,7 +216,7 @@ func TestRunClusterDomain_ReportsThePreviewDomainAsThePublicDomain(t *testing.T)
 	if !strings.Contains(output, "Domain: 41k4sso94j.qh4thi04cs.ankra.cc") {
 		t.Errorf("the generated zone must still be reported:\n%s", output)
 	}
-	if !strings.Contains(output, "Public domain: smartoptics.dev") {
+	if !strings.Contains(output, "Public domain: example-org.dev") {
 		t.Errorf("the public domain must be reported:\n%s", output)
 	}
 	if !strings.Contains(output, "${{ ankra.cluster_domain }}") || !strings.Contains(output, "custom DNS zone") {
@@ -246,14 +244,14 @@ func TestRunClusterDomain_ReportsThePublicDomainOnAClusterWithoutAZone(t *testin
 	// the preview domain from this cluster: hostnames still have a home.
 	mock := &clusterDomainMock{zone: client.ClusterDNSZoneResponse{
 		Success: true, State: clusterDomainStateNone,
-		PublicDomain: "smartoptics.dev", PublicDomainSource: clusterPublicDomainSourcePreviewDomain,
-		PublicDomainPublishedZone: "smartoptics.dev"}}
+		PublicDomain: "example-org.dev", PublicDomainSource: clusterPublicDomainSourcePreviewDomain,
+		PublicDomainPublishedZone: "example-org.dev"}}
 
 	output, executeError := runClusterDomain(t, mock, domainTestClusterID)
 	if executeError != nil {
 		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
 	}
-	if !strings.Contains(output, "Domain: (none)") || !strings.Contains(output, "Public domain: smartoptics.dev") {
+	if !strings.Contains(output, "Domain: (none)") || !strings.Contains(output, "Public domain: example-org.dev") {
 		t.Errorf("both the missing zone and the public domain must be reported:\n%s", output)
 	}
 }
@@ -304,5 +302,72 @@ func TestRunClusterDomain_WithoutAnArgumentOrSelectionSaysHowToSelect(t *testing
 	}
 	if len(mock.readCalls) != 0 {
 		t.Errorf("nothing may be read without a resolved cluster: %v", mock.readCalls)
+	}
+}
+
+// clusterDomainLookupMock is clusterDomainMock with the cluster lookups
+// --cluster goes through (lookupClusterByNameOrID).
+type clusterDomainLookupMock struct {
+	clusterDomainMock
+}
+
+func (m *clusterDomainLookupMock) GetClusterByID(clusterID string) (client.ClusterListItem, error) {
+	return client.ClusterListItem{ID: clusterID, Name: "production"}, nil
+}
+
+func runClusterDomainWithSelection(t *testing.T, mock any, arguments ...string) (string, error) {
+	t.Helper()
+	withTempHome(t)
+	writeSelectedClusterJSON(t)
+	setMockClient(t, mock)
+	resetClusterDomainFlags(t)
+	resetTreeFlags(t, clusterDomainCmd)
+	t.Cleanup(func() {
+		resetTreeFlags(t, clusterDomainCmd)
+		clusterDomainEnable = false
+		clusterDomainRemove = false
+	})
+	output := new(bytes.Buffer)
+	rootCmd.SetOut(output)
+	rootCmd.SetErr(output)
+	rootCmd.SetArgs(append([]string{"cluster", "domain"}, arguments...))
+	executeError := rootCmd.Execute()
+	return output.String(), executeError
+}
+
+// --enable creates a zone and --remove tears one down without a prompt, so
+// neither acts on the cluster `ankra cluster select` saved, which every
+// session on the machine shares (ankra-cli#760 review): exit 2 naming
+// --cluster, and nothing is sent. The plain read still falls back to it.
+func TestRunClusterDomain_EnableAndRemoveRefuseTheSelectedCluster(t *testing.T) {
+	for _, flag := range []string{"--enable", "--remove"} {
+		t.Run(flag, func(t *testing.T) {
+			mock := &clusterDomainLookupMock{}
+			output, executeError := runClusterDomainWithSelection(t, mock, flag)
+			if executeError == nil || exitCodeFor(executeError) != exitUsage || !strings.Contains(executeError.Error(), "--cluster") {
+				t.Fatalf("error = %v (exit %d), want a usage error (exit 2) naming --cluster\noutput: %s",
+					executeError, exitCodeFor(executeError), output)
+			}
+			if len(mock.enableCalls)+len(mock.disableCalls)+len(mock.readCalls) != 0 {
+				t.Fatalf("sent enable=%v disable=%v read=%v, want nothing", mock.enableCalls, mock.disableCalls, mock.readCalls)
+			}
+		})
+	}
+}
+
+// With --cluster the command names the cluster it resolved on stderr, as it
+// did before --cluster could stand in for the argument, and --enable acts on
+// that cluster, not the selected one.
+func TestRunClusterDomain_ClusterFlagNamesTheCluster(t *testing.T) {
+	mock := &clusterDomainLookupMock{}
+	output, executeError := runClusterDomainWithSelection(t, mock, "--cluster", domainTestClusterID, "--enable")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if len(mock.enableCalls) != 1 || mock.enableCalls[0] != domainTestClusterID {
+		t.Fatalf("enable calls = %v, want the --cluster cluster %s", mock.enableCalls, domainTestClusterID)
+	}
+	if !strings.Contains(output, "Cluster: production") {
+		t.Errorf("the resolved cluster must be named on stderr:\n%s", output)
 	}
 }

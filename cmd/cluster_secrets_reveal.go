@@ -18,9 +18,11 @@ import (
 
 const secretsLongHelp = `List Secrets, or read one Secret by name.
 
-The platform returns every Secret value as a sha256 digest (sha256: followed
-by 12 hex characters) unless you ask for the values. Keys, type and metadata
-are readable; the values are not. A digest still changes when its value does.
+The platform returns every Secret value as a keyed digest (hmac-sha256:
+followed by 32 hex characters) unless you ask for the values, or as
+[withheld] when it has no digest key. Keys, type and metadata are readable;
+the values are not. A digest still changes when its value does, and the same
+value has a different digest on another cluster.
 
 --reveal prints the plaintext values of ONE named Secret. It needs the
 Secret's namespace (-n), it is refused on a listing (no name, -A or -l), and

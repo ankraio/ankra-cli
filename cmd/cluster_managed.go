@@ -110,13 +110,12 @@ var managedCreateCmd = &cobra.Command{
 
 		fmt.Printf("Managed %s cluster '%s' created successfully!\n", provider, result.Name)
 		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
-		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
-			strings.TrimRight(baseURL, "/"), result.ClusterID)
+		fmt.Printf("\nView it in the UI:\n  %s\n", portalClusterURLByID(result.ClusterID))
 		return nil
 	},
 }
 
-var managedDeleteCmd = &cobra.Command{
+var managedDeleteCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "delete <cluster_id|name>",
 	Short: "Delete a managed Kubernetes cluster",
 	Args:  cobra.ExactArgs(1),
@@ -137,7 +136,8 @@ var managedDeleteCmd = &cobra.Command{
 		force, _ := cmd.Flags().GetBool("force")
 		yes, _ := cmd.Flags().GetBool("yes")
 
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		warnDeprovisionOrganisationRoles(cmd, clusterID, clusterTarget(args[0], clusterID))
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete managed %s cluster %s? This destroys all cloud resources! [y/N]: ", provider, clusterTarget(args[0], clusterID)),
 			yes); err != nil {
 			return err
@@ -174,14 +174,14 @@ var managedDeleteCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
+})
 
 var managedNodePoolCmd = &cobra.Command{
 	Use:   "node-pool",
 	Short: "Manage managed cluster node pools",
 }
 
-var managedNodePoolAddCmd = &cobra.Command{
+var managedNodePoolAddCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "add <cluster_id|name>",
 	Short: "Add a node pool to a managed cluster",
 	Args:  cobra.ExactArgs(1),
@@ -228,9 +228,9 @@ var managedNodePoolAddCmd = &cobra.Command{
 		fmt.Printf("Node pool %q added to cluster %s (count: %d)\n", result.NodePoolName, result.ClusterID, result.Count)
 		return nil
 	},
-}
+})
 
-var managedNodePoolScaleCmd = &cobra.Command{
+var managedNodePoolScaleCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "scale <cluster_id|name> <node_pool_name>",
 	Short: "Scale a managed cluster node pool",
 	Args:  cobra.ExactArgs(2),
@@ -261,9 +261,9 @@ var managedNodePoolScaleCmd = &cobra.Command{
 		fmt.Printf("Node pool %q scaled to %d nodes on cluster %s\n", result.NodePoolName, result.Count, result.ClusterID)
 		return nil
 	},
-}
+})
 
-var managedNodePoolDeleteCmd = &cobra.Command{
+var managedNodePoolDeleteCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "delete <cluster_id|name> <node_pool_name>",
 	Short: "Delete a managed cluster node pool",
 	Args:  cobra.ExactArgs(2),
@@ -280,7 +280,7 @@ var managedNodePoolDeleteCmd = &cobra.Command{
 		nodePoolName := args[1]
 		yes, _ := cmd.Flags().GetBool("yes")
 
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete node pool %q from cluster %s? [y/N]: ", nodePoolName, clusterTarget(args[0], clusterID)),
 			yes); err != nil {
 			return err
@@ -300,9 +300,9 @@ var managedNodePoolDeleteCmd = &cobra.Command{
 		fmt.Printf("Node pool %q deleted from cluster %s\n", result.NodePoolName, result.ClusterID)
 		return nil
 	},
-}
+})
 
-var managedNodePoolUpdateCmd = &cobra.Command{
+var managedNodePoolUpdateCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "update <cluster_id|name> <node_pool_name>",
 	Short: "Update a managed cluster node pool",
 	Long: `Update the node count or autoscaling settings of a managed cluster node
@@ -389,9 +389,9 @@ it is set, Ankra refuses to scale, update, replace or delete the pool;
 		}
 		return nil
 	},
-}
+})
 
-var managedStopCmd = &cobra.Command{
+var managedStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "stop <cluster_id|name>",
 	Short: "Stop a managed cluster's compute",
 	Long: `Stop a managed Kubernetes cluster's compute while keeping its configuration
@@ -427,9 +427,9 @@ starting managed clusters.`,
 		}
 		return nil
 	},
-}
+})
 
-var managedStartCmd = &cobra.Command{
+var managedStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped managed cluster",
 	Long: `Start a stopped managed Kubernetes cluster. Currently only AKS supports
@@ -464,9 +464,9 @@ stopping and starting managed clusters.`,
 		}
 		return nil
 	},
-}
+})
 
-var managedUpgradeCmd = &cobra.Command{
+var managedUpgradeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "upgrade <cluster_id|name>",
 	Short: "Upgrade a managed cluster Kubernetes version",
 	Args:  cobra.ExactArgs(1),
@@ -483,7 +483,7 @@ var managedUpgradeCmd = &cobra.Command{
 		version, _ := cmd.Flags().GetString("version")
 		yes, _ := cmd.Flags().GetBool("yes")
 
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Upgrade managed cluster %s to Kubernetes %s? [y/N]: ", clusterTarget(args[0], clusterID), version),
 			yes); err != nil {
 			return err
@@ -500,10 +500,21 @@ var managedUpgradeCmd = &cobra.Command{
 			return nil
 		}
 
-		fmt.Printf("Managed cluster %s upgraded to Kubernetes %s\n", result.ClusterID, result.Version)
+		// The platform answers once it has accepted the target and started
+		// the upgrade, not once the provider finished it, so the answer says
+		// it started and names the operation to follow.
+		fmt.Printf("Managed cluster %s upgrade to Kubernetes %s started.\n", result.ClusterID, result.Version)
+		if result.OperationID != "" {
+			fmt.Printf("Operation: %s (follow it with 'ankra cluster operations list %s')\n", result.OperationID, result.OperationID)
+		} else {
+			// Only a platform older than the operation_id field answers
+			// without one. The operation carries no cluster id, so no
+			// cluster's operations listing can stand in for it.
+			fmt.Println("The platform's answer named no operation to follow.")
+		}
 		return nil
 	},
-}
+})
 
 const managedProviderFlagHelp = "Managed Kubernetes provider (doks, uks, gke, ovh_mks, aks, eks, kapsule, ankracloud_k8s)"
 
@@ -602,8 +613,7 @@ var managedImportCmd = &cobra.Command{
 		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
 		fmt.Printf("  Provider cluster ID: %s\n", result.ProviderClusterID)
 		fmt.Printf("\nThe agent installs automatically; the cluster flips online once it connects.\n")
-		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
-			strings.TrimRight(baseURL, "/"), result.ClusterID)
+		fmt.Printf("\nView it in the UI:\n  %s\n", portalClusterURLByID(result.ClusterID))
 		return nil
 	},
 }

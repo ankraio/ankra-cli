@@ -15,8 +15,8 @@ import (
 
 const (
 	testServiceInstanceID   = "c9b96bb8-0000-4000-8000-000000000003"
-	testServiceRetirementID = "7d3c1f0a-5b2e-4c9d-8e1f-0a2b3c4d5e6f"
-	testServiceReviewID     = "0b6f2a8e-3a1c-4b8e-9a51-2c7d4f1e9a20"
+	testServiceRetirementID = "0b7c4d1a-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
+	testServiceReviewID     = "0b7c4d1b-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	testServiceClusterID    = "c1a2b3c4-0000-4000-8000-000000000001"
 )
 
@@ -47,7 +47,7 @@ func TestManagedServicesLaneParity(t *testing.T) {
 		}
 	})
 	ctx := context.Background()
-	page := ServicePageOptions{Limit: 50, After: "11111111-1111-4111-8111-111111111111"}
+	page := ServicePageOptions{Limit: 50, After: "0b7c4d0c-1111-4111-8111-111111111111"}
 
 	steps := []func() error{
 		func() error { _, err := client.ListServicePackages(ctx, page); return err },
@@ -65,7 +65,7 @@ func TestManagedServicesLaneParity(t *testing.T) {
 			return err
 		},
 		func() error {
-			_, err := client.GetServiceConsumer(ctx, "5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11")
+			_, err := client.GetServiceConsumer(ctx, "0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f")
 			return err
 		},
 		func() error {
@@ -76,7 +76,7 @@ func TestManagedServicesLaneParity(t *testing.T) {
 		func() error {
 			_, err := client.PrepareServiceReview(ctx, ServiceReviewRequest{PackageVersionID: "a5e62beb-cbe7-4340-9986-635e09cf086e",
 				Name: "orders-db", Mode: "customer", Region: "eu-north-1", DataBoundary: "eu", ClusterID: testServiceClusterID,
-				ConsumerIDs: []string{"5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11"}})
+				ConsumerIDs: []string{"0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f"}})
 			return err
 		},
 		func() error { _, err := client.ListServiceReviews(ctx, ServicePageOptions{}); return err },
@@ -117,13 +117,13 @@ func TestManagedServicesLaneParity(t *testing.T) {
 
 	admission := "/api/v1/org/service-admission"
 	expected := []recordedServiceCall{
-		{http.MethodGet, "/api/v1/org/service-packages", "after=11111111-1111-4111-8111-111111111111&limit=50", ""},
+		{http.MethodGet, "/api/v1/org/service-packages", "after=0b7c4d0c-1111-4111-8111-111111111111&limit=50", ""},
 		{http.MethodGet, "/api/v1/org/service-packages/a5e62beb-cbe7-4340-9986-635e09cf086e", "", ""},
 		{http.MethodGet, admission + "/cluster-policies/" + testServiceClusterID, "", ""},
 		{http.MethodPut, admission + "/cluster-policies/" + testServiceClusterID, "",
 			`{"expected_revision":0,"region":"eu-north-1","data_boundary":"eu","local_only":false}`},
 		{http.MethodGet, admission + "/consumers", "application_id=0a000000-0000-4000-8000-000000000002", ""},
-		{http.MethodGet, admission + "/consumers/5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11", "", ""},
+		{http.MethodGet, admission + "/consumers/0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f", "", ""},
 		{http.MethodPost, admission + "/consumers", "",
 			`{"application_id":"0a000000-0000-4000-8000-000000000002","cluster_id":"` + testServiceClusterID +
 				`","namespace":"orders","allow_planned":false,"local_only":false,"expected_revision":0}`},
@@ -132,11 +132,11 @@ func TestManagedServicesLaneParity(t *testing.T) {
 		{http.MethodPost, admission + "/reviews", "",
 			`{"package_version_id":"a5e62beb-cbe7-4340-9986-635e09cf086e","name":"orders-db","mode":"customer",` +
 				`"region":"eu-north-1","data_boundary":"eu","cluster_id":"` + testServiceClusterID +
-				`","consumer_ids":["5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11"],"parameters":{},"secret_references":{}}`},
+				`","consumer_ids":["0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f"],"parameters":{},"secret_references":{}}`},
 		{http.MethodGet, admission + "/reviews", "", ""},
 		{http.MethodGet, admission + "/reviews/" + testServiceReviewID, "", ""},
 		{http.MethodPost, admission + "/reviews/" + testServiceReviewID + "/confirm", "", `{"digest":"sha256:abc"}`},
-		{http.MethodGet, admission + "/instances", "after=11111111-1111-4111-8111-111111111111&limit=50", ""},
+		{http.MethodGet, admission + "/instances", "after=0b7c4d0c-1111-4111-8111-111111111111&limit=50", ""},
 		{http.MethodGet, admission + "/instances/" + testServiceInstanceID, "", ""},
 		// disconnect_consumer_ids is never null: an empty list is sent.
 		{http.MethodPost, admission + "/instances/" + testServiceInstanceID + "/retirements", "",
@@ -193,7 +193,7 @@ func TestManagedServicesHonourOrganisationOverride(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	client := New(testToken, server.URL)
-	client.SetOrganisationOverride("3b7dccca-0788-4470-9910-19478ae345ae")
+	client.SetOrganisationOverride("0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e")
 	if _, err := client.ListServiceInstances(context.Background(), ServiceInstanceListOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestManagedServicesHonourOrganisationOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, header := range seen {
-		if header != "3b7dccca-0788-4470-9910-19478ae345ae" {
+		if header != "0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e" {
 			t.Errorf("expected the organisation override header on every request, got %q", header)
 		}
 	}
@@ -318,14 +318,70 @@ func TestUnbindServiceConsumerLane(t *testing.T) {
 		calls = append(calls, recordedServiceCall{request.Method, request.URL.Path, request.URL.RawQuery, string(bodyBytes)})
 		writer.WriteHeader(http.StatusNoContent)
 	})
-	if err := client.UnbindServiceConsumer(context.Background(), "5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11", 3); err != nil {
+	if err := client.UnbindServiceConsumer(context.Background(), "0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f", 3); err != nil {
 		t.Fatalf("unbind: %v", err)
 	}
-	if err := client.UnbindServiceConsumer(context.Background(), "5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11", 0); err == nil {
+	if err := client.UnbindServiceConsumer(context.Background(), "0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f", 0); err == nil {
 		t.Error("an unbind without a revision must be refused")
 	}
-	want := []recordedServiceCall{{http.MethodDelete, "/api/v1/org/service-admission/consumers/5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11", "expected_revision=3", ""}}
+	want := []recordedServiceCall{{http.MethodDelete, "/api/v1/org/service-admission/consumers/0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f", "expected_revision=3", ""}}
 	if len(calls) != 1 || calls[0] != want[0] {
 		t.Fatalf("got %+v, want %+v", calls, want)
+	}
+}
+
+// A review prepared from another service's backups carries the source, the
+// moment and the backup vault beside the fields every review sends, with an
+// empty consumer list, and connecting an application posts the binding and the generation
+// to the instance's consumers.
+func TestManagedServicesSourceAndConnectLaneParity(t *testing.T) {
+	var calls []recordedServiceCall
+	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		bodyBytes, _ := io.ReadAll(request.Body)
+		calls = append(calls, recordedServiceCall{request.Method, request.URL.Path, request.URL.RawQuery, string(bodyBytes)})
+		jsonResponse(t, writer, http.StatusOK, map[string]any{"id": testServiceInstanceID})
+	})
+	ctx := context.Background()
+	if _, prepareError := client.PrepareServiceReview(ctx, ServiceReviewRequest{PackageVersionID: "a5e62beb-cbe7-4340-9986-635e09cf086e",
+		Name: "orders-db-copy", Mode: "customer", Region: "eu-north-1", DataBoundary: "eu", ClusterID: testServiceClusterID,
+		SourceInstanceID: testServiceInstanceID, SourceMoment: "2026-11-18T09:30:00Z", BackupVault: "production-backups"}); prepareError != nil {
+		t.Fatal(prepareError)
+	}
+	if _, connectError := client.ConnectServiceConsumer(ctx, testServiceInstanceID,
+		ServiceInstanceConsumerRequest{ConsumerID: "0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f", ExpectedGeneration: 2}); connectError != nil {
+		t.Fatal(connectError)
+	}
+	admission := "/api/v1/org/service-admission"
+	expected := []recordedServiceCall{
+		{http.MethodPost, admission + "/reviews", "",
+			`{"package_version_id":"a5e62beb-cbe7-4340-9986-635e09cf086e","name":"orders-db-copy","mode":"customer",` +
+				`"region":"eu-north-1","data_boundary":"eu","cluster_id":"` + testServiceClusterID +
+				`","consumer_ids":[],"parameters":{},"secret_references":{},"source_instance_id":"` + testServiceInstanceID +
+				`","source_moment":"2026-11-18T09:30:00Z","backup_vault":"production-backups"}`},
+		{http.MethodPost, admission + "/instances/" + testServiceInstanceID + "/consumers", "",
+			`{"consumer_id":"0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f","expected_generation":2}`},
+	}
+	if len(calls) != len(expected) {
+		t.Fatalf("expected %d calls, got %d: %+v", len(expected), len(calls), calls)
+	}
+	for index, call := range calls {
+		if call != expected[index] {
+			t.Errorf("call %d = %+v, want %+v", index, call, expected[index])
+		}
+	}
+
+	// Neither a binding nor a generation is guessed: a connect without one
+	// is refused before a request is sent.
+	before := len(calls)
+	if _, connectError := client.ConnectServiceConsumer(ctx, testServiceInstanceID,
+		ServiceInstanceConsumerRequest{ConsumerID: "0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f"}); connectError == nil {
+		t.Error("a connect without the service's generation was sent")
+	}
+	if _, connectError := client.ConnectServiceConsumer(ctx, testServiceInstanceID,
+		ServiceInstanceConsumerRequest{ExpectedGeneration: 2}); connectError == nil {
+		t.Error("a connect without a binding was sent")
+	}
+	if len(calls) != before {
+		t.Errorf("a refused connect reached the platform: %+v", calls[before:])
 	}
 }

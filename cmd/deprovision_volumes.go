@@ -69,6 +69,7 @@ func deprovisionVolumeList(volumes []client.DeprovisionVolume) string {
 // stderr so --output json|yaml stays parseable. It answers whether the
 // deprovision carries the acknowledgement.
 func acknowledgeVolumeDataLoss(cmd *cobra.Command, kind cloudClusterKind, clusterID string, clusterLabel string) (bool, error) {
+	warnDeprovisionOrganisationRoles(cmd, clusterID, clusterLabel)
 	if !volumeDeletingKinds[kind] {
 		return false, nil
 	}

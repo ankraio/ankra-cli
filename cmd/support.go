@@ -99,7 +99,7 @@ var supportCreateCmd = &cobra.Command{
 				return fmt.Errorf("%w: %s", client.ErrSupportReviewRequired, reviewBlockReason(review))
 			}
 			if confirmErr := confirmPrompt(
-				cmd.InOrStdin(), cmd.OutOrStdout(),
+				cmd.InOrStdin(), cmd.ErrOrStderr(),
 				"\nSubmit this request anyway? [y/N]: ", false,
 			); confirmErr != nil {
 				return errors.New("support request not submitted")
@@ -298,7 +298,7 @@ var supportCloseCmd = &cobra.Command{
 		yes, _ := cmd.Flags().GetBool("yes")
 
 		if err := confirmPrompt(
-			cmd.InOrStdin(), cmd.OutOrStdout(),
+			cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Close support ticket %q? [y/N]: ", args[0]),
 			yes,
 		); err != nil {

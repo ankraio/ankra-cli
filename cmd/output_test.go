@@ -133,13 +133,23 @@ func TestRenderStructuredDefaultIsNoop(t *testing.T) {
 	}
 }
 
+// jsonFlagExemptions are the commands allowed a --json flag, each with the
+// reason. Keep it short: a new command uses -o/--output.
+var jsonFlagExemptions = map[string]string{
+	// Not one rendered document but an NDJSON event stream a coding agent
+	// drives the sign-up with, and a contract published as
+	// `ankra onboard --json` by the installer, the website's llms.txt and
+	// docs.ankra.ai (ankra-xxwzq5).
+	"ankra onboard": "agent event stream published as --json",
+}
+
 // TestNoCommandHasJSONFlag walks the full command tree and asserts that no
 // command defines a --json flag: the CLI convention is a single -o/--output
-// flag with json|yaml values.
+// flag with json|yaml values. jsonFlagExemptions lists the exceptions.
 func TestNoCommandHasJSONFlag(t *testing.T) {
 	var walk func(command *cobra.Command)
 	walk = func(command *cobra.Command) {
-		if command.Flags().Lookup("json") != nil {
+		if command.Flags().Lookup("json") != nil && jsonFlagExemptions[command.CommandPath()] == "" {
 			t.Errorf("command %q defines a --json flag; use -o/--output json|yaml instead", command.CommandPath())
 		}
 		for _, child := range command.Commands() {

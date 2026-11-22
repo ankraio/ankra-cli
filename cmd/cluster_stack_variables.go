@@ -185,7 +185,7 @@ var clusterStackVariablesDeleteCmd = &cobra.Command{
 		}
 
 		if err := confirmPrompt(
-			cmd.InOrStdin(), cmd.OutOrStdout(),
+			cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete variable %q from stack %q? [y/N]: ", name, stackName),
 			yes,
 		); err != nil {

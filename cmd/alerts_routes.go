@@ -204,7 +204,7 @@ var alertsRoutesDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		routeID := args[0]
 		yes, _ := cmd.Flags().GetBool("yes")
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Delete notification route %q? [y/N]: ", routeID), yes); confirmError != nil {
 			return confirmError
 		}

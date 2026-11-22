@@ -12,10 +12,9 @@ import (
 	"ankra/internal/client"
 )
 
-const costNamespacesClusterID = "1834920e-3001-4157-8938-33c447031033"
+const costNamespacesClusterID = "0b7c4d11-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 type costNamespacesMock struct {
-	baseMock
 	history     *client.NamespaceCostHistory
 	readError   error
 	clusterIDs  []string
@@ -33,7 +32,7 @@ func (m *costNamespacesMock) GetNamespaceCostHistory(clusterID string, days int,
 	return m.history, nil
 }
 
-func runCostNamespacesCommand(t *testing.T, mock APIClient, args ...string) (string, error) {
+func runCostNamespacesCommand(t *testing.T, mock any, args ...string) (string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)

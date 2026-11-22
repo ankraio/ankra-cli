@@ -15,7 +15,6 @@ import (
 )
 
 type clusterAddonUninstallMock struct {
-	baseMock
 	addons []client.ClusterAddonListItem
 	// resourceIDs maps addon name -> resource id, mirroring the stack-history
 	// resolution the real client performs (the listing carries no id).
@@ -35,7 +34,7 @@ func (m *clusterAddonUninstallMock) GetCluster(name string) (client.ClusterListI
 	if m.getClusterErr != nil {
 		return client.ClusterListItem{}, m.getClusterErr
 	}
-	return client.ClusterListItem{ID: "11111111-2222-3333-4444-555555555555", Name: name}, nil
+	return client.ClusterListItem{ID: "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e", Name: name}, nil
 }
 
 func (m *clusterAddonUninstallMock) ListClusterAddons(clusterID string) ([]client.ClusterAddonListItem, error) {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 // Control-plane change lanes. Offline rewrites a stopped cluster's plan and
@@ -152,7 +153,7 @@ func (c *Client) ChangeDigitaloceanControlPlaneInstanceType(clusterID, instanceT
 }
 
 func (c *Client) getControlPlane(provider, clusterID string) (*ControlPlaneInfo, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/control-plane", c.BaseURL, provider, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/control-plane", c.BaseURL, url.PathEscape(provider), url.PathEscape(clusterID))
 	var result ControlPlaneInfo
 	if err := c.getJSON(url, &result); err != nil {
 		return nil, err
@@ -161,7 +162,7 @@ func (c *Client) getControlPlane(provider, clusterID string) (*ControlPlaneInfo,
 }
 
 func (c *Client) changeControlPlaneCount(provider, clusterID string, count int) (*ChangeControlPlaneCountResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/control-plane", c.BaseURL, provider, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/control-plane", c.BaseURL, url.PathEscape(provider), url.PathEscape(clusterID))
 	payload, err := json.Marshal(ChangeControlPlaneCountRequest{Count: count})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -178,7 +179,7 @@ func (c *Client) changeControlPlaneCount(provider, clusterID string, count int) 
 // and accept_api_downtime; the zero value leaves the body as it was before
 // either field.
 func (c *Client) changeControlPlaneInstanceType(provider, clusterID, instanceType string, options ControlPlaneInstanceTypeOptions) (*ChangeControlPlaneInstanceTypeResult, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/control-plane/instance-type", c.BaseURL, provider, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/control-plane/instance-type", c.BaseURL, url.PathEscape(provider), url.PathEscape(clusterID))
 	payload, err := json.Marshal(ChangeControlPlaneInstanceTypeRequest{
 		InstanceType:      instanceType,
 		ForceDrain:        options.ForceDrain,

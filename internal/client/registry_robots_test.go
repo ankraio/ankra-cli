@@ -255,14 +255,14 @@ func TestListIntegratedRegistryProjects(t *testing.T) {
 			http.NotFound(writer, request)
 			return
 		}
-		jsonResponse(t, writer, http.StatusOK, map[string]any{"registry": "smartoptics-harbor", "total_count": 1,
-			"projects": []map[string]any{{"name": "collectorcharts", "project": "collectorcharts", "host": "artifact.smartoptics.dev"}}})
+		jsonResponse(t, writer, http.StatusOK, map[string]any{"registry": "example-org-harbor", "total_count": 1,
+			"projects": []map[string]any{{"name": "platform-charts", "project": "platform-charts", "host": "artifact.example-org.dev"}}})
 	})
-	list, listError := client.ListIntegratedRegistryProjects(context.Background(), "smartoptics-harbor", "so admin")
-	if listError != nil || list.Registry != "smartoptics-harbor" || len(list.Projects) != 1 || list.Projects[0].Name != "collectorcharts" {
+	list, listError := client.ListIntegratedRegistryProjects(context.Background(), "example-org-harbor", "so admin")
+	if listError != nil || list.Registry != "example-org-harbor" || len(list.Projects) != 1 || list.Projects[0].Name != "platform-charts" {
 		t.Fatalf("list: %+v %v", list, listError)
 	}
-	if query.Get("registry") != "smartoptics-harbor" || query.Get("admin_credential_name") != "so admin" {
+	if query.Get("registry") != "example-org-harbor" || query.Get("admin_credential_name") != "so admin" {
 		t.Fatalf("query = %v", query)
 	}
 }

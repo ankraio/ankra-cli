@@ -75,6 +75,7 @@ func runLoginStatus(command *cobra.Command, _ []string) error {
 	// up yet when credentials do exist.
 	apiToken = resolved.token
 	baseURL = resolved.baseURL
+	organisationScopeTokenSource = resolved.source
 	if apiClient == nil {
 		apiClient = newAPIClient()
 	}

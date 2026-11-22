@@ -52,7 +52,7 @@ func defaultSliceEntries(defaultValue string) []string {
 // runConfirmCommand executes rootCmd end-to-end with the given stdin, capturing
 // combined output. It mirrors runSupportWithInput but is scoped to the
 // destructive-confirmation commands under test here.
-func runConfirmCommand(t *testing.T, mock APIClient, input string, resets []*cobra.Command, args ...string) (string, error) {
+func runConfirmCommand(t *testing.T, mock any, input string, resets []*cobra.Command, args ...string) (string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)
@@ -69,7 +69,6 @@ func runConfirmCommand(t *testing.T, mock APIClient, input string, resets []*cob
 // --- cluster stacks delete ------------------------------------------------
 
 type stacksDeleteMock struct {
-	baseMock
 	cluster     client.ClusterListItem
 	deleteCalls int
 }
@@ -131,7 +130,6 @@ func TestClusterStacksDelete_PipedYesProceeds(t *testing.T) {
 // --- cluster stacks list <name> not found ---------------------------------
 
 type stacksListMock struct {
-	baseMock
 	cluster client.ClusterListItem
 	stacks  []client.ClusterStackListItem
 }
@@ -166,7 +164,6 @@ func TestClusterStacksList_NotFoundUsesExitNotFound(t *testing.T) {
 // --- cluster deprovision --------------------------------------------------
 
 type deprovisionMock struct {
-	baseMock
 	cluster     client.ClusterListItem
 	deleteCalls int
 }
@@ -221,8 +218,8 @@ func TestClusterDeprovision_YesFlagProceeds(t *testing.T) {
 }
 
 func TestClusterDeprovision_ForceWarnsWhenIgnored(t *testing.T) {
-	// An imported cluster routes to the generic deprovision endpoint, one of
-	// the lanes where the backend discards force.
+	// An imported cluster routes to the generic deprovision endpoint, the one
+	// lane that takes no force.
 	mock := &deprovisionMock{cluster: client.ClusterListItem{ID: testClusterID, Name: "demo", Kind: "imported"}}
 	output, err := runConfirmCommand(t, mock, "",
 		[]*cobra.Command{clusterDeprovisionCmd},
@@ -282,7 +279,6 @@ func TestClusterDeprovision_PipedYesProceeds(t *testing.T) {
 // --- cluster node-group delete --------------------------------------------
 
 type nodeGroupDeleteMock struct {
-	baseMock
 	cluster     client.ClusterListItem
 	deleteCalls int
 }
@@ -344,7 +340,6 @@ func TestClusterNodeGroupDelete_PipedYesProceeds(t *testing.T) {
 // --- credentials delete ----------------------------------------------------
 
 type credentialsDeleteMock struct {
-	baseMock
 	deleteCalls int
 }
 

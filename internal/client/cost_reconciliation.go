@@ -26,14 +26,25 @@ type CostReconciliationImport struct {
 	Counted          bool    `json:"counted" yaml:"counted"`
 }
 
-// CostReconciliationFX is the rate the estimate (held in USD) was converted
-// into the invoice's currency at: the latest stored rate, not the month's
-// own. AsOf is nil when the rate is the platform's built-in one.
+// CostReconciliationFX is how the estimate was put in the invoice's currency
+// (openapi ReconciliationFX). From is the figure read, usd or eur, and To the
+// invoice's currency. Rate is the rate applied, units of To per unit of From;
+// RateFromUSD is that rate only when From is usd, and nil when the EUR figure
+// was read. AsOf is the ECB day whose rates converted the EUR figure or, for
+// the USD figure at today's rate, when that stored rate was refreshed; nil
+// when the built-in rate was used. Basis is captured, approximated or today
+// (cluster#6006).
+//
+// Rate and Basis are nil on a platform that predates them, which always
+// converted the USD figure at the latest stored rate and sent it as
+// RateFromUSD.
 type CostReconciliationFX struct {
-	From        string  `json:"from" yaml:"from"`
-	To          string  `json:"to" yaml:"to"`
-	RateFromUSD float64 `json:"rate_from_usd" yaml:"rate_from_usd"`
-	AsOf        *string `json:"as_of" yaml:"as_of"`
+	From        string   `json:"from" yaml:"from"`
+	To          string   `json:"to" yaml:"to"`
+	Rate        *float64 `json:"rate" yaml:"rate"`
+	RateFromUSD *float64 `json:"rate_from_usd" yaml:"rate_from_usd"`
+	AsOf        *string  `json:"as_of" yaml:"as_of"`
+	Basis       *string  `json:"basis" yaml:"basis"`
 }
 
 // CostReconciliationCluster is one cluster the invoice's lines are placed
@@ -95,34 +106,45 @@ type CostReconciliationLine struct {
 // difference is the scope's clusters alone. SameInvoiceAs is the credential
 // this one's invoice is counted under when both read one provider account;
 // this credential's amounts are then nil.
+//
+// CredentialOutsideProjects marks a credential outside the projects the
+// reader may read, for a reader confined to a project (a token pinned to one,
+// or a member who only holds roles on projects). Its cost on the reader's
+// clusters is still given, but which credential it is is withheld:
+// CredentialID and CredentialName are nil, each import's SourceDocumentID is
+// empty and its Reason nil, and SameInvoiceAs and DifferenceReason are nil.
+// A nil CredentialID therefore says the platform did not name the
+// credential, never that it was deleted. A platform that predates the field
+// names every credential and leaves the marker false.
 type CostReconciliationCredential struct {
-	CredentialID        string                      `json:"credential_id" yaml:"credential_id"`
-	CredentialName      *string                     `json:"credential_name" yaml:"credential_name"`
-	Provider            string                      `json:"provider" yaml:"provider"`
-	State               string                      `json:"state" yaml:"state"`
-	Imports             []CostReconciliationImport  `json:"imports" yaml:"imports"`
-	Currency            *string                     `json:"currency" yaml:"currency"`
-	CurrenciesMixed     bool                        `json:"currencies_mixed" yaml:"currencies_mixed"`
-	InvoiceMinor        *int64                      `json:"invoice_minor" yaml:"invoice_minor"`
-	TaxMinor            *int64                      `json:"tax_minor" yaml:"tax_minor"`
-	CreditMinor         *int64                      `json:"credit_minor" yaml:"credit_minor"`
-	MatchedMinor        *int64                      `json:"matched_minor" yaml:"matched_minor"`
-	UnmatchedMinor      *int64                      `json:"unmatched_minor" yaml:"unmatched_minor"`
-	EstimateMinor       *int64                      `json:"estimate_minor" yaml:"estimate_minor"`
-	EstimateComplete    *bool                       `json:"estimate_complete" yaml:"estimate_complete"`
-	EstimateFX          *CostReconciliationFX       `json:"estimate_fx" yaml:"estimate_fx"`
-	DifferencePct       *float64                    `json:"difference_pct" yaml:"difference_pct"`
-	DifferenceReason    *string                     `json:"difference_reason" yaml:"difference_reason"`
-	DifferenceCoverage  *CostReconciliationCoverage `json:"difference_coverage" yaml:"difference_coverage"`
-	CoverageReported    bool                        `json:"-" yaml:"-"`
-	UnplacedPricedMinor *int64                      `json:"unplaced_priced_minor" yaml:"unplaced_priced_minor"`
-	DifferenceCaveat    *string                     `json:"difference_caveat" yaml:"difference_caveat"`
-	Clusters            []CostReconciliationCluster `json:"clusters" yaml:"clusters"`
-	UnmatchedLines      []CostReconciliationLine    `json:"unmatched_lines" yaml:"unmatched_lines"`
-	UnmatchedLineCount  int                         `json:"unmatched_line_count" yaml:"unmatched_line_count"`
-	UnmatchedTruncated  bool                        `json:"unmatched_truncated" yaml:"unmatched_truncated"`
-	InvoiceWithheld     bool                        `json:"invoice_withheld" yaml:"invoice_withheld"`
-	SameInvoiceAs       *string                     `json:"same_invoice_as" yaml:"same_invoice_as"`
+	CredentialID              *string                     `json:"credential_id" yaml:"credential_id"`
+	CredentialOutsideProjects bool                        `json:"credential_outside_projects" yaml:"credential_outside_projects"`
+	CredentialName            *string                     `json:"credential_name" yaml:"credential_name"`
+	Provider                  string                      `json:"provider" yaml:"provider"`
+	State                     string                      `json:"state" yaml:"state"`
+	Imports                   []CostReconciliationImport  `json:"imports" yaml:"imports"`
+	Currency                  *string                     `json:"currency" yaml:"currency"`
+	CurrenciesMixed           bool                        `json:"currencies_mixed" yaml:"currencies_mixed"`
+	InvoiceMinor              *int64                      `json:"invoice_minor" yaml:"invoice_minor"`
+	TaxMinor                  *int64                      `json:"tax_minor" yaml:"tax_minor"`
+	CreditMinor               *int64                      `json:"credit_minor" yaml:"credit_minor"`
+	MatchedMinor              *int64                      `json:"matched_minor" yaml:"matched_minor"`
+	UnmatchedMinor            *int64                      `json:"unmatched_minor" yaml:"unmatched_minor"`
+	EstimateMinor             *int64                      `json:"estimate_minor" yaml:"estimate_minor"`
+	EstimateComplete          *bool                       `json:"estimate_complete" yaml:"estimate_complete"`
+	EstimateFX                *CostReconciliationFX       `json:"estimate_fx" yaml:"estimate_fx"`
+	DifferencePct             *float64                    `json:"difference_pct" yaml:"difference_pct"`
+	DifferenceReason          *string                     `json:"difference_reason" yaml:"difference_reason"`
+	DifferenceCoverage        *CostReconciliationCoverage `json:"difference_coverage" yaml:"difference_coverage"`
+	CoverageReported          bool                        `json:"-" yaml:"-"`
+	UnplacedPricedMinor       *int64                      `json:"unplaced_priced_minor" yaml:"unplaced_priced_minor"`
+	DifferenceCaveat          *string                     `json:"difference_caveat" yaml:"difference_caveat"`
+	Clusters                  []CostReconciliationCluster `json:"clusters" yaml:"clusters"`
+	UnmatchedLines            []CostReconciliationLine    `json:"unmatched_lines" yaml:"unmatched_lines"`
+	UnmatchedLineCount        int                         `json:"unmatched_line_count" yaml:"unmatched_line_count"`
+	UnmatchedTruncated        bool                        `json:"unmatched_truncated" yaml:"unmatched_truncated"`
+	InvoiceWithheld           bool                        `json:"invoice_withheld" yaml:"invoice_withheld"`
+	SameInvoiceAs             *string                     `json:"same_invoice_as" yaml:"same_invoice_as"`
 }
 
 // UnmarshalJSON decodes a credential and records whether the platform sent

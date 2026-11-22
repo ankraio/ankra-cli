@@ -107,7 +107,7 @@ Requires organisation admin.`,
 	Example: `  ankra org ai-review repos set my-org/my-repo --review
   ankra org ai-review repos set my-org/my-repo --review=false
   ankra org ai-review repos set my-org/my-repo --review --mentions --review-drafts --max-reviews-per-pr 3
-  ankra org ai-review repos set my-group/sub/project --binding gitlab/0b6f6d1e-6c1d-4f3a-9b43-7f6c2b1e9d10 --previews`,
+  ankra org ai-review repos set my-group/sub/project --binding gitlab/0b7c4d1d-5f6a-4b8c-9d0e-1f2a3b4c5d6e --previews`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {

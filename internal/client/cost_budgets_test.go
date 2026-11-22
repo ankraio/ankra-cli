@@ -16,7 +16,7 @@ import (
 // figures are all null.
 const costBudgetsGolden = `{"budgets":[` +
 	`{"id":"0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e","name":"prod-eu","scope_kind":"cluster",` +
-	`"scope_id":"11111111-1111-4111-8111-111111111111","scope_name":"prod-eu","monthly_cents":150000,"currency":"eur",` +
+	`"scope_id":"0b7c4d0c-1111-4111-8111-111111111111","scope_name":"prod-eu","monthly_cents":150000,"currency":"eur",` +
 	`"owner_user_id":"99999999-9999-4999-8999-999999999999","notify_at_pct":80,"created_by":"alice@example.com",` +
 	`"created_at":"2026-09-01T08:00:00Z","updated_at":"2026-09-10T08:00:00Z","month":"2026-09",` +
 	`"projection":{"status":"crossing","month_to_date_cents":120000,"projected_month_end_cents":162000,` +
@@ -54,7 +54,7 @@ func TestListCostBudgets_DecodesProjectionsAndNulls(t *testing.T) {
 		t.Fatalf("budgets did not decode: %+v", result)
 	}
 	crossing := result.Budgets[0]
-	if crossing.ScopeKind != "cluster" || crossing.ScopeID == nil || *crossing.ScopeID != "11111111-1111-4111-8111-111111111111" ||
+	if crossing.ScopeKind != "cluster" || crossing.ScopeID == nil || *crossing.ScopeID != "0b7c4d0c-1111-4111-8111-111111111111" ||
 		crossing.MonthlyCents != 150000 || crossing.OwnerUserID == nil || crossing.NotifyAtPct != 80 || crossing.Month != "2026-09" {
 		t.Fatalf("cluster budget did not decode: %+v", crossing)
 	}
@@ -124,7 +124,7 @@ func captureBudgetWrite(t *testing.T, status int, response string) (*Client, *st
 }
 
 const createdBudgetBody = `{"id":"3e0f7a4b-8c9d-4e1f-8a3b-4c5d6e7f8091","name":"prod-eu","scope_kind":"cluster",` +
-	`"scope_id":"11111111-1111-4111-8111-111111111111","scope_name":"prod-eu","monthly_cents":150000,"currency":"eur",` +
+	`"scope_id":"0b7c4d0c-1111-4111-8111-111111111111","scope_name":"prod-eu","monthly_cents":150000,"currency":"eur",` +
 	`"owner_user_id":null,"notify_at_pct":80,"created_by":"alice@example.com","created_at":"2026-09-24T08:00:00Z",` +
 	`"updated_at":"2026-09-24T08:00:00Z","month":"2026-09","projection":{"status":"under","month_to_date_cents":20000,` +
 	`"projected_month_end_cents":90000,"percent_of_budget":60,"crossing_at":null,"running_savings_monthly_cents":0,` +
@@ -133,7 +133,7 @@ const createdBudgetBody = `{"id":"3e0f7a4b-8c9d-4e1f-8a3b-4c5d6e7f8091","name":"
 func TestCreateCostBudget_SendsOnlyTheGivenFields(t *testing.T) {
 	testClient, captured := captureBudgetWrite(t, http.StatusCreated, createdBudgetBody)
 	budget, err := testClient.CreateCostBudget(CostBudgetWrite{
-		Name: budgetString("prod-eu"), ScopeKind: budgetString("cluster"), ScopeID: budgetString("11111111-1111-4111-8111-111111111111"),
+		Name: budgetString("prod-eu"), ScopeKind: budgetString("cluster"), ScopeID: budgetString("0b7c4d0c-1111-4111-8111-111111111111"),
 		MonthlyCents: budgetCents(150000), Currency: budgetString("eur"),
 	})
 	if err != nil {

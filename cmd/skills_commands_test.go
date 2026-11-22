@@ -26,6 +26,9 @@ import (
 type commandNode struct {
 	children map[string]*commandNode
 	flags    map[string]bool
+	// command resolves a flag through the command's own normalisation, so a
+	// documented alias such as --follow counts as the flag it stands for.
+	command *cobra.Command
 	// runnable is true when the command does work itself, so a trailing word
 	// may be a positional argument rather than a bad subcommand.
 	runnable bool
@@ -35,6 +38,7 @@ func buildCommandTree(command *cobra.Command) *commandNode {
 	node := &commandNode{
 		children: make(map[string]*commandNode),
 		flags:    make(map[string]bool),
+		command:  command,
 		runnable: command.Runnable(),
 	}
 	// Cobra registers the help flag lazily, so a command that has never run
@@ -188,7 +192,7 @@ func TestSkillsDocumentOnlyRealCommands(t *testing.T) {
 
 		for _, match := range flagPattern.FindAllStringSubmatch(entry.text, -1) {
 			flag := match[1]
-			if !node.flags[flag] {
+			if !node.flags[flag] && node.command.Flags().Lookup(flag) == nil {
 				t.Errorf("%s:%d: `ankra %s` has no --%s flag\n    %s",
 					entry.file, entry.line, strings.Join(chain, " "), flag, entry.text)
 			}

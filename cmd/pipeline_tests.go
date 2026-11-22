@@ -145,10 +145,17 @@ func runPipelineRunTests(command *cobra.Command, selector client.PipelineSelecto
 		return encodeStructured(command.OutOrStdout(), format, summary)
 	}
 
-	output := command.OutOrStdout()
+	writePipelineRunTests(command.OutOrStdout(), summary)
+	printPipelineRunTestEnvironmentsSection(command, selector, strings.TrimSpace(runID))
+	return nil
+}
+
+// writePipelineRunTests renders one run's test summary: its reports, then its
+// failed, quarantined, flaky and slowest tests.
+func writePipelineRunTests(output io.Writer, summary *client.PipelineRunTests) {
 	if !summary.HasReports {
 		_, _ = fmt.Fprintln(output, "This run declared no test reports, so Ankra has no test results for it.")
-		return nil
+		return
 	}
 	_, _ = fmt.Fprintf(output, "%s in %s\n", pipelineTestCountsSentence(summary.Counts),
 		pipelineTestDuration(summary.DurationMS))
@@ -173,7 +180,6 @@ func runPipelineRunTests(command *cobra.Command, selector client.PipelineSelecto
 	writePipelineTestQuarantinedFailures(output, summary.Quarantined)
 	writePipelineTestCases(output, "Flaky", summary.Flaky, true)
 	writePipelineTestCases(output, "Slowest", summary.Slowest, false)
-	return nil
 }
 
 func runPipelineTestHistory(command *cobra.Command, selector client.PipelineSelector, testKey string) error {

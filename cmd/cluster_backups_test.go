@@ -15,7 +15,6 @@ import (
 // command asked for, so the tests assert the wire-facing behaviour without a
 // server.
 type clusterBackupsMock struct {
-	baseMock
 	cluster client.ClusterListItem
 
 	page      *client.ClusterBackupsPage
@@ -95,7 +94,7 @@ func sampleClusterBackupsPage() *client.ClusterBackupsPage {
 	}
 }
 
-func runClusterBackups(t *testing.T, mock APIClient, args ...string) (string, error) {
+func runClusterBackups(t *testing.T, mock any, args ...string) (string, error) {
 	t.Helper()
 	return runConfirmCommand(t, mock, "", []*cobra.Command{clusterBackupsStatusCmd}, args...)
 }

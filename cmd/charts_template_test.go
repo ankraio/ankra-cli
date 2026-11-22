@@ -13,7 +13,6 @@ import (
 )
 
 type chartsTemplateMock struct {
-	baseMock
 	templateResult  *client.TemplateChartResult
 	templateError   error
 	capturedRequest client.TemplateChartRequest

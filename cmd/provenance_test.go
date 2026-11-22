@@ -19,7 +19,7 @@ import (
 	"ankra/internal/client"
 )
 
-const testProvenanceApplicationID = "23298741-6a5a-401a-a681-66f31fbdebe1"
+const testProvenanceApplicationID = "0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 type provenanceRequest struct {
 	method string

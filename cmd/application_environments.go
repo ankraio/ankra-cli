@@ -11,6 +11,7 @@ import (
 	"ankra/internal/client"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // The environments of an application and the branches each one follows. A
@@ -86,11 +87,12 @@ func newApplicationEnvironmentsSetCommand() *cobra.Command {
 		Long: `Set the branches an environment follows, or whether pushes deploy to it.
 
 The environment is named by its name (case-insensitive) or its id, as listed by
-'ankra application environments'. --branches sets the rule, --clear (or
---branches "") removes it so the environment follows the tracked branch again,
-and --enable or --disable turns deploying on push on or off for the
-environment. Without --enable or --disable the environment keeps its current
-setting.
+'ankra application environments'. --branches (or --follow) sets the rule and
+turns deploying on push on for the environment, since a rule on an environment
+that does not deploy pushes would never deploy anything; add --disable to save
+the rule with pushes still off. --clear (or --none, or --branches "") removes
+the rule so the environment follows the tracked branch again and keeps its
+switch as it is. --enable or --disable alone turns deploying on push on or off.
 
 Changing a rule never deploys by itself: the next push to a matching branch
 does.
@@ -99,7 +101,7 @@ does.
 		Example: `  ankra application environments set my-app production --branches main
   ankra application environments set my-app development --branches develop
   ankra application environments set my-app development --branches '**,!main'
-  ankra application environments set my-app staging --branches 'release/*'
+  ankra application environments set my-app staging --follow 'develop,release/*'
   ankra application environments set my-app staging --clear
   ankra application environments set my-app production --disable`,
 		Args: cobra.ExactArgs(2),
@@ -113,6 +115,7 @@ does.
 			shouldClear, _ := flags.GetBool("clear")
 			shouldEnable, _ := flags.GetBool("enable")
 			shouldDisable, _ := flags.GetBool("disable")
+			shouldDisable = shouldDisable || (flags.Changed("enable") && !shouldEnable)
 			if hasBranches && shouldClear {
 				return withExitCode(exitUsage, errors.New("--branches and --clear cannot be combined"))
 			}
@@ -161,6 +164,9 @@ does.
 				branchesValue, _ := flags.GetString("branches")
 				branches := splitBranchPatterns(branchesValue)
 				autoDeployRequest.Branches = &branches
+				if len(branches) > 0 && !shouldDisable {
+					autoDeployRequest.Enabled = true
+				}
 			}
 			payload, setError := apiClient.UpdateApplicationAutoDeploy(command.Context(), applicationID, autoDeployRequest)
 			if setError != nil {
@@ -173,12 +179,26 @@ does.
 			return renderApplicationEnvironments(command, format, payload)
 		},
 	}
-	setCommand.Flags().String("branches", "", `Comma-separated branch patterns, e.g. main or 'release/*' ("" removes the rule)`)
-	setCommand.Flags().Bool("clear", false, "Remove the branch rule so the environment follows the tracked branch")
+	setCommand.Flags().String("branches", "", `Comma-separated branch patterns, e.g. main or 'release/*' ("" removes the rule); also --follow`)
+	setCommand.Flags().Bool("clear", false, "Remove the branch rule so the environment follows the tracked branch; also --none")
+	setCommand.Flags().SetNormalizeFunc(environmentsSetFlagAliases)
 	setCommand.Flags().Bool("enable", false, "Deploy pushes to this environment")
 	setCommand.Flags().Bool("disable", false, "Stop deploying pushes to this environment")
 	registerStructuredOutputFlags(setCommand)
 	return setCommand
+}
+
+// environmentsSetFlagAliases accepts the words the portal and the deploy
+// command use for a branch rule: --follow and --follow-branches for
+// --branches, and --none for --clear.
+func environmentsSetFlagAliases(_ *pflag.FlagSet, name string) pflag.NormalizedName {
+	switch name {
+	case "follow", "follow-branches":
+		return "branches"
+	case "none":
+		return "clear"
+	}
+	return pflag.NormalizedName(name)
 }
 
 // splitBranchPatterns turns a comma-separated flag value into its patterns,

@@ -26,7 +26,7 @@ func (mock *applyRemovalMock) ApplyCluster(ctx context.Context, request client.C
 			Message: "This change was not deployed: it would remove 1 member of stack 'hello-fleet' (" + mock.removes + "). Nothing was changed.",
 			Members: []string{mock.removes}}
 	}
-	return &client.ImportResponse{Name: request.Name, ClusterId: "11111111-1111-1111-1111-111111111111"}, false, nil
+	return &client.ImportResponse{Name: request.Name, ClusterId: "0b7c4d0c-1111-1111-1111-111111111111"}, false, nil
 }
 
 // A stale file that would remove a member is refused with the platform's

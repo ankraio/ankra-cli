@@ -19,6 +19,12 @@ type DeployApplicationRequest struct {
 	Namespace  string            `json:"namespace,omitempty"`
 	DeployMode string            `json:"deploy_mode,omitempty"`
 	Inputs     map[string]string `json:"inputs,omitempty"`
+	// ResetInputs names inputs the deployment hands back to the repository:
+	// each stops being its own value and follows the default in
+	// .ankra/ankra.yaml from this deploy on (the deploy form's "Use repository
+	// default"). The platform refuses, by name, an input with no default or one
+	// Inputs also sets.
+	ResetInputs []string `json:"reset_inputs,omitempty"`
 	// PrepareDatabase consents that the platform sets up the CloudNativePG
 	// operator the application's database needs when the cluster has none
 	// (it installs Ankra's cloudnative-pg profile, then deploys). It needs
@@ -109,6 +115,12 @@ type ApplicationImageRegistry struct {
 // body: the GitHub credential the application's repository calls ride on.
 type SetApplicationRepositoryCredentialRequest struct {
 	CredentialName string `json:"credential_name"`
+}
+
+// SetApplicationTrackedBranchRequest mirrors the tracked-branch body: the
+// branch of the application's repository it should follow.
+type SetApplicationTrackedBranchRequest struct {
+	Branch string `json:"branch"`
 }
 
 // EnsureApplicationRegistryRobotRequest mirrors the registry-robot body:
@@ -408,6 +420,12 @@ func (client *Client) SetApplicationRepositoryCredential(requestContext context.
 	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/repository-credential"), nil, credentialRequest)
 }
 
+// --- tracked branch ---
+
+func (client *Client) SetApplicationTrackedBranch(requestContext context.Context, applicationID string, branchRequest SetApplicationTrackedBranchRequest) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPut, applicationPath(applicationID, "/tracked-branch"), nil, branchRequest)
+}
+
 // --- AI lane configuration ---
 
 func (client *Client) GetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error) {
@@ -420,6 +438,43 @@ func (client *Client) UpdateApplicationAIConfig(requestContext context.Context, 
 
 func (client *Client) ResetApplicationAIConfig(requestContext context.Context, applicationID string) (json.RawMessage, error) {
 	return client.applicationResourceRequest(requestContext, http.MethodDelete, applicationPath(applicationID, "/ai-config"), nil, nil)
+}
+
+// --- promotion ---
+
+func (client *Client) GetApplicationEnvironments(requestContext context.Context, applicationID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/environments"), nil, nil)
+}
+
+func (client *Client) PreviewApplicationPromotion(requestContext context.Context, applicationID string, query url.Values) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/promotions/preview"), query, nil)
+}
+
+func (client *Client) StartApplicationPromotion(requestContext context.Context, applicationID string, promotion map[string]string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPost, applicationPath(applicationID, "/promotions"), nil, promotion)
+}
+
+// --- rollback ---
+
+// GetApplicationRollbackTargets reads what the application's deployment on a
+// cluster could be rolled back to.
+func (client *Client) GetApplicationRollbackTargets(requestContext context.Context, applicationID string, clusterID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/rollback-targets"),
+		url.Values{"cluster_id": []string{clusterID}}, nil)
+}
+
+// ListApplicationRollbacks reads the recorded rollbacks of the application's
+// deployment on a cluster, newest first.
+func (client *Client) ListApplicationRollbacks(requestContext context.Context, applicationID string, clusterID string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodGet, applicationPath(applicationID, "/rollbacks"),
+		url.Values{"cluster_id": []string{clusterID}}, nil)
+}
+
+// StartApplicationRollback puts a previously published image tag back on the
+// application's deployment on a cluster and answers the rollback record.
+func (client *Client) StartApplicationRollback(requestContext context.Context, applicationID string, clusterID string, imageTag string) (json.RawMessage, error) {
+	return client.applicationResourceRequest(requestContext, http.MethodPost, applicationPath(applicationID, "/rollbacks"), nil,
+		map[string]string{"cluster_id": clusterID, "image_tag": imageTag})
 }
 
 // --- catalog publishing ---

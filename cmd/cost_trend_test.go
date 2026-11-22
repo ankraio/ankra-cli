@@ -12,7 +12,6 @@ import (
 )
 
 type costTrendMock struct {
-	baseMock
 	trend       *client.FleetCostTrend
 	trendError  error
 	events      *client.CostEvents
@@ -37,7 +36,7 @@ func (m *costTrendMock) GetCostEvents(days int) (*client.CostEvents, error) {
 	return m.events, nil
 }
 
-func runCostTrendCommand(t *testing.T, mock APIClient, args ...string) (string, error) {
+func runCostTrendCommand(t *testing.T, mock any, args ...string) (string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)
@@ -75,7 +74,7 @@ func fleetCostTrendFixture() *client.FleetCostTrend {
 		CoverageChanges: []client.CostCoverageChange{
 			{Day: "2026-09-22", PricedClusterCountBefore: 0, PricedClusterCountAfter: 2,
 				Entered: []client.CostCoverageChangeCluster{
-					{ClusterID: "11111111-1111-4111-8111-111111111111", ClusterName: "prod-eu", MonthlyCostEstimateCents: 60000},
+					{ClusterID: "0b7c4d0c-1111-4111-8111-111111111111", ClusterName: "prod-eu", MonthlyCostEstimateCents: 60000},
 					{ClusterID: "33333333-3333-4333-8333-333333333333", ClusterName: "old-dev", MonthlyCostEstimateCents: 10000},
 				},
 				Left: []client.CostCoverageChangeCluster{}, CoverageDeltaMonthlyCents: 70000},
@@ -89,7 +88,7 @@ func fleetCostTrendFixture() *client.FleetCostTrend {
 				CoverageDeltaMonthlyCents: 15200},
 		},
 		Clusters: []client.FleetCostTrendCluster{
-			{ClusterID: "11111111-1111-4111-8111-111111111111", ClusterName: "prod-eu", FirstPricedAt: trendString("2026-08-01T10:00:00Z"),
+			{ClusterID: "0b7c4d0c-1111-4111-8111-111111111111", ClusterName: "prod-eu", FirstPricedAt: trendString("2026-08-01T10:00:00Z"),
 				FirstPricedExact: true, FirstDay: "2026-09-22", LastDay: "2026-09-24", PricedDays: 3},
 			{ClusterID: "33333333-3333-4333-8333-333333333333", ClusterName: "old-dev", Deleted: true,
 				FirstPricedAt: trendString("2026-08-27T00:00:00Z"), FirstDay: "2026-09-22", LastDay: "2026-09-23", PricedDays: 2},
@@ -243,7 +242,7 @@ func costEventsFixture() *client.CostEvents {
 		Days:        30,
 		Events: []client.CostEvent{
 			{At: "2026-09-23T14:05:00Z", Day: "2026-09-23", Kind: "application_release",
-				ClusterID: trendString("11111111-1111-4111-8111-111111111111"), ClusterName: trendString("prod-eu"),
+				ClusterID: trendString("0b7c4d0c-1111-4111-8111-111111111111"), ClusterName: trendString("prod-eu"),
 				Subject: "Commerce 2.13 → 2.14", DeltaMonthlyCents: trendCents(4000), WindowDeltaMonthlyCents: trendCents(4000),
 				DeltaStatus: "isolated"},
 			{At: "2026-09-22T19:00:00Z", Day: "2026-09-22", Kind: "power_schedule",

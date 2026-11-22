@@ -12,6 +12,7 @@ An `ImportCluster` manifest is the declarative entry point for onboarding an exi
 - **Golden path:** *GitOps as the source of truth* - see `ankra-platform-principles`. The file lives in the platform repository with `spec.git_repository` set, is checked with `validate`, staged with `draft` for review on anything that matters, and only then applied; the Ankra engine reconciles it.
 - Pin every `chart_version`, put per-environment values in `variables`, and seal secrets with SOPS (`ankra-sops-secrets`) - never plaintext in Git.
 - A cluster Ankra should **build** is `ankra-cloud-clusters` / `ankra-managed-kubernetes` (managed ones import with `ankra cluster managed import`, no YAML needed). Repository layout is `ankra-gitops`; stack design is `ankra-stacks-addons`.
+- **Only connecting a cluster, with nothing to declare yet?** No file is needed: `ankra cluster connect <name> [--environment production]` registers it and prints the agent install command, and refuses a name another cluster already has (exit 8) instead of updating that cluster. Write the file when stacks, add-ons or a GitOps repository go in with it.
 - **Avoid:** applying straight to production without a reviewed draft, and `kubectl apply`/`helm install` beside the file - the next apply or sync removes what the file does not declare.
 
 ## Anatomy

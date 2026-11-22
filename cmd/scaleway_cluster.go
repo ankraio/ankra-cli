@@ -18,7 +18,7 @@ var scalewayCmd = &cobra.Command{
 	Long:  "Manage the lifecycle of Scaleway clusters.",
 }
 
-var scalewayStopCmd = &cobra.Command{
+var scalewayStopCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "stop <cluster_id|name>",
 	Short: "Stop a Scaleway cluster",
 	Long:  "Stop a Scaleway cluster by terminating its compute while preserving its configuration so it can be re-provisioned later.",
@@ -52,9 +52,9 @@ var scalewayStopCmd = &cobra.Command{
 		printStopStateOutcome(result.StatePreserved, result.StateSnapshot, result.Message, result.StopMode)
 		return nil
 	},
-}
+})
 
-var scalewayStartCmd = &cobra.Command{
+var scalewayStartCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "start <cluster_id|name>",
 	Short: "Start a stopped Scaleway cluster",
 	Long:  "Re-provision a stopped Scaleway cluster. Use --scope control_plane to bring up only the control plane.",
@@ -72,7 +72,7 @@ var scalewayStartCmd = &cobra.Command{
 			return fmt.Errorf("invalid --scope %q: must be 'all' or 'control_plane'", scope)
 		}
 
-		result, startError := apiClient.StartScalewayCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command)})
+		result, startError := apiClient.StartScalewayCluster(clusterID, client.StartClusterOptions{Scope: scope, RestoreState: restoreStateFlag(command), RestoreSnapshotID: restoreSnapshotIDFlag(command), RestoreOverKeptEtcd: restoreOverKeptEtcdFlag(command)})
 		if startError != nil {
 			return fmt.Errorf("starting Scaleway cluster: %w", startError)
 		}
@@ -83,14 +83,14 @@ var scalewayStartCmd = &cobra.Command{
 			fmt.Printf("  Marked to start at: %s\n", result.MarkedToStartAt)
 		}
 		fmt.Printf("  Created operations: %d\n", result.CreatedOperations)
-		printStartStateOutcome(result.StateRestore, result.StateSnapshotID)
+		printStartStateOutcome(result.StateRestore, result.StateSnapshotID, result.StateRestoreMessage)
 		return nil
 	},
-}
+})
 
 func init() {
 	scalewayStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")
-	registerThreeStateFlag(scalewayStartCmd, "restore-state", restoreStateFlagUsage)
+	registerRestoreFlags(scalewayStartCmd)
 	scalewayStopCmd.Flags().Bool("force", false, "Force stop: cancel every in-flight operation and block new operations for 60 seconds while the stop lands, and also delete the cluster's tagged load balancers even when retention_policy is retain. The cluster's volumes are kept: only a deprovision deletes them")
 	registerThreeStateFlag(scalewayStopCmd, "preserve-state", preserveStateFlagUsage)
 	scalewayStopCmd.Flags().String("mode", "", stopModeFlagUsage)
@@ -107,6 +107,7 @@ func init() {
 	scalewayCmd.AddCommand(scalewayPreflightCmd)
 	scalewayCmd.AddCommand(scalewayDeprovisionCmd)
 	scalewayDeprovisionCmd.Flags().Bool("yes", false, "Skip the confirmation prompt")
+	scalewayDeprovisionCmd.Flags().Bool("force", false, deprovisionForceFlagUsage)
 	registerAcceptVolumeDataLossFlag(scalewayDeprovisionCmd)
 	scalewayCmd.AddCommand(scalewayStopCmd)
 	scalewayCmd.AddCommand(scalewayStartCmd)
@@ -123,7 +124,7 @@ func init() {
 // scalewayCreateRequestFromFlags builds the create body shared by `create` and
 // `preflight`. Flags left at their zero value are omitted so the server's
 // documented defaults apply (gateway type VPC-GW-S, bastion port 61000,
-// DEV1-M instance types, k3s, stacked etcd, retain).
+// DEV1-M instance types, kubeadm, stacked etcd, retain).
 func scalewayCreateRequestFromFlags(cmd *cobra.Command) (client.CreateScalewayClusterRequest, error) {
 	name, _ := cmd.Flags().GetString("name")
 	description, _ := cmd.Flags().GetString("description")
@@ -214,7 +215,7 @@ func scalewayCreateRequestFromFlags(cmd *cobra.Command) (client.CreateScalewayCl
 var scalewayCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new Scaleway Instances cluster",
-	Long: `Create an Ankra-managed K3s or kubeadm cluster on Scaleway Instances.
+	Long: `Create an Ankra-managed kubeadm (default) or k3s cluster on Scaleway Instances.
 
 Ankra owns the server graph, security group, Public Gateway v2, generated SSH
 key and (unless --private-network-id adopts an existing one) the Private
@@ -242,8 +243,7 @@ Examples:
 
 		fmt.Printf("Scaleway cluster '%s' created successfully!\n", result.Name)
 		fmt.Printf("  Cluster ID: %s\n", result.ClusterID)
-		fmt.Printf("\nView it in the UI:\n  %s/organisation/clusters/cluster/imported/%s/overview\n",
-			strings.TrimRight(baseURL, "/"), result.ClusterID)
+		fmt.Printf("\nView it in the UI:\n  %s\n", portalClusterURLByID(result.ClusterID))
 		return nil
 	},
 }
@@ -289,7 +289,7 @@ Takes the same flags as 'create'.`,
 	},
 }
 
-var scalewayDeprovisionCmd = &cobra.Command{
+var scalewayDeprovisionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "deprovision <cluster_id|name>",
 	Short: "Deprovision a Scaleway cluster and release its cloud resources",
 	Long: `Permanently delete a Scaleway cluster and the provider resources Ankra
@@ -316,14 +316,15 @@ accept that: answer the prompt on a terminal, or pass
 		if volumeError != nil {
 			return volumeError
 		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Deprovision Scaleway cluster %s? This permanently deletes its cloud resources and the cluster record! [y/N]: ",
 				clusterTarget(args[0], clusterID)),
 			scalewayDeprovisionYes); confirmError != nil {
 			return confirmError
 		}
+		force, _ := cmd.Flags().GetBool("force")
 		result, deprovisionError := apiClient.DeprovisionScalewayCluster(clusterID,
-			client.DeprovisionOptions{AcceptVolumeDataLoss: acceptsVolumeDataLoss})
+			client.DeprovisionOptions{Force: force, AcceptVolumeDataLoss: acceptsVolumeDataLoss})
 		if deprovisionError != nil {
 			return fmt.Errorf("deprovisioning Scaleway cluster: %w", deprovisionError)
 		}
@@ -341,9 +342,9 @@ accept that: answer the prompt on a terminal, or pass
 		}
 		return nil
 	},
-}
+})
 
-var scalewayWorkersCmd = &cobra.Command{
+var scalewayWorkersCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "workers <cluster_id|name>",
 	Short: "Get current worker count for a Scaleway cluster",
 	Args:  cobra.ExactArgs(1),
@@ -368,9 +369,9 @@ var scalewayWorkersCmd = &cobra.Command{
 		fmt.Printf("  Max: %d\n", result.Max)
 		return nil
 	},
-}
+})
 
-var scalewayK8sVersionCmd = &cobra.Command{
+var scalewayK8sVersionCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "k8s-version <cluster_id|name>",
 	Short: "Get current Kubernetes version for a Scaleway cluster",
 	Args:  cobra.ExactArgs(1),
@@ -398,7 +399,7 @@ var scalewayK8sVersionCmd = &cobra.Command{
 		fmt.Printf("  Distribution: %s\n", result.Distribution)
 		return nil
 	},
-}
+})
 
 var scalewayLocationsCmd = &cobra.Command{
 	Use:   "locations",
@@ -565,7 +566,7 @@ func registerScalewayCreateFlags(commands ...*cobra.Command) {
 		command.Flags().String("control-plane-type", "", "Control plane commercial type (server default: DEV1-M)")
 		command.Flags().Int("worker-count", 0, "Default-pool worker count (server default: 1)")
 		command.Flags().String("worker-type", "", "Worker commercial type (server default: DEV1-M)")
-		command.Flags().String("distribution", "", "Kubernetes distribution: k3s or kubeadm (server default: k3s). kubeadm on Scaleway is Cilium-only")
+		command.Flags().String("distribution", "", "Kubernetes distribution: kubeadm or k3s (server default: kubeadm). kubeadm on Scaleway is Cilium-only")
 		command.Flags().String("kubernetes-version", "", "Pin a Kubernetes version (default: latest supported)")
 		command.Flags().String("etcd-topology", "", "etcd topology: stacked or external (server default: stacked)")
 		command.Flags().Int("etcd-node-count", 0, "External etcd node count, 3 or 5 (server default: 3)")

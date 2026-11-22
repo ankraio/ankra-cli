@@ -103,7 +103,7 @@ cluster). Use --dry-run to preview the target without making changes.`,
 		}
 
 		msg := fmt.Sprintf("This removes manifest %q (stack %q) and its resources from the cluster.\nContinue? [y/N]: ", manifestName, stack.Name)
-		if err := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(), msg, yes); err != nil {
+		if err := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), msg, yes); err != nil {
 			return err
 		}
 
@@ -467,7 +467,7 @@ func parseManifestsUpgradeFlags(cmd *cobra.Command) (manifestsUpgradeFlags, erro
 
 func init() {
 	clusterManifestsUpgradeCmd.Flags().String("from-file", "", "Path to manifest YAML file (REPLACES the entire manifest)")
-	clusterManifestsUpgradeCmd.Flags().String("manifest", "", "Use `-` to read manifest YAML from stdin (REPLACES the entire manifest)")
+	clusterManifestsUpgradeCmd.Flags().String("manifest", "", "Use '-' to read manifest YAML from stdin (REPLACES the entire manifest)")
 	clusterManifestsUpgradeCmd.Flags().String("namespace", "", "Change the manifest's namespace")
 	clusterManifestsUpgradeCmd.Flags().StringArray("set", nil, "In-place edit of the manifest YAML, e.g. --set 'spec.template.spec.containers[name=app].image=nginx:1.27' (MUTATES existing content; repeatable, comma-separated)")
 	clusterManifestsUpgradeCmd.Flags().StringArray("set-string", nil, "Like --set but always treats the value as a string")

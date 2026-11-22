@@ -48,8 +48,8 @@ type clusterUpdateOutput struct {
 	Criticality *string `json:"criticality,omitempty"`
 }
 
-var clusterUpdateCmd = &cobra.Command{
-	Use:   "update [cluster]",
+var clusterUpdateCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "update <cluster>",
 	Short: "Change a cluster's environment and reporting level",
 	Long: `Set the environment of an existing cluster - production, staging, development,
 testing, local, or a name of your own - and the reporting level its insights
@@ -68,18 +68,29 @@ testing is graded as development and local as disposable. --criticality
 overrides it. An environment of your own leaves the reporting level as it is
 unless --criticality is given.
 
-The environment is not part of an ImportCluster file: 'ankra cluster apply'
-never changes it on an existing cluster, so a value set here stays until it
-is changed here or in the portal.
+An ImportCluster file can declare the environment too, as metadata.environment:
+'ankra cluster apply' creates a new cluster with it, and fills it in on an
+existing cluster only where nobody chose the label yet. A value set here is
+never reverted by a file, so it stays until it is changed here or in the
+portal. Who chose a label is recorded from the credential: your own token
+records you, a service account records automation.
 
-The cluster is given by name or id; without one, the selected cluster is
-updated.`,
+The cluster is given by name or id, as the argument or with --cluster. An
+update never falls back to the cluster selected with 'ankra cluster select':
+that selection is shared by every shell and agent session on the machine,
+and the environment decides dynamic cluster groups and the access they
+grant, alert silencing ('local') and whether Ankra AI may remediate the
+cluster on its own (never on production), so a relabel aimed at the wrong
+cluster could switch that on for a production cluster.`,
 	Example: `  ankra cluster update so-infrastructure --environment development
-  ankra cluster update --environment eu-qa --criticality staging
-  ankra cluster update 3d0e2935-963b-4c7b-a494-b7266776ec68 --environment production -o json`,
+  ankra cluster update --cluster eu-qa-01 --environment eu-qa --criticality staging
+  ankra cluster update 0b7c4d10-5f6a-4b8c-9d0e-1f2a3b4c5d6e --environment production -o json`,
+	// The cluster argument may be left out for --cluster, which the run
+	// reads itself, by name or id, as it always has; named nowhere, the
+	// resolver refuses before the run (clusterMustBeNamed).
 	Args: cobra.MaximumNArgs(1),
 	RunE: runClusterUpdate,
-}
+})
 
 func runClusterUpdate(cmd *cobra.Command, args []string) error {
 	environmentFlag, _ := cmd.Flags().GetString("environment")

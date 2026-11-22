@@ -169,16 +169,11 @@ Needs the security.manage permission; asks for confirmation unless --yes.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			frameworkKey := strings.TrimSpace(args[0])
 			yes, _ := cmd.Flags().GetBool("yes")
-			structured, err := structuredFormatFromFlags(cmd)
-			if err != nil {
-				return err
-			}
-			narration := cmd.OutOrStdout()
-			if structured != outputDefault {
-				narration = cmd.ErrOrStderr()
+			if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+				return formatError
 			}
 			prompt := fmt.Sprintf("%s the %s framework for this organisation? [y/N]: ", verb, frameworkKey)
-			if confirmError := confirmPrompt(cmd.InOrStdin(), narration, prompt, yes); confirmError != nil {
+			if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), prompt, yes); confirmError != nil {
 				return confirmError
 			}
 			framework, err := apiClient.SetSecurityComplianceFrameworkEnabled(frameworkKey, enabled)
@@ -708,13 +703,8 @@ rolled out by the platform.`,
 			return err
 		}
 		yes, _ := cmd.Flags().GetBool("yes")
-		structured, err := structuredFormatFromFlags(cmd)
-		if err != nil {
-			return err
-		}
-		narration := cmd.OutOrStdout()
-		if structured != outputDefault {
-			narration = cmd.ErrOrStderr()
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
 		}
 		prompt := fmt.Sprintf("Set the pod-security policy mode to %s? [y/N]: ", mode)
 		if mode == "enforce" {
@@ -723,7 +713,7 @@ rolled out by the platform.`,
 		if mode == "off" {
 			prompt = "Set the pod-security policy mode to off? The Kyverno policy engine will be uninstalled from the cluster; native pod security keeps observing in audit. [y/N]: "
 		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), narration, prompt, yes); confirmError != nil {
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), prompt, yes); confirmError != nil {
 			return confirmError
 		}
 		result, err := apiClient.SetSecurityPolicyMode(clusterID, mode)
@@ -757,15 +747,10 @@ scan completes. Asks for confirmation unless --yes.`,
 			return err
 		}
 		yes, _ := cmd.Flags().GetBool("yes")
-		structured, err := structuredFormatFromFlags(cmd)
-		if err != nil {
-			return err
+		if _, formatError := structuredFormatFromFlags(cmd); formatError != nil {
+			return formatError
 		}
-		narration := cmd.OutOrStdout()
-		if structured != outputDefault {
-			narration = cmd.ErrOrStderr()
-		}
-		if confirmError := confirmPrompt(cmd.InOrStdin(), narration, "Install the security baseline stack on this cluster? [y/N]: ", yes); confirmError != nil {
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(), "Install the security baseline stack on this cluster? [y/N]: ", yes); confirmError != nil {
 			return confirmError
 		}
 		result, err := apiClient.EnableSecurityBaseline(clusterID)

@@ -16,8 +16,6 @@ import (
 // orgDomainMock captures the root-domain reads and writes plus the cluster
 // zone inventory the migration lane needs.
 type orgDomainMock struct {
-	baseMock
-
 	domain     client.OrganisationDomain
 	setCalls   []string
 	setError   error
@@ -62,7 +60,7 @@ func resetOrgDomainFlags(t *testing.T) {
 
 func TestRunOrgDomainGet_ShowsTheRegisteredDomain(t *testing.T) {
 	mock := &orgDomainMock{domain: client.OrganisationDomain{
-		DNSRootDomain: "smartoptics.dev", DNSRootDomainDefault: "ankra.cc"}}
+		DNSRootDomain: "example-org.dev", DNSRootDomainDefault: "ankra.cc"}}
 	setMockClient(t, mock)
 	resetOrgDomainFlags(t)
 	output := new(bytes.Buffer)
@@ -72,7 +70,7 @@ func TestRunOrgDomainGet_ShowsTheRegisteredDomain(t *testing.T) {
 	if executeError := rootCmd.Execute(); executeError != nil {
 		t.Fatalf("execute failed: %v\noutput: %s", executeError, output.String())
 	}
-	if !strings.Contains(output.String(), "smartoptics.dev") {
+	if !strings.Contains(output.String(), "example-org.dev") {
 		t.Errorf("output = %s", output.String())
 	}
 }
@@ -100,18 +98,18 @@ func TestRunOrgDomainSet_SendsTheDomain(t *testing.T) {
 	output := new(bytes.Buffer)
 	rootCmd.SetOut(output)
 	rootCmd.SetErr(output)
-	rootCmd.SetArgs([]string{"org", "domain", "set", "smartoptics.dev"})
+	rootCmd.SetArgs([]string{"org", "domain", "set", "example-org.dev"})
 	if executeError := rootCmd.Execute(); executeError != nil {
 		t.Fatalf("execute failed: %v\noutput: %s", executeError, output.String())
 	}
-	if len(mock.setCalls) != 1 || mock.setCalls[0] != "smartoptics.dev" {
+	if len(mock.setCalls) != 1 || mock.setCalls[0] != "example-org.dev" {
 		t.Fatalf("set calls = %v", mock.setCalls)
 	}
 }
 
 func TestRunOrgDomainSet_DefaultClearsTheCustomDomain(t *testing.T) {
 	mock := &orgDomainMock{domain: client.OrganisationDomain{
-		DNSRootDomain: "smartoptics.dev", DNSRootDomainDefault: "ankra.cc"}}
+		DNSRootDomain: "example-org.dev", DNSRootDomainDefault: "ankra.cc"}}
 	setMockClient(t, mock)
 	resetOrgDomainFlags(t)
 	output := new(bytes.Buffer)
@@ -162,7 +160,7 @@ func TestRunOrgDomainSet_ListsTheBlockingZonesAndRecords(t *testing.T) {
 	output := new(bytes.Buffer)
 	rootCmd.SetOut(output)
 	rootCmd.SetErr(output)
-	rootCmd.SetArgs([]string{"org", "domain", "set", "smartoptics.dev"})
+	rootCmd.SetArgs([]string{"org", "domain", "set", "example-org.dev"})
 	executeError := rootCmd.Execute()
 	if executeError == nil {
 		t.Fatalf("expected a refusal, output: %s", output.String())
@@ -251,7 +249,7 @@ func TestRunOrgDomainSet_BlockedSwitchHonoursStructuredOutput(t *testing.T) {
 	stderr := new(bytes.Buffer)
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
-	rootCmd.SetArgs([]string{"org", "domain", "set", "smartoptics.dev", "-o", "json"})
+	rootCmd.SetArgs([]string{"org", "domain", "set", "example-org.dev", "-o", "json"})
 	executeError := rootCmd.Execute()
 	if executeError == nil {
 		t.Fatalf("a blocked switch must still fail, stdout: %s", stdout.String())
@@ -297,7 +295,7 @@ func TestRunOrgDomainSet_HumanRefusalNamesTheTruncation(t *testing.T) {
 	output := new(bytes.Buffer)
 	rootCmd.SetOut(output)
 	rootCmd.SetErr(output)
-	rootCmd.SetArgs([]string{"org", "domain", "set", "smartoptics.dev"})
+	rootCmd.SetArgs([]string{"org", "domain", "set", "example-org.dev"})
 	executeError := rootCmd.Execute()
 	if executeError == nil {
 		t.Fatal("expected a refusal")
@@ -321,7 +319,7 @@ func TestRunOrgDomainSet_SeparatesPlatformOwnedRecordsAndNamesThePlayground(t *t
 				{ID: "r-2", Name: "*.smdjc5s3hx", RecordType: "A", State: "active", CreatedBy: "playground_provisioner"},
 			},
 			Playgrounds: []client.OrganisationDomainBlockingPlayground{
-				{ClusterID: "pg-1", ClusterName: "playground-smartoptics", Phase: "ready"},
+				{ClusterID: "pg-1", ClusterName: "playground-example-org", Phase: "ready"},
 			},
 		},
 	}
@@ -330,7 +328,7 @@ func TestRunOrgDomainSet_SeparatesPlatformOwnedRecordsAndNamesThePlayground(t *t
 	output := new(bytes.Buffer)
 	rootCmd.SetOut(output)
 	rootCmd.SetErr(output)
-	rootCmd.SetArgs([]string{"org", "domain", "set", "smartoptics.dev"})
+	rootCmd.SetArgs([]string{"org", "domain", "set", "example-org.dev"})
 	if executeError := rootCmd.Execute(); executeError == nil {
 		t.Fatalf("expected a refusal, output: %s", output.String())
 	} else {
@@ -343,7 +341,7 @@ func TestRunOrgDomainSet_SeparatesPlatformOwnedRecordsAndNamesThePlayground(t *t
 			"*.smdjc5s3hx",
 			"created by playground_provisioner",
 			"Playground environments publishing those records:",
-			"playground-smartoptics",
+			"playground-example-org",
 			"ankra cluster playground destroy <cluster_id>",
 		} {
 			if !strings.Contains(message, expected) {
@@ -388,7 +386,7 @@ func TestRunOrgDomainSet_NamesTheExternalDNSInteractionOnBlockingZones(t *testin
 	output := new(bytes.Buffer)
 	rootCmd.SetOut(output)
 	rootCmd.SetErr(output)
-	rootCmd.SetArgs([]string{"org", "domain", "set", "smartoptics.dev"})
+	rootCmd.SetArgs([]string{"org", "domain", "set", "example-org.dev"})
 	if executeError := rootCmd.Execute(); executeError == nil {
 		t.Fatalf("expected a refusal, output: %s", output.String())
 	} else {

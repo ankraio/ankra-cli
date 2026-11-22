@@ -49,7 +49,7 @@ package when `go.mod` or `go.sum` changes) and lints those same packages,
 and a red test blocks the commit. Please don't bypass it with
 `--no-verify`. `ankra/cmd` is the exception: building it (for its tests or for
 the linter) needs more than 12 GiB, so the hook leaves it to CI's
-`lint-test-build`, which tests and lints the whole module on every push.
+`lint` and `test` jobs, which lint and test the whole module on every push.
 `ANKRA_PRECOMMIT_FULL=1 git commit` runs `go test ./...` and
 `golangci-lint run ./...` locally instead, on a machine with the memory for it.
 
@@ -75,7 +75,9 @@ A few invariants the codebase relies on:
   agree — that is by design.
 - **Exit codes are a scripting contract** (`cmd/exitcodes.go`): 0 success,
   1 API/runtime, 2 usage, 3 not-found, 4 confirmation declined, 5
-  `--wait`/`--timeout` expiry, 6 auth, 7 RBAC permission denied. Commands use
+  `--wait`/`--timeout` expiry, 6 auth, 7 RBAC permission denied, 8 a preflight
+  blocked (nothing changed), 9 waiting (not a failure: the work is unfinished
+  and waits on a pause or a person's step). Commands use
   `RunE` and return errors (wrapped with `withExitCode` where the class is
   known) — never `os.Exit`, and errors never go to stdout.
 - **Destructive commands confirm first** (delete, uninstall, deprovision);

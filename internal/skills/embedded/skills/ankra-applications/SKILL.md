@@ -181,6 +181,17 @@ ankra cluster logs -l app=<name> -n prod --follow=false --tail 100
 ```bash
 ankra application auto-deploy get <application-id>
 ankra application auto-deploy set <application-id> --enabled        # or --enabled=false
+ankra application autonomy get <application-id>                      # who runs each environment: you, together, or Ankra
+ankra application autonomy set <application-id> --environment production --area ship_changes=you_run_it
+ankra application autonomy pause <application-id> --reason "..."    # stop what Ankra does unasked; `resume` lifts it
+ankra application autonomy actions                                   # what Ankra did on its own, across every application
+ankra application auto-fix-builds set <application-id> --enabled=false   # opt out of automatic build fixing
+ankra application setup-auto-merge set <application-id> --enabled   # or --follow-organisation; organisation admin
+ankra application database-backup set <application-id> --enabled    # the database backup default `backups` reads
+ankra application cost-estimate <application-id> --change replicas --cluster <name> --namespace <ns> --replicas 4
+ankra application environments <application-id>                      # what each environment follows
+ankra application environments set <application-id> staging --follow develop
+ankra application environments set <application-id> staging --none  # back to the tracked branch
 ankra pipeline list --application <application-id>    # the Ankra Pipelines runs
 ankra pipeline get <run-id> --application <application-id>
 ankra pipeline run --application <application-id> --wait
@@ -195,10 +206,15 @@ read and steer the GitHub Actions workflow. Convert instead of tuning it:
 
 With auto-deploy on, a build Ankra observes on the tracked branch rolls itself out unattended to
 every environment that follows pushes. With it off, a push still builds and waits for an explicit
-`ankra application deploy`. `auto-deploy set` is application-wide; the per-environment switch is
-the portal's **Settings → Push to deploy → What follows pushes**. The golden path: development
-follows pushes, production does not, and a person promotes the tag development proved with
-`ankra application deploy <application-id> --cluster <prod> --set image_tag=sha-<7>` (`ankra-ship` §7).
+`ankra application deploy`. `auto-deploy set` is application-wide; each environment's branch rule
+and switch is `ankra application environments set` (the portal's **Settings → Deploys**): a rule
+(`--follow develop,release/*`) turns pushes on for that environment, `--disable` turns them off,
+`--none` returns it to the tracked branch. The golden path: development
+follows pushes, production does not, and a person promotes the build development proved with
+`ankra application promote <application> --from development --to production` (CLI v0.71.0; add
+`--dry-run` to see what would change, exit 8 names the blockers), or before the environment exists
+with `ankra application deploy <application-id> --cluster <prod> --set image_tag=sha-<7>`
+(`ankra-ship` §7).
 
 **If `pipeline list` stays empty after a merge**, the pipeline is not failing — it has nowhere to
 run. Ankra Pipelines execute on the cluster agent's own step scheduler, whose `ci_worker_count`
@@ -266,6 +282,8 @@ posture review.
 ## 7. Preview a branch before it merges
 
 ```bash
+ankra application previews <application>           # does every pull request get a preview?
+ankra application previews enable <application>    # set this repository's rule (`disable`, or `follow` the connection default)
 ankra application demo build <application-id> --branch <branch>   # is there a demo-ready image
 ankra application demo deploy <application-id> --branch <branch> --ttl-hours 8
 ankra application demo deploy <application-id> --pr-number 42
@@ -279,7 +297,8 @@ ankra application demo config <application-id>                    # saved demo d
 ```
 
 Demos are ephemeral workspaces on the organisation's AI/staging cluster with their own TTL, and
-they are reaped automatically. They are the reviewable artefact for a pull request — a public
+they are reaped automatically. `previews enable|disable|follow` (CLI v0.71.0) sets only whether
+pull requests get one, and changes no other setting. They are the reviewable artefact for a pull request — a public
 preview URL, not a port-forward. Configure the staging cluster in **AI → Settings → Workspaces**
 (`ankra-ai-gateway`).
 

@@ -54,6 +54,8 @@ type gitopsPreservedServer struct {
 	// undecidedStatusCount, when not nil, is what the GitOps status route
 	// reports as preserved_path_undecided_count.
 	undecidedStatusCount *int
+	diffPages            []client.GitopsPreservedDiffPage
+	diffPageFailure      int
 }
 
 func preservedStringPointer(value string) *string { return &value }
@@ -142,6 +144,25 @@ func newGitopsPreservedServer(t *testing.T, entries []client.GitopsPreservedPath
 					recorder.entries[index].HeadContentHash += "-moved"
 				}
 			}
+		case request.Method == http.MethodGet && request.URL.Path == preservedPath+"/diff":
+			index := 0
+			for _, previous := range recorder.requests {
+				if previous.path == preservedPath+"/diff" {
+					index++
+				}
+			}
+			index--
+			if recorder.diffPageFailure > 0 && index+1 == recorder.diffPageFailure {
+				writer.WriteHeader(http.StatusConflict)
+				_, _ = writer.Write([]byte(`{"detail":"snapshot changed"}`))
+				return
+			}
+			if index >= len(recorder.diffPages) {
+				writer.WriteHeader(http.StatusNotFound)
+				_, _ = writer.Write([]byte(`{"detail":"Not Found"}`))
+				return
+			}
+			_ = json.NewEncoder(writer).Encode(recorder.diffPages[index])
 		case request.Method == http.MethodPost && request.URL.Path == preservedPath+"/resolve":
 			recorder.resolve(writer, recorded.body)
 		default:

@@ -48,9 +48,28 @@ func (timeoutError) Temporary() bool { return true }
 
 func fastRetrySchedule(t *testing.T) {
 	t.Helper()
-	previous := retryBackoffSchedule
-	retryBackoffSchedule = []time.Duration{time.Millisecond, time.Millisecond}
-	t.Cleanup(func() { retryBackoffSchedule = previous })
+	t.Cleanup(SetRetryBackoffSchedule([]time.Duration{time.Millisecond, time.Millisecond}))
+}
+
+// TestSetRetryBackoffScheduleRestoresThePreviousSchedule pins the hook other
+// packages' tests use: the schedule it sets is the one used, and the function
+// it returns puts the previous one back.
+func TestSetRetryBackoffScheduleRestoresThePreviousSchedule(t *testing.T) {
+	original := append([]time.Duration(nil), retryBackoffSchedule...)
+	restore := SetRetryBackoffSchedule([]time.Duration{time.Microsecond})
+	if len(retryBackoffSchedule) != 1 || retryBackoffSchedule[0] != time.Microsecond {
+		restore()
+		t.Fatalf("schedule = %v after SetRetryBackoffSchedule, want [1µs]", retryBackoffSchedule)
+	}
+	restore()
+	if len(retryBackoffSchedule) != len(original) {
+		t.Fatalf("schedule = %v after restore, want %v", retryBackoffSchedule, original)
+	}
+	for index := range original {
+		if retryBackoffSchedule[index] != original[index] {
+			t.Fatalf("schedule = %v after restore, want %v", retryBackoffSchedule, original)
+		}
+	}
 }
 
 func newRetryRequest(t *testing.T, method string) *http.Request {

@@ -1448,8 +1448,8 @@ func TestPipelineStepStartWaitHandsBackWhatItDidNotSpend(t *testing.T) {
 	shortenPipelineStepStartWait(t, time.Minute)
 	previousClient := apiClient
 	detail := runDetailWithStep("running", startedBuildStep())
-	apiClient = &pipelineLaneMock{getResult: &detail}
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(&pipelineLaneMock{getResult: &detail})
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	command := &cobra.Command{}
 	command.SetContext(context.Background())
@@ -1471,12 +1471,12 @@ func TestPipelineStepStartWaitHandsBackWhatItDidNotSpend(t *testing.T) {
 // whose regression is a command that never returns: the deadline turns a
 // hang into a failure that names itself, instead of the whole package
 // timing out.
-func runPipelineCommandWithin(t *testing.T, mockClient APIClient, deadline time.Duration,
+func runPipelineCommandWithin(t *testing.T, mockClient any, deadline time.Duration,
 	arguments ...string) (string, error) {
 	t.Helper()
 	previousClient := apiClient
-	apiClient = mockClient
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mockClient)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	deadlineContext, cancel := context.WithTimeout(context.Background(), deadline)
 	t.Cleanup(cancel)

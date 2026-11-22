@@ -473,7 +473,7 @@ func newServicesConsumersGetCommand() *cobra.Command {
 		Long: `Show a consumer binding resolved as setup would resolve it: the cluster's
 declared region and data boundary, the policy and binding revisions, and the
 application installation it binds (none for a planned binding).`,
-		Example: "  ankra services consumers get 5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11",
+		Example: "  ankra services consumers get 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -638,6 +638,20 @@ application's next deploy. 'ankra services get <service>' shows its pickup.`,
 // binding a service that has not been released was planned with.
 const serviceBindingInUseDetail = "A service still uses this binding"
 
+// serviceBindingUnavailableDetail is the platform's answer (409) to a read of
+// a binding whose application deployment was removed while its cluster and
+// its application remain: the binding exists, and resolving it fails closed.
+const serviceBindingUnavailableDetail = "Application deployment binding is unavailable"
+
+// isServiceBindingUnavailable reports that answer to a binding read. The
+// status alone is not enough: any other conflict says nothing about the
+// binding.
+func isServiceBindingUnavailable(readError error) bool {
+	var unexpected *client.UnexpectedResponseError
+	return errors.As(readError, &unexpected) && unexpected.StatusCode == http.StatusConflict &&
+		strings.Contains(unexpected.Detail, serviceBindingUnavailableDetail)
+}
+
 func newServicesConsumersUnbindCommand() *cobra.Command {
 	unbindCommand := &cobra.Command{
 		Use:     "unbind <consumer-id>",
@@ -653,12 +667,13 @@ still pending that names the binding can no longer be confirmed.
 
 The platform removes a binding only at the revision you last read. Without
 --revision the current one is read from the binding. A binding whose
-application or cluster has since been removed can still be unbound, but it can
-no longer be read by id: pass --revision with the revision 'ankra services
-consumers list --application <application>' shows. Asks first; --yes skips the
-question.`,
-		Example: "  ankra services consumers unbind 5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11\n" +
-			"  ankra services consumers unbind 5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11 --revision 3 --yes",
+application or cluster has since been removed, or whose application was
+removed from its cluster ('ankra application remove'), can still be unbound,
+but it can no longer be read by id: pass --revision with the revision 'ankra
+services consumers list --application <application>' shows. Asks first; --yes
+skips the question.`,
+		Example: "  ankra services consumers unbind 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f\n" +
+			"  ankra services consumers unbind 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f --revision 3 --yes",
 		Args: cobra.ExactArgs(1),
 		RunE: runServicesConsumersUnbind,
 	}
@@ -684,18 +699,19 @@ func runServicesConsumersUnbind(command *cobra.Command, arguments []string) erro
 
 	// The binding is read to show what is removed and, without --revision,
 	// for the revision to remove it at. A binding whose application or
-	// cluster is gone no longer reads by id, yet can still be removed.
-	// Only a binding that reads as not found is removed unread: any other
+	// cluster is gone no longer reads by id, and one whose deployment was
+	// removed while both remain reads as unavailable; either can still be
+	// removed. Only those two answers remove a binding unread: any other
 	// failure says nothing about the binding, so nothing is removed.
 	consumer, getError := apiClient.GetServiceConsumer(ctx, consumerID)
 	if getError != nil {
-		if !isServiceNotFound(getError) {
+		if !isServiceNotFound(getError) && !isServiceBindingUnavailable(getError) {
 			return getError
 		}
 		if revision == 0 {
-			return fmt.Errorf("consumer binding %s could not be read (%w): it may not exist, or its application or cluster "+
-				"was removed - such a binding can still be unbound with --revision <n>, using the revision "+
-				"'ankra services consumers list --application <application>' shows", consumerID, getError)
+			return fmt.Errorf("consumer binding %s could not be read (%w): it may not exist, or its application, its "+
+				"deployment or its cluster was removed - such a binding can still be unbound with --revision <n>, using "+
+				"the revision 'ankra services consumers list --application <application>' shows", consumerID, getError)
 		}
 	}
 	description := consumerID

@@ -8,7 +8,6 @@ import (
 )
 
 type securityClusterMock struct {
-	baseMock
 	stacks           *client.SecurityClusterStackList
 	stacksCluster    string
 	posture          *client.SecurityStackPosture

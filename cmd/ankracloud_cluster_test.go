@@ -12,7 +12,6 @@ import (
 )
 
 type ankraCloudClusterMock struct {
-	baseMock
 	createRequests    []client.CreateAnkraCloudClusterRequest
 	preflightRequests []client.CreateAnkraCloudClusterRequest
 	preflightResult   client.AnkraCloudPreflightResult
@@ -21,6 +20,7 @@ type ankraCloudClusterMock struct {
 	stopClusterID     string
 	startScope        string
 	deprovisionedID   string
+	deprovisionForce  bool
 }
 
 func (mock *ankraCloudClusterMock) CreateAnkraCloudCluster(request client.CreateAnkraCloudClusterRequest) (*client.CreateAnkraCloudClusterResponse, error) {
@@ -45,6 +45,7 @@ func (mock *ankraCloudClusterMock) StartAnkraCloudCluster(clusterID string, opti
 
 func (mock *ankraCloudClusterMock) DeprovisionAnkraCloudCluster(clusterID string, options client.DeprovisionOptions) (*client.ProviderDeprovisionClusterResponse, error) {
 	mock.deprovisionedID = clusterID
+	mock.deprovisionForce = options.Force
 	return &client.ProviderDeprovisionClusterResponse{ClusterID: clusterID}, nil
 }
 
@@ -119,7 +120,7 @@ var ankraCloudRequiredCreateArguments = []string{
 	"--zone", "fi-hel1", "--bastion-plan", "s-1", "--control-plane-plan", "s-4", "--worker-plan", "s-8",
 }
 
-func runAnkraCloudCommand(t *testing.T, mock APIClient, arguments ...string) (string, error) {
+func runAnkraCloudCommand(t *testing.T, mock any, arguments ...string) (string, error) {
 	t.Helper()
 	var runError error
 	var cobraOutput string
@@ -457,7 +458,6 @@ func TestAnkraCloudCPUPoolsRefusesAmbiguousSources(t *testing.T) {
 }
 
 type ankraCloudFailingMock struct {
-	baseMock
 }
 
 func (mock *ankraCloudFailingMock) CreateAnkraCloudCluster(request client.CreateAnkraCloudClusterRequest) (*client.CreateAnkraCloudClusterResponse, error) {
@@ -482,7 +482,7 @@ func TestAnkraCloudCommandsWrapAPIErrors(t *testing.T) {
 
 func TestAnkraCloudIsWiredIntoTheSharedProviderSwitches(t *testing.T) {
 	setMockClient(t, &ankraCloudClusterMock{})
-	if nodeGroupListForKind("ankracloud") == nil {
+	if nodeGroupCallsFor("ankracloud").list == nil {
 		t.Error("node groups do not dispatch ankracloud")
 	}
 	if sshKeysGetForKind("ankracloud") == nil {
@@ -501,5 +501,110 @@ func TestAnkraCloudIsWiredIntoTheSharedProviderSwitches(t *testing.T) {
 		if found, _, findError := ankraCloudCmd.Find([]string{subcommand}); findError != nil || found == ankraCloudCmd {
 			t.Errorf("ankra cluster ankracloud %s is not registered", subcommand)
 		}
+	}
+}
+
+// The platform treats the credential (when it has a built-in Ankra Cloud
+// credential) and the SSH key (it generates one) as optional, but the CLI
+// required both flags (ankra-v3qdto.6). Left out, neither member is sent,
+// and neither is network_mode, so the platform's ipv6_only default applies.
+func TestAnkraCloudCreateWithoutCredentialOrSSHKeySendsNeither(t *testing.T) {
+	mock := &ankraCloudClusterMock{}
+	if output, runError := runAnkraCloudCommand(t, mock, "create", "--name", "prod", "--zone", "fi-hel1",
+		"--bastion-plan", "s-1", "--control-plane-plan", "s-4", "--worker-plan", "s-8"); runError != nil {
+		t.Fatalf("create: %v\n%s", runError, output)
+	}
+	if len(mock.createRequests) != 1 {
+		t.Fatalf("create calls = %d, want 1", len(mock.createRequests))
+	}
+	body, marshalError := json.Marshal(mock.createRequests[0])
+	if marshalError != nil {
+		t.Fatalf("marshal: %v", marshalError)
+	}
+	for _, member := range []string{`"credential_id"`, `"ssh_key_credential_id"`, `"network_mode"`} {
+		if strings.Contains(string(body), member) {
+			t.Errorf("body sends %s although the flag was not given: %s", member, body)
+		}
+	}
+}
+
+// --force reached neither the Scaleway nor the Ankra Cloud deprovision
+// subcommand: they had no such flag.
+func TestAnkraCloudDeprovisionSendsForce(t *testing.T) {
+	mock := &ankraCloudClusterMock{}
+	if output, runError := runAnkraCloudCommand(t, mock, "deprovision", testClusterID, "--yes", "--force"); runError != nil {
+		t.Fatalf("deprovision --force: %v\n%s", runError, output)
+	}
+	if !mock.deprovisionForce {
+		t.Fatal("--force did not reach the Ankra Cloud deprovision")
+	}
+}
+
+// --sandbox-nodes puts a labelled group beside the workers, never instead of
+// them (ankra-oznf7k.2).
+func TestApplyAnkraCloudSandboxNodes(t *testing.T) {
+	newCommand := func(test testing.TB, arguments map[string]string) *cobra.Command {
+		command := &cobra.Command{}
+		command.Flags().Int("sandbox-nodes", 0, "")
+		command.Flags().String("sandbox-node-plan", "", "")
+		for name, value := range arguments {
+			if setError := command.Flags().Set(name, value); setError != nil {
+				test.Fatalf("setting %s: %v", name, setError)
+			}
+		}
+		return command
+	}
+	two := 2
+	zero := 0
+
+	request := client.CreateAnkraCloudClusterRequest{WorkerPlan: "cx4", WorkerCount: &two}
+	if applyError := applyAnkraCloudSandboxNodes(newCommand(t, map[string]string{"sandbox-nodes": "1"}), &request); applyError != nil {
+		t.Fatalf("unexpected error: %v", applyError)
+	}
+	if len(request.NodeGroups) != 2 || request.WorkerCount != nil || request.WorkerPlan != "" {
+		t.Fatalf("request = %+v", request)
+	}
+	workers, sandbox := request.NodeGroups[0], request.NodeGroups[1]
+	if workers.Count != 2 || workers.InstanceType != "cx4" || len(workers.Labels) != 0 {
+		t.Fatalf("workers = %+v", workers)
+	}
+	if sandbox.Name != "sandbox" || sandbox.Count != 1 || sandbox.InstanceType != "cx4" ||
+		sandbox.Labels["ankra.cloud/sandbox-runtime"] != "gvisor" {
+		t.Fatalf("sandbox = %+v", sandbox)
+	}
+
+	namedPlan := client.CreateAnkraCloudClusterRequest{WorkerPlan: "cx4"}
+	if applyError := applyAnkraCloudSandboxNodes(newCommand(t, map[string]string{"sandbox-nodes": "1", "sandbox-node-plan": "cx8"}), &namedPlan); applyError != nil {
+		t.Fatalf("unexpected error: %v", applyError)
+	}
+	if namedPlan.NodeGroups[0].Count != ankraCloudDefaultWorkers || namedPlan.NodeGroups[1].InstanceType != "cx8" {
+		t.Fatalf("groups = %+v", namedPlan.NodeGroups)
+	}
+
+	untouched := client.CreateAnkraCloudClusterRequest{WorkerPlan: "cx4", WorkerCount: &two}
+	if applyError := applyAnkraCloudSandboxNodes(newCommand(t, nil), &untouched); applyError != nil || untouched.NodeGroups != nil ||
+		untouched.WorkerPlan != "cx4" {
+		t.Fatalf("no sandbox asked for must leave the request alone: %+v, %v", untouched, applyError)
+	}
+
+	for name, testCase := range map[string]struct {
+		arguments map[string]string
+		request   client.CreateAnkraCloudClusterRequest
+		want      string
+	}{
+		"only sandbox nodes": {map[string]string{"sandbox-nodes": "1"},
+			client.CreateAnkraCloudClusterRequest{WorkerPlan: "cx4", WorkerCount: &zero}, "workers beside it"},
+		"no worker plan": {map[string]string{"sandbox-nodes": "1"}, client.CreateAnkraCloudClusterRequest{}, "--worker-plan"},
+		"a plan alone":   {map[string]string{"sandbox-node-plan": "cx8"}, client.CreateAnkraCloudClusterRequest{}, "needs --sandbox-nodes"},
+		"a negative":     {map[string]string{"sandbox-nodes": "-1"}, client.CreateAnkraCloudClusterRequest{}, "negative"},
+		"on k3s": {map[string]string{"sandbox-nodes": "1"},
+			client.CreateAnkraCloudClusterRequest{WorkerPlan: "cx4", Distribution: client.AnkraCloudDistributionK3s}, "kubeadm"},
+	} {
+		t.Run(name, func(subtest *testing.T) {
+			applyError := applyAnkraCloudSandboxNodes(newCommand(subtest, testCase.arguments), &testCase.request)
+			if applyError == nil || !strings.Contains(applyError.Error(), testCase.want) {
+				subtest.Fatalf("error = %v, want it to say %q", applyError, testCase.want)
+			}
+		})
 	}
 }

@@ -9,7 +9,6 @@ import (
 )
 
 type serviceTokensMock struct {
-	baseMock
 	serviceTokens          []client.ServiceToken
 	personalListed         int
 	serviceListed          int
@@ -49,10 +48,10 @@ func (m *serviceTokensMock) CreateServiceToken(request client.CreateServiceToken
 
 // runTokens runs a tokens command and returns stdout (human output and the
 // command writer's -o output), stderr and the error.
-func runTokens(t *testing.T, mock APIClient, args ...string) (string, string, error) {
+func runTokens(t *testing.T, mock any, args ...string) (string, string, error) {
 	t.Helper()
 	setMockClient(t, mock)
-	t.Cleanup(func() { resetTreeFlags(t, tokensListCmd, tokensCreateCmd) })
+	t.Cleanup(func() { resetTreeFlags(t, tokensListCmd, tokensCreateCmd, tokensRevokeCmd, tokensDeleteCmd) })
 	var commandOutput, stdout string
 	var err error
 	stderr := captureStderr(t, func() {

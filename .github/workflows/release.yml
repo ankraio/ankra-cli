@@ -16,7 +16,7 @@ jobs:
     runs-on: ${{ vars.CI_RUNNER_2 || 'ubuntu-latest' }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Extract release notes from CHANGELOG.md
         run: |
@@ -34,7 +34,7 @@ jobs:
             echo "No CHANGELOG.md section found for ${TAG}; will fall back to generated notes"
           fi
 
-      - name: Create release and upload install script
+      - name: Create release and upload the install scripts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -55,7 +55,7 @@ jobs:
                 --generate-notes
             fi
           fi
-          gh release upload "${{ github.ref_name }}" install.sh --clobber
+          gh release upload "${{ github.ref_name }}" install.sh install.ps1 --clobber
 
   build-and-release:
     name: Build and Release
@@ -87,10 +87,10 @@ jobs:
             goarch: arm64
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -159,7 +159,7 @@ jobs:
     runs-on: ${{ vars.CI_RUNNER_2 || 'ubuntu-latest' }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Render formula from template
         env:

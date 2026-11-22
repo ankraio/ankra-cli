@@ -32,8 +32,8 @@ func resetGlobalOrganisationFlag(t *testing.T) {
 	flag.Changed = false
 }
 
-// runOverrideInvite runs `ankra org invite` with "Ankra" saved as the local
-// selection and environmentOrganisation as ANKRA_ORG.
+// runOverrideInvite runs `ankra org invite` on the saved login with "Ankra"
+// saved as the local selection and environmentOrganisation as ANKRA_ORG.
 func runOverrideInvite(t *testing.T, mock *overrideInviteMock, environmentOrganisation string, args ...string) error {
 	t.Helper()
 	withTempHome(t)
@@ -44,6 +44,7 @@ func runOverrideInvite(t *testing.T, mock *overrideInviteMock, environmentOrgani
 		t.Fatal(err)
 	}
 	setMockClient(t, mock)
+	useSavedLogin(t)
 	reset := func() {
 		resetGlobalProjectFlag(t)
 		resetGlobalOrganisationFlag(t)

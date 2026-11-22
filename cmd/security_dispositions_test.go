@@ -13,7 +13,6 @@ import (
 const securityTestClusterID = "0b8f2f5e-3c1a-4d2b-9e7f-1a2b3c4d5e6f"
 
 type securityDispositionsMock struct {
-	baseMock
 	detail             *client.SecurityFindingDetail
 	occurrences        *client.SecurityOccurrenceList
 	occurrencesOptions *client.SecurityOccurrencesOptions
@@ -78,7 +77,7 @@ func (m *securityDispositionsMock) RevokeSecurityDisposition(policyID string, re
 
 // runSecurityCommandWithInput is runSecurityCommand with a stdin, for the
 // commands that confirm before writing.
-func runSecurityCommandWithInput(t *testing.T, mock APIClient, input string, args ...string) (string, string, error) {
+func runSecurityCommandWithInput(t *testing.T, mock any, input string, args ...string) (string, string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)
@@ -278,6 +277,8 @@ func TestSecuritySelectorTarget_NamesWhatThePolicyIsPinnedTo(t *testing.T) {
 		{"add-on", client.SecurityDispositionSelector{OrganisationID: "org", AddonSlug: "ingress-nginx"}, "add-on ingress-nginx"},
 		{"workload", client.SecurityDispositionSelector{OrganisationID: "org", ClusterID: "cluster-1", WorkloadKind: "StatefulSet", WorkloadNamespace: "database", WorkloadName: "postgres"}, "workload database/StatefulSet postgres on cluster cluster-1"},
 		{"cluster-scoped workload", client.SecurityDispositionSelector{OrganisationID: "org", ClusterID: "cluster-1", WorkloadKind: "Node", WorkloadName: "worker-1"}, "workload Node worker-1 on cluster cluster-1"},
+		{"namespace", client.SecurityDispositionSelector{OrganisationID: "org", ClusterID: "cluster-1", WorkloadNamespace: "crew"}, "namespace crew on cluster cluster-1"},
+		{"deployment across rollouts", client.SecurityDispositionSelector{OrganisationID: "org", ClusterID: "cluster-1", WorkloadKind: "deployment", WorkloadNamespace: "crew", WorkloadName: "crewai"}, "workload crew/deployment crewai on cluster cluster-1"},
 		{"image", client.SecurityDispositionSelector{OrganisationID: "org", ImageDigest: "sha256:abc123"}, "image sha256:abc123"},
 		{"organisation only", client.SecurityDispositionSelector{OrganisationID: "org"}, "organisation"},
 	}

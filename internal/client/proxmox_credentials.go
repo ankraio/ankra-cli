@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 type ProxmoxCredentialListItem struct {
@@ -112,7 +113,7 @@ type updateProxmoxTailscaleRequest struct {
 // or clears them when settings is nil. It updates the existing credential in
 // place, without recreating it or re-running the infrastructure bootstrap.
 func (c *Client) UpdateProxmoxCredentialTailscale(credentialID string, settings *ProxmoxTailscale) error {
-	url := c.BaseURL + "/api/v1/credentials/proxmox/" + credentialID + "/tailscale"
+	url := c.BaseURL + "/api/v1/credentials/proxmox/" + url.PathEscape(credentialID) + "/tailscale"
 	payload, marshalError := json.Marshal(updateProxmoxTailscaleRequest{Tailscale: settings})
 	if marshalError != nil {
 		return fmt.Errorf("marshal request: %w", marshalError)

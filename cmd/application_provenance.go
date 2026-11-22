@@ -42,6 +42,7 @@ application's registry, so they are listed as unchecked and never refused.`,
 		newApplicationProvenanceGetCommand(),
 		newApplicationProvenanceSetCommand(),
 		newApplicationProvenanceVerifyCommand(),
+		newApplicationProvenanceChecksCommand(),
 	)
 	return command
 }
@@ -57,7 +58,7 @@ that mode means for rollbacks.
 To see what the next deploy of specific images would do, use
 'ankra application provenance verify'.`,
 		Example: `  ankra application provenance get shop
-  ankra application provenance get 23298741-6a5a-401a-a681-66f31fbdebe1 -o json`,
+  ankra application provenance get 0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e -o json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -175,10 +176,15 @@ func printApplicationProvenancePolicy(out io.Writer, reference string, policy *c
 
 func newApplicationProvenanceVerifyCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:   "verify <application> --image <ref> [--image <ref>...]",
+		Use:   "verify <application> --image <ref> [--image <ref>...] | --environment <environment>",
 		Short: "Dry-run: check images against the application's provenance mode",
 		Long: `Verify images the way a deploy would and report what a deploy under the
 application's mode would do, without deploying anything or filing a finding.
+
+With --environment instead of --image, the platform checks what each
+installation of that environment was deployed with (at most 20), keeps each
+check as that installation's last one ('ankra application provenance checks'
+lists them) and prints one row for each installation it checked.
 
 Each image is checked for a signed attestation from this organisation's
 pipeline: that it exists, that its signature verifies against a key the
@@ -191,11 +197,15 @@ The decision is one of: deploy, deploy_with_finding (warn, an image is not
 verified), refuse (enforce, an image is not verified) or not_checked (off).
 The command exits 1 when the decision is refuse, so it can gate a script.`,
 		Example: `  ankra application provenance verify shop --image registry.ankra.cloud/org-1234/shop:sha-1a2b3c4
-  ankra application provenance verify shop --image <current> --image <rollback target> -o json`,
+  ankra application provenance verify shop --image <current> --image <rollback target> -o json
+  ankra application provenance verify shop --environment production`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
+			}
+			if command.Flags().Changed("environment") {
+				return runApplicationProvenanceVerifyEnvironment(command, arguments)
 			}
 			images, _ := command.Flags().GetStringArray("image")
 			cleaned := make([]string, 0, len(images))
@@ -233,6 +243,8 @@ The command exits 1 when the decision is refuse, so it can gate a script.`,
 		},
 	}
 	command.Flags().StringArray("image", nil, "Image reference to verify (repeatable, 1 to 32)")
+	command.Flags().String("environment", "",
+		"Check what each installation of this environment runs, by name or id ('ankra application environments' lists them); not with --image")
 	registerStructuredOutputFlags(command)
 	return command
 }

@@ -19,6 +19,11 @@ type UnexpectedResponseError struct {
 	// exist" from "the route answered not-found" key on it instead of on
 	// message text.
 	Detail string
+	// body is the raw body of a 409 answer without a detail, kept because
+	// ResolveCloudWasteBatch's 409 is itself the document to show. Other
+	// statuses never keep it, and it is never part of Error(): bodies can
+	// carry secrets, and the message shows a redacted copy.
+	body []byte
 }
 
 func (e *UnexpectedResponseError) Error() string {

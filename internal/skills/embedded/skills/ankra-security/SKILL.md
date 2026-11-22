@@ -45,6 +45,8 @@ ankra tokens delete <token-id>          # only after it is revoked
 ankra tokens create ci-deployer --service --role member --label pipeline --expires 2027-01-31T00:00:00Z
 ankra tokens list --service
 ankra tokens rotate <token-id> --service
+ankra tokens revoke <token-id> --service
+ankra tokens delete <token-id> --service   # after revoking; the account's last token names `ankra org remove <account_id>`
 ```
 
 - **Omitting `--scopes` creates a REST-only token** — it can drive the CLI and API but exposes no
@@ -65,7 +67,12 @@ ankra tokens rotate <token-id> --service
   the platform, and a GitHub Actions job that must call Ankra can exchange its OIDC token for a
   minutes-long one (`ankra org oidc-trust create ...`, then `ankra login --github-oidc
   --organisation-id <id>`). A policy names one repository by its numeric ids; pin a ref and a
-  protected environment.
+  protected environment. From Terraform (provider 0.5.0) the same policy is
+  `ankra_oidc_trust_policy`; changing any argument replaces it and revokes every token it minted.
+- **Connecting a coding agent:** `ankra mcp connect --client claude-code|cursor|codex` mints an
+  `mcp:read` token (`--write` adds `mcp:write`) that expires in 90 days, keeps it in a file only you
+  can read and never writes it into the client's config. Prefer it over pasting a token by hand;
+  re-running renews and revokes the old one.
 
 Resolution order in the CLI is `--token`, then the saved login from `ankra login`, then
 `ANKRA_API_TOKEN`. A saved login **beats** the environment variable, so a script that seems to
@@ -186,6 +193,7 @@ ankra credentials list
 ankra credentials get <name>
 ankra credentials repositories <name>    # what a Git credential can ACTUALLY reach
 ankra credentials validate <name>
+ankra credentials propagation <name>     # after a rotation: which clusters serve the new value, and whether the old one is safe to revoke
 ankra helm credentials list
 ```
 
@@ -271,8 +279,12 @@ Dispositions - the acknowledgements and accepted risks that shape the actionable
 ankra security dispositions --status expiring --status fix_available   # what needs review
 ankra security dispositions preview --occurrence <id> --disposition accepted_risk
 ankra security dispositions create --occurrence <id> --disposition acknowledged --reason "..." --expires-at 2026-12-31
+ankra security dispositions create --occurrence <id> --scope namespace --disposition accepted_risk --reason "..." --expires-at 2026-12-31
 ankra security dispositions update <policy-id> --expires-at 2027-03-31
 ankra security dispositions revoke <policy-id> --reason "fix rolled out"
+ankra security code-dispositions list --application <app>            # Semgrep and Checkov findings the image gate no longer blocks on
+ankra security code-dispositions create --application <app> --tool semgrep --rule <rule-id> --path <file> --disposition false_positive --reason "..." --yes
+ankra security code-dispositions revoke <disposition-id> --reason "fixed in the code" --yes
 ```
 
 Software bill of materials and licences:
@@ -306,7 +318,24 @@ ankra security history --cluster <c> --days 30   # daily snapshots: how the post
 ankra security report-schedule --cluster <c>     # the emailed security report: frequency, recipients, last sent
 ankra security report-schedule set --cluster <c> --frequency weekly --recipient sec@example.com
 ankra security report-schedule send --cluster <c> # queue one report now
+ankra security evidence destinations list        # where evidence goes: a Vanta document, a Wazuh relay, a signed webhook
+ankra security evidence destinations create --name siem --kind webhook --url https://siem.example.com/ankra --secret-stdin
+ankra security evidence destinations revoke <destination-id> --yes   # deletes its credential; cannot be undone
+ankra security evidence deliveries send --destination <destination-id> --framework iso27001 --month 2026-10
+ankra security evidence deliveries list --destination <destination-id>
+ankra security evidence deliveries submit <delivery-id>              # Vanta only: an uploaded draft is not submitted
+ankra security finding rebuild-plan <finding-id>   # the base-image bump pull requests a finding would get; a read
+ankra security remediations start <finding-id> --yes   # open or reuse the fix pull requests and follow each to a verified rescan
+ankra security remediations list ; ankra security remediations get <run-id>   # "uncertain" never means clean
+ankra security remediations cancel <run-id> --yes  # stop following a run; its pull request stays
+ankra security finding rebuild <finding-id> --yes  # open the pull requests only, without a run
 ```
+
+An evidence destination's credential (a webhook signing secret, a Wazuh bearer token, a Vanta
+client secret) is never an argument: pipe it with `--secret-stdin` or let the command prompt for
+it. The platform stores it and never returns it. `delivered` means the destination accepted the
+transport, not that it indexed the evidence, and a Vanta delivery stays `uploaded` until it is
+submitted.
 
 This is the portal's Security Center from the terminal - one logical finding per CVE and
 package, deduplicated across clusters and workloads, each carrying its exploitation
@@ -328,6 +357,11 @@ in the next 30 days.
 - **A disposition is a decision with a blast radius**: `preview` first, always give a
   `--reason`, set `--expires-at` or `--expire-when-fix-available` so it comes back for review.
   `accepted_risk` needs `security.manage`; `acknowledged` needs `security.triage`.
+- **Pick the scope that outlives the next deploy.** `organisation_addon` (default) needs a
+  catalogue add-on. For your own application's image, `--scope namespace` covers the CVE in
+  every workload of that namespace on that cluster and survives rollouts and rebuilds;
+  `workload` pins one workload (a Deployment, across rollouts); `image` pins one digest and
+  lapses on the next build.
 - **Absent is not negative.** An unsynced KEV or EPSS feed prints as unknown, a container with
   no report is "not scanned", a cluster whose agent is offline reads not_available with the
   reason. Never report any of these as clean.
@@ -391,7 +425,19 @@ ankra security sbom containers --status absent   # running containers with no bi
 ankra org mcp-servers list               # read_write tiers, wide tool grants
 ankra ai remediation policy              # per-tool auto overrides, unscoped clusters
 ankra backup vaults list                 # every vault ready, keys scoped to their bucket
+ankra org audit-logs list --since 7d --actor-type agent --outcome failed   # what agents tried and were refused
+ankra org audit-logs list --since 7d --resource-type <type>                # e.g. kubernetes_secret reveals, grants
 ```
+
+**The audit trail (CLI v0.73.0).** `ankra org audit-logs list` reads the newest entries (last 7
+days and 50 rows by default; `--since`/`--until` take `24h`, `7d`, a date, RFC 3339 or `all`;
+`--limit 0` shows every match) filtered by `--actor-type agent|human|service_account|system`,
+`--outcome`, `--user`, `--cluster`, `--action`, `--resource-type`, `--agent-task`, `--search`.
+`ankra org audit-logs export --format csv|json --file <path>` downloads it (whole trail, 100,000-row
+cap reported on stderr), and `ankra cluster audit-logs [cluster]` is one cluster's slice. All need
+`audit.read` (exit 7 without it) and work with a service token holding a role with only
+`audit.read`, which is how a scheduled job forwards the trail to a SIEM. Retention is 365 days:
+export what a framework needs kept longer.
 
 Report findings ranked by exposure: what is reachable, by whom, and the one command or change that
 closes it. Do not change anything in a review pass without asking, and never print a secret value.

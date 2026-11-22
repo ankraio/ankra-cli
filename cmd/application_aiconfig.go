@@ -123,7 +123,7 @@ func newApplicationAIConfigClearCommand() *cobra.Command {
 			}
 			yes, _ := command.Flags().GetBool("yes")
 			if confirmError := confirmPrompt(
-				command.InOrStdin(), command.OutOrStdout(),
+				command.InOrStdin(), command.ErrOrStderr(),
 				fmt.Sprintf("Reset the AI configuration of application %q to the organisation defaults? [y/N]: ",
 					strings.TrimSpace(arguments[0])),
 				yes,

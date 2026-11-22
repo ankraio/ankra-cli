@@ -870,3 +870,22 @@ func parseClusterError(body []byte) error {
 	}
 	return fmt.Errorf("service unavailable: %s", redactedBodyForError(body, 500))
 }
+
+// ApplyResourceRequest is the body of the kubernetes relay's apply: one
+// manifest, server-side applied by the cluster's agent.
+type ApplyResourceRequest struct {
+	Manifest  map[string]any `json:"manifest"`
+	Namespace string         `json:"namespace,omitempty"`
+	DryRun    bool           `json:"dry_run"`
+}
+
+// ApplyResource creates or updates one object through the cluster's agent,
+// behind the same kubernetes.write gate as DeleteResource. The verdict is in
+// Status, as for a delete.
+func (c *Client) ApplyResource(clusterID string, request ApplyResourceRequest) (*ResourceMutationResponse, error) {
+	var response ResourceMutationResponse
+	if applyError := c.postKubernetesRelay(clusterID, "resources/apply", request, &response); applyError != nil {
+		return nil, applyError
+	}
+	return &response, nil
+}

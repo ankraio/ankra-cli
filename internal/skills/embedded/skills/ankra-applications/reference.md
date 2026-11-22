@@ -201,10 +201,13 @@ promote — you shipped something that was never tested.
 ```bash
 ankra application auto-deploy get <app-id>
 ankra application auto-deploy set <app-id> --enabled          # application-wide: every environment
+ankra application environments <app-id>                       # the branches each environment follows
+ankra application environments set <app-id> staging --follow develop
+ankra application environments set <app-id> production --disable
 ```
 
-Development follows pushes; production does not. Switch production off per environment in the
-portal (**Settings → Push to deploy → What follows pushes**) - `auto-deploy set --enabled=false`
+Development follows pushes; production does not. Switch production off per environment with
+`ankra application environments set <app-id> production --disable` - `auto-deploy set --enabled=false`
 would stop development following merges too - and promote by tag (`ankra-ship` §7). `ankra-cicd` covers `.ankra/pipeline.yaml` authoring and the GitOps bump for
 stack-managed deployments.
 

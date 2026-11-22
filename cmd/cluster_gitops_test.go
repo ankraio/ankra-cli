@@ -9,7 +9,6 @@ import (
 )
 
 type gitopsStatusMock struct {
-	baseMock
 	status             *client.ClusterGitopsStatus
 	statusError        error
 	requestedClusterID string

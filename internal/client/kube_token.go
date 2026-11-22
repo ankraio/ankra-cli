@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 type KubeToken struct {
@@ -13,7 +14,7 @@ type KubeToken struct {
 }
 
 func (c *Client) GetClusterKubeToken(ctx context.Context, clusterID string) (*KubeToken, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/k8s-token", c.BaseURL, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/k8s-token", c.BaseURL, url.PathEscape(clusterID))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

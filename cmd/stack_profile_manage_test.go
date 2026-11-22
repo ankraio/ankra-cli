@@ -20,7 +20,6 @@ import (
 // stackProfileManageMock records the owner-lifecycle calls the new commands
 // make and answers each with a fixed payload.
 type stackProfileManageMock struct {
-	baseMock
 	payload  json.RawMessage
 	versions map[int]json.RawMessage
 
@@ -222,7 +221,7 @@ func resetStackProfileCommandFlags(t *testing.T, commands ...*cobra.Command) {
 	}
 }
 
-func runStackProfilesCommand(t *testing.T, mock APIClient, input string, arguments ...string) (string, error) {
+func runStackProfilesCommand(t *testing.T, mock any, input string, arguments ...string) (string, error) {
 	t.Helper()
 	setMockClient(t, mock)
 	var output bytes.Buffer
@@ -401,7 +400,7 @@ func TestStackProfilesDeploymentsCallsInstantiations(t *testing.T) {
 }
 
 const fleetDeploymentsPayload = `{"current_version": 2, "result": [
-  {"id": "i-1", "target_cluster_id": "11111111-1111-1111-1111-111111111111", "cluster_name": "prod-eu", "stack_name": "hello-fleet", "stack_state": "up", "version": 1, "outdated": true, "created_at": "2026-09-10T19:49:37Z"},
+  {"id": "i-1", "target_cluster_id": "0b7c4d0c-1111-1111-1111-111111111111", "cluster_name": "prod-eu", "stack_name": "hello-fleet", "stack_state": "up", "version": 1, "outdated": true, "created_at": "2026-09-10T19:49:37Z"},
   {"id": "i-2", "target_cluster_id": "22222222-2222-2222-2222-222222222222", "cluster_name": "prod-us", "stack_name": "hello-fleet", "stack_state": "up", "version": 2, "outdated": false, "created_at": "2026-09-10T20:03:41Z"}
 ]}`
 
@@ -897,7 +896,7 @@ func TestStackProfileVersionStatusCellTruncatesALongNote(t *testing.T) {
 }
 
 const fleetDeprecatedDeploymentsPayload = `{"current_version": 3, "result": [
-  {"id": "i-1", "target_cluster_id": "11111111-1111-1111-1111-111111111111", "cluster_name": "prod-eu", "stack_name": "hello-fleet", "stack_state": "up", "version": 1, "outdated": true, "deprecated": true, "created_at": "2026-09-10T19:49:37Z"},
+  {"id": "i-1", "target_cluster_id": "0b7c4d0c-1111-1111-1111-111111111111", "cluster_name": "prod-eu", "stack_name": "hello-fleet", "stack_state": "up", "version": 1, "outdated": true, "deprecated": true, "created_at": "2026-09-10T19:49:37Z"},
   {"id": "i-2", "target_cluster_id": "22222222-2222-2222-2222-222222222222", "cluster_name": "prod-us", "stack_name": "hello-fleet", "stack_state": "up", "version": 3, "outdated": false, "deprecated": false, "created_at": "2026-09-10T20:03:41Z"}
 ]}`
 

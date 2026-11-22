@@ -51,15 +51,14 @@ Examples:
 		if !containsString(assignmentScopes, scope) {
 			return withExitCode(exitUsage, fmt.Errorf("--scope must be one of %s, not %q", strings.Join(assignmentScopes, ", "), scope))
 		}
+		organisationID, organisationError := resolveActingOrganisationID()
+		if organisationError != nil {
+			return fmt.Errorf("%w\nSelect an organisation first with 'ankra org switch <org_id>'", organisationError)
+		}
 		scopeReference, _ := cmd.Flags().GetString("scope-id")
 		scopeID, scopeError := resolveAssignmentScopeID(cmd, scope, strings.TrimSpace(scopeReference))
 		if scopeError != nil {
 			return scopeError
-		}
-
-		organisationID, organisationError := resolveActingOrganisationID()
-		if organisationError != nil {
-			return fmt.Errorf("%w\nSelect an organisation first with 'ankra org switch <org_id>'", organisationError)
 		}
 		member, memberError := resolveOrganisationMember(organisationID, args[0])
 		if memberError != nil {
@@ -191,13 +190,13 @@ Examples:
 			return withExitCode(exitUsage, fmt.Errorf(
 				"invalid role %q; valid roles: %s", role, strings.Join(assignableRoles, ", ")))
 		}
-		projectID, projectRole, grantError := inviteProjectGrant(cmd, role)
-		if grantError != nil {
-			return grantError
-		}
 		organisationID, organisationError := resolveActingOrganisationID()
 		if organisationError != nil {
 			return fmt.Errorf("%w\nSelect an organisation first with 'ankra org switch <org_id>'", organisationError)
+		}
+		projectID, projectRole, grantError := inviteProjectGrant(cmd, role)
+		if grantError != nil {
+			return grantError
 		}
 		member, memberError := resolveOrganisationMember(organisationID, args[0])
 		if memberError != nil {

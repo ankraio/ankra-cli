@@ -40,12 +40,35 @@ func (c *Client) UpdateDigitaloceanBastionInstanceType(ctx context.Context, clus
 	return c.updateBastionInstanceType(ctx, "digitalocean", clusterID, instanceType, wait)
 }
 
+// UpdateScalewayBastionInstanceType changes the Public Gateway type (the
+// cluster's bastion), for example VPC-GW-S to VPC-GW-M.
+func (c *Client) UpdateScalewayBastionInstanceType(ctx context.Context, clusterID, gatewayType string, wait bool) (*UpdateBastionInstanceTypeResult, bool, error) {
+	return c.updateBastionInstanceType(ctx, scalewayKind, clusterID, gatewayType, wait)
+}
+
+// UpdateAwsBastionInstanceType changes the bastion's EC2 instance type.
+func (c *Client) UpdateAwsBastionInstanceType(ctx context.Context, clusterID, instanceType string, wait bool) (*UpdateBastionInstanceTypeResult, bool, error) {
+	return c.updateBastionInstanceType(ctx, awsKind, clusterID, instanceType, wait)
+}
+
+// UpdateProxmoxBastionInstanceType moves the bastion VM to another
+// instance-size preset.
+func (c *Client) UpdateProxmoxBastionInstanceType(ctx context.Context, clusterID, sizePreset string, wait bool) (*UpdateBastionInstanceTypeResult, bool, error) {
+	return c.updateBastionInstanceType(ctx, proxmoxKind, clusterID, sizePreset, wait)
+}
+
+// UpdateMorpheusBastionInstanceType moves the bastion instance to another
+// service plan. The platform reads instance_type as the numeric plan id.
+func (c *Client) UpdateMorpheusBastionInstanceType(ctx context.Context, clusterID, planID string, wait bool) (*UpdateBastionInstanceTypeResult, bool, error) {
+	return c.updateBastionInstanceType(ctx, morpheusKind, clusterID, planID, wait)
+}
+
 // updateBastionInstanceType follows the node-group instance-type async
 // accept/wait contract: without --wait the platform answers 202 and applies
 // the resize in the background; with --wait it blocks for the resized
 // bastion/gateway node.
 func (c *Client) updateBastionInstanceType(ctx context.Context, provider, clusterID, instanceType string, wait bool) (*UpdateBastionInstanceTypeResult, bool, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/bastion/instance-type", c.BaseURL, provider, clusterID)
+	url := fmt.Sprintf("%s/api/v1/clusters/%s/%s/bastion/instance-type", c.BaseURL, neturl.PathEscape(provider), neturl.PathEscape(clusterID))
 	payload, marshalError := json.Marshal(UpdateInstanceTypeRequest{InstanceType: instanceType})
 	if marshalError != nil {
 		return nil, false, fmt.Errorf("marshal request: %w", marshalError)
@@ -160,7 +183,7 @@ func (c *Client) DiagnoseMorpheusBastion(ctx context.Context, clusterID string) 
 // and that wording is the whole answer for the user.
 func (c *Client) getBastionHealth(provider, clusterID string) (*BastionHealthResult, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/%s/bastion/health",
-		c.BaseURL, provider, neturl.PathEscape(clusterID))
+		c.BaseURL, neturl.PathEscape(provider), neturl.PathEscape(clusterID))
 	var result BastionHealthResult
 	if requestError := c.sendJSON(http.MethodGet, endpoint, nil, &result); requestError != nil {
 		return nil, requestError
@@ -176,7 +199,7 @@ func (c *Client) getBastionHealth(provider, clusterID string) (*BastionHealthRes
 // rides httpClientForSlowWrite and is bounded by ctx instead.
 func (c *Client) diagnoseBastion(ctx context.Context, provider, clusterID string) (*BastionDiagnoseResult, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/clusters/%s/%s/bastion/diagnose",
-		c.BaseURL, provider, neturl.PathEscape(clusterID))
+		c.BaseURL, neturl.PathEscape(provider), neturl.PathEscape(clusterID))
 	request, requestError := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(nil))
 	if requestError != nil {
 		return nil, fmt.Errorf("create request: %w", requestError)

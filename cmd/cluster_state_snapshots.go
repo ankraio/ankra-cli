@@ -43,6 +43,7 @@ backup.`,
   ankra cluster state-snapshots retention --days 30 --cluster prod`,
 	}
 	command.AddCommand(newClusterStateSnapshotsRetentionCommand())
+	command.AddCommand(newClusterStateSnapshotsLatestCommand())
 	return command
 }
 

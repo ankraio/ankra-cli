@@ -11,10 +11,17 @@ import (
 	"ankra/internal/client"
 )
 
-var clusterMoveCmd = &cobra.Command{
-	Use:   "move [cluster_name]",
-	Short: "Move a cluster to another organisation you administer",
-	Long: `Move a cluster into another existing organisation.
+var clusterMoveCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
+	Use:   "move <cluster_name>",
+	Short: "Move a cluster to another organisation, or to another Ankra Cloud zone",
+	Long: `Move a cluster to another organisation (--organisation) or to another Ankra
+Cloud zone (--zone). The two destinations cannot be combined.
+
+Name the cluster as the argument or with --cluster. A move never falls back
+to the cluster selected with 'ankra cluster select': that selection is shared
+by every shell and agent session on the machine.
+
+Organisation move (--organisation)
 
 Only an administrator of BOTH the current organisation and the destination can
 move a cluster. The cluster keeps its id, agent, executions, resources, security
@@ -31,19 +38,79 @@ the move while operations are running on the cluster, while the cluster is a
 member of a cluster mesh, while it has DNS zones bound to the current
 organisation (a published cluster domain or custom DNS zones), for playground
 and sandbox clusters, and when the destination already has a cluster with the
-same name.
+same name. The destination is resolved among your organisations by id, slug
+or name.
 
-The destination is resolved among your organisations by id, slug or name.
-If no cluster name is provided, the currently selected cluster is moved.`,
-	Example: `  ankra cluster move edge-01 --organisation acme-prod
-  ankra cluster move --organisation 6f1c... --yes
-  ankra cluster move edge-01 --organisation "Acme Prod" -o json`,
+Zone move (--zone)
+
+A zone move carries an Ankra Cloud cluster to another zone in steps, and the
+step that moves traffic always waits for you:
+
+  1. --zone <zone> --plan shows what the move would build and carry, and
+     writes nothing: the target cluster's shape, the stacks carried, the data
+     volumes copied with their sizes, what is not carried, and every public
+     hostname with how it is cut over.
+  2. --zone <zone> starts the move. The platform builds a twin of the cluster
+     in the zone (or uses --target-cluster, an empty cluster that already
+     exists), copies the stacks and their data into it and leaves it in
+     standby: its writers are scaled to zero and its CronJobs suspended, so
+     nothing runs twice while the source still serves. The move then rests
+     at ready_for_cutover.
+  3. --cutover turns the maintenance page on, freezes the source, takes the
+     final copy and switches traffic to the target. The move then soaks.
+  4. While it soaks, --rollback sends traffic back to the source (writes made
+     on the target since the cutover are not copied back), and --retire
+     deprovisions the source, which cannot be undone.
+
+Every data copy the move takes goes through a backup vault. Each stack's
+vault defaults to the stack's backup policy vault, then the organisation's
+only ready vault; when the organisation has several ready vaults, name one
+with --vault (the plan shows each carried stack's vault and what chose it).
+
+--status shows the latest move and its steps. --wait follows the move until it
+rests (ready_for_cutover, soaking, rolled_back, retired or failed), up to
+--timeout. Starting a move, --cutover, --rollback and --retire ask for
+confirmation unless --yes is given.`,
+	Example: `  # Organisation move
+  ankra cluster move edge-01 --organisation acme-prod
+  ankra cluster move --cluster edge-01 --organisation 6f1c... --yes
+
+  # Zone move
+  ankra cluster move avura-france --zone se-sto1 --plan
+  ankra cluster move avura-france --zone se-sto1 --control-plane-count 3 --storage-tier standard --wait
+  ankra cluster move avura-france --zone se-sto1 --target-cluster avura-stockholm
+  ankra cluster move avura-france --zone se-sto1 --vault backups --plan
+  ankra cluster move avura-france --status --wait
+  ankra cluster move avura-france --cutover --wait
+  ankra cluster move avura-france --rollback
+  ankra cluster move avura-france --retire -o json`,
+	// The cluster argument may be left out for --cluster, which the run
+	// reads itself, by name or id, as it always has; named nowhere, the
+	// resolver refuses before the run (clusterMustBeNamed).
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		destinationReference, _ := cmd.Flags().GetString("organisation")
 		yes, _ := cmd.Flags().GetBool("yes")
-		if destinationReference == "" {
-			return withExitCode(exitUsage, errors.New("--organisation is required: the id, slug or name of the destination organisation"))
+		if destinationReference != "" {
+			for _, flagName := range zoneMoveFlags {
+				if cmd.Flags().Changed(flagName) {
+					return withExitCode(exitUsage, fmt.Errorf(
+						"--organisation and --%s cannot be combined: --organisation moves the cluster to another "+
+							"organisation, the zone move flags move it to another Ankra Cloud zone", flagName))
+				}
+			}
+		} else {
+			action, actionError := zoneMoveActionFromFlags(cmd)
+			if actionError != nil {
+				return actionError
+			}
+			if action == zoneMoveNoAction {
+				return withExitCode(exitUsage, errors.New(
+					"a destination is required: --organisation <org> moves the cluster to another organisation, "+
+						"--zone <zone> to another Ankra Cloud zone (--status, --cutover, --rollback and --retire "+
+						"act on a zone move already started)"))
+			}
+			return runZoneMove(cmd, args, action)
 		}
 		format, formatError := structuredFormatFromFlags(cmd)
 		if formatError != nil {
@@ -67,7 +134,7 @@ If no cluster name is provided, the currently selected cluster is moved.`,
 		}
 		destinationLabel := organisationDisplayName(*destination)
 
-		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.OutOrStdout(),
+		if confirmError := confirmPrompt(cmd.InOrStdin(), cmd.ErrOrStderr(),
 			fmt.Sprintf("Move cluster %q to organisation %q? Access grants, kube tokens, notification routes "+
 				"and group memberships from the current organisation are detached. [y/N]: ", clusterName, destinationLabel),
 			yes); confirmError != nil {
@@ -90,7 +157,7 @@ If no cluster name is provided, the currently selected cluster is moved.`,
 		printClusterMoveResult(cmd, result)
 		return nil
 	},
-}
+})
 
 func organisationDisplayName(organisation client.OrganisationSummary) string {
 	if organisation.Name != nil && *organisation.Name != "" {
@@ -127,8 +194,9 @@ func printClusterMoveResult(cmd *cobra.Command, result *client.MoveClusterResult
 }
 
 func init() {
-	clusterMoveCmd.Flags().String("organisation", "", "Destination organisation (id, slug or name); you must be an admin there (required)")
+	clusterMoveCmd.Flags().String("organisation", "", "Destination organisation (id, slug or name); you must be an admin there")
 	clusterMoveCmd.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
+	registerZoneMoveFlags(clusterMoveCmd)
 	registerStructuredOutputFlags(clusterMoveCmd)
 	clusterCmd.AddCommand(clusterMoveCmd)
 }
