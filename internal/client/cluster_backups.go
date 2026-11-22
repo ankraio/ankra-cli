@@ -42,14 +42,19 @@ func IsProtectionState(value string) bool {
 	return false
 }
 
-// The state of the platform-authored ankra-backup stack on a cluster. Four,
+// The state of the platform-authored ankra-backup stack on a cluster. Five,
 // not three: an installed data plane that is DOWN is neither installing,
-// ready nor absent.
+// ready nor absent, and one that is up while the barman-cloud plugin a
+// CloudNativePG stack depends on could not be confirmed running is none of
+// those either (ankra-t5wgj3). Unknown is that last case: the stack resource
+// is up, and whether the plugin runs could not be established. It says
+// nothing about whether anything is protected.
 const (
 	ClusterBackupStackAbsent     = "absent"
 	ClusterBackupStackInstalling = "installing"
 	ClusterBackupStackReady      = "ready"
 	ClusterBackupStackDegraded   = "degraded"
+	ClusterBackupStackUnknown    = "unknown"
 )
 
 // StackRestorePointSummary is the newest restore point covering a stack.
@@ -100,6 +105,12 @@ type StackBackupsRow struct {
 	FailingRuns24h      int                       `json:"failing_runs_24h" yaml:"failing_runs_24h"`
 	LastRestorePoint    *StackRestorePointSummary `json:"last_restore_point" yaml:"last_restore_point"`
 	LatestRun           *StackRunSummary          `json:"latest_run" yaml:"latest_run"`
+	// BackupPathDetail is the platform's sentence behind a verdict the
+	// CloudNativePG backup path decided (barman_plugin_not_running,
+	// archiving_failing, barman_plugin_unverified, archiving_unreported): what
+	// was observed or could not be confirmed, the databases concerned, and what
+	// to do. Empty on every other verdict. It is kept as sent, never reworded.
+	BackupPathDetail string `json:"backup_path_detail,omitempty" yaml:"backup_path_detail,omitempty"`
 }
 
 // ClusterBackupsRollup is the cluster's counts, plus the organisation's vault
