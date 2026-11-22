@@ -87,6 +87,9 @@ type fakeServicesPlatform struct {
 	unbindInUse bool
 	// consumerReadFails makes every single-binding read answer a 502.
 	consumerReadFails bool
+	// consumerReadConflict, when set, makes every single-binding read
+	// answer a 409 with this detail.
+	consumerReadConflict string
 	// ignoreInstanceFilters answers the instance inventory unfiltered, as a
 	// platform from before cluster#4053 that ignores the filter keys would.
 	ignoreInstanceFilters bool
@@ -106,6 +109,9 @@ type fakeServicesPlatform struct {
 	connectionDelivery map[string]any
 	// extraConsumers are consumers the instance has beside the default one.
 	extraConsumers []any
+	// instanceReadStatus, when set, is the status the read of the one
+	// service answers with, in place of the service.
+	instanceReadStatus int
 	// instanceDisconnections is the disconnections field the single
 	// instance read answers (never the listing, like the platform); nil
 	// sends none, as a platform from before disconnections.
@@ -210,7 +216,27 @@ func (platform *fakeServicesPlatform) planSource(prepared client.ServiceReviewRe
 	return source
 }
 
-// instance is the fake instance as this platform answers it.
+// inventoryRow is the instance as the platform lists it. The inventory leaves
+// out what the platform reads for one service only: each consumer's
+// connection delivery, and the disconnections in progress.
+func (platform *fakeServicesPlatform) inventoryRow() map[string]any {
+	row := platform.instance()
+	listed := make([]any, 0, len(row["consumers"].([]any)))
+	for _, entry := range row["consumers"].([]any) {
+		consumer := map[string]any{}
+		for key, value := range entry.(map[string]any) {
+			if key != "connection_delivery" {
+				consumer[key] = value
+			}
+		}
+		listed = append(listed, consumer)
+	}
+	row["consumers"] = listed
+	return row
+}
+
+// instance is the fake instance as this platform answers a read of one
+// service.
 func (platform *fakeServicesPlatform) instance() map[string]any {
 	instance := fakeServiceInstance()
 	if platform.connectionDelivery != nil {
@@ -495,6 +521,8 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		}})
 	case request.Method == http.MethodGet && platform.consumerReadFails && strings.HasPrefix(path, admission+"/consumers/"):
 		fakeServiceJSON(t, writer, http.StatusBadGateway, map[string]any{"detail": "Bad Gateway"})
+	case request.Method == http.MethodGet && platform.consumerReadConflict != "" && strings.HasPrefix(path, admission+"/consumers/"):
+		fakeServiceJSON(t, writer, http.StatusConflict, map[string]any{"detail": platform.consumerReadConflict})
 	case request.Method == http.MethodGet && path == admission+"/consumers/"+fakeServiceConsumerID:
 		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"id": fakeServiceConsumerID, "application_id": fakeServiceApplication,
 			"organisation_id": fakeServiceOrganisation, "cluster_id": fakeServiceClusterID, "namespace": "orders",
@@ -532,7 +560,7 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		}
 		// The platform's own filters (cluster#4053): the one service serves
 		// fakeServiceApplication and runs on fakeServiceClusterID.
-		items := []any{platform.instance()}
+		items := []any{platform.inventoryRow()}
 		query := request.URL.Query()
 		if !platform.ignoreInstanceFilters &&
 			((query.Has("application_id") && query.Get("application_id") != fakeServiceApplication) ||
@@ -549,6 +577,10 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"result": result,
 			"pagination": map[string]any{"total_pages": 1, "page": 1, "page_size": 100, "total_count": len(result)}})
 	case request.Method == http.MethodGet && path == instancePath:
+		if platform.instanceReadStatus != 0 {
+			fakeServiceJSON(t, writer, platform.instanceReadStatus, map[string]any{"detail": "the service cannot be read right now"})
+			return
+		}
 		instance := platform.instance()
 		if platform.instanceDisconnections != nil {
 			instance["disconnections"] = platform.instanceDisconnections
@@ -1349,6 +1381,67 @@ func TestServicesGetCarriesPickupAndNameCollisions(t *testing.T) {
 	}
 }
 
+// A service named by its name prints what the same service named by its id
+// prints, in every output format. The inventory a name resolves through
+// leaves out how each consumer receives the connection and the
+// disconnections in progress, and 'services connect' and 'services
+// disconnect' both end by telling the reader to follow those with 'services
+// get <name>'. So the named service is read once more, by its id.
+func TestServicesGetByNameShowsWhatAReadByIDShows(t *testing.T) {
+	for _, format := range []string{"", "json", "yaml"} {
+		platform := newFakeServicesPlatform(t)
+		platform.connectionDelivery = map[string]any{"state": "delivered", "secret_name": "orders-db-connection",
+			"variables": []any{"DATABASE_URL"}, "reason": "No running workload references orders-db-connection.",
+			"pickup": "redeploy_needed"}
+		platform.instanceDisconnections = map[string]any{"state": "known", "items": []any{map[string]any{
+			"id": "d15c0000-0000-4000-8000-0000000000aa", "consumer_id": "0b7c4d19-0d7a-4c55-a6f4-2f1f4a9b1cff",
+			"application_id": fakeServiceApplication, "cluster_id": fakeServiceClusterID, "namespace": "orders-old",
+			"phase": "draining", "requested_at": "2026-11-01T09:00:00Z", "phase_changed_at": "2026-11-01T09:00:00Z",
+			"keeps_connection_secret": true}}}
+		byName, byID := []string{"get", "orders-db"}, []string{"get", fakeServiceInstanceID}
+		if format != "" {
+			byName, byID = append(byName, "-o", format), append(byID, "-o", format)
+		}
+		named, _, namedError := runServicesCommand(t, platform, "", byName...)
+		if namedError != nil {
+			t.Fatalf("format %q: get by name: %v", format, namedError)
+		}
+		if reads := platform.requests(http.MethodGet, "/instances/"+fakeServiceInstanceID); len(reads) != 1 {
+			t.Errorf("format %q: a service named by name must be read once by id, got %d reads", format, len(reads))
+		}
+		identified, _, identifiedError := runServicesCommand(t, platform, "", byID...)
+		if identifiedError != nil {
+			t.Fatalf("format %q: get by id: %v", format, identifiedError)
+		}
+		if reads := platform.requests(http.MethodGet, "/instances/"+fakeServiceInstanceID); len(reads) != 2 {
+			t.Errorf("format %q: a service named by id is read once, got %d reads over both commands", format, len(reads))
+		}
+		if named != identified {
+			t.Errorf("format %q: named by name and by id must print the same record.\nby name:\n%s\nby id:\n%s", format, named, identified)
+		}
+		for _, expected := range []string{"redeploy_needed", "orders-db-connection", "draining", "orders-old"} {
+			if !strings.Contains(named, expected) {
+				t.Errorf("format %q: get by name lacks %q:\n%s", format, expected, named)
+			}
+		}
+	}
+}
+
+// A read of the one service that fails after its name was found is the
+// command's failure: the inventory row alone would print a service without
+// its deliveries and say nothing about what it left out.
+func TestServicesGetByNameFailsWhenTheServiceCannotBeRead(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.instanceReadStatus = http.StatusServiceUnavailable
+	stdout, _, runError := runServicesCommand(t, platform, "", "get", "orders-db")
+	if runError == nil {
+		t.Fatalf("a failed read of the service must fail the command, printed:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "Consumers:") {
+		t.Errorf("no partial record may be printed when the service could not be read:\n%s", stdout)
+	}
+}
+
 // An application no service serves answers an empty listing, which says so
 // and where to add one, and exits 0. -o json is an empty list.
 func TestServicesListByApplicationSaysWhenNoneServeIt(t *testing.T) {
@@ -2067,6 +2160,46 @@ func TestServicesConsumersUnbindAnOrphanedBinding(t *testing.T) {
 	deletes := platform.requests(http.MethodDelete, "/consumers/"+fakeServiceOrphanConsumerID)
 	if len(deletes) != 1 || deletes[0].query != "expected_revision=2" {
 		t.Fatalf("unexpected removals %+v", deletes)
+	}
+}
+
+// A binding whose application was removed from a cluster that lives on stays
+// listed, and its read answers a conflict, the deployment binding being
+// unavailable, where a binding whose application is gone answers not found.
+// It is removable the same way: without --revision the command says how to
+// find the revision, with --revision the binding is removed at it.
+func TestServicesConsumersUnbindABindingWhoseDeploymentWasRemoved(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.consumerReadConflict = "Application deployment binding is unavailable"
+	_, _, runError := runServicesCommand(t, platform, "", "consumers", "unbind", fakeServiceOrphanConsumerID, "--yes")
+	if runError == nil || !strings.Contains(runError.Error(), "Application deployment binding is unavailable") ||
+		!strings.Contains(runError.Error(), "--revision") ||
+		!strings.Contains(runError.Error(), "ankra services consumers list --application") {
+		t.Fatalf("an unavailable binding must relay the platform's answer and point at --revision and the listing, got %v", runError)
+	}
+	if deletes := platform.requests(http.MethodDelete, "/consumers/"); len(deletes) != 0 {
+		t.Fatal("a binding was removed at a guessed revision")
+	}
+	if _, _, runError = runServicesCommand(t, platform, "", "consumers", "unbind", fakeServiceOrphanConsumerID, "--revision", "2", "--yes"); runError != nil {
+		t.Fatalf("a binding whose deployment was removed must be removable at its revision: %v", runError)
+	}
+	deletes := platform.requests(http.MethodDelete, "/consumers/"+fakeServiceOrphanConsumerID)
+	if len(deletes) != 1 || deletes[0].query != "expected_revision=2" {
+		t.Fatalf("unexpected removals %+v", deletes)
+	}
+}
+
+// A conflict that is not the unavailable binding says nothing about the
+// binding, so --revision does not remove it unread.
+func TestServicesConsumersUnbindFailsClosedOnAnotherConflict(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.consumerReadConflict = "Service configuration changed; refresh and review again"
+	_, _, runError := runServicesCommand(t, platform, "", "consumers", "unbind", fakeServiceConsumerID, "--revision", "4", "--yes")
+	if runError == nil || !strings.Contains(runError.Error(), "Service configuration changed") {
+		t.Fatalf("another conflict on the binding read must refuse the removal with the platform's answer, got %v", runError)
+	}
+	if deletes := platform.requests(http.MethodDelete, "/consumers/"); len(deletes) != 0 {
+		t.Fatalf("a binding was removed although its read said nothing about it: %+v", deletes)
 	}
 }
 

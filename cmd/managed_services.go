@@ -329,6 +329,20 @@ func resolveServiceInstanceBy(ctx context.Context, reference string, clusterID s
 	}
 }
 
+// readServiceInstanceDetail is the service as the platform answers a read of
+// one service. A name resolves through the inventory, whose rows leave out
+// what the platform reads for one service only: how each consumer receives
+// the connection, and the disconnections in progress. So a service found by
+// its name is read again by its id, and naming a service either way shows
+// the same record. A reference that is the service's id was answered by that
+// read already.
+func readServiceInstanceDetail(ctx context.Context, reference string, resolved *client.ServiceInstance) (*client.ServiceInstance, error) {
+	if strings.TrimSpace(reference) == resolved.ID {
+		return resolved, nil
+	}
+	return apiClient.GetServiceInstance(ctx, resolved.ID)
+}
+
 // serviceNames turns the ids a service record carries into names for human
 // output. Every lookup is best effort: a name that cannot be read is shown
 // as its id, never as an error. A lookup that failed says so once on stderr,
@@ -704,9 +718,13 @@ A name that runs on more than one cluster needs --cluster.`,
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
 				return formatError
 			}
-			instance, resolveError := resolveServiceInstance(command, arguments[0])
+			resolved, resolveError := resolveServiceInstance(command, arguments[0])
 			if resolveError != nil {
 				return resolveError
+			}
+			instance, detailError := readServiceInstanceDetail(command.Context(), arguments[0], resolved)
+			if detailError != nil {
+				return detailError
 			}
 			if rendered, renderError := renderStructured(command, instance); rendered || renderError != nil {
 				return renderError
