@@ -73,9 +73,9 @@ var clusterStacksDeployDraftCmd = &cobra.Command{
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Deploying draft stack '%s' on cluster '%s'...\n",
 					document.Name(), cluster.Name)
 			}
-			deployed, deployError := apiClient.DeployClusterStackDraft(cmd.Context(), cluster.ID, document)
+			deployed, deployError := deployDraftOnlyStack(cmd, cluster.ID, document)
 			if deployError != nil {
-				return fmt.Errorf("deploying the draft: %w", deployError)
+				return deployError
 			}
 			result = deployed
 		} else {
@@ -133,6 +133,26 @@ func selectDeployableDraft(documents []client.ClusterStackDocument, stackName st
 			"stack %q has no draft to deploy: it is already deployed and has no edits in flight", match.Name()))
 	}
 	return match, nil
+}
+
+// deployDraftOnlyStack deploys a stack that exists only as a draft
+// (ankra-3g40f8.6). The listing names the draft but renders its members
+// without their bodies: manifest_base64, from_file and an add-on's
+// configuration are null. The create write takes the request as the stack's
+// content, so posting the listing's entry shipped none of those: the platform
+// refused the deploy, or deployed the stack with its files moved to the
+// default paths. The draft is read in full first, as the deployed-stack path
+// reads it, and that read is what is posted.
+func deployDraftOnlyStack(cmd *cobra.Command, clusterID string, listed client.ClusterStackDocument) (*client.StackWriteResult, error) {
+	draft, readError := readListedStackDraft(cmd, clusterID, listed)
+	if readError != nil {
+		return nil, readError
+	}
+	deployed, deployError := apiClient.DeployClusterStackDraft(cmd.Context(), clusterID, draft)
+	if deployError != nil {
+		return nil, fmt.Errorf("deploying the draft: %w", deployError)
+	}
+	return deployed, nil
 }
 
 // promoteDeployedStackDraft deploys the draft bound to an already-deployed
