@@ -12,7 +12,6 @@ import (
 )
 
 type applicationLaneMock struct {
-	baseMock
 	payload json.RawMessage
 
 	envSecretKey     string

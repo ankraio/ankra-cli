@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	adoptTestClusterID = "5f0c3b8e-1d2a-4c6b-9e7f-0a1b2c3d4e5f"
+	adoptTestClusterID = "0b7c4d22-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	// adoptTestValue stands in for the value of the adopted key. A fake
 	// platform that misbehaves puts it in its answer; nothing the client
 	// returns may carry it.

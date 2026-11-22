@@ -18,6 +18,9 @@ import (
 	"github.com/jedib0t/go-pretty/v6/text"
 )
 
+//go:generate go run ../tools/genmockadapter -dir .
+
+// baseMock owns stateless defaults once; narrow doubles define only their handlers.
 type baseMock struct{}
 
 func (m baseMock) SetOrganisationOverride(string) {}
@@ -126,6 +129,10 @@ func (m baseMock) ListClusterGitopsPreservedPaths(context.Context, string) (*cli
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) CompleteClusterGitopsPreservedDiff(context.Context, string, string) (*client.GitopsPreservedDiffPage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ResolveClusterGitopsPreservedPath(context.Context, string, client.GitopsPreservedPathDecision) (*client.GitopsPreservedPathResolution, error) {
 	return nil, errors.New("not implemented")
 }
@@ -143,6 +150,18 @@ func (m baseMock) ProvisionCluster(ctx context.Context, clusterID string) (*clie
 }
 
 func (m baseMock) MoveCluster(ctx context.Context, clusterID string, destinationOrganisationID string) (*client.MoveClusterResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) StartZoneMove(ctx context.Context, sourceClusterID string, request client.ZoneMoveRequest) (*client.ZoneMove, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetZoneMove(ctx context.Context, sourceClusterID string) (*client.ZoneMove, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) AdvanceZoneMove(ctx context.Context, sourceClusterID string, action client.ZoneMoveAction) (*client.ZoneMove, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -424,6 +443,26 @@ func (m baseMock) ResetApplicationAIConfig(requestContext context.Context, appli
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetApplicationOverviewLayout(requestContext context.Context, applicationID string) (*client.ApplicationOverviewLayout, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListApplicationOverviewLayoutVersions(requestContext context.Context, applicationID string, cursor string, limit int) (*client.ApplicationOverviewLayoutVersions, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SaveApplicationOverviewLayoutVersion(requestContext context.Context, applicationID string, content string, baseRevisionID *string) (*client.ApplicationOverviewLayout, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) PutBackApplicationOverviewLayoutVersion(requestContext context.Context, applicationID string, revisionID string, baseRevisionID *string) (*client.ApplicationOverviewLayout, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UseAnkraApplicationOverviewLayout(requestContext context.Context, applicationID string, baseRevisionID *string) (*client.ApplicationOverviewLayout, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) PublishApplicationAddon(requestContext context.Context, applicationID string, publishRequest client.PublishApplicationAddonRequest) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
@@ -458,6 +497,38 @@ func (m baseMock) SetApplicationAutoDeploy(requestContext context.Context, appli
 
 func (m baseMock) UpdateApplicationAutoDeploy(requestContext context.Context, applicationID string, autoDeployRequest client.SetApplicationAutoDeployRequest) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListApplicationAlerts(requestContext context.Context, applicationID string, environmentID string) (*client.ApplicationAlertList, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CreateApplicationAlert(requestContext context.Context, applicationID string, alertRequest client.ApplicationAlertRequest) (*client.ApplicationAlert, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateApplicationAlert(requestContext context.Context, applicationID string, alertID string, alertRequest client.ApplicationAlertRequest) (*client.ApplicationAlert, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteApplicationAlert(requestContext context.Context, applicationID string, alertID string) (*client.ApplicationAlertDeleteResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ListApplicationSavedLogSearches(requestContext context.Context, applicationID string) (*client.SavedLogSearches, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) SaveApplicationLogSearch(requestContext context.Context, applicationID string, searchRequest client.SavedLogSearchRequest) (*client.SavedLogSearch, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ReplaceApplicationSavedLogSearch(requestContext context.Context, applicationID string, searchID string, searchRequest client.SavedLogSearchRequest) (*client.SavedLogSearch, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) DeleteApplicationSavedLogSearch(requestContext context.Context, applicationID string, searchID string) error {
+	return errors.New("not implemented")
 }
 
 func (m baseMock) StartApplicationPlatformBuild(requestContext context.Context, applicationID string, request client.StartApplicationPlatformBuildRequest) (json.RawMessage, error) {
@@ -2178,6 +2249,14 @@ func (m baseMock) SetApplicationProvenancePolicy(context.Context, string, *strin
 }
 
 func (m baseMock) VerifyApplicationProvenance(context.Context, string, []string) (*client.ProvenanceVerification, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) CheckApplicationProvenanceEnvironment(context.Context, string, string) (*client.ProvenanceEnvironmentCheck, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) GetApplicationProvenanceChecks(context.Context, string) (*client.ApplicationProvenanceChecks, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -4042,6 +4121,10 @@ func (m baseMock) ListPipelineCaches(ctx context.Context, selector client.Pipeli
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) ClearPipelineCache(ctx context.Context, selector client.PipelineSelector, path string, trust string) (json.RawMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) GetWorkspaceProfilesDocument(ctx context.Context, repositoryID string) (json.RawMessage, error) {
 	return nil, errors.New("not implemented")
 }
@@ -4193,7 +4276,6 @@ func (m baseMock) GetDeployment(ctx context.Context, deploymentID string) (*clie
 }
 
 type clusterListMock struct {
-	baseMock
 	clusters []client.ClusterListItem
 }
 
@@ -4210,7 +4292,6 @@ func (m *clusterListMock) ListClusters(page int, pageSize int) (*client.ClusterL
 }
 
 type clusterGetMock struct {
-	baseMock
 	cluster client.ClusterListItem
 }
 
@@ -4222,7 +4303,6 @@ func (m *clusterGetMock) GetCluster(name string) (client.ClusterListItem, error)
 }
 
 type orgListMock struct {
-	baseMock
 	organisations []client.OrganisationSummary
 }
 
@@ -4231,7 +4311,6 @@ func (m *orgListMock) ListOrganisations() ([]client.OrganisationSummary, error) 
 }
 
 type credentialsListMock struct {
-	baseMock
 	credentials []client.Credential
 }
 
@@ -4248,17 +4327,17 @@ func (m *credentialsListMock) ListCredentials(provider *string) ([]client.Creden
 	return m.credentials, nil
 }
 
-func setMockClient(t *testing.T, mock APIClient) {
+func setMockClient(t *testing.T, mock any) {
 	t.Helper()
 	originalClient := apiClient
 	originalToken := apiToken
 	originalBaseURL := baseURL
-	apiClient = mock
+	apiClient = adaptMockClient(mock)
 	apiToken = "test-token"
 	baseURL = "https://test.ankra.app"
 	t.Setenv("ANKRA_API_TOKEN", "test-token")
 	t.Cleanup(func() {
-		apiClient = originalClient
+		apiClient = adaptMockClient(originalClient)
 		apiToken = originalToken
 		baseURL = originalBaseURL
 	})
@@ -4547,7 +4626,6 @@ func writeSelectedClusterJSON(t *testing.T) {
 }
 
 type clusterAddonsListMock struct {
-	baseMock
 	addons         []client.ClusterAddonListItem
 	advisoryStale  bool
 	advisoryReadAt *time.Time
@@ -4652,7 +4730,6 @@ func TestClusterAddonsListShowsSecurityUpdates(t *testing.T) {
 }
 
 type clusterFlagOverrideMock struct {
-	baseMock
 	requestedClusterID string
 }
 
@@ -4684,7 +4761,6 @@ func TestClusterFlagOverridesSelectedCluster(t *testing.T) {
 }
 
 type clusterManifestsListMock struct {
-	baseMock
 	manifests []client.ClusterManifestListItem
 }
 
@@ -4722,7 +4798,6 @@ func TestClusterManifestsListCommand(t *testing.T) {
 }
 
 type clusterStacksListMock struct {
-	baseMock
 	stacks []client.ClusterStackListItem
 }
 
@@ -4797,7 +4872,6 @@ func TestClusterStacksListShowsApplicationMembers(t *testing.T) {
 }
 
 type clusterOperationsListMock struct {
-	baseMock
 	executions  []client.ExecutionSummary
 	lastOptions client.ListExecutionsOptions
 }
@@ -4864,7 +4938,6 @@ func TestClusterOperationsListCommand(t *testing.T) {
 }
 
 type clusterAgentStatusMock struct {
-	baseMock
 	agent *client.AgentInfo
 }
 
@@ -4953,7 +5026,6 @@ func TestClusterAgentStatusCommand(t *testing.T) {
 }
 
 type helmRegistriesListMock struct {
-	baseMock
 	registries []client.HelmRegistryListItem
 	lastOpts   *client.ListHelmRegistriesOptions
 }
@@ -4972,7 +5044,6 @@ func (m *helmRegistriesListMock) ListHelmRegistries(opts *client.ListHelmRegistr
 }
 
 type helmRegistryCredentialsListMock struct {
-	baseMock
 	credentials []client.HelmCredentialListItem
 }
 
@@ -5098,7 +5169,6 @@ func TestHelmCredentialsListCommand(t *testing.T) {
 }
 
 type chartsListMock struct {
-	baseMock
 	charts []client.ChartItem
 }
 
@@ -5115,7 +5185,6 @@ func (m *chartsListMock) ListCharts(page, pageSize int, onlySubscribed bool) (*c
 }
 
 type chartsSearchMock struct {
-	baseMock
 	charts []client.ChartItem
 }
 
@@ -5124,7 +5193,6 @@ func (m *chartsSearchMock) SearchCharts(query string) ([]client.ChartItem, error
 }
 
 type tokensListMock struct {
-	baseMock
 	tokens []client.APIToken
 }
 
@@ -5133,7 +5201,6 @@ func (m *tokensListMock) ListAPITokens() ([]client.APIToken, error) {
 }
 
 type orgSwitchMock struct {
-	baseMock
 }
 
 func (m *orgSwitchMock) ListOrganisations() ([]client.OrganisationSummary, error) {
@@ -5153,7 +5220,6 @@ func (m *orgSwitchMock) SwitchOrganisation(orgID string) (*client.SwitchOrganisa
 }
 
 type orgCreateOnlyMock struct {
-	baseMock
 }
 
 func (m *orgCreateOnlyMock) CreateOrganisation(name string, country *string) (*client.CreateOrganisationResponse, error) {
@@ -5164,7 +5230,6 @@ func (m *orgCreateOnlyMock) CreateOrganisation(name string, country *string) (*c
 }
 
 type credentialGetMock struct {
-	baseMock
 	detail      *client.CredentialDetail
 	list        []client.Credential
 	requestedID string
@@ -5300,7 +5365,7 @@ func TestOrgCreateCommand(t *testing.T) {
 }
 
 func TestCredentialsGetCommand(t *testing.T) {
-	const credentialUUID = "11111111-2222-4333-8444-555555555555"
+	const credentialUUID = "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f"
 	mock := &credentialGetMock{
 		detail: &client.CredentialDetail{
 			ID:             credentialUUID,
@@ -5325,7 +5390,7 @@ func TestCredentialsGetCommand(t *testing.T) {
 }
 
 func TestCredentialsGetByNameResolvesToID(t *testing.T) {
-	const credentialUUID = "11111111-2222-4333-8444-555555555555"
+	const credentialUUID = "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f"
 	mock := &credentialGetMock{
 		detail: &client.CredentialDetail{
 			ID:             credentialUUID,
@@ -5354,7 +5419,6 @@ func TestCredentialsGetByNameResolvesToID(t *testing.T) {
 }
 
 type hetznerCredentialsListMock struct {
-	baseMock
 	creds []client.HetznerCredentialListItem
 }
 
@@ -5384,7 +5448,6 @@ func TestHetznerCredentialsListCommand(t *testing.T) {
 }
 
 type sshKeyCredentialsListMock struct {
-	baseMock
 	creds []client.HetznerCredentialListItem
 }
 
@@ -5414,7 +5477,6 @@ func TestHetznerSSHKeyListCommand(t *testing.T) {
 }
 
 type ovhCredentialsListMock struct {
-	baseMock
 	creds []client.OvhCredentialListItem
 }
 
@@ -5444,7 +5506,6 @@ func TestOvhCredentialsListCommand(t *testing.T) {
 }
 
 type upcloudCredentialsListMock struct {
-	baseMock
 	creds []client.UpcloudCredentialListItem
 }
 
@@ -5474,7 +5535,6 @@ func TestUpcloudCredentialsListCommand(t *testing.T) {
 }
 
 type proxmoxCredentialsListMock struct {
-	baseMock
 	creds []client.ProxmoxCredentialListItem
 }
 
@@ -5504,7 +5564,6 @@ func TestProxmoxCredentialsListCommand(t *testing.T) {
 }
 
 type morpheusCredentialsListMock struct {
-	baseMock
 	creds []client.MorpheusCredentialListItem
 }
 
@@ -5534,7 +5593,6 @@ func TestMorpheusCredentialsListCommand(t *testing.T) {
 }
 
 type hetznerNodeGroupsListMock struct {
-	baseMock
 	result *client.NodeGroupListResult
 }
 
@@ -5567,7 +5625,6 @@ func TestClusterHetznerNodeGroupListCommand(t *testing.T) {
 }
 
 type ovhNodeGroupsListMock struct {
-	baseMock
 	result *client.NodeGroupListResult
 }
 
@@ -5600,7 +5657,6 @@ func TestClusterOvhNodeGroupListCommand(t *testing.T) {
 }
 
 type upcloudNodeGroupsListMock struct {
-	baseMock
 	result *client.NodeGroupListResult
 }
 
@@ -6142,6 +6198,10 @@ func (m baseMock) GetOrganisationUsage(context.Context, client.UsageOptions) (*c
 }
 
 func (m baseMock) GetServiceInstance(context.Context, string) (*client.ServiceInstance, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) ConnectServiceConsumer(context.Context, string, client.ServiceInstanceConsumerRequest) (*client.ServiceInstance, error) {
 	return nil, errors.New("not implemented")
 }
 

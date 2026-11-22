@@ -14,8 +14,6 @@ import (
 )
 
 type chatActionMock struct {
-	baseMock
-
 	confirmRequests []client.ConfirmChatActionRequest
 	confirmResult   *client.ConfirmChatActionResult
 	confirmError    error
@@ -138,7 +136,7 @@ func TestChatActionsConfirmSupersededDoesNotSuggestForce(t *testing.T) {
 func TestDecodeActionProposalReadsTheSSEPayload(t *testing.T) {
 	var payload any
 	if unmarshalError := json.Unmarshal([]byte(`{
-		"action_id": "6f1c2f9e-6d5a-4a1e-9f0b-6d4c2b8a1e77",
+		"action_id": "0b7c4d0b-5f6a-4b8c-9d0e-1f2a3b4c5d6e",
 		"tool_name": "restart_node",
 		"description": "Restart worker-1",
 		"parameters": {"node_id": "node-1"},
@@ -153,7 +151,7 @@ func TestDecodeActionProposalReadsTheSSEPayload(t *testing.T) {
 	if decodeError != nil {
 		t.Fatalf("decodeActionProposal: %v", decodeError)
 	}
-	if proposal.ActionID != "6f1c2f9e-6d5a-4a1e-9f0b-6d4c2b8a1e77" {
+	if proposal.ActionID != "0b7c4d0b-5f6a-4b8c-9d0e-1f2a3b4c5d6e" {
 		t.Errorf("ActionID = %s", proposal.ActionID)
 	}
 	if proposal.ToolName != "restart_node" || !proposal.Reversible || proposal.RiskLevel != "medium" {

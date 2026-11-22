@@ -15,8 +15,6 @@ import (
 )
 
 type nodeRestartMock struct {
-	baseMock
-
 	restartResult *client.RestartNodeResult
 	restartError  error
 	restartCalls  []string
@@ -75,8 +73,6 @@ func TestClusterNodesRestartCommandRequiresBothArgs(t *testing.T) {
 }
 
 type scalewayNodesMock struct {
-	baseMock
-
 	restartResult *client.RestartNodeResult
 	restartCalls  []string
 	listResult    *client.NodeListResult

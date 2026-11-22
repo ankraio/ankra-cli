@@ -24,8 +24,6 @@ const (
 // scripted answer per poll (repeating the last), so a test walks the state
 // machine exactly the way the platform would answer it.
 type applicationShipMock struct {
-	baseMock
-
 	clusterOrganisationID string
 
 	listApplicationsPayloads [][]byte
@@ -330,15 +328,15 @@ func fastShipPolling(t *testing.T) {
 // runApplicationShipCommand executes ship against a temp checkout of
 // acme/shop with stdout and stderr captured separately, because ship's
 // contract splits them: progress on stderr, the result on stdout.
-func runApplicationShipCommand(t *testing.T, mockClient APIClient,
+func runApplicationShipCommand(t *testing.T, mockClient any,
 	arguments ...string) (string, string, error) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("ANKRA_ORG", "")
 	repositoryPath := createTestGitRepository(t, "main", "https://github.com/acme/shop.git")
 	previousClient := apiClient
-	apiClient = mockClient
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mockClient)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	applicationCommand := newApplicationCommand()
 	var output bytes.Buffer
@@ -653,7 +651,7 @@ func TestApplicationShipWithAMatchingNameAdoptsThatApplication(t *testing.T) {
 	fastShipPolling(t)
 	mockClient := newApplicationShipMock()
 	mockClient.listApplicationsPayloads = [][]byte{
-		[]byte(`{"result":[{"id":"` + testApplicationID + `","name":"shop","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"},{"id":"11111111-2222-4333-8444-555566667777","name":"pulsecheck","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"}],"pagination":{"total_pages":1}}`),
+		[]byte(`{"result":[{"id":"` + testApplicationID + `","name":"shop","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"},{"id":"0b7c4d0c-2222-4333-8444-555566667777","name":"pulsecheck","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"}],"pagination":{"total_pages":1}}`),
 	}
 	mockClient.applicationDetailPayloads = [][]byte{
 		[]byte(`{"id":"` + testApplicationID + `","name":"shop","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main","pull_request_url":"https://github.com/acme/shop/pull/1","pull_request_merged_at":"2026-09-01T10:00:00Z"}`),
@@ -677,7 +675,7 @@ func TestApplicationShipRefusesAMultiApplicationRepositoryWithoutAName(t *testin
 	fastShipPolling(t)
 	mockClient := newApplicationShipMock()
 	mockClient.listApplicationsPayloads = [][]byte{
-		[]byte(`{"result":[{"id":"` + testApplicationID + `","name":"shipfortune","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"},{"id":"11111111-2222-4333-8444-555566667777","name":"pulsecheck","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"}],"pagination":{"total_pages":1}}`),
+		[]byte(`{"result":[{"id":"` + testApplicationID + `","name":"shipfortune","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"},{"id":"0b7c4d0c-2222-4333-8444-555566667777","name":"pulsecheck","state":"up","app_repo_owner":"acme","app_repo_name":"shop","app_repo_branch":"main"}],"pagination":{"total_pages":1}}`),
 	}
 	_, progress, executeError := runApplicationShipCommand(t, mockClient, "--cluster", "production")
 	if executeError == nil {

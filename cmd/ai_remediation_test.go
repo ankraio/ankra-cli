@@ -11,7 +11,6 @@ import (
 )
 
 type aiRemediationMock struct {
-	baseMock
 	policy    *client.AIRemediationPolicy
 	readError error
 	reads     int
@@ -26,7 +25,7 @@ func (mock *aiRemediationMock) GetAIRemediationPolicy() (*client.AIRemediationPo
 	return &policy, nil
 }
 
-func runAIRemediationCommand(t *testing.T, mock APIClient, args ...string) (string, error) {
+func runAIRemediationCommand(t *testing.T, mock any, args ...string) (string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)
@@ -65,7 +64,7 @@ func savedPolicy() *client.AIRemediationPolicy {
 			"delete_cluster":      "never",
 		},
 		SlackWebhookID:        &webhookID,
-		ApproverUserIDs:       []string{"11111111-0000-4000-8000-000000000001"},
+		ApproverUserIDs:       []string{"0b7c4d0c-0000-4000-8000-000000000001"},
 		MaxActionsPerIncident: 7,
 		CooldownMinutes:       15,
 		UpdatedAt:             &updatedAt,

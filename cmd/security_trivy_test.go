@@ -9,7 +9,6 @@ import (
 )
 
 type securityTrivyMock struct {
-	baseMock
 	history         *client.SecurityHistory
 	historyDays     int
 	historyCluster  string

@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	localSelectionID  = "3b7dccca-0788-4470-9910-19478ae345ae"
+	localSelectionID  = "0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	serverCurrentID   = "b1e6e5bd-0000-4000-8000-000000000001"
 	staleSelectionID  = "9f9f9f9f-0000-4000-8000-000000000009"
 	organisationTitle = "Ankra"
@@ -73,10 +73,10 @@ func withOrganisationHeaderServer(t *testing.T, server *organisationHeaderServer
 	t.Cleanup(httpServer.Close)
 	originalClient := apiClient
 	originalScope := organisationScopedByLocalSelection
-	apiClient = client.New("saved-token", httpServer.URL)
+	apiClient = adaptMockClient(client.New("saved-token", httpServer.URL))
 	withTokenSource(t, sourceConfigFile)
 	t.Cleanup(func() {
-		apiClient = originalClient
+		apiClient = adaptMockClient(originalClient)
 		organisationScopedByLocalSelection = originalScope
 	})
 }

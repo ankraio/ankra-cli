@@ -16,8 +16,6 @@ import (
 // orgDomainMock captures the root-domain reads and writes plus the cluster
 // zone inventory the migration lane needs.
 type orgDomainMock struct {
-	baseMock
-
 	domain     client.OrganisationDomain
 	setCalls   []string
 	setError   error

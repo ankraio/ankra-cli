@@ -6,6 +6,180 @@
 
 - **`ankra cluster stacks deploy-draft` deploys what a draft-only stack's draft holds.** For a stack that exists only as a draft, the command posted the stack listing's copy of it, and the listing leaves out every member's body: a manifest's content and file path, and an add-on's values and values file. The platform then refused the deploy and kept the draft, or deployed the stack with its files moved to the default paths. The command now reads the draft in full first, as it already did for the draft of a stack that is deployed, and deploys that. A draft that was discarded or deployed since the stack was listed is reported with exit code 3 and nothing is deployed. No flag, exit code or `-o json` key changes.
 
+## v0.86.0 - 2026-11-22
+
+`ankra cluster os-updates get|set|plan|run` reads and chooses a cluster's OS
+updates mode, `ankra cluster move --zone` takes `--vault` and names the backup
+vault each stack's data moves through, and `ankra application deploy --reset`
+hands an input back to the repository default. Two `ankra services` commands are
+fixed. Nothing a script relies on changes: a script reading `-o json` of a
+service by name gains fields and loses none.
+
+### Added
+
+- **Read and choose a cluster's OS updates mode: `ankra cluster os-updates get|set|plan|run`.** OS updates are automatic (Ankra starts the rolling run in the maintenance window: one node at a time, drained first, back in service before the next) or advisory (nothing is drained or rebooted on its own). `get` shows the mode and why the cluster has it, including the date a non-production cluster in its 14-day notice becomes automatic, the node groups with a mode of their own, the window, the security lag and the last runs. `set --mode automatic|advisory|default` chooses the cluster's mode, and `set --node-group <name> --mode automatic|advisory|inherit` a node group's; the window, cadence and lag flags change when automatic runs may start. `plan` is the dry run. `run` starts the rolling run inside the window, says when the window next opens while it is closed (exit 8), and with `--now` starts at once outside it; it asks first unless `--yes`. The provider is read from the cluster, so the commands work the same on Hetzner, OVH, UpCloud, DigitalOcean, Scaleway, AWS and Ankra Cloud clusters; any other kind exits 2. A refusal by the platform (a run in flight, an unknown node group, a value out of bounds) exits 8 and changes nothing. `ankra cluster <provider> os-patches` is unchanged.
+- **`ankra cluster move --zone` takes `--vault` and shows the backup vault each stack's data moves through.** Every data copy of a zone move goes through a backup vault. The plan now names each carried stack's vault and what chose it: `--vault`, the stack's backup policy, or the organisation's only ready vault. When the organisation has several ready vaults and nothing names one, the plan lists that stack's data under not carried and as a warning with the ready vaults, and starting the move is refused until you name one with `--vault <name|id>`. Needs the platform as it is from 22 November 2026.
+- **`ankra application deploy --reset <input>` hands an input back to the repository default.** A deployment that keeps its own value for an input (shown as source `override` in `ankra application deployments`) stops keeping it and follows the default in `.ankra/ankra.yaml` from that deploy on, the same as "Use repository default" on the deploy form. The flag is repeatable, for example `--reset memory_limit --reset memory_request`. Naming an input in both `--set` and `--reset` exits 2 before anything is deployed, and the platform refuses a reset of an input that has no default.
+
+### Fixed
+
+- **`ankra services get <name>` shows how each application receives the connection, as `ankra services get <id>` does.** Named by its name, a service was printed without each consumer's delivery, pickup and variables and without the applications being disconnected, in the text output and in `-o json` and `-o yaml` alike. `ankra services connect` and `ankra services disconnect` both end by pointing at `ankra services get <name>` to follow what happens next, so the one read they name showed none of it. A service is now read the same way however it is named, which costs one more request for a name. A script that reads `-o json` of a service by name gains each consumer's `connection_delivery` and the service's `disconnections`. Nothing is removed.
+- **`ankra services consumers unbind <id> --revision <n>` removes the binding of an application that was removed from its cluster.** `ankra application remove` leaves the application's consumer binding for that namespace listed, and the platform no longer reads such a binding by id: it answers that the deployment binding is unavailable. The command let only a binding that reads as not found continue to the removal, so this one could not be unbound at all, although the help said it could. It is now removed at the revision `ankra services consumers list --application <application>` shows, and without `--revision` the command says to pass it. Any other failed read still removes nothing.
+
+## v0.85.0 - 2026-11-22
+
+`ankra cluster move` gains a second kind of destination: `--zone` moves an
+Ankra Cloud cluster's stacks, data and public traffic to another Ankra Cloud
+zone. `--plan` shows what the move would build and carry and writes nothing;
+traffic moves only on `--cutover`, and `--rollback` and `--retire` finish it.
+It needs the platform as it is from 22 November 2026. Nothing else changes:
+`ankra cluster move --organisation` behaves as before, and `--zone` cannot be
+combined with it.
+
+### Added
+
+- **Move a cluster to another Ankra Cloud zone: `ankra cluster move <cluster> --zone <zone>`.** `--plan` shows what the move would build and carry and writes nothing: the target cluster's shape, the stacks carried, the data volumes copied with their sizes, what is not carried, and every public hostname with how it is cut over. Without `--plan` the platform builds a twin of the cluster in the zone (or uses an empty cluster named with `--target-cluster`), copies the stacks and their data into it and keeps it in standby while the source goes on serving; `--control-plane-count`, `--control-plane-plan`, `--worker-plan`, `--worker-count`, `--storage-tier` and `--soak-days` override the shape it derives. Traffic moves only when you run `--cutover`, which puts up a maintenance page, takes the final copy and switches traffic. While the move soaks, `--rollback` sends traffic back (writes made on the target since the cutover are not copied back) and `--retire` deprovisions the source, which cannot be undone. `--status` shows the move and its steps, `--wait` follows it until it rests, and every step asks for confirmation unless `--yes` is given. `--zone` and `--organisation` cannot be combined. Needs a platform release that serves zone moves.
+
+## v0.84.0 - 2026-11-21
+
+`ankra services setup` now says before you confirm whether the service will be
+backed up: the review's `Backup vault` row names the vault, or reads `none,
+this service is not backed up` with the platform's sentence on why and what
+changes it. That needs the platform as it is from 21 November 2026; against an
+older one the review prints what it printed before. One thing a script can
+meet: `ankra services setup --from <name>` now exits 2 and lists the ids when
+an active and a retired service share the name, where it used to take the
+active one. Every other command, flag and exit code is unchanged; a review's
+`-o json` plan gains the key `backups`, and the refusal of a name two services
+share now lists each one's state.
+
+### Added
+
+- **`ankra services setup` says before you confirm whether the service will be backed up.** The review's `Backup vault` row now shows the vault whenever the service is backed up, also when you named none and the platform took the organisation's only vault, and it reads `none, this service is not backed up` when it is not, followed by the platform's sentence on why and what changes it. Before, an organisation with one verified backup vault and one with several read the same review, and only the first got backups. `ankra services reviews get` shows the same row, and `-o json` carries it as `backups` (`state`, `reason`, `vault`, `statement`). It needs a platform that says it: against an older one the row is printed as before, only for a vault the plan names.
+
+### Changed
+
+- **A setup the platform no longer confirms because its plan changed says what to do.** When a backup vault is added or removed between the review and the confirmation, the platform refuses to confirm what you reviewed. `ankra services setup` and `ankra services reviews confirm` now add that nothing was set up and that running the setup again shows the current plan, as they already did for a review that expired.
+
+### Fixed
+
+- **`ankra services setup --from <name>` asks for the id when an active and a retired service share the name.** A retired service's backups can be restored too, so once a service has been retired and set up again under its name, `--from <name>` could mean either of them. It took the active one without saying so, and with `--yes` it created the new service from that one's data, which for a service set up a moment ago is an empty database. It now stops before anything is prepared, exits 2 and lists each service of the name with its id and whether it is active or when it was retired: pass the id of the one you mean to `--from`. A name only one service has resolves as before, whatever its state. The other commands are unchanged and still take the active service of a name (`get`, `delete`, `connect`, `disconnect`); where they refuse a name two services share, the list now says each one's state as well.
+
+## v0.83.0 - 2026-11-20
+
+Create a PostgreSQL service from another one's backups with
+`ankra services setup <name> --from <service>`, as of a moment you name with
+`--at` or the newest point its backups reach. Name the backup vault a service
+is backed up into with `--backup-vault`, which an organisation with more than
+one verified vault needs to get backups at all. Connect one more application to
+a service that already runs with `ankra services connect`. All three need the
+platform as it is from 20 November 2026. Every other command, flag, exit code
+and `-o json` key is unchanged; `ankra cluster stacks restore-points delete`
+prints one full stop where it printed two.
+
+### Added
+
+- **Create a PostgreSQL service from another one's backups: `ankra services setup <name> --from <service>`.** The new service starts with the other service's data as of `--at`, a time in RFC 3339, or as of the newest point its backups reach when `--at` is left out. The other service is not changed, and it can be retired or on a cluster that no longer exists as long as its backups are kept. The review names the source and the moment before anything is set up, and the platform refuses a moment outside the window it can confirm from the backups. The new service starts with no applications, so `--consumer` is refused with `--from`. `ankra services reviews get` and `confirm` show the source of a stored review when the platform reports it. Against a platform that cannot do this yet, the command stops with exit 8 and sets nothing up, where confirming would have created an empty service. Needs a platform release that creates a service from another service's backups.
+- **Name the backup vault a service is backed up into: `ankra services setup --backup-vault <name>`.** An organisation with more than one verified backup vault got its PostgreSQL service without backups, because the platform does not choose between vaults. `--backup-vault` takes the vault's name from `ankra backup vaults list`. The review names the vault before anything is set up, and `ankra services reviews get` and `confirm` show it when the platform reports it. A service created with `--from` is always backed up into the vault that holds the other service's backups, so there the flag is accepted only when it names that vault. Against a platform that cannot name a vault yet, the command stops with exit 8 and sets nothing up. Needs a platform release that serves it.
+- **Connect one more application to a service that already runs: `ankra services connect <service> --consumer <id>`.** Until now an application could only be connected when the service was set up. `--consumer` is the binding of the application's namespace from `ankra services consumers bind`, on the service's own cluster. The service is not redeployed and nothing restarts: the application receives the connection as every other consumer does, and `ankra services get` shows its pickup. `-o json|yaml` prints the service as it reads afterwards. A retired service is refused with exit 8 before anything is sent.
+
+### Fixed
+
+- **`ankra cluster stacks restore-points delete` ends its sentence once.** When the objects of a deleted restore point stay in the bucket, the line that says why no longer ends the platform's reason with two full stops.
+
+## v0.82.0 - 2026-11-20
+
+Keep the searches saved for an application's Logs page from the terminal with
+`ankra application log-searches`: list them, save a new one, replace one or
+remove one. Clear one pipeline cache with `ankra pipeline caches clear`, so the
+next run that uses it fills it again. `ankra delete cluster` and
+`ankra cluster agent token --generate` now warn before they cut off a running
+agent, and `--generate` then asks first: a run with no terminal needs the new
+`--yes`, or it exits 2 with nothing generated. Every other command, flag, exit
+code and `-o json` key is unchanged; `--generate -o json` gains
+`previous_token_valid_until` when Ankra keeps the previous token valid for a
+while.
+
+### Added
+
+- **`ankra application log-searches` lists, saves, replaces and removes the searches saved for an application's Logs.** These are the searches in the Logs page's "Saved searches" menu, shared with everyone who can read the application. `list` shows each search's name, what it looks for in words, who saved it and when; a search whose stored query the platform no longer accepts is listed and says so, and `-o json` and `-o yaml` print the platform's answer as it was sent. `save` and `replace` take the query as flags (`--text`, `--level`, `--copy`, `--filter`, `--last`, `--from`, `--to`) or as a whole document with `--file`, and a search is named by its name or its id. `remove` asks first. A refused name or query prints the platform's own sentence and exits 2; a search that is not there exits 3.
+- **Clear one pipeline cache from the CLI: `ankra pipeline caches clear --path <mount path> [--trust default_branch|branch]`.** It takes the cache at that mount path out of use, for an application (`--application`) or a pipeline repository (`--repository`): no new run restores its archives or mounts its volumes, so the next run fills it again. Leave `--trust` out to clear both scopes. It asks first (`--yes` skips the question) and then says what was cleared: the archives and their size, the volumes, and the moment before which the platform does not delete a cleared volume. A cache with nothing left to clear says so and exits 0. A refusal prints the platform's sentence: exit 3 when the repository is not found or the application has no pipeline, 7 without the `pipelines.operate` permission, and 8 when runs kept starting with the cache while it was being cleared, so nothing was cleared. `-o json` and `-o yaml` print the platform's answer as it was sent.
+
+### Changed
+
+- **`ankra delete cluster` and `ankra cluster agent token --generate` warn before they cut off a running agent.** When the cluster's agent is connected, or checked in within the last 15 minutes, both say so on stderr. Deleting the cluster leaves that agent calling Ankra and being refused until it is uninstalled from the cluster, and a new token replaces the one it uses. `delete cluster` prints the warning above its usual prompt (`--force` still skips the prompt). `--generate` now asks first in that case: answer with the new `--yes`, which a run with no terminal needs, or it exits 2 with nothing generated. When Ankra keeps the previous token valid for a while, `--generate` says until when, and `-o json` carries it as `previous_token_valid_until`. When the agent cannot be read, both say that whether one would be cut off is not known. A cluster with no running agent behaves as before.
+
+## v0.81.0 - 2026-11-20
+
+See what each environment of an application costs, and what each rate is made
+of, with `ankra cost object application`. `ankra application backups` says what
+each deployment's backups keep, and its `-o json` and `-o yaml` now print the
+platform's answer as it was sent: each deployment gains a `keeping` key, null
+for a deployment whose stack does not exist yet, so a script that rejects
+unknown keys has to accept it. Nothing is removed: every existing command,
+flag, exit code and `-o json` key is unchanged.
+
+### Added
+
+- **`ankra cost object application` shows the cost of each environment and what its rate is made of.** Under the namespaces, each environment now has its monthly rate and a row for each part of it: workloads, database instances, storage and backups. A rate that is partial or unknown says why in words. A row that is part of the rate but has no amount of its own says "not known", and what no row explains gets its own line. Backups say "not priced" and are not added to the rate. Rows, environments and spend the platform cut short each get a line. Every existing line, column, `-o json` key and exit code is unchanged, and a platform that does not send the block prints what it printed before.
+
+### Fixed
+
+- **`ankra application backups` says what each deployment's backups keep.** Under each deployment it now prints since when it is backed up, how long backups are kept (or that everything is kept, or that the stack has no backup policy), how many are kept now and the oldest of them. A value Ankra could not read is said as not read, never as none or zero. The platform already sent this as each deployment's `keeping` block and the command dropped it, from `-o json` and `-o yaml` too: both now print the platform's answer as it was sent, so a null stays null, a field the platform did not send stays out, and a field this release does not know yet is passed through.
+
+## v0.80.0 - 2026-11-20
+
+Inspect every recorded preserved-file difference with `--all`, and refuse a
+preserved-file decision when complete matching metadata cannot be read. The
+platform serving complete diff pages is required; default preview output and
+secret masking are unchanged. Also adds application alert management, saved
+Overview layouts and per-environment provenance checks, and fixes MariaDB11
+exports.
+
+### Added
+
+- **`ankra cluster agent ci get` says where a run's workspace is kept.** A new line, `Run workspaces`, names where a new pipeline run's workspace comes from on the cluster: the storage class set for pipelines, the cluster's default StorageClass, or the disk of each run's node on a cluster with no StorageClass that creates volumes. When such a cluster's agent is too old to use the nodes' disks, the output says so and says to upgrade the agent. `Node-local storage` says whether the agent advertises it, and `-o json` carries `ci_storage_class_effective`, `ci_node_local_storage` and `supports_node_local_storage`.
+- **Set an application's alerts from the CLI: `ankra application alerts list|create|update|delete`.** An application alert watches one environment and fires when the share of failed requests, the 95th percentile response time or the container restarts stay above a threshold for the minutes you choose, and sends to up to five of your alert destinations. `list` shows each alert's state as the platform reports it (firing since when, ok, unknown and why, not evaluated yet, or off), and the organisation alert rules that also watch the environment. `delete` names the alert and asks first; `--yes` skips the question.
+- **Show and change an application's Overview layout from the CLI: `ankra application overview-layout show|versions|save|put-back|use-ankra`.** `show` says whether the Overview shows Ankra's own layout or a version the team saved, with who saved it and when and its cards in page order; `--content` prints the layout to edit. `save --file` saves a new version, `put-back` puts an earlier one back and `use-ankra` returns to Ankra's layout; each names the version it was made on with `--base`, and when the Overview changed since, nothing changes and the command says what it shows now.
+- **See the last provenance check of each environment, and check one environment now: `ankra application provenance checks` and `ankra application provenance verify --environment`.** `checks` prints one row for each installation of each environment: when it was last checked, who asked, the tag and the answer. An answer is verified, did not pass (with why), could not be checked (with why) or never checked, and never one said as another. `verify --environment production` checks what each installation of that environment runs and keeps each check; `verify --image` is unchanged.
+
+### Fixed
+
+- **Read every recorded preserved-file difference with `ankra cluster gitops preserved show <path> --all`.** The default remains the 50-change preview. Complete inspection follows bounded pages, preserves secret masking and role checks, and returns no partial result if the file, rules or reveal permission changes. JSON and YAML contain structural metadata only. Resolving a truncated preview now reads the complete matching snapshot before confirmation, including with `--yes`; an incomplete or changed snapshot prevents the write. Requires a platform release that serves complete diff pages.
+
+- **`ankra migrate export` and `ankra migrate up` work with MariaDB 11 images.** The official `mariadb:11` image ships only `mariadb` and `mariadb-dump`, not `mysql` and `mysqldump`, so the export stopped at its first step with `mysql: not found`. The export now uses `mariadb` and `mariadb-dump` when the database container has them, and `mysql` and `mysqldump` otherwise. The dump still carries stored procedures, functions, triggers and events.
+- **The bundled skills name `ankra cluster connect`.** `ankra-getting-started`, `ankra-cli` and `ankra-import-cluster` sent an assistant to an ImportCluster file to connect a cluster that already runs, even when there was nothing to declare on it. They now give `ankra cluster connect <name>` for that case, with the exit code a taken name gets, and keep the file for when stacks, add-ons or a GitOps repository go in with it. `ankra skills install` installs the updated skills.
+
+## v0.79.0 - 2026-11-18
+
+Connect a cluster you already run with one command: `ankra cluster connect
+<name>` registers it and prints the command that installs the Ankra agent.
+`ankra security remediations list` now lists batched fixes without
+`--application`, and those rows have `finding_id` null in `-o json`: a script
+that reads `finding_id` from the list has to accept null and read
+`finding_ids` on those rows. Nothing is removed: every existing command, flag,
+exit code and `-o json` key is unchanged.
+
+### Added
+
+- **Connect a cluster you already run with one command: `ankra cluster connect <name>`.** The command registers the cluster and prints the one Helm command that installs the Ankra agent, which connects the cluster to your organisation. Until now the only way to do this from the CLI was to write an ImportCluster file and run `ankra cluster apply -f <file> --wait`, while the portal's "Connect a cluster" page asks for nothing but a name. `--environment` says what the cluster is for and `--description` describes it; `-o json|yaml` prints `cluster_id`, `name` and `install_command` for a script. A name another cluster in the organisation already has is refused with exit 8 and nothing is changed, because the same request would otherwise update that cluster. That holds for a cluster created while the command is running as well: the command asks the platform to create only, and the platform refuses the name instead of updating that cluster. The refusal says to choose another name to connect a different cluster, and names the command that prints the install command for a cluster you already registered. A connect the platform does not answer within `--timeout` exits 5 and says how to check whether the cluster was registered. The printed command carries the cluster's agent token, so treat it as a credential. `ankra cluster import <name>` is the same command. `ankra cluster apply` is unchanged and is still how you declare Stacks, add-ons or a GitOps repository on a cluster.
+
+### Fixed
+
+- **`ankra security remediations list` shows batched fixes.** A pull request that fixes several of one application's findings at once, such as a base-image fix or a dependency bump, is now listed as one row, as the portal's Security > Fix activity lists it. Before, the command showed such runs only with `--application`. The columns and `-o json` keys are unchanged: a batched run has `finding_id` null and every finding it fixes in `finding_ids`, and `--finding` also matches a batched run that fixes that finding among others. The list is still the newest runs first, at most 100 (or `--limit`), so with batched runs in it an older run of one finding can fall past the end.
+- **`ankra cluster <provider> os-patches policy set` help says what `--enable` and `--disable` do.** It said they turn the rolling OS patch policy on and off, and that turning it off removes the node OS update hold from every host. Since OS updates modes, `--enable` chooses the automatic mode for the cluster and `--disable` the advisory mode: the control planes, the bastion and every node group without a mode of its own become advisory and lose the hold, a node group set to automatic stays automatic and keeps it, the daily dry run goes on, and a person can still start a run. The help also says that clearing the mode, or giving a node group its own, is done through the API or Ankra's AI. The `os-patches` and `os-patches node-policy` help use the same words: the hold applies where OS updates are automatic, and writing it by hand is refused unless the cluster's OS updates are automatic. Help text only: the flags send what they sent before.
+- **`ankra pipeline repositories connect --cluster` takes a cluster name.** It took only an id, so `--cluster mac-mini` was refused with "Cluster not found in this organisation"; it now looks the name up the way `ankra pipeline repositories set-cluster` does, and a name no cluster has fails with exit 3 before anything is connected. The bundled `ankra-cicd` and `ankra-ship` skills also stop listing `runs_on.arch` as a protected section: the platform treats it as a build target a pull request may change. `ankra-cicd` gains two troubleshooting rows, for an image with no build for the CI cluster's architecture and for a `runs_on.arch` no node in the cluster has.
+- **`ankra org ci-settings pool remove` takes out the organisation's pipeline cluster too.** Removing the primary used to only drop its weight and leave it the primary. The platform now takes it out like any other member and makes the next member the primary, preferring one whose agent runs pipeline steps; removing the last CI cluster leaves the organisation with no pipeline cluster. The help says so. The command sends what it sent before.
+- **`ankra pipeline environments` help says test environments are in closed beta.** They are built on Ankra Cloud, which has to be on for the organisation; Ankra support turns it on.
+
+## v0.78.1 - 2026-11-16
+
+Help text only. No command, flag, exit code or output key changes.
+
+### Fixed
+
+- **Every id in a help example is made up.** Examples on about forty commands showed ids that had been pasted from live output instead of example values. All of them are replaced with ids of one recognisable made-up form (`0b7c4d1e-5f6a-4b8c-9d0e-1f2a3b4c5d6e` and its variants), in `--help`, in the generated reference, in `docs/github-actions-oidc.md` and in the tests that used the same ids. A test now fails the build when a command file carries any other id.
+
 ## v0.78.0 - 2026-11-16
 
 Rename a cluster in place, mint and revoke alert ingest credentials, and turn

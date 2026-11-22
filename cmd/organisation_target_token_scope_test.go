@@ -191,8 +191,8 @@ func TestApplicationShipTargetsTheTokenOrganisationOverAStaleSelection(t *testin
 			repositoryPath := createTestGitRepository(t, "main", "https://github.com/acme/shop.git")
 			shipMock := newApplicationShipMock()
 			previousClient := apiClient
-			apiClient = staleSelectionShipMock{applicationShipMock: shipMock}
-			t.Cleanup(func() { apiClient = previousClient })
+			apiClient = adaptMockClient(staleSelectionShipMock{applicationShipMock: shipMock})
+			t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 			applicationCommand := newApplicationCommand()
 			var progress bytes.Buffer

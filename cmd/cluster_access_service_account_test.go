@@ -60,7 +60,7 @@ func (m *roleGrantRevokeMock) DeleteClusterAccessGrant(ctx context.Context, clus
 	return &client.DeleteClusterAccessGrantResponse{Deleted: true}, nil
 }
 
-func runAccessRevoke(t *testing.T, mock APIClient, target string) (string, error) {
+func runAccessRevoke(t *testing.T, mock any, target string) (string, error) {
 	t.Helper()
 	resetAccessFlags(t)
 	setMockClient(t, mock)
@@ -267,7 +267,7 @@ func TestSecurityAccessNamesAServiceAccountGrantee(t *testing.T) {
 	if executeError != nil {
 		t.Fatalf("security access failed: %v", executeError)
 	}
-	if !strings.Contains(output, "grant 11111111-1111-1111-1111-111111111111 · service account ci-deployer · edit") {
+	if !strings.Contains(output, "grant 0b7c4d0c-1111-1111-1111-111111111111 · service account ci-deployer · edit") {
 		t.Fatalf("expected the service account's name, got:\n%s", output)
 	}
 	if strings.Contains(output, "user "+serviceAccountUserID) {

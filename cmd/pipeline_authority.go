@@ -2,13 +2,14 @@ package cmd
 
 // The pipeline commands around a run rather than of one: the approvals inbox
 // ('pipeline authority'), the organisation's pipeline policy, a repository's
-// cache volumes and its workspace profiles.
+// cache volumes (and clearing one cache) and its workspace profiles.
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"sort"
 	"strings"
 
@@ -214,7 +215,7 @@ func newPipelineAuthorityDismissCommand() *cobra.Command {
 		Long: `Decline a pending request with a reason the run's check run and run page then
 show. Requires pipelines.manage and a human actor: a service-account token is
 refused. A request already approved, dismissed or superseded answers 409.`,
-		Example: `  ankra pipeline authority dismiss 0b8f6c2e-0000-4000-8000-000000000001 --reason "use the shared cache size"`,
+		Example: `  ankra pipeline authority dismiss 0b7c4d01-5f6a-4b8c-9d0e-1f2a3b4c5d6e --reason "use the shared cache size"`,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -386,7 +387,7 @@ the cluster the volume lives on, and when it lapses the organisation's cache
 retention. A cache is scoped to the default branch or to every other branch;
 the two never share a volume. Requires pipelines.read.`,
 		Example: `  ankra pipeline caches --application my-app
-  ankra pipeline caches --repository 5f0c1d6e-0000-4000-8000-000000000001 -o json`,
+  ankra pipeline caches --repository 0b7c4d04-5f6a-4b8c-9d0e-1f2a3b4c5d6e -o json`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			cursor, limit, pageError := pipelinePageFlags(command)
@@ -440,7 +441,156 @@ the two never share a volume. Requires pipelines.read.`,
 	registerPipelineSelectorFlags(cachesCommand)
 	registerPipelinePageFlags(cachesCommand)
 	registerStructuredOutputFlags(cachesCommand)
+	cachesCommand.AddCommand(newPipelineCachesClearCommand())
 	return cachesCommand
+}
+
+// The trust scopes a cache clear may name. Leaving --trust out clears both.
+const (
+	pipelineCacheTrustDefaultBranch = "default_branch"
+	pipelineCacheTrustBranch        = "branch"
+)
+
+// pipelineCacheClearAnswer is the members of the POST …/pipeline-caches/clear
+// answer the human line reads. VolumesDeletedAfter is null when no volume was
+// cleared.
+type pipelineCacheClearAnswer struct {
+	ArchivesCleared     int     `json:"archives_cleared"`
+	ArchiveBytes        int64   `json:"archive_bytes"`
+	VolumesCleared      int     `json:"volumes_cleared"`
+	VolumesDeletedAfter *string `json:"volumes_deleted_after"`
+}
+
+func newPipelineCachesClearCommand() *cobra.Command {
+	clearCommand := &cobra.Command{
+		Use:   "clear",
+		Short: "Clear one pipeline cache so the next run fills it again",
+		Long: `Take one cache of a pipeline out of use, named by its mount path as
+'ankra pipeline caches' lists it and by its scope. No new run restores the
+cache's ready archives or mounts its volumes, so the next run that uses the
+cache starts without it and fills it again. A cleared volume is not deleted at
+once: the answer says the moment before which the platform does not delete it.
+
+--trust default_branch clears the default branch's cache, --trust branch the
+cache of pull requests and other branches; leave it out to clear both. A cache
+with nothing left to clear says so and exits 0. Asks first; --yes skips the
+question. Requires pipelines.operate.`,
+		Example: `  ankra pipeline caches clear --application my-app --path /workspace/.pnpm-store
+  ankra pipeline caches clear --repository 0b7c4d04-5f6a-4b8c-9d0e-1f2a3b4c5d6e --path /go/pkg/mod --trust branch --yes -o json`,
+		Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
+				return formatError
+			}
+			cachePath, _ := command.Flags().GetString("path")
+			cachePath = strings.TrimSpace(cachePath)
+			if cachePath == "" {
+				return withExitCode(exitUsage, errors.New(
+					"--path is required: the cache's mount path, as 'ankra pipeline caches' lists it"))
+			}
+			trust, _ := command.Flags().GetString("trust")
+			trust = strings.TrimSpace(trust)
+			if trust != "" && trust != pipelineCacheTrustDefaultBranch && trust != pipelineCacheTrustBranch {
+				return withExitCode(exitUsage, fmt.Errorf(
+					"--trust must be %s or %s, or left out to clear both scopes", pipelineCacheTrustDefaultBranch,
+					pipelineCacheTrustBranch))
+			}
+			selector, selectorError := resolvePipelineSelector(command)
+			if selectorError != nil {
+				return selectorError
+			}
+			skipConfirmation, _ := command.Flags().GetBool("yes")
+			if confirmError := confirmPrompt(command.InOrStdin(), command.ErrOrStderr(),
+				fmt.Sprintf("Clear the cache at %s (%s)? No new run restores or mounts it, so the next run fills it again. [y/N]: ",
+					cachePath, pipelineCacheScopeText(trust)), skipConfirmation); confirmError != nil {
+				return confirmError
+			}
+			document, clearError := apiClient.ClearPipelineCache(command.Context(), selector, cachePath, trust)
+			if clearError != nil {
+				return pipelineCacheClearError(clearError)
+			}
+			return renderDocument(command, document, func(out io.Writer) error {
+				var answer pipelineCacheClearAnswer
+				if decodeError := decodeDocument(document, &answer); decodeError != nil {
+					return decodeError
+				}
+				_, _ = fmt.Fprintln(out, pipelineCacheClearSentence(cachePath, trust, selector, answer))
+				return nil
+			})
+		},
+	}
+	clearCommand.Flags().String("path", "", "The cache's mount path, as 'ankra pipeline caches' lists it (required)")
+	clearCommand.Flags().String("trust", "", "The scope to clear: default_branch or branch (default: both)")
+	clearCommand.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
+	registerPipelineSelectorFlags(clearCommand)
+	registerStructuredOutputFlags(clearCommand)
+	return clearCommand
+}
+
+// pipelineCacheScopeText names the scope a clear covers, in the words of
+// the cache listing's SCOPE column.
+func pipelineCacheScopeText(trust string) string {
+	if trust == "" {
+		return "both scopes"
+	}
+	return trust + " scope"
+}
+
+// pipelineCacheClearError keeps the platform's sentence for each refusal of
+// a cache clear and gives it the exit code of its kind. A 404 (no such
+// repository, or an application with no pipeline repository) already exits
+// 3, a missing pipelines.operate 7 and a login 6. The 409, runs that kept
+// starting with the cache while it was cleared, changed nothing and exits 8;
+// the 422, a request the platform would not read, is a usage error.
+func pipelineCacheClearError(clearError error) error {
+	var rejected *client.PipelineCacheClearRejectedError
+	if errors.As(clearError, &rejected) {
+		return withExitCode(exitUsage, clearError)
+	}
+	var unexpected *client.UnexpectedResponseError
+	if errors.As(clearError, &unexpected) && unexpected.StatusCode == http.StatusConflict && unexpected.Detail != "" {
+		return withExitCode(exitBlocked, errors.New(unexpected.Detail))
+	}
+	return clearError
+}
+
+// pipelineCacheClearSentence says in one line what a clear took out, from
+// the platform's answer alone. An answer of zeros says nothing was held for
+// that path and scope; it is not a failure, and it does not read as one
+// that cleared something.
+func pipelineCacheClearSentence(cachePath string, trust string, selector client.PipelineSelector,
+	answer pipelineCacheClearAnswer) string {
+	subject := "the cache at " + cachePath + " (" + pipelineCacheScopeText(trust) + ")"
+	if answer.ArchivesCleared == 0 && answer.VolumesCleared == 0 {
+		return "Nothing was cleared: no ready archive and no volume was held for " + subject +
+			". It may have been cleared already, or the path or scope names no cache; 'ankra pipeline caches" +
+			pipelineSelectorArguments(selector) + "' lists them."
+	}
+	var cleared []string
+	if answer.ArchivesCleared > 0 {
+		cleared = append(cleared, fmt.Sprintf("%s (%s) that no new run restores",
+			pipelineCacheCount(answer.ArchivesCleared, "archive"), formatPipelineCacheBytes(answer.ArchiveBytes)))
+	}
+	if answer.VolumesCleared > 0 {
+		cleared = append(cleared, pipelineCacheCount(answer.VolumesCleared, "volume")+" that no new run mounts")
+	}
+	sentence := "Cleared " + subject + ": " + strings.Join(cleared, ", and ") + "."
+	if answer.VolumesDeletedAfter != nil && *answer.VolumesDeletedAfter != "" {
+		volumeWords := "the cleared volume"
+		if answer.VolumesCleared != 1 {
+			volumeWords = "the cleared volumes"
+		}
+		sentence += " The platform deletes " + volumeWords + " no earlier than " + *answer.VolumesDeletedAfter + "."
+	}
+	return sentence
+}
+
+// pipelineCacheCount renders "1 archive" or "3 archives".
+func pipelineCacheCount(count int, noun string) string {
+	if count == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", count, noun)
 }
 
 // resolvePipelineRepositoryID answers the pipeline repository the selector

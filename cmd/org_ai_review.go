@@ -150,7 +150,7 @@ installation the relationship is stated under.
 
 Requires organisation admin.`,
 	Example: `  ankra org ai-review related-repos remove my-org/portal my-org/api
-  ankra org ai-review related-repos remove 0b6f6d1e-6c1d-4f3a-9b43-7f6c2b1e9d10 --yes`,
+  ankra org ai-review related-repos remove 0b7c4d1d-5f6a-4b8c-9d0e-1f2a3b4c5d6e --yes`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		skipConfirmation, _ := cmd.Flags().GetBool("yes")

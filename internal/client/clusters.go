@@ -529,6 +529,14 @@ type CreateImportClusterRequest struct {
 	// nothing - a file saved before those members were added looks the same.
 	Prune                   bool     `json:"prune,omitempty"`
 	ConfirmedMemberRemovals []string `json:"confirmed_member_removals,omitempty"`
+	// CreateOnly holds the import to creating a cluster: the platform refuses
+	// a name a cluster already has with *ClusterAlreadyExistsError and writes
+	// nothing, instead of applying the request to that cluster. Omitted
+	// unless asked for, so an apply keeps the platform's create-or-update. A
+	// platform from before the field ignores it and applies the request as it
+	// always did, so a caller that must never update still reads the name
+	// first.
+	CreateOnly bool `json:"create_only,omitempty"`
 }
 
 type ImportResponseErrorItem struct {

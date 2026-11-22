@@ -12,7 +12,6 @@ import (
 )
 
 type slackMock struct {
-	baseMock
 	statuses    []*client.SlackStatus
 	statusCalls int
 	statusError error

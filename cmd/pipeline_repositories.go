@@ -234,10 +234,11 @@ unconditionally can still learn the id it has either way.
 --application links the repository to an application already in this
 organisation (by id) without changing that application's own pipeline
 source - it is refused (422) for an application outside the organisation.
---cluster overrides the organisation's declared CI cluster
-('ankra ci-settings' / GET /org/ci-settings) for just this repository's
-pipelines - it is refused (422) for a cluster outside the organisation, or
-one whose agent has not advertised it can run pipeline steps.
+--cluster (a cluster name or id, the same as 'set-cluster' takes) overrides
+the organisation's declared CI cluster ('ankra ci-settings' /
+GET /org/ci-settings) for just this repository's pipelines - it is refused
+(422) for a cluster outside the organisation, or one whose agent has not
+advertised it can run pipeline steps.
 
 For a GitHub repository, the committed .ankra/pipeline.yaml on the default
 branch (read through --credential) is recorded as the definition of record in
@@ -266,7 +267,7 @@ already-connected repository with 'ankra pipeline repositories set-mode'.`,
 		"Organisation Git credential used to read the repository; omit to connect without reading the committed pipeline file")
 	connectCommand.Flags().String("default-branch", "", "Branch the pipeline file is read from (default: main)")
 	connectCommand.Flags().String("application", "", "Application id to link this repository to (optional; must belong to this organisation)")
-	connectCommand.Flags().String("cluster", "", "Cluster id to run this repository's pipelines on, overriding the organisation default (optional; its agent must support pipeline steps)")
+	connectCommand.Flags().String("cluster", "", "Cluster name or id to run this repository's pipelines on, overriding the organisation default (optional; its agent must support pipeline steps)")
 	connectCommand.Flags().Bool("workspaces-only", false,
 		"Connect for Ankra Workspaces only: no pipeline runs, commit statuses or check runs, and the pipeline file is not read")
 	_ = connectCommand.MarkFlagRequired("provider")
@@ -287,8 +288,19 @@ func runPipelineRepositoriesConnect(command *cobra.Command) error {
 	credentialName, _ := command.Flags().GetString("credential")
 	defaultBranch, _ := command.Flags().GetString("default-branch")
 	applicationID, _ := command.Flags().GetString("application")
-	clusterID, _ := command.Flags().GetString("cluster")
+	clusterNameOrID, _ := command.Flags().GetString("cluster")
 	isWorkspacesOnly, _ := command.Flags().GetBool("workspaces-only")
+	// The platform takes only a cluster id here, so a name is resolved the
+	// way 'set-cluster' resolves it; sent raw, a name came back as "Cluster
+	// not found in this organisation".
+	clusterID := ""
+	if trimmed := strings.TrimSpace(clusterNameOrID); trimmed != "" {
+		resolved, resolveError := resolveClusterID(trimmed)
+		if resolveError != nil {
+			return resolveError
+		}
+		clusterID = resolved
+	}
 
 	result, connectError := apiClient.ConnectPipelineRepository(command.Context(), client.ConnectPipelineRepositoryRequest{
 		Provider:       normalisePipelineRepositoryProvider(strings.TrimSpace(provider)),
@@ -297,7 +309,7 @@ func runPipelineRepositoriesConnect(command *cobra.Command) error {
 		CredentialName: strings.TrimSpace(credentialName),
 		DefaultBranch:  strings.TrimSpace(defaultBranch),
 		ApplicationID:  strings.TrimSpace(applicationID),
-		ClusterID:      strings.TrimSpace(clusterID),
+		ClusterID:      clusterID,
 		WorkspacesOnly: isWorkspacesOnly,
 	})
 	if connectError != nil {

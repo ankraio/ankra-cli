@@ -26,14 +26,26 @@ to one checkout's copy of the hook, whatever branch that checkout is on.
 Once installed, the hook runs `go test` for the packages the commit changes
 (every package on a `go.mod`/`go.sum` change) and lints those same packages,
 and a red test blocks the commit. Do not bypass it with `--no-verify`
-unless explicitly asked. `ankra/cmd` is tested and linted only in CI's
-`lint-test-build`: building it needs more than 12 GiB, which neither an Ankra
-Workspace on a default node nor most laptops have (ankra-klaw40).
+unless explicitly asked. The hook delegates `ankra/cmd` to CI's `lint` and `test` jobs. For command or mock
+changes, also run targeted checks in an adequately sized Ankra Workspace. The
+single adapter removes the former promoted-wrapper memory growth: a cold full
+command race/coverage run passed in a 4Gi main container (ankra-fx8c23).
 `ANKRA_PRECOMMIT_FULL=1` runs the whole suite and linter locally.
 
 The version string is injected at build time via `-X main.version` →
 `cmd.SetVersion`. The `version = "0.3.0"` constant in `cmd/root.go` is only
 the un-injected fallback; never bump it for a release.
+
+## Command test clients
+
+Define only the handlers a narrow mock overrides, and install it through
+`setMockClient` or `adaptMockClient`. Anonymous embedding multiplies the compiler's
+promoted-method wrappers by every API method and caused cold lint to exceed 20Gi.
+The single generated adapter preserves stateless defaults and explicit pointer/value
+handlers; generated one-method contracts validate each override's signature.
+After changing mocks or base stubs, run `go run ./tools/genmockadapter`.
+CI requires `go run ./tools/genmockadapter -check`; never work around it by
+restoring anonymous embedding or excluding command tests/staticcheck.
 
 ## Layout
 
@@ -74,7 +86,8 @@ the un-injected fallback; never bump it for a release.
 
 - **`cmd/services.go` defines the `APIClient` interface.** Adding a method to
   `internal/client` means also adding it to that interface *and* to the
-  `baseMock` stub set in `cmd/e2e_test.go` (per-test mocks embed `baseMock`).
+  `baseMock` stub set in `cmd/e2e_test.go`, then regenerating the single test adapter
+  (`go run ./tools/genmockadapter`). Narrow mocks implement only their handlers.
   The build breaks until all three agree — that is by design.
 - **Exit codes are a scripting contract** (`cmd/exitcodes.go`): 0 success,
   1 API/runtime, 2 usage, 3 not-found, 4 confirmation declined, 5
@@ -103,11 +116,17 @@ Every user-visible change gets an entry in the `## Unreleased` section of
 `CHANGELOG.md`, written in the file's established prose style (bold lead-in,
 explains the user-facing consequence, not the implementation).
 
-Cutting a release: promote `## Unreleased` to `## vX.Y.Z` on `master`, tag
-`vX.Y.Z`, push the tag. `.github/workflows/release.yml` then builds all six
-OS/arch binaries and creates the GitHub release, extracting notes from the
-CHANGELOG section whose heading matches the tag. Tags containing a hyphen
-(e.g. `v0.5.0-rc1`) are marked prerelease automatically.
+Cutting a release: a `release: vX.Y.Z ...` pull request promotes
+`## Unreleased` to `## vX.Y.Z - YYYY-MM-DD`, and merging it is the release.
+Nobody pushes a tag: the pipeline's `release-tag` stage
+(`scripts/release-tag.sh`) runs on every push to `master` once the other
+stages pass, and when the newest version heading has no tag yet it creates
+the annotated tag on that commit. It refuses a heading that is not newer than
+every existing `v*` tag and never moves a tag. The tag starts
+`.github/workflows/release.yml`, which builds all six OS/arch binaries and
+creates the GitHub release, extracting notes from the CHANGELOG section whose
+heading matches the tag. A prerelease (a tag containing a hyphen, e.g.
+`v0.5.0-rc1`, marked prerelease automatically) is still tagged by hand.
 
 ## Commit style
 

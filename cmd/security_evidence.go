@@ -199,7 +199,7 @@ cancels its deliveries that have not been delivered. The destination stays in
 the list as revoked, for the history, and cannot be enabled again. It asks
 first; --yes skips the question and is required when there is no terminal to
 ask on.`,
-	Example: `  ankra security evidence destinations revoke 5b1f0c7e-3a55-4d0b-9a57-0d5f3c1a2b3c --yes`,
+	Example: `  ankra security evidence destinations revoke 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6e --yes`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(command *cobra.Command, arguments []string) error {
 		if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -251,7 +251,7 @@ var securityEvidenceDeliveriesListCmd = &cobra.Command{
 	Long: `List the organisation's evidence deliveries newest first (at most 100), for
 every destination or for one with --destination.`,
 	Example: `  ankra security evidence deliveries list
-  ankra security evidence deliveries list --destination 5b1f0c7e-3a55-4d0b-9a57-0d5f3c1a2b3c --limit 20`,
+  ankra security evidence deliveries list --destination 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6e --limit 20`,
 	Args: cobra.NoArgs,
 	RunE: func(command *cobra.Command, _ []string) error {
 		if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -295,7 +295,7 @@ month that was not recorded is refused.
 
 The command returns once the delivery is queued; follow it with
 'ankra security evidence deliveries list'.`,
-	Example: `  ankra security evidence deliveries send --destination 5b1f0c7e-3a55-4d0b-9a57-0d5f3c1a2b3c
+	Example: `  ankra security evidence deliveries send --destination 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6e
   ankra security evidence deliveries send --destination <id> --framework iso27001 --month 2026-10`,
 	Args: cobra.NoArgs,
 	RunE: func(command *cobra.Command, _ []string) error {
@@ -334,7 +334,7 @@ var securityEvidenceDeliveriesSubmitCmd = &cobra.Command{
 submission are separate: a delivery to Vanta reads "uploaded", a draft, until
 it is submitted. A refused or uncertain submission leaves the delivery uploaded
 and says why.`,
-	Example: `  ankra security evidence deliveries submit 0b6f1c1e-7c0e-4b7e-9a57-0d5f3c1a2b3c`,
+	Example: `  ankra security evidence deliveries submit 0b7c4d0f-5f6a-4b8c-9d0e-1f2a3b4c5d6e`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(command *cobra.Command, arguments []string) error {
 		if _, formatError := structuredFormatFromFlags(command); formatError != nil {

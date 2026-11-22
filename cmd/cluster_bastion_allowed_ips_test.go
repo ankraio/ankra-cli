@@ -34,8 +34,6 @@ func resetAllowedIPsFlags(t *testing.T) {
 }
 
 type bastionAllowedIPsMock struct {
-	baseMock
-
 	clusterIDs []string
 	lists      [][]string
 	result     *client.UpdateBastionAllowedIPsResult

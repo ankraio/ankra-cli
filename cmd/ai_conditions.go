@@ -327,7 +327,7 @@ reference once the issue exists there.`,
 		Short: "Record the engineering tracker's reference for a handoff",
 		Long: `Record the engineering tracker's reference for a handoff once the issue
 exists there. Needs an organisation admin.`,
-		Example: "  ankra ai handoffs acknowledge 0b8f6c2e-0000-4000-8000-000000000001 --tracker-reference ENG-482",
+		Example: "  ankra ai handoffs acknowledge 0b7c4d01-5f6a-4b8c-9d0e-1f2a3b4c5d6e --tracker-reference ENG-482",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {

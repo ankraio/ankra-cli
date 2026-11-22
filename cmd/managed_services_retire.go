@@ -596,8 +596,8 @@ func newServicesRetirementsGetCommand() *cobra.Command {
 	getCommand := &cobra.Command{
 		Use:   "get <service> <retirement-id>",
 		Short: "Show one of your retirements: the plan, its progress and what became of the volumes",
-		Example: "  ankra services retirements get orders-db 7d3c1f0a-5b2e-4c9d-8e1f-0a2b3c4d5e6f\n" +
-			"  ankra services retirements get orders-db 7d3c1f0a-5b2e-4c9d-8e1f-0a2b3c4d5e6f -o json",
+		Example: "  ankra services retirements get orders-db 0b7c4d1a-5f6a-4b8c-9d0e-1f2a3b4c5d6e\n" +
+			"  ankra services retirements get orders-db 0b7c4d1a-5f6a-4b8c-9d0e-1f2a3b4c5d6e -o json",
 		Args: cobra.ExactArgs(2),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -636,8 +636,8 @@ that retires the service and deletes its data, so it needs
 --digest names the digest you reviewed ('delete --review-only' prints it); a
 review whose digest differs is refused, because it is not the plan you saw.
 Without --digest the digest of the review shown is the one confirmed.`,
-		Example: "  ankra services retirements confirm orders-db 7d3c1f0a-5b2e-4c9d-8e1f-0a2b3c4d5e6f --digest sha256:9f2c... --acknowledge-data-loss\n" +
-			"  ankra services retirements confirm orders-db 7d3c1f0a-5b2e-4c9d-8e1f-0a2b3c4d5e6f --acknowledge-data-loss --yes --wait",
+		Example: "  ankra services retirements confirm orders-db 0b7c4d1a-5f6a-4b8c-9d0e-1f2a3b4c5d6e --digest sha256:9f2c... --acknowledge-data-loss\n" +
+			"  ankra services retirements confirm orders-db 0b7c4d1a-5f6a-4b8c-9d0e-1f2a3b4c5d6e --acknowledge-data-loss --yes --wait",
 		Args: cobra.ExactArgs(2),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {

@@ -22,7 +22,7 @@ import (
 	"time"
 )
 
-const guardTestClusterID = "1fa7c8a4-5e42-4fd5-abff-15500899eda4"
+const guardTestClusterID = "0b7c4d03-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 // newCountingServer is an API stand-in that counts the requests reaching it,
 // so a test can prove a refused request never left the client. handler nil

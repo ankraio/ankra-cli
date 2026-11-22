@@ -12,7 +12,6 @@ import (
 const testPipelineRunID = "9c2e7a14-5b3d-4e8f-a1c6-2d7f9b4e6a31"
 
 type pipelineReadsMock struct {
-	baseMock
 	queue       *client.PipelineReleaseQueue
 	suggestions *client.PipelineResourceSuggestions
 	failure     error

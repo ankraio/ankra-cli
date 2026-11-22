@@ -13,7 +13,6 @@ import (
 )
 
 type alertIngestCredentialsMock struct {
-	baseMock
 	credentials   []client.AlertIngestCredential
 	clusters      map[string]client.ClusterListItem
 	rebound       string

@@ -29,11 +29,11 @@ const (
 	fakeServiceClusterID    = "c1a2b3c4-0000-4000-8000-000000000001"
 	fakeServiceApplication  = "0a000000-0000-4000-8000-000000000002"
 	fakeServiceInstanceID   = "c9b96bb8-0000-4000-8000-000000000003"
-	fakeServiceConsumerID   = "5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11"
+	fakeServiceConsumerID   = "0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f"
 	fakeServicePackageID    = "a5e62beb-cbe7-4340-9986-635e09cf086e"
-	fakeServiceReviewID     = "0b6f2a8e-3a1c-4b8e-9a51-2c7d4f1e9a20"
-	fakeServiceRetirementID = "7d3c1f0a-5b2e-4c9d-8e1f-0a2b3c4d5e6f"
-	fakeServiceOrganisation = "3b7dccca-0788-4470-9910-19478ae345ae"
+	fakeServiceReviewID     = "0b7c4d1b-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
+	fakeServiceRetirementID = "0b7c4d1a-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
+	fakeServiceOrganisation = "0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	// fakeMemberProfileID and its version are a stack profile this
 	// organisation owns, which init pins a package to.
 	fakeMemberProfileID        = "d1a90000-0000-4000-8000-000000000001"
@@ -87,6 +87,9 @@ type fakeServicesPlatform struct {
 	unbindInUse bool
 	// consumerReadFails makes every single-binding read answer a 502.
 	consumerReadFails bool
+	// consumerReadConflict, when set, makes every single-binding read
+	// answer a 409 with this detail.
+	consumerReadConflict string
 	// ignoreInstanceFilters answers the instance inventory unfiltered, as a
 	// platform from before cluster#4053 that ignores the filter keys would.
 	ignoreInstanceFilters bool
@@ -106,6 +109,9 @@ type fakeServicesPlatform struct {
 	connectionDelivery map[string]any
 	// extraConsumers are consumers the instance has beside the default one.
 	extraConsumers []any
+	// instanceReadStatus, when set, is the status the read of the one
+	// service answers with, in place of the service.
+	instanceReadStatus int
 	// instanceDisconnections is the disconnections field the single
 	// instance read answers (never the listing, like the platform); nil
 	// sends none, as a platform from before disconnections.
@@ -125,9 +131,112 @@ type fakeServicesPlatform struct {
 	disconnectionNetworkReason   string
 	disconnections               map[string]map[string]any
 	disconnectionPrepares        int
+	// The lane that creates a service from another service's backups
+	// (managed_services_source_test.go). A prepare that names a source
+	// answers a plan that carries it and no consumers. sourceIgnored answers
+	// the plan of a platform from before that, which drops the request
+	// fields. sourcePlanInstanceID replaces the source the plan names, and
+	// sourcePlanMoment the moment it carries (an empty string sends none).
+	// reviewHasSource makes the stored review read as one created from the
+	// fake instance, with no destinations.
+	sourceIgnored        bool
+	sourcePlanInstanceID string
+	sourcePlanMoment     *string
+	reviewHasSource      bool
+	// A prepare that names a backup vault answers a plan that names it, and
+	// one that names a source and no vault answers the vault that holds the
+	// source's backups (fakeServiceArchiveVault). vaultIgnored answers the
+	// plan of a platform from before a setup could name its vault, and
+	// planVaultName replaces the vault the plan names.
+	vaultIgnored  bool
+	planVaultName string
+	// planBackups is what the prepared plan and the stored review say the
+	// install does about the service's backups. Nil sends no block, as a
+	// platform from before a plan said it does. confirmBackupsMoved makes a
+	// confirm answer the platform's 422 for a review whose answer moved
+	// since it was prepared.
+	planBackups         map[string]any
+	confirmBackupsMoved bool
+	// connectConflict makes connecting an application answer the platform's
+	// 409 for a service that changed since it was read.
+	connectConflict bool
 }
 
-// instance is the fake instance as this platform answers it.
+// fakeServiceSourceStatement is the sentence a plan carries for a service
+// created from another service's backups.
+const fakeServiceSourceStatement = "This service is created from the archive of the service orders-db. The service orders-db is not changed."
+
+// fakeServiceReviewMovedDetail is the platform's answer to a confirm of a
+// review whose plan is no longer what would be installed.
+const fakeServiceReviewMovedDetail = "The reviewed setup or its deploy authority has changed or expired; prepare and confirm a new review."
+
+// fakeServiceArchiveVault is the vault that holds the fake source's backups.
+const fakeServiceArchiveVault = "archive-backups"
+
+// planBackupVault is the backup vault of a prepared plan, as the platform
+// resolves it: the vault the request named, or the one that holds the
+// source's backups, each with its statement. Nil when the plan names none.
+func (platform *fakeServicesPlatform) planBackupVault(prepared client.ServiceReviewRequest) map[string]any {
+	if platform.vaultIgnored {
+		return nil
+	}
+	name := prepared.BackupVault
+	hasSource := prepared.SourceInstanceID != "" && !platform.sourceIgnored
+	if name == "" && hasSource {
+		name = fakeServiceArchiveVault
+	}
+	if name == "" {
+		return nil
+	}
+	if platform.planVaultName != "" {
+		name = platform.planVaultName
+	}
+	statement := "This service is backed up into the backup vault " + name + "."
+	if hasSource {
+		statement = "This service is backed up into the backup vault " + name + ", which holds the archive of the service orders-db."
+	}
+	return map[string]any{"name": name, "statement": statement}
+}
+
+// planSource is the source of a plan prepared with one, as the platform
+// resolves it: the instance and its name, the moment when one was named, and
+// the statement.
+func (platform *fakeServicesPlatform) planSource(prepared client.ServiceReviewRequest) map[string]any {
+	source := map[string]any{"instance_id": prepared.SourceInstanceID, "instance_name": "orders-db", "statement": fakeServiceSourceStatement}
+	if platform.sourcePlanInstanceID != "" {
+		source["instance_id"] = platform.sourcePlanInstanceID
+	}
+	moment := prepared.SourceMoment
+	if platform.sourcePlanMoment != nil {
+		moment = *platform.sourcePlanMoment
+	}
+	if moment != "" {
+		source["moment"] = moment
+	}
+	return source
+}
+
+// inventoryRow is the instance as the platform lists it. The inventory leaves
+// out what the platform reads for one service only: each consumer's
+// connection delivery, and the disconnections in progress.
+func (platform *fakeServicesPlatform) inventoryRow() map[string]any {
+	row := platform.instance()
+	listed := make([]any, 0, len(row["consumers"].([]any)))
+	for _, entry := range row["consumers"].([]any) {
+		consumer := map[string]any{}
+		for key, value := range entry.(map[string]any) {
+			if key != "connection_delivery" {
+				consumer[key] = value
+			}
+		}
+		listed = append(listed, consumer)
+	}
+	row["consumers"] = listed
+	return row
+}
+
+// instance is the fake instance as this platform answers a read of one
+// service.
 func (platform *fakeServicesPlatform) instance() map[string]any {
 	instance := fakeServiceInstance()
 	if platform.connectionDelivery != nil {
@@ -146,7 +255,7 @@ func (platform *fakeServicesPlatform) instance() map[string]any {
 
 // fakeServiceOrphanConsumerID is a binding whose application was removed:
 // it no longer reads by id, but can still be removed at its revision.
-const fakeServiceOrphanConsumerID = "5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1cd0"
+const fakeServiceOrphanConsumerID = "0b7c4d19-0d7a-4c55-a6f4-2f1f4a9b1cd0"
 
 var fakeServiceBindingRevisions = map[string]string{fakeServiceConsumerID: "4", fakeServiceOrphanConsumerID: "2"}
 
@@ -351,18 +460,48 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"cluster_id": fakeServiceClusterID, "region": "eu-north-1",
 			"data_boundary": "eu", "local_only": false, "revision": 3, "source": "organisation_declared", "updated_at": "2026-10-01T00:00:00Z"})
 	case request.Method == http.MethodPost && path == admission+"/reviews":
-		fakeServiceJSON(t, writer, http.StatusOK, fakeServiceReview(false))
+		review := fakeServiceReview(false)
+		var prepared client.ServiceReviewRequest
+		_ = json.Unmarshal(bodyBytes, &prepared)
+		if prepared.SourceInstanceID != "" && !platform.sourceIgnored {
+			plan := review["plan"].(map[string]any)
+			plan["consumers"] = []any{}
+			plan["source"] = platform.planSource(prepared)
+		}
+		if vault := platform.planBackupVault(prepared); vault != nil {
+			review["plan"].(map[string]any)["backup_vault"] = vault
+		}
+		if platform.planBackups != nil {
+			review["plan"].(map[string]any)["backups"] = platform.planBackups
+		}
+		fakeServiceJSON(t, writer, http.StatusOK, review)
 	case request.Method == http.MethodGet && path == admission+"/reviews/"+fakeServiceReviewID:
-		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"id": fakeServiceReviewID, "package_version_id": fakeServicePackageID,
+		summary := map[string]any{"id": fakeServiceReviewID, "package_version_id": fakeServicePackageID,
 			"cluster_id": fakeServiceClusterID, "name": "orders-db", "region": "eu-north-1", "data_boundary": "eu",
 			"digest": fakeServiceReviewDigest, "mode": "customer", "parameters": map[string]any{"instances": 1},
 			"secret_inputs": []any{}, "destinations": []any{map[string]any{"application_id": fakeServiceApplication,
 				"cluster_id": fakeServiceClusterID, "namespace": "orders"}},
 			"state": "pending", "created_at": "2026-10-02T09:00:00Z", "expires_at": "2026-10-02T09:10:00Z",
-			"execution_id": nil, "confirmed_at": nil})
+			"execution_id": nil, "confirmed_at": nil}
+		if platform.reviewHasSource {
+			summary["destinations"] = []any{}
+			summary["source"] = map[string]any{"instance_id": fakeServiceInstanceID, "instance_name": "orders-db",
+				"moment": "2026-11-18T09:30:00Z", "statement": fakeServiceSourceStatement}
+			summary["backup_vault"] = map[string]any{"name": fakeServiceArchiveVault,
+				"statement": "This service is backed up into the backup vault " + fakeServiceArchiveVault +
+					", which holds the archive of the service orders-db."}
+		}
+		if platform.planBackups != nil {
+			summary["backups"] = platform.planBackups
+		}
+		fakeServiceJSON(t, writer, http.StatusOK, summary)
 	case request.Method == http.MethodPost && path == admission+"/reviews/"+fakeServiceReviewID+"/confirm":
 		var body struct{ Digest string }
 		_ = json.Unmarshal(bodyBytes, &body)
+		if platform.confirmBackupsMoved {
+			fakeServiceJSON(t, writer, http.StatusUnprocessableEntity, map[string]any{"detail": fakeServiceReviewMovedDetail})
+			return
+		}
 		if body.Digest != fakeServiceReviewDigest || platform.reviewChanged {
 			fakeServiceJSON(t, writer, http.StatusConflict, map[string]any{"detail": "Service review has changed"})
 			return
@@ -382,6 +521,8 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		}})
 	case request.Method == http.MethodGet && platform.consumerReadFails && strings.HasPrefix(path, admission+"/consumers/"):
 		fakeServiceJSON(t, writer, http.StatusBadGateway, map[string]any{"detail": "Bad Gateway"})
+	case request.Method == http.MethodGet && platform.consumerReadConflict != "" && strings.HasPrefix(path, admission+"/consumers/"):
+		fakeServiceJSON(t, writer, http.StatusConflict, map[string]any{"detail": platform.consumerReadConflict})
 	case request.Method == http.MethodGet && path == admission+"/consumers/"+fakeServiceConsumerID:
 		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"id": fakeServiceConsumerID, "application_id": fakeServiceApplication,
 			"organisation_id": fakeServiceOrganisation, "cluster_id": fakeServiceClusterID, "namespace": "orders",
@@ -405,7 +546,7 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 	case request.Method == http.MethodPost && path == admission+"/consumers":
 		var body client.ServiceConsumerRequest
 		_ = json.Unmarshal(bodyBytes, &body)
-		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"id": "5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c99",
+		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"id": "0b7c4d19-0d7a-4c55-a6f4-2f1f4a9b1c99",
 			"application_id": body.ApplicationID, "organisation_id": fakeServiceOrganisation, "cluster_id": body.ClusterID,
 			"namespace": body.Namespace, "region": "eu-north-1", "data_boundary": "eu", "policy_revision": 3, "binding_revision": 1,
 			"binding_kind": "planned", "installation_id": nil, "local_only": body.LocalOnly})
@@ -419,7 +560,7 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		}
 		// The platform's own filters (cluster#4053): the one service serves
 		// fakeServiceApplication and runs on fakeServiceClusterID.
-		items := []any{platform.instance()}
+		items := []any{platform.inventoryRow()}
 		query := request.URL.Query()
 		if !platform.ignoreInstanceFilters &&
 			((query.Has("application_id") && query.Get("application_id") != fakeServiceApplication) ||
@@ -436,11 +577,21 @@ func (platform *fakeServicesPlatform) serve(writer http.ResponseWriter, request 
 		fakeServiceJSON(t, writer, http.StatusOK, map[string]any{"result": result,
 			"pagination": map[string]any{"total_pages": 1, "page": 1, "page_size": 100, "total_count": len(result)}})
 	case request.Method == http.MethodGet && path == instancePath:
+		if platform.instanceReadStatus != 0 {
+			fakeServiceJSON(t, writer, platform.instanceReadStatus, map[string]any{"detail": "the service cannot be read right now"})
+			return
+		}
 		instance := platform.instance()
 		if platform.instanceDisconnections != nil {
 			instance["disconnections"] = platform.instanceDisconnections
 		}
 		fakeServiceJSON(t, writer, http.StatusOK, instance)
+	case request.Method == http.MethodPost && path == instancePath+"/consumers":
+		if platform.connectConflict {
+			fakeServiceJSON(t, writer, http.StatusConflict, map[string]any{"detail": "Service configuration changed; refresh and review again"})
+			return
+		}
+		fakeServiceJSON(t, writer, http.StatusOK, platform.instance())
 	case request.Method == http.MethodPost && path == instancePath+"/disconnections":
 		platform.servePrepareDisconnection(writer, bodyBytes)
 	case request.Method == http.MethodPost && strings.HasPrefix(path, instancePath+"/disconnections/") && strings.HasSuffix(path, "/confirm"):
@@ -619,8 +770,8 @@ func (platform *fakeServicesPlatform) serveRetirementPage(writer http.ResponseWr
 func runServicesCommand(t *testing.T, platform *fakeServicesPlatform, input string, arguments ...string) (string, string, error) {
 	t.Helper()
 	previousClient := apiClient
-	apiClient = platform.client()
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(platform.client())
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 	servicesCommand := newServicesCommand()
 	var stdout, stderr bytes.Buffer
 	servicesCommand.SetOut(&stdout)
@@ -633,7 +784,7 @@ func runServicesCommand(t *testing.T, platform *fakeServicesPlatform, input stri
 
 func TestServicesCommandsRegistered(t *testing.T) {
 	expected := map[string][]string{
-		"":            {"list", "get", "setup", "delete", "disconnect", "packages", "policy", "consumers", "reviews", "retirements"},
+		"":            {"list", "get", "setup", "delete", "connect", "disconnect", "packages", "policy", "consumers", "reviews", "retirements"},
 		"packages":    {"list", "get", "init", "publish", "propose", "probe", "collisions"},
 		"policy":      {"get", "set"},
 		"consumers":   {"list", "get", "bind", "unbind"},
@@ -1230,6 +1381,67 @@ func TestServicesGetCarriesPickupAndNameCollisions(t *testing.T) {
 	}
 }
 
+// A service named by its name prints what the same service named by its id
+// prints, in every output format. The inventory a name resolves through
+// leaves out how each consumer receives the connection and the
+// disconnections in progress, and 'services connect' and 'services
+// disconnect' both end by telling the reader to follow those with 'services
+// get <name>'. So the named service is read once more, by its id.
+func TestServicesGetByNameShowsWhatAReadByIDShows(t *testing.T) {
+	for _, format := range []string{"", "json", "yaml"} {
+		platform := newFakeServicesPlatform(t)
+		platform.connectionDelivery = map[string]any{"state": "delivered", "secret_name": "orders-db-connection",
+			"variables": []any{"DATABASE_URL"}, "reason": "No running workload references orders-db-connection.",
+			"pickup": "redeploy_needed"}
+		platform.instanceDisconnections = map[string]any{"state": "known", "items": []any{map[string]any{
+			"id": "d15c0000-0000-4000-8000-0000000000aa", "consumer_id": "0b7c4d19-0d7a-4c55-a6f4-2f1f4a9b1cff",
+			"application_id": fakeServiceApplication, "cluster_id": fakeServiceClusterID, "namespace": "orders-old",
+			"phase": "draining", "requested_at": "2026-11-01T09:00:00Z", "phase_changed_at": "2026-11-01T09:00:00Z",
+			"keeps_connection_secret": true}}}
+		byName, byID := []string{"get", "orders-db"}, []string{"get", fakeServiceInstanceID}
+		if format != "" {
+			byName, byID = append(byName, "-o", format), append(byID, "-o", format)
+		}
+		named, _, namedError := runServicesCommand(t, platform, "", byName...)
+		if namedError != nil {
+			t.Fatalf("format %q: get by name: %v", format, namedError)
+		}
+		if reads := platform.requests(http.MethodGet, "/instances/"+fakeServiceInstanceID); len(reads) != 1 {
+			t.Errorf("format %q: a service named by name must be read once by id, got %d reads", format, len(reads))
+		}
+		identified, _, identifiedError := runServicesCommand(t, platform, "", byID...)
+		if identifiedError != nil {
+			t.Fatalf("format %q: get by id: %v", format, identifiedError)
+		}
+		if reads := platform.requests(http.MethodGet, "/instances/"+fakeServiceInstanceID); len(reads) != 2 {
+			t.Errorf("format %q: a service named by id is read once, got %d reads over both commands", format, len(reads))
+		}
+		if named != identified {
+			t.Errorf("format %q: named by name and by id must print the same record.\nby name:\n%s\nby id:\n%s", format, named, identified)
+		}
+		for _, expected := range []string{"redeploy_needed", "orders-db-connection", "draining", "orders-old"} {
+			if !strings.Contains(named, expected) {
+				t.Errorf("format %q: get by name lacks %q:\n%s", format, expected, named)
+			}
+		}
+	}
+}
+
+// A read of the one service that fails after its name was found is the
+// command's failure: the inventory row alone would print a service without
+// its deliveries and say nothing about what it left out.
+func TestServicesGetByNameFailsWhenTheServiceCannotBeRead(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.instanceReadStatus = http.StatusServiceUnavailable
+	stdout, _, runError := runServicesCommand(t, platform, "", "get", "orders-db")
+	if runError == nil {
+		t.Fatalf("a failed read of the service must fail the command, printed:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "Consumers:") {
+		t.Errorf("no partial record may be printed when the service could not be read:\n%s", stdout)
+	}
+}
+
 // An application no service serves answers an empty listing, which says so
 // and where to add one, and exits 0. -o json is an empty list.
 func TestServicesListByApplicationSaysWhenNoneServeIt(t *testing.T) {
@@ -1423,7 +1635,7 @@ func TestServicesDeleteResumesAPendingRetirementAcrossPages(t *testing.T) {
 func TestServicesRetirementsListFollowsTheCursor(t *testing.T) {
 	platform := newFakeServicesPlatform(t)
 	second := fakeServiceRetirement("pending")
-	second["id"] = "7d3c1f0a-5b2e-4c9d-8e1f-0a2b3c4d5e70"
+	second["id"] = "0b7c4d1a-5b2e-4c9d-8e1f-0a2b3c4d5e70"
 	platform.pendingPages = [][]map[string]any{{fakeServiceRetirement("pending")}, {}, {second}}
 	stdout, _, runError := runServicesCommand(t, platform, "", "retirements", "list", "orders-db", "--state", "pending", "-o", "json")
 	if runError != nil {
@@ -1433,7 +1645,7 @@ func TestServicesRetirementsListFollowsTheCursor(t *testing.T) {
 	if decodeError := json.Unmarshal([]byte(stdout), &listed); decodeError != nil {
 		t.Fatalf("%v\n%s", decodeError, stdout)
 	}
-	if len(listed) != 2 || listed[1].ID != "7d3c1f0a-5b2e-4c9d-8e1f-0a2b3c4d5e70" {
+	if len(listed) != 2 || listed[1].ID != "0b7c4d1a-5b2e-4c9d-8e1f-0a2b3c4d5e70" {
 		t.Fatalf("expected both pages' retirements, got %+v", listed)
 	}
 	if listings := platform.requests(http.MethodGet, "/retirements"); len(listings) != 3 {
@@ -1666,12 +1878,29 @@ func TestResolveServiceInstanceRefusesAnAmbiguousName(t *testing.T) {
 	twin := fakeServiceInstance()
 	twin["id"] = "c9b96bb8-0000-4000-8000-0000000000aa"
 	twin["cluster_id"] = "c1a2b3c4-0000-4000-8000-0000000000bb"
-	apiClient = &twinInstancesClient{Client: platform.client(), items: []map[string]any{fakeServiceInstance(), twin}}
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(&twinInstancesClient{Client: platform.client(), items: []map[string]any{fakeServiceInstance(), twin}})
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 	command := newServicesGetCommand()
 	_, resolveError := resolveServiceInstance(command, "orders-db")
 	if resolveError == nil || exitCodeFor(resolveError) != exitUsage || !strings.Contains(resolveError.Error(), "--cluster") {
 		t.Fatalf("expected an ambiguity refusal naming --cluster, got %v", resolveError)
+	}
+}
+
+// A command that names no service says so before --cluster is read, so a
+// cluster that does not resolve never hides the missing name.
+func TestResolveServiceInstanceRefusesABlankReferenceBeforeReadingTheCluster(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	previousClient := apiClient
+	apiClient = platform.client()
+	t.Cleanup(func() { apiClient = previousClient })
+	command := newServicesGetCommand()
+	if flagError := command.Flags().Set("cluster", "no-such-cluster"); flagError != nil {
+		t.Fatal(flagError)
+	}
+	_, resolveError := resolveServiceInstance(command, "  ")
+	if resolveError == nil || exitCodeFor(resolveError) != exitUsage || !strings.Contains(resolveError.Error(), "a service name or id is required") {
+		t.Fatalf("expected the blank reference refused before the cluster is read, got %v", resolveError)
 	}
 }
 
@@ -1729,7 +1958,7 @@ func TestServicesConsumersBindNamesAnExistingBinding(t *testing.T) {
 		`","namespace":"billing","allow_planned":true,"local_only":false,"expected_revision":0}` {
 		t.Fatalf("unexpected bind requests %+v", binds)
 	}
-	if !strings.Contains(stdout, "--consumer 5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c99") {
+	if !strings.Contains(stdout, "--consumer 0b7c4d19-0d7a-4c55-a6f4-2f1f4a9b1c99") {
 		t.Errorf("bind must print the consumer id setup takes:\n%s", stdout)
 	}
 
@@ -1934,6 +2163,46 @@ func TestServicesConsumersUnbindAnOrphanedBinding(t *testing.T) {
 	}
 }
 
+// A binding whose application was removed from a cluster that lives on stays
+// listed, and its read answers a conflict, the deployment binding being
+// unavailable, where a binding whose application is gone answers not found.
+// It is removable the same way: without --revision the command says how to
+// find the revision, with --revision the binding is removed at it.
+func TestServicesConsumersUnbindABindingWhoseDeploymentWasRemoved(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.consumerReadConflict = "Application deployment binding is unavailable"
+	_, _, runError := runServicesCommand(t, platform, "", "consumers", "unbind", fakeServiceOrphanConsumerID, "--yes")
+	if runError == nil || !strings.Contains(runError.Error(), "Application deployment binding is unavailable") ||
+		!strings.Contains(runError.Error(), "--revision") ||
+		!strings.Contains(runError.Error(), "ankra services consumers list --application") {
+		t.Fatalf("an unavailable binding must relay the platform's answer and point at --revision and the listing, got %v", runError)
+	}
+	if deletes := platform.requests(http.MethodDelete, "/consumers/"); len(deletes) != 0 {
+		t.Fatal("a binding was removed at a guessed revision")
+	}
+	if _, _, runError = runServicesCommand(t, platform, "", "consumers", "unbind", fakeServiceOrphanConsumerID, "--revision", "2", "--yes"); runError != nil {
+		t.Fatalf("a binding whose deployment was removed must be removable at its revision: %v", runError)
+	}
+	deletes := platform.requests(http.MethodDelete, "/consumers/"+fakeServiceOrphanConsumerID)
+	if len(deletes) != 1 || deletes[0].query != "expected_revision=2" {
+		t.Fatalf("unexpected removals %+v", deletes)
+	}
+}
+
+// A conflict that is not the unavailable binding says nothing about the
+// binding, so --revision does not remove it unread.
+func TestServicesConsumersUnbindFailsClosedOnAnotherConflict(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.consumerReadConflict = "Service configuration changed; refresh and review again"
+	_, _, runError := runServicesCommand(t, platform, "", "consumers", "unbind", fakeServiceConsumerID, "--revision", "4", "--yes")
+	if runError == nil || !strings.Contains(runError.Error(), "Service configuration changed") {
+		t.Fatalf("another conflict on the binding read must refuse the removal with the platform's answer, got %v", runError)
+	}
+	if deletes := platform.requests(http.MethodDelete, "/consumers/"); len(deletes) != 0 {
+		t.Fatalf("a binding was removed although its read said nothing about it: %+v", deletes)
+	}
+}
+
 // A binding read that failed for any reason other than not found says
 // nothing about the binding, so --revision does not remove it unread
 // (ankra-kpq4ae audit).
@@ -1981,7 +2250,7 @@ func TestServicesConsumersUnbindRelaysRefusals(t *testing.T) {
 
 // endlessClusterPages answers every cluster page full, as an organisation
 // with more clusters than the name lookup reads would.
-type endlessClusterPages struct{ baseMock }
+type endlessClusterPages struct{}
 
 func (m *endlessClusterPages) ListClusters(page int, pageSize int) (*client.ClusterListResponse, error) {
 	clusters := make([]client.ClusterListItem, pageSize)
@@ -1996,9 +2265,9 @@ func (m *endlessClusterPages) ListClusters(page int, pageSize int) (*client.Clus
 // that read every cluster says nothing.
 func TestServiceNamesSaysWhenTheClusterLookupStopsAtItsCap(t *testing.T) {
 	previousClient := apiClient
-	t.Cleanup(func() { apiClient = previousClient })
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
-	apiClient = &endlessClusterPages{}
+	apiClient = adaptMockClient(&endlessClusterPages{})
 	command := &cobra.Command{}
 	command.SetContext(context.Background())
 	var notes bytes.Buffer
@@ -2014,7 +2283,7 @@ func TestServiceNamesSaysWhenTheClusterLookupStopsAtItsCap(t *testing.T) {
 		t.Fatalf("notes %q", notes.String())
 	}
 
-	apiClient = &clusterListMock{clusters: []client.ClusterListItem{{ID: "only", Name: "the-only-one"}}}
+	apiClient = adaptMockClient(&clusterListMock{clusters: []client.ClusterListItem{{ID: "only", Name: "the-only-one"}}})
 	notes.Reset()
 	complete := newServiceNames(command)
 	if shown := complete.cluster("only"); shown != "the-only-one" || notes.Len() != 0 {
@@ -2099,7 +2368,6 @@ func TestServiceDeploymentViewMirrorsThePortal(t *testing.T) {
 }
 
 type serviceFailureStepsMock struct {
-	baseMock
 	status         string
 	executionError *string
 	steps          []client.ExecutionStep
@@ -2132,8 +2400,8 @@ func TestServicesGetExplainsAFailedDeployment(t *testing.T) {
 		{Name: "install", Status: "failed", ErrorExcerpt: &excerpt},
 	}}
 	previousClient := apiClient
-	apiClient = mock
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mock)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	var out bytes.Buffer
 	printServiceDeploymentFailure(&out, instance)
@@ -2208,8 +2476,8 @@ func TestServicesFailureExcerptKeepsValidUTF8(t *testing.T) {
 	excerpt := strings.Repeat("é", serviceDeploymentFailureExcerptLimit+50)
 	instance := client.ServiceInstance{Name: "svc", DeploymentState: "deployment_failed", DeploymentOperationID: &operationID}
 	previousClient := apiClient
-	apiClient = &serviceFailureStepsMock{steps: []client.ExecutionStep{{Name: "install", Status: "failed", ErrorExcerpt: &excerpt}}}
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(&serviceFailureStepsMock{steps: []client.ExecutionStep{{Name: "install", Status: "failed", ErrorExcerpt: &excerpt}}})
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	var out bytes.Buffer
 	printServiceDeploymentFailure(&out, instance)
@@ -2233,8 +2501,8 @@ func TestServicesFailureSuggestsOnlyARetryThePlatformAccepts(t *testing.T) {
 	mock := &serviceFailureStepsMock{status: "timeout", executionError: &executionError,
 		steps: []client.ExecutionStep{{Name: "install", Status: "timeout"}}}
 	previousClient := apiClient
-	apiClient = mock
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mock)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	var out bytes.Buffer
 	printServiceDeploymentFailure(&out, instance)

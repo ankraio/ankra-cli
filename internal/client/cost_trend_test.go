@@ -20,7 +20,7 @@ const fleetCostTrendGolden = `{"currency":"eur","generated_at":"2026-09-24T06:00
 	`"coverage_changes":[{"day":"2026-09-24","priced_cluster_count_before":2,"priced_cluster_count_after":3,` +
 	`"entered":[{"cluster_id":"22222222-2222-4222-8222-222222222222","cluster_name":"data-platform","monthly_cost_estimate_cents":15000}],` +
 	`"left":[],"coverage_delta_monthly_cents":15000}],` +
-	`"clusters":[{"cluster_id":"11111111-1111-4111-8111-111111111111","cluster_name":"prod-eu","deleted":false,` +
+	`"clusters":[{"cluster_id":"0b7c4d0c-1111-4111-8111-111111111111","cluster_name":"prod-eu","deleted":false,` +
 	`"first_priced_at":"2026-08-01T10:00:00Z","first_priced_exact":true,"first_day":"2026-09-23","last_day":"2026-09-24","priced_days":2},` +
 	`{"cluster_id":"33333333-3333-4333-8333-333333333333","cluster_name":"old-dev","deleted":true,` +
 	`"first_priced_at":null,"first_priced_exact":false,"first_day":"2026-09-23","last_day":"2026-09-23","priced_days":1}]}`
@@ -106,7 +106,7 @@ func TestGetFleetCostTrend_NoDaysLeavesTheWindowToThePlatform(t *testing.T) {
 // event, an account-level resolved finding and one source that could not be
 // read.
 const costEventsGolden = `{"currency":"usd","generated_at":"2026-09-24T06:00:00Z","days":30,"events":[` +
-	`{"at":"2026-09-23T14:05:00Z","day":"2026-09-23","kind":"application_release","cluster_id":"11111111-1111-4111-8111-111111111111",` +
+	`{"at":"2026-09-23T14:05:00Z","day":"2026-09-23","kind":"application_release","cluster_id":"0b7c4d0c-1111-4111-8111-111111111111",` +
 	`"cluster_name":"prod-eu","subject":"Commerce 2.13 → 2.14","actor":null,"delta_monthly_cents":4000,` +
 	`"window_delta_monthly_cents":4000,"delta_status":"isolated","note":""},` +
 	`{"at":"2026-09-22T19:00:00Z","day":"2026-09-22","kind":"power_schedule","cluster_id":"33333333-3333-4333-8333-333333333333",` +

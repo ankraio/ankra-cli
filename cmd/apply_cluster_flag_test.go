@@ -25,7 +25,6 @@ spec:
 `
 
 type applyOverrideMock struct {
-	baseMock
 	applied []client.CreateImportClusterRequest
 	lookups int
 }
@@ -33,14 +32,14 @@ type applyOverrideMock struct {
 func (mock *applyOverrideMock) GetCluster(name string) (client.ClusterListItem, error) {
 	mock.lookups++
 	if name == "prod-eu" {
-		return client.ClusterListItem{ID: "11111111-1111-1111-1111-111111111111", Name: "prod-eu"}, nil
+		return client.ClusterListItem{ID: "0b7c4d0c-1111-1111-1111-111111111111", Name: "prod-eu"}, nil
 	}
 	return client.ClusterListItem{}, client.ErrClusterNotFound
 }
 
 func (mock *applyOverrideMock) GetClusterByID(clusterID string) (client.ClusterListItem, error) {
 	mock.lookups++
-	if clusterID == "11111111-1111-1111-1111-111111111111" {
+	if clusterID == "0b7c4d0c-1111-1111-1111-111111111111" {
 		return client.ClusterListItem{ID: clusterID, Name: "prod-eu"}, nil
 	}
 	return client.ClusterListItem{}, client.ErrClusterNotFound
@@ -48,7 +47,7 @@ func (mock *applyOverrideMock) GetClusterByID(clusterID string) (client.ClusterL
 
 func (mock *applyOverrideMock) ApplyCluster(ctx context.Context, request client.CreateImportClusterRequest, wait bool) (*client.ImportResponse, bool, error) {
 	mock.applied = append(mock.applied, request)
-	return &client.ImportResponse{Name: request.Name, ClusterId: "11111111-1111-1111-1111-111111111111"}, false, nil
+	return &client.ImportResponse{Name: request.Name, ClusterId: "0b7c4d0c-1111-1111-1111-111111111111"}, false, nil
 }
 
 func writeApplyOverrideDocument(t *testing.T) string {
@@ -101,7 +100,7 @@ func TestClusterApplyClusterFlagAcceptsAnID(t *testing.T) {
 	path := writeApplyOverrideDocument(t)
 
 	captureStdout(t, func() {
-		if _, executeError := executeCommand("cluster", "apply", "-f", path, "--cluster", "11111111-1111-1111-1111-111111111111"); executeError != nil {
+		if _, executeError := executeCommand("cluster", "apply", "-f", path, "--cluster", "0b7c4d0c-1111-1111-1111-111111111111"); executeError != nil {
 			t.Errorf("apply failed: %v", executeError)
 		}
 	})
@@ -154,7 +153,7 @@ func TestClusterApplyDryRunWithClusterFlagStaysOffline(t *testing.T) {
 	path := writeApplyOverrideDocument(t)
 
 	stdout := captureStdout(t, func() {
-		if _, executeError := executeCommand("cluster", "apply", "-f", path, "--dry-run", "--cluster", "11111111-1111-1111-1111-111111111111"); executeError != nil {
+		if _, executeError := executeCommand("cluster", "apply", "-f", path, "--dry-run", "--cluster", "0b7c4d0c-1111-1111-1111-111111111111"); executeError != nil {
 			t.Errorf("dry-run failed: %v", executeError)
 		}
 	})

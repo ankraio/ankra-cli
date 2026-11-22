@@ -107,8 +107,8 @@ func (mock *pipelineTrainMock) MovePipelineMergeTrainToFront(_ context.Context, 
 func runPipelineTrainCommand(t *testing.T, mock *pipelineTrainMock, arguments ...string) (string, error) {
 	t.Helper()
 	previous := apiClient
-	apiClient = mock
-	t.Cleanup(func() { apiClient = previous })
+	apiClient = adaptMockClient(mock)
+	t.Cleanup(func() { apiClient = adaptMockClient(previous) })
 	command := newPipelineTrainCommand()
 	output := &bytes.Buffer{}
 	command.SetOut(output)
@@ -365,9 +365,9 @@ func TestPipelineTrainFrontFindsThePullRequestsEntryByNumber(t *testing.T) {
 
 func TestPipelineTrainFrontPassesAnEntryIDThrough(t *testing.T) {
 	mock := &pipelineTrainMock{}
-	if _, runError := runPipelineTrainCommand(t, mock, "front", "59a73935-a162-4c30-8a17-616a1cfcedee",
+	if _, runError := runPipelineTrainCommand(t, mock, "front", "0b7c4d1f-5f6a-4b8c-9d0e-1f2a3b4c5d6e",
 		"--repository", testPipelineRepositoryID); runError != nil ||
-		mock.movedEntryID != "59a73935-a162-4c30-8a17-616a1cfcedee" {
+		mock.movedEntryID != "0b7c4d1f-5f6a-4b8c-9d0e-1f2a3b4c5d6e" {
 		t.Fatalf("front = %q %v", mock.movedEntryID, runError)
 	}
 }

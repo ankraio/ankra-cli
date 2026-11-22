@@ -16,7 +16,6 @@ import (
 const playgroundTestClusterID = "8f6a4d2e-1c3b-4a5d-9e7f-0123456789ab"
 
 type playgroundMock struct {
-	baseMock
 
 	// clusters answers ListClusters for the name-resolution tests; nil
 	// keeps the base mock's "not implemented".
@@ -42,7 +41,7 @@ type playgroundMock struct {
 
 func (m *playgroundMock) ListClusters(page int, pageSize int) (*client.ClusterListResponse, error) {
 	if m.clusters == nil {
-		return m.baseMock.ListClusters(page, pageSize)
+		return baseMock{}.ListClusters(page, pageSize)
 	}
 	return &client.ClusterListResponse{Result: m.clusters, Pagination: client.Pagination{TotalPages: 1, Page: page, PageSize: pageSize}}, nil
 }
@@ -82,8 +81,8 @@ func (m *playgroundMock) DestroyPlayground(clusterID string) (*client.DestroyPla
 func withPlaygroundMock(t *testing.T, mock *playgroundMock) {
 	t.Helper()
 	previous := apiClient
-	apiClient = mock
-	t.Cleanup(func() { apiClient = previous })
+	apiClient = adaptMockClient(mock)
+	t.Cleanup(func() { apiClient = adaptMockClient(previous) })
 }
 
 func TestPlaygroundCreatePrintsTheClusterIDAndTheFollowUpCommand(t *testing.T) {
@@ -491,7 +490,7 @@ func TestPlaygroundPlansNeverAsksForACardOnTheBillingPage(t *testing.T) {
 func TestPlaygroundCommandsResolveAClusterName(t *testing.T) {
 	mock := &playgroundMock{
 		clusters: []client.ClusterListItem{
-			{ID: "11111111-2222-4333-8444-555555555555", Name: "other"},
+			{ID: "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f", Name: "other"},
 			{ID: playgroundTestClusterID, Name: "playground"},
 		},
 		status:        &client.PlaygroundStatus{ClusterID: playgroundTestClusterID, Phase: "ready", ExpiresAt: "2026-08-14T09:00:00Z"},

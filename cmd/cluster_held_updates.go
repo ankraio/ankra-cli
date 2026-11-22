@@ -53,7 +53,7 @@ version is held again and raises a new card.
 Every take is recorded in the cluster's audit log. It needs permission to
 change cluster settings (clusters.write). The cluster is --cluster or the one
 'ankra cluster select' saved.`,
-		Example: `  ankra cluster held-updates take 0b6f1c1e-7c0e-4b7e-9a57-0d5f3c1a2b3c --fingerprint 3f9a...
+		Example: `  ankra cluster held-updates take 0b7c4d0f-5f6a-4b8c-9d0e-1f2a3b4c5d6e --fingerprint 3f9a...
   ankra cluster held-updates take <notification-id> --fingerprint <fingerprint> --cluster prod -o json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {

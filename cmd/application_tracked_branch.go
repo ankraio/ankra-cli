@@ -37,7 +37,7 @@ func newApplicationTrackedBranchGetCommand() *cobra.Command {
 	getCommand := &cobra.Command{
 		Use:     "get <application-id>",
 		Short:   "Show the branch an application tracks",
-		Example: "  ankra application tracked-branch get 23298741-6a5a-401a-a681-66f31fbdebe1",
+		Example: "  ankra application tracked-branch get 0b7c4d06-5f6a-4b8c-9d0e-1f2a3b4c5d6e",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -81,7 +81,7 @@ The branch must exist on the repository. When GitHub cannot confirm that it
 does (no credential, GitHub unreachable, or a repository the credential cannot
 read) nothing is changed and the command fails, rather than leaving the
 application watching a branch nobody pushes to.`,
-		Example: "  ankra application tracked-branch set 67f4ba9c-2dbe-42e2-8e93-a3431bb464fb develop",
+		Example: "  ankra application tracked-branch set 0b7c4d07-5f6a-4b8c-9d0e-1f2a3b4c5d6e develop",
 		Args:    cobra.ExactArgs(2),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {

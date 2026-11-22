@@ -14,7 +14,6 @@ import (
 )
 
 type costAutopilotMock struct {
-	baseMock
 	policy       *client.CostAutopilotPolicy
 	readError    error
 	updates      []client.CostAutopilotPolicyUpdate
@@ -65,7 +64,7 @@ func (m *costAutopilotMock) ClearCostAutopilotOverride(clusterID string) (*clien
 
 // runCostAutopilotCommand runs the command with stdin, returning stdout and
 // stderr apart so a test can tell the parseable output from the prompt.
-func runCostAutopilotCommand(t *testing.T, mock APIClient, input string, args ...string) (string, string, error) {
+func runCostAutopilotCommand(t *testing.T, mock any, input string, args ...string) (string, string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)
@@ -85,7 +84,7 @@ func runCostAutopilotCommand(t *testing.T, mock APIClient, input string, args ..
 
 const (
 	autopilotStagingID = "33333333-3333-4333-8333-333333333333"
-	autopilotProdID    = "11111111-1111-4111-8111-111111111111"
+	autopilotProdID    = "0b7c4d0c-1111-4111-8111-111111111111"
 	autopilotUserID    = "77777777-7777-4777-8777-777777777777"
 )
 

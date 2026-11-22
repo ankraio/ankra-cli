@@ -26,7 +26,6 @@ type removeNodeCall struct {
 }
 
 type nodeGroupRemoveNodeMock struct {
-	baseMock
 	cluster client.ClusterListItem
 	lookups int
 	calls   []removeNodeCall
@@ -161,7 +160,7 @@ func newRemoveNodeMock(kind string) *nodeGroupRemoveNodeMock {
 				Role: removeNodeStringPointer("worker"), NodeGroup: removeNodeStringPointer("opensearch")},
 			{ID: "0a9b8c7d-6e5f-4a3b-8c2d-1e0f9a8b7c6d", Kind: kind + "_server", Name: "depict-opensearch-1",
 				Role: removeNodeStringPointer("worker"), NodeGroup: removeNodeStringPointer("opensearch")},
-			{ID: "11111111-2222-4333-8444-555555555555", Kind: kind + "_server", Name: "depict-opensearch-0", IsDeleted: true},
+			{ID: "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f", Kind: kind + "_server", Name: "depict-opensearch-0", IsDeleted: true},
 		},
 		kubernetesNodes: map[string]string{"depict-opensearch-0": "hcloud://168428300", "depict-opensearch-1": "hcloud://168428301"},
 	}
@@ -171,7 +170,7 @@ var removeNodeResets = []*cobra.Command{clusterNodeGroupRemoveNodeCmd}
 
 // runRemoveNode runs a command line and returns stdout and stderr apart, so
 // a test can tell output from the prompt.
-func runRemoveNode(t *testing.T, mock APIClient, input string, args ...string) (string, string, error) {
+func runRemoveNode(t *testing.T, mock any, input string, args ...string) (string, string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)

@@ -9,12 +9,11 @@ import (
 )
 
 const (
-	resolveTestCredentialID   = "ebe7ee12-f294-4d80-956b-f107c30b2f3d"
+	resolveTestCredentialID   = "0b7c4d16-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	resolveTestCredentialName = "ankra-harbor-app-dc62ed4f"
 )
 
 type helmCredentialResolveMock struct {
-	baseMock
 	credentials       []client.HelmCredentialListItem
 	totalCount        int
 	listError         error
@@ -61,7 +60,7 @@ func (m *helmCredentialResolveMock) DeleteHelmRegistryCredential(credentialName 
 func newHelmCredentialResolveMock() *helmCredentialResolveMock {
 	return &helmCredentialResolveMock{
 		credentials: []client.HelmCredentialListItem{
-			{ID: "4793065f-1278-4ae2-bc4e-b87467b2ba92", Name: "ankra-harbor-app-7da15f97"},
+			{ID: "0b7c4d17-5f6a-4b8c-9d0e-1f2a3b4c5d6e", Name: "ankra-harbor-app-7da15f97"},
 			{ID: resolveTestCredentialID, Name: resolveTestCredentialName},
 		},
 	}
@@ -70,7 +69,7 @@ func newHelmCredentialResolveMock() *helmCredentialResolveMock {
 func TestResolveHelmCredentialNamePassesANameThroughWithoutListing(t *testing.T) {
 	mock := newHelmCredentialResolveMock()
 
-	resolved, resolveError := resolveHelmCredentialName(mock, "example-org-harbor-robot-admin")
+	resolved, resolveError := resolveHelmCredentialName(adaptMockClient(mock), "example-org-harbor-robot-admin")
 	if resolveError != nil {
 		t.Fatalf("unexpected error: %v", resolveError)
 	}
@@ -85,7 +84,7 @@ func TestResolveHelmCredentialNamePassesANameThroughWithoutListing(t *testing.T)
 func TestResolveHelmCredentialNameResolvesAnIDToItsName(t *testing.T) {
 	mock := newHelmCredentialResolveMock()
 
-	resolved, resolveError := resolveHelmCredentialName(mock, strings.ToUpper(resolveTestCredentialID))
+	resolved, resolveError := resolveHelmCredentialName(adaptMockClient(mock), strings.ToUpper(resolveTestCredentialID))
 	if resolveError != nil {
 		t.Fatalf("unexpected error: %v", resolveError)
 	}
@@ -96,12 +95,12 @@ func TestResolveHelmCredentialNameResolvesAnIDToItsName(t *testing.T) {
 
 func TestResolveHelmCredentialNameKeepsANameShapedLikeAUUID(t *testing.T) {
 	mock := newHelmCredentialResolveMock()
-	uuidShapedName := "11111111-2222-4333-8444-555555555555"
+	uuidShapedName := "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f"
 	mock.credentials = append(mock.credentials, client.HelmCredentialListItem{
 		ID: "9f0c1e2d-3b4a-4c5d-8e6f-70a1b2c3d4e5", Name: uuidShapedName,
 	})
 
-	resolved, resolveError := resolveHelmCredentialName(mock, uuidShapedName)
+	resolved, resolveError := resolveHelmCredentialName(adaptMockClient(mock), uuidShapedName)
 	if resolveError != nil {
 		t.Fatalf("unexpected error: %v", resolveError)
 	}
@@ -113,7 +112,7 @@ func TestResolveHelmCredentialNameKeepsANameShapedLikeAUUID(t *testing.T) {
 func TestResolveHelmCredentialNameUnknownIDExitsNotFound(t *testing.T) {
 	mock := newHelmCredentialResolveMock()
 
-	_, resolveError := resolveHelmCredentialName(mock, "00000000-0000-4000-8000-000000000000")
+	_, resolveError := resolveHelmCredentialName(adaptMockClient(mock), "00000000-0000-4000-8000-000000000000")
 	if resolveError == nil {
 		t.Fatal("expected an error for an id the listing does not hold")
 	}
@@ -129,7 +128,7 @@ func TestResolveHelmCredentialNameRefusesToAnswerFromAPartialListing(t *testing.
 	mock := newHelmCredentialResolveMock()
 	mock.totalCount = 250
 
-	_, resolveError := resolveHelmCredentialName(mock, "00000000-0000-4000-8000-000000000000")
+	_, resolveError := resolveHelmCredentialName(adaptMockClient(mock), "00000000-0000-4000-8000-000000000000")
 	if resolveError == nil {
 		t.Fatal("expected an error when the listing was only partly read")
 	}
@@ -145,7 +144,7 @@ func TestResolveHelmCredentialNameSurfacesAListingFailure(t *testing.T) {
 	mock := newHelmCredentialResolveMock()
 	mock.listError = client.ErrUnauthorized
 
-	_, resolveError := resolveHelmCredentialName(mock, resolveTestCredentialID)
+	_, resolveError := resolveHelmCredentialName(adaptMockClient(mock), resolveTestCredentialID)
 	if !errors.Is(resolveError, client.ErrUnauthorized) {
 		t.Fatalf("expected the listing failure to be wrapped, got: %v", resolveError)
 	}
@@ -157,7 +156,7 @@ func TestResolveHelmCredentialNameSurfacesAListingFailure(t *testing.T) {
 func TestResolveHelmCredentialNameEmptyReferenceIsAUsageError(t *testing.T) {
 	mock := newHelmCredentialResolveMock()
 
-	_, resolveError := resolveHelmCredentialName(mock, "  ")
+	_, resolveError := resolveHelmCredentialName(adaptMockClient(mock), "  ")
 	if exitCodeFor(resolveError) != exitUsage {
 		t.Errorf("expected exit %d, got %d (%v)", exitUsage, exitCodeFor(resolveError), resolveError)
 	}

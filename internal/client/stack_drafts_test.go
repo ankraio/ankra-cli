@@ -36,7 +36,7 @@ const draftOnlyStackListing = `{
           "group": null,
           "agents_md": null,
           "state": "draft",
-          "resource_id": "11111111-1111-1111-1111-111111111111",
+          "resource_id": "0b7c4d0c-1111-1111-1111-111111111111",
           "version_history": []
         }
       ],
@@ -123,7 +123,7 @@ func TestAsDeployableSpecDropsOnlyTheRenderOnlyState(t *testing.T) {
 		`"registry_url":"https://grafana.github.io/helm-charts"`,
 		`"parents":[{"name":"db","kind":"manifest"}]`,
 		`"variables":{"replicas":"2"}`,
-		`"resource_id":"11111111-1111-1111-1111-111111111111"`,
+		`"resource_id":"0b7c4d0c-1111-1111-1111-111111111111"`,
 	} {
 		if !strings.Contains(body, fragment) {
 			t.Fatalf("the spec must carry %s verbatim, got: %s", fragment, body)

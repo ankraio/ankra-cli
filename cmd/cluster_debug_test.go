@@ -10,7 +10,6 @@ import (
 )
 
 type debugPodMock struct {
-	baseMock
 	createRequest  *client.CreateDebugPodRequest
 	createResponse *client.DebugPodResponse
 	createError    error
@@ -224,7 +223,7 @@ func TestOrgTerminalSessionPrintsTheRecording(t *testing.T) {
 	endReason := "agent_ended"
 	mock := &debugPodMock{
 		session: &client.TerminalSession{
-			ID: "11111111-2222-4333-8444-555555555555", UserEmail: "ops@example.com",
+			ID: "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f", UserEmail: "ops@example.com",
 			Namespace: "payments", PodName: "debug-api-7f3a", ContainerName: "debug", Shell: "/bin/sh",
 			StartedAt: "2026-08-28T22:00:00Z", EndedAt: &endedAt, EndReason: &endReason,
 			RecordedBytes: 42, IsTruncated: true,
@@ -238,7 +237,7 @@ func TestOrgTerminalSessionPrintsTheRecording(t *testing.T) {
 	setMockClient(t, mock)
 	resetDebugCreateFlags(t)
 
-	output, err := executeCommand("org", "terminal-session", "11111111-2222-4333-8444-555555555555", "--transcript", "--show-input")
+	output, err := executeCommand("org", "terminal-session", "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f", "--transcript", "--show-input")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

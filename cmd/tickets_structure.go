@@ -112,7 +112,7 @@ it. When two tickets are linked more than once, name the one to remove with
 --relation. The removal is recorded on the ticket's timeline.`,
 	Example: `  ankra tickets unlink T-50 T-42
   ankra tickets unlink T-50 T-42 --relation relates_to
-  ankra tickets unlink T-50 4f1c2d0e-8a6b-4c1e-9b7a-2d4e6f8a0b1c`,
+  ankra tickets unlink T-50 0b7c4d23-5f6a-4b8c-9d0e-1f2a3b4c5d6e`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		relation, _ := cmd.Flags().GetString("relation")

@@ -12,7 +12,6 @@ import (
 )
 
 type moveMock struct {
-	baseMock
 	cluster       client.ClusterListItem
 	organisations []client.OrganisationSummary
 	moveCalls     int
@@ -66,7 +65,7 @@ func newMoveMock() *moveMock {
 func TestClusterMove_RequiresOrganisationFlag(t *testing.T) {
 	mock := newMoveMock()
 	_, err := runConfirmCommand(t, mock, "", []*cobra.Command{clusterMoveCmd}, "cluster", "move", "edge-01")
-	if err == nil || exitCodeFor(err) != exitUsage || !strings.Contains(err.Error(), "--organisation is required") {
+	if err == nil || exitCodeFor(err) != exitUsage || !strings.Contains(err.Error(), "a destination is required: --organisation <org>") {
 		t.Fatalf("expected a usage error, got %v", err)
 	}
 	if mock.moveCalls != 0 {

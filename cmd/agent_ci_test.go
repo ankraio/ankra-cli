@@ -13,7 +13,6 @@ import (
 )
 
 type agentCIMock struct {
-	baseMock
 	settings    *client.AgentCISettings
 	getError    error
 	updateError error
@@ -59,7 +58,7 @@ func agentCICommands(t *testing.T) []*cobra.Command {
 	return nil
 }
 
-func runAgentCICommand(t *testing.T, mock APIClient, arguments ...string) (string, error) {
+func runAgentCICommand(t *testing.T, mock any, arguments ...string) (string, error) {
 	t.Helper()
 	writeSelectedClusterJSON(t)
 	setMockClient(t, mock)

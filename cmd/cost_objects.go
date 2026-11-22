@@ -70,6 +70,14 @@ estimated"); behind several clusters each count is one cluster's worst, so it
 is said per cluster. A platform that does not report the split says nothing
 about it, which is not "all measured".
 
+An application also prints its cost by environment when the platform serves
+it: each environment's monthly rate and the rows it is made of (workloads,
+database instances, storage, backups). A rate that is partial or unknown says
+why. A row that is part of the rate but has no amount of its own is "not
+known": its amount is in the part on no row, which gets its own line. Backups
+are "not priced": they are shown beside the rate and not added to it. Rows,
+environments and spend the platform cut short each say so.
+
 Pass -o json (or yaml) for the projection exactly as the platform serves it.`
 
 var costObjectCmd = &cobra.Command{
@@ -84,7 +92,7 @@ var costObjectProjectCmd = &cobra.Command{
 	Long:  costObjectLong,
 	Args:  cobra.ExactArgs(1),
 	Example: `  ankra cost object project platform-team
-  ankra cost object project 071d45b1-f8fe-4f47-b13a-4f13a01689f1 -o json`,
+  ankra cost object project 0b7c4d12-5f6a-4b8c-9d0e-1f2a3b4c5d6e -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectID, err := resolveProjectReferenceToID(args[0])
 		if err != nil {
@@ -100,7 +108,7 @@ var costObjectClusterCmd = &cobra.Command{
 	Long:  costObjectLong,
 	Args:  cobra.ExactArgs(1),
 	Example: `  ankra cost object cluster prod-eu
-  ankra cost object cluster 1834920e-3001-4157-8938-33c447031033 -o json`,
+  ankra cost object cluster 0b7c4d11-5f6a-4b8c-9d0e-1f2a3b4c5d6e -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterID, err := costObjectClusterArgument(args[0])
 		if err != nil {
@@ -155,8 +163,8 @@ var costObjectApplicationCmd = &cobra.Command{
 	Short: "What one application costs across every namespace it is installed in",
 	Long:  costObjectLong,
 	Args:  cobra.ExactArgs(1),
-	Example: `  ankra cost object application 2b8c7c1e-7d6a-4f0e-9d3c-0c5a1b2c3d4e
-  ankra cost object application 2b8c7c1e-7d6a-4f0e-9d3c-0c5a1b2c3d4e -o json`,
+	Example: `  ankra cost object application 0b7c4d13-5f6a-4b8c-9d0e-1f2a3b4c5d6e
+  ankra cost object application 0b7c4d13-5f6a-4b8c-9d0e-1f2a3b4c5d6e -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		applicationID, err := costObjectNameArgument("application id", args[0])
 		if err != nil {
@@ -171,8 +179,8 @@ var costObjectCredentialCmd = &cobra.Command{
 	Short: "What one cloud credential costs across every cluster it provisioned, with its open waste",
 	Long:  costObjectLong,
 	Args:  cobra.ExactArgs(1),
-	Example: `  ankra cost object credential 9f1d2e3c-4b5a-4968-8776-655443322110
-  ankra cost object credential 9f1d2e3c-4b5a-4968-8776-655443322110 -o json`,
+	Example: `  ankra cost object credential 0b7c4d14-5f6a-4b8c-9d0e-1f2a3b4c5d6e
+  ankra cost object credential 0b7c4d14-5f6a-4b8c-9d0e-1f2a3b4c5d6e -o json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		credentialID, err := costObjectNameArgument("credential id", args[0])
 		if err != nil {
@@ -358,6 +366,7 @@ func renderObjectCost(out io.Writer, projection *client.ObjectCostProjection) {
 	renderObjectCostTrend(out, projection.Trend30d, currency)
 	renderObjectCostClusters(out, projection)
 	renderObjectCostNamespaces(out, projection)
+	renderObjectCostByEnvironment(out, projection)
 }
 
 // costObjectWaste is the open waste line: a count and its priced monthly

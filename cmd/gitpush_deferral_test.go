@@ -112,7 +112,6 @@ func TestRunAddonsUpgrade_FailedGitPushStaysError(t *testing.T) {
 }
 
 type applyGitPushMock struct {
-	baseMock
 	response *client.ImportResponse
 	err      error
 }

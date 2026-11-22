@@ -8,7 +8,6 @@ import (
 )
 
 type helmRegistryGetPagedMock struct {
-	baseMock
 	lastPage     int
 	lastPageSize int
 	charts       []client.HelmChartVersionSummary

@@ -26,12 +26,11 @@ import (
 const secretTestValue = "s3cr3t-VALUE-never-printed"
 
 const (
-	secretTestSlotID = "0b6f2c1e-3c44-4b9e-9a51-2f1f6f0f9a10"
+	secretTestSlotID = "0b7c4d21-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	secretTestOther  = "7d1e9a64-5b2f-4c0e-8f3a-9c6b1d2e4f50"
 )
 
 type secretsMock struct {
-	baseMock
 	slots []client.SecretSlot
 	// relisted, when set, is what every listing after the first answers:
 	// the organisation as it stands once a resource started referencing a

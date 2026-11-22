@@ -31,7 +31,7 @@ import (
 
 const (
 	parityChildArgumentsEnv = "ANKRA_CLUSTER_FLAG_PARITY_ARGS"
-	parityDemoID            = "62f4559a-a44d-46d7-aab3-a57c9dd6b4c6"
+	parityDemoID            = "0b7c4d0e-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	parityOtherID           = "9d3e2c1b-0a4f-4e5d-8c7b-6a5f4e3d2c1b"
 )
 
@@ -48,7 +48,7 @@ func TestClusterFlagParityChildProcess(t *testing.T) {
 		_, _ = os.Stderr.WriteString("parity child: " + decodeError.Error() + "\n")
 		os.Exit(99)
 	}
-	apiClient = nil
+	apiClient = adaptMockClient(nil)
 	os.Args = append([]string{"ankra"}, arguments...)
 	Execute()
 	os.Exit(0)

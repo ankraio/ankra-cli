@@ -46,7 +46,7 @@ func (m *chatClusterMock) GetCluster(string) (client.ClusterListItem, error) {
 // runChatStructured runs the command with stdout and stderr kept apart, and
 // also captures anything written to os.Stdout directly, which a structured
 // run must not do.
-func runChatStructured(t *testing.T, mock APIClient, args ...string) (string, string, error) {
+func runChatStructured(t *testing.T, mock any, args ...string) (string, string, error) {
 	t.Helper()
 	resetChatFlags(t)
 	// No persisted selection leaks in from the machine running the tests.

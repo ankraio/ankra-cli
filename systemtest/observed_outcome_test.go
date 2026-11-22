@@ -532,7 +532,7 @@ func TestManagedUpgradePassesOnlyOnItsOperation(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			files := map[string]string{
 				"cluster-list":           clusterList(managedClusterName, target),
-				"operations.json":        `[{"id":"11111111-2222-4333-8444-555555555555","name":"reconcile","display_name":"Reconcile 3 resources","status":"success"}]`,
+				"operations.json":        `[{"id":"0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f","name":"reconcile","display_name":"Reconcile 3 resources","status":"success"}]`,
 				"managed-upgrade-answer": testCase.answer,
 				"operation-" + managedUpgradeOperation + ".json": testCase.operation,
 				"nodes.json": nodesJSON(t, fakeNode{name: "workers-abc", kubelet: "v1.32.5"}),

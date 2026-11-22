@@ -51,7 +51,7 @@ func newTicketsAssignCommand() *cobra.Command {
 		long: `Assign a ticket to an agent (--agent, the agent task's id from 'ankra ai tasks
 list') or to an organisation member (--user, the member's user id), never
 both. --unassign clears the assignee.`,
-		example: `  ankra tickets assign T-42 --agent 0b6f1c1e-7c0e-4b7e-9a57-0d5f3c1a2b3c
+		example: `  ankra tickets assign T-42 --agent 0b7c4d0f-5f6a-4b8c-9d0e-1f2a3b4c5d6e
   ankra tickets assign T-42 --unassign`,
 		arguments: cobra.ExactArgs(1),
 		invoke: func(command *cobra.Command, arguments []string) (json.RawMessage, error) {
@@ -180,7 +180,7 @@ func newTicketsWorkspaceCommand() *cobra.Command {
 	workspaceCommand := newOperationCommand(operationCommand{
 		use:   "workspace <ticket> (--workspace <workspace-id> | --detach)",
 		short: "Attach an AI workspace to a ticket, or detach the current one",
-		example: `  ankra tickets workspace T-42 --workspace 5b1f0c7e-3a55-4d0b-9a57-0d5f3c1a2b3c
+		example: `  ankra tickets workspace T-42 --workspace 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6e
   ankra tickets workspace T-42 --detach`,
 		arguments: cobra.ExactArgs(1),
 		invoke: func(command *cobra.Command, arguments []string) (json.RawMessage, error) {
@@ -414,7 +414,7 @@ func newTicketsSyncConnectionsCommand() *cobra.Command {
 	getCommand := newOperationCommand(operationCommand{
 		use:       "get <connection-id>",
 		short:     "Show one ticket sync connection, without its credential",
-		example:   "  ankra tickets sync connections get 5b1f0c7e-3a55-4d0b-9a57-0d5f3c1a2b3c",
+		example:   "  ankra tickets sync connections get 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6e",
 		arguments: cobra.ExactArgs(1),
 		invoke: func(command *cobra.Command, arguments []string) (json.RawMessage, error) {
 			connectionID, argumentError := requiredArgument(arguments, 0, "the connection id")
@@ -443,7 +443,7 @@ The secret is never taken as an argument. Pipe it on stdin with --secret-stdin,
 or run in a terminal to be asked for it with the input hidden. The platform
 stores it in its secret store and never returns it. Organisation admins only.`,
 		example: `  cat linear-key.txt | ankra tickets sync connections create --name linear --provider linear \
-    --team-id 5b1f0c7e-3a55-4d0b-9a57-0d5f3c1a2b3c --secret-stdin
+    --team-id 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6e --secret-stdin
   ankra tickets sync connections create --name jira --provider jira --base-url https://example.atlassian.net \
     --project-key OPS --email ops@example.com --kind incident --min-priority high`,
 		arguments: cobra.NoArgs,
@@ -496,7 +496,7 @@ stored one; for Jira it needs --email too. An update that changes the
 settings or rotates the credential also clears the connection's failure state
 and retries delivery at once; one that only renames, switches or filters it
 does not. Organisation admins only.`,
-		example: `  ankra tickets sync connections update 5b1f0c7e-3a55-4d0b-9a57-0d5f3c1a2b3c --disable
+		example: `  ankra tickets sync connections update 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6e --disable
   cat new-key.txt | ankra tickets sync connections update <connection-id> --rotate-secret --secret-stdin`,
 		arguments: cobra.ExactArgs(1),
 		invoke: func(command *cobra.Command, arguments []string) (json.RawMessage, error) {
@@ -577,7 +577,7 @@ does not. Organisation admins only.`,
 tracker; issues already created there stay. Organisation admins only. It asks
 first; --yes skips the question and is required when there is no terminal to
 ask on.`,
-		example:   "  ankra tickets sync connections delete 5b1f0c7e-3a55-4d0b-9a57-0d5f3c1a2b3c --yes",
+		example:   "  ankra tickets sync connections delete 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6e --yes",
 		arguments: cobra.ExactArgs(1),
 		invoke: func(command *cobra.Command, arguments []string) (json.RawMessage, error) {
 			connectionID, argumentError := requiredArgument(arguments, 0, "the connection id")
@@ -615,7 +615,7 @@ project with --project-key and a webhook its --url. With --connection the
 saved connection's stored credential is used; without it a credential is read
 from stdin (--secret-stdin) or a hidden prompt, used for this one lookup and
 not stored. Nothing is written. Organisation admins only.`,
-		example: `  ankra tickets sync destinations --provider linear --connection 5b1f0c7e-3a55-4d0b-9a57-0d5f3c1a2b3c
+		example: `  ankra tickets sync destinations --provider linear --connection 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6e
   cat linear-key.txt | ankra tickets sync destinations --provider linear --secret-stdin`,
 		arguments: cobra.NoArgs,
 		invoke: func(command *cobra.Command, _ []string) (json.RawMessage, error) {

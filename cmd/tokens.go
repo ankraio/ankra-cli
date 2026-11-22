@@ -372,7 +372,7 @@ var tokensRevokeCmd = &cobra.Command{
 --service revokes an organisation service token instead of a personal one;
 find its id with "ankra tokens list --service". The service account and its
 other tokens keep working. It needs members.manage (exit 7 without it).`,
-	Example: `  ankra tokens revoke 5b1c0d52-0000-0000-0000-000000000000
+	Example: `  ankra tokens revoke 0b7c4d26-5f6a-4b8c-9d0e-1f2a3b4c5d6e
   ankra tokens revoke <token_id> --service`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -412,7 +412,7 @@ account's last token takes the account's role away, but the account stays a
 member of the organisation; the command then prints the
 "ankra org remove <account_id>" that removes it. The account_id of every
 service token is in "ankra tokens list --service -o json".`,
-	Example: `  ankra tokens delete 5b1c0d52-0000-0000-0000-000000000000
+	Example: `  ankra tokens delete 0b7c4d26-5f6a-4b8c-9d0e-1f2a3b4c5d6e
   ankra tokens delete <token_id> --service`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -510,7 +510,7 @@ All other text goes to stderr. With -o json the whole response is printed.
 Use --service to rotate an organisation service token instead of a personal
 one. --overlap-hours sets how long the old token keeps working, from 0 (stops
 at once) to 168; the platform default is 24 hours.`,
-	Example: `  ankra tokens rotate 5b1c0d52-0000-0000-0000-000000000000
+	Example: `  ankra tokens rotate 0b7c4d26-5f6a-4b8c-9d0e-1f2a3b4c5d6e
   ankra tokens rotate <token_id> --overlap-hours 72
   ankra tokens rotate <token_id> --service -o json`,
 	Args: cobra.ExactArgs(1),

@@ -16,7 +16,6 @@ import (
 )
 
 type registryRobotsMock struct {
-	baseMock
 	createRequest *client.CreateRegistryRobotRequest
 	// updateRequest is the projects change the command sent; updated answers it
 	// and updateFail refuses it instead.
@@ -136,11 +135,11 @@ func registryRobotFleetFixture() *client.RegistryRobotList {
 			{Name: "pull", Kind: "organisation", Managed: true, RobotName: "robot$org-abc+pull", Host: "artifact.ankra.cloud",
 				Project: "org-abc", Projects: []string{"org-abc"}, Scope: "pull", Permissions: []string{"repository:pull"},
 				CredentialName: "ankra-harbor-pull", CreatedAt: "2026-07-22T17:16:00Z"},
-			{Name: "app-23298741", Kind: "application", Managed: true, RobotName: "robot$commerce-images+app-23298741",
+			{Name: "app-0b7c4d06", Kind: "application", Managed: true, RobotName: "robot$commerce-images+app-0b7c4d06",
 				Host: "artifact.customer.test", Project: "commerce-images", Projects: []string{"commerce-images"},
 				Scope: "push", Permissions: []string{"repository:pull", "repository:push"},
-				Application:    &client.RegistryRobotApplication{ID: "23298741", Name: "commerce"},
-				CredentialName: "ankra-harbor-app-23298741", CreatedAt: "2026-08-25T09:17:40Z"},
+				Application:    &client.RegistryRobotApplication{ID: "0b7c4d06", Name: "commerce"},
+				CredentialName: "ankra-harbor-app-0b7c4d06", CreatedAt: "2026-08-25T09:17:40Z"},
 		},
 		TotalCount: 5,
 		Registry:   &client.RegistryRobotRegistry{Host: "artifact.ankra.cloud", Project: "org-abc"},
@@ -217,7 +216,7 @@ func (mock *registryRobotsMock) DeleteRegistryRobot(_ context.Context, robotName
 	return mock.deleteFail
 }
 
-func runRegistryCommand(t *testing.T, mockClient APIClient, input string, arguments ...string) (string, error) {
+func runRegistryCommand(t *testing.T, mockClient any, input string, arguments ...string) (string, error) {
 	t.Helper()
 	stdout, stderr, runError := runRegistryCommandSplit(t, mockClient, input, arguments...)
 	return stdout + stderr, runError
@@ -225,11 +224,11 @@ func runRegistryCommand(t *testing.T, mockClient APIClient, input string, argume
 
 // runRegistryCommandSplit captures stdout and stderr separately, so a test
 // can prove that stdout carries nothing but the answer under -o json.
-func runRegistryCommandSplit(t *testing.T, mockClient APIClient, input string, arguments ...string) (string, string, error) {
+func runRegistryCommandSplit(t *testing.T, mockClient any, input string, arguments ...string) (string, string, error) {
 	t.Helper()
 	previousClient := apiClient
-	apiClient = mockClient
-	t.Cleanup(func() { apiClient = previousClient })
+	apiClient = adaptMockClient(mockClient)
+	t.Cleanup(func() { apiClient = adaptMockClient(previousClient) })
 
 	registryCommand := newRegistryCommand()
 	var stdout, stderr bytes.Buffer
@@ -456,7 +455,7 @@ func TestRegistryRobotsListShowsManagedRobotsBesideTheMembersOwn(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"Registry project: artifact.ankra.cloud/org-abc",
-		"robot$org-abc+ci", "robot$org-abc+pull", "robot$commerce-images+app-23298741",
+		"robot$org-abc+ci", "robot$org-abc+pull", "robot$commerce-images+app-0b7c4d06",
 		"organisation", "application", "commerce-images",
 		"push and pull", "repository:pull, artifact:delete",
 		"never", "2026-01-01T00:00:00Z (expired)",
@@ -473,11 +472,11 @@ func TestRegistryRobotsListShowsManagedRobotsBesideTheMembersOwn(t *testing.T) {
 // request.
 func TestRegistryRobotsListKindFilter(t *testing.T) {
 	cases := map[string][]string{
-		"all":          {"jenkins", "cleanup", "ci", "pull", "app-23298741"},
+		"all":          {"jenkins", "cleanup", "ci", "pull", "app-0b7c4d06"},
 		"user":         {"jenkins", "cleanup"},
-		"managed":      {"ci", "pull", "app-23298741"},
+		"managed":      {"ci", "pull", "app-0b7c4d06"},
 		"organisation": {"ci", "pull"},
-		"application":  {"app-23298741"},
+		"application":  {"app-0b7c4d06"},
 	}
 	for kind, wantNames := range cases {
 		output, runError := runRegistryCommand(t, &registryRobotsMock{list: registryRobotFleetFixture()}, "",
@@ -608,11 +607,11 @@ func TestRegistryRobotsPermissionsListsTheCatalogue(t *testing.T) {
 // 'get' reads a managed robot by the name the listing gives it and says whose
 // it is.
 func TestRegistryRobotsGetShowsAManagedRobot(t *testing.T) {
-	output, runError := runRegistryCommand(t, &registryRobotsMock{list: registryRobotFleetFixture()}, "", "robots", "get", "app-23298741")
+	output, runError := runRegistryCommand(t, &registryRobotsMock{list: registryRobotFleetFixture()}, "", "robots", "get", "app-0b7c4d06")
 	if runError != nil {
 		t.Fatalf("get: %v", runError)
 	}
-	for _, expected := range []string{"application (managed by Ankra)", "commerce (23298741)", "artifact.customer.test",
+	for _, expected := range []string{"application (managed by Ankra)", "commerce (0b7c4d06)", "artifact.customer.test",
 		"commerce-images", "push and pull", "Expires:     never"} {
 		if !strings.Contains(output, expected) {
 			t.Errorf("get lacks %q:\n%s", expected, output)

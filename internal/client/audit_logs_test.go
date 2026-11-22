@@ -29,7 +29,7 @@ func TestListAuditLogsSendsTheFiltersAndDecodesTheTrail(t *testing.T) {
 			"cluster_id":"c1","cluster_name":"prod","actor_type":"agent","target_kind":"Pod","target_name":"web-1",
 			"outcome":"failed","details":{"reason":"denied"}}],"truncated":true}`))
 	})
-	auditClient.SetOrganisationOverride("3b7dccca-0788-4470-9910-19478ae345ae")
+	auditClient.SetOrganisationOverride("0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e")
 	start := time.Date(2026, 11, 1, 0, 0, 0, 0, time.FixedZone("CET", 3600))
 	trail, listError := auditClient.ListAuditLogs(context.Background(), AuditLogFilters{
 		ActorType: "agent", Outcome: "failed", ClusterID: "c1", StartDate: &start,
@@ -41,7 +41,7 @@ func TestListAuditLogsSendsTheFiltersAndDecodesTheTrail(t *testing.T) {
 		query != "actor_type=agent&cluster_id=c1&format=json&outcome=failed&start_date=2026-10-31T23%3A00%3A00Z" {
 		t.Errorf("request = %s?%s", path, query)
 	}
-	if authorization != "Bearer "+testToken || organisation != "3b7dccca-0788-4470-9910-19478ae345ae" {
+	if authorization != "Bearer "+testToken || organisation != "0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e" {
 		t.Errorf("the read must carry the bearer token and the organisation override, got %q / %q", authorization, organisation)
 	}
 	if !trail.Truncated || len(trail.Entries) != 1 || trail.Entries[0].TargetName != "web-1" ||

@@ -18,7 +18,7 @@ func TestLoginGitHubOIDCExchangesAndSavesTheToken(t *testing.T) {
 		_ = loginCmd.Flags().Set("github-oidc", "false")
 		_ = loginCmd.Flags().Set("organisation-id", "")
 	})
-	const organisationID = "3b7dccca-0788-4470-9910-19478ae345ae"
+	const organisationID = "0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 	var requestedAudience, runnerBearer string
 	runner := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -101,7 +101,7 @@ func TestLoginGitHubOIDCLeavesTheRunnersURLAlone(t *testing.T) {
 			viper.Set("base-url", platform.URL)
 
 			output, executeError := executeCommand("login", "--github-oidc",
-				"--organisation-id", "3b7dccca-0788-4470-9910-19478ae345ae")
+				"--organisation-id", "0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e")
 			if executeError != nil {
 				t.Fatalf("login --github-oidc: %v\n%s", executeError, output)
 			}
@@ -153,7 +153,7 @@ func TestLoginGitHubOIDCExplainsARefusedExchange(t *testing.T) {
 	t.Setenv("ANKRA_ORG", "")
 	viper.Set("base-url", platform.URL)
 	_, executeError := executeCommand("login", "--github-oidc",
-		"--organisation-id", "3b7dccca-0788-4470-9910-19478ae345ae")
+		"--organisation-id", "0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e")
 	if executeError == nil || !strings.Contains(executeError.Error(), "no trust policy") {
 		t.Fatalf("want an explanation of the refusal, got %v", executeError)
 	}

@@ -30,9 +30,9 @@ Needs the audit.read permission. A recording contains whatever the shell
 printed, secrets included.
 
 Examples:
-  ankra org terminal-session 11111111-2222-4333-8444-555555555555
-  ankra org terminal-session 11111111-2222-4333-8444-555555555555 --transcript
-  ankra org terminal-session 11111111-2222-4333-8444-555555555555 --transcript -o json`,
+  ankra org terminal-session 0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f
+  ankra org terminal-session 0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f --transcript
+  ankra org terminal-session 0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6f --transcript -o json`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		withTranscript, _ := cmd.Flags().GetBool("transcript")

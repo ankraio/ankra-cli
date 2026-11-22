@@ -86,7 +86,7 @@ the review is shown and nothing is confirmed.
 		Example: `  ankra services disconnect orders-db --application storefront
   ankra services disconnect orders-db --application storefront --environment staging --review-only
   ankra services disconnect orders-db --application storefront --names-from orders-db-v2 --yes
-  ankra services disconnect orders-db --consumer 5b1f0c7e-0d7a-4c55-a6f4-2f1f4a9b1c11 --keep-network-access -o json --yes`,
+  ankra services disconnect orders-db --consumer 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6f --keep-network-access -o json --yes`,
 		Args: cobra.ExactArgs(1),
 		RunE: runServicesDisconnect,
 	}

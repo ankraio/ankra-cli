@@ -29,7 +29,6 @@ import (
 // (ankra-menqa); see the comment on allCloudClusterKinds.
 
 type cloudDeprovisionDispatchMock struct {
-	baseMock
 	cluster client.ClusterListItem
 
 	calledProvider string

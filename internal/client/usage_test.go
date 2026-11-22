@@ -25,7 +25,7 @@ func TestGetOrganisationUsageSendsTheWindowAndKeepsNull(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	client := New(testToken, server.URL)
-	client.SetOrganisationOverride("3b7dccca-0788-4470-9910-19478ae345ae")
+	client.SetOrganisationOverride("0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e")
 	report, err := client.GetOrganisationUsage(context.Background(), UsageOptions{From: "2026-09-01", To: "2026-10-01", GroupBy: "meter"})
 	if err != nil {
 		t.Fatal(err)
@@ -33,7 +33,7 @@ func TestGetOrganisationUsageSendsTheWindowAndKeepsNull(t *testing.T) {
 	if path != "/api/v1/org/billing/usage" || query != "from=2026-09-01&group_by=meter&to=2026-10-01" {
 		t.Errorf("request = %s?%s", path, query)
 	}
-	if organisation != "3b7dccca-0788-4470-9910-19478ae345ae" || authorization != "Bearer "+testToken {
+	if organisation != "0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e" || authorization != "Bearer "+testToken {
 		t.Errorf("the read must carry the bearer token and the organisation override, got %q / %q", authorization, organisation)
 	}
 	if len(report.Lines) != 1 || report.Lines[0].Quantity != nil || report.Lines[0].Coverage != UsageCoverageUnknown {

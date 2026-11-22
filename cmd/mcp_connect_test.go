@@ -16,7 +16,6 @@ import (
 const mcpTestToken = "ankra_secret_value_never_printed"
 
 type mcpConnectMock struct {
-	baseMock
 	created []client.CreateAPITokenRequest
 	revoked []string
 }

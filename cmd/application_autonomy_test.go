@@ -198,7 +198,7 @@ func TestApplicationSwitchSurfacesAForbiddenWrite(t *testing.T) {
 }
 
 func TestApplicationCostEstimateSendsTheChangeAndPrintsTheDelta(t *testing.T) {
-	const clusterID = "1fa7c8a4-5e42-4fd5-abff-15500899eda4"
+	const clusterID = "0b7c4d03-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	server, calls := serveDocuments(t, map[string]documentRoute{
 		"POST " + autonomyTestPath + "/cost/estimate": {http.StatusOK, `{"change":"replicas","currency":"eur","priced":true,
 			"unpriced_reason":null,"monthly_delta_cents":1250,"current_monthly_cents":2500,"confidence":"high",

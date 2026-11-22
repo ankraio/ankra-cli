@@ -99,12 +99,14 @@ means clean.`,
 		use:     "list",
 		aliases: []string{"ls"},
 		short:   "List remediation runs, newest first",
-		long: `List the organisation's remediation runs newest first (at most 100). Without
---application only runs of one finding are listed; with it the application's
-batched runs are listed too, and --finding then also matches a batched run
-that fixes the finding.`,
+		long: `List the organisation's remediation runs newest first (at most 100). A pull
+request that fixes several of one application's findings at once, such as a
+base-image fix or a dependency bump, is a batched run and is listed as one
+row. In -o json its finding_id is null and finding_ids lists every finding it
+fixes. --finding also matches a batched run that fixes the finding among
+others.`,
 		example: `  ankra security remediations list
-  ankra security remediations list --finding 4f1c0c7e-3a55-4d0b-9a57-0d5f3c1a2b3c -o json`,
+  ankra security remediations list --finding 0b7c4d15-5f6a-4b8c-9d0e-1f2a3b4c5d6e -o json`,
 		arguments: cobra.NoArgs,
 		invoke: func(command *cobra.Command, _ []string) (json.RawMessage, error) {
 			findingID, _ := command.Flags().GetString("finding")
@@ -113,7 +115,11 @@ that fixes the finding.`,
 			if limit < 0 || limit > 100 {
 				return nil, withExitCode(exitUsage, fmt.Errorf("--limit is between 1 and 100, or 0 for the platform's default"))
 			}
-			options := client.SecurityRemediationsOptions{FindingID: strings.TrimSpace(findingID), Limit: limit}
+			// Batched runs are always asked for, as Security > Fix activity
+			// lists them: they are added rows with the same keys, so no row the
+			// list already showed changes.
+			options := client.SecurityRemediationsOptions{FindingID: strings.TrimSpace(findingID), Limit: limit,
+				IncludeBatched: true}
 			if strings.TrimSpace(applicationReference) != "" {
 				applicationID, resolveError := resolveApplicationID(command.Context(), apiClient, strings.TrimSpace(applicationReference))
 				if resolveError != nil {
@@ -143,15 +149,15 @@ that fixes the finding.`,
 			return nil
 		},
 	})
-	listCommand.Flags().String("finding", "", "Only runs that fix this finding (its id)")
-	listCommand.Flags().String("application", "", "Only this application's runs, batched ones included (name or id)")
+	listCommand.Flags().String("finding", "", "Only runs that fix this finding (its id), batched runs included")
+	listCommand.Flags().String("application", "", "Only this application's runs (name or id)")
 	listCommand.Flags().Int("limit", 0, "How many runs to list (1 to 100; the platform's default when omitted)")
 	registerSecurityProjectScopeFlag(listCommand)
 
 	getCommand := newOperationCommand(operationCommand{
 		use:       "get <run-id>",
 		short:     "Show one remediation run with its receipt trail",
-		example:   `  ankra security remediations get 0b6f1c1e-7c0e-4b7e-9a57-0d5f3c1a2b3c`,
+		example:   `  ankra security remediations get 0b7c4d0f-5f6a-4b8c-9d0e-1f2a3b4c5d6e`,
 		arguments: cobra.ExactArgs(1),
 		invoke: func(command *cobra.Command, arguments []string) (json.RawMessage, error) {
 			runID, argumentError := requiredArgument(arguments, 0, "the run id")
@@ -197,7 +203,7 @@ You are the one asking, so the organisation's AI autonomy pause does not hold
 this start; it holds every step Ankra later takes on its own for the run. It
 asks first; --yes skips the question and is required when there is no terminal
 to ask on. Read what it would do with 'ankra security finding rebuild-plan'.`,
-		example:   `  ankra security remediations start 4f1c0c7e-3a55-4d0b-9a57-0d5f3c1a2b3c --yes`,
+		example:   `  ankra security remediations start 0b7c4d15-5f6a-4b8c-9d0e-1f2a3b4c5d6e --yes`,
 		arguments: cobra.ExactArgs(1),
 		invoke: func(command *cobra.Command, arguments []string) (json.RawMessage, error) {
 			findingID, argumentError := requiredArgument(arguments, 0, "the finding id")
@@ -243,7 +249,7 @@ to ask on. Read what it would do with 'ankra security finding rebuild-plan'.`,
 		long: `Stop a live run. The pull request and any running pipeline are left for their
 reviewers; a finished run is answered unchanged. It asks first; --yes skips
 the question and is required when there is no terminal to ask on.`,
-		example:   `  ankra security remediations cancel 0b6f1c1e-7c0e-4b7e-9a57-0d5f3c1a2b3c --yes`,
+		example:   `  ankra security remediations cancel 0b7c4d0f-5f6a-4b8c-9d0e-1f2a3b4c5d6e --yes`,
 		arguments: cobra.ExactArgs(1),
 		invoke: func(command *cobra.Command, arguments []string) (json.RawMessage, error) {
 			runID, argumentError := requiredArgument(arguments, 0, "the run id")
@@ -280,7 +286,7 @@ application container images: per affected application repository, the
 Dockerfile FROM lines that would move to the advisory's fixed version, the
 branch the pull request would use and the open Ankra pull request already
 there; per image the lane cannot act on, the reason. A read: nothing is opened.`,
-		example:   `  ankra security finding rebuild-plan 4f1c0c7e-3a55-4d0b-9a57-0d5f3c1a2b3c`,
+		example:   `  ankra security finding rebuild-plan 0b7c4d15-5f6a-4b8c-9d0e-1f2a3b4c5d6e`,
 		arguments: cobra.ExactArgs(1),
 		invoke: func(command *cobra.Command, arguments []string) (json.RawMessage, error) {
 			findingID, argumentError := requiredArgument(arguments, 0, "the finding id")
@@ -343,7 +349,7 @@ same finding and repository is reused. It opens the pull requests only: to
 have Ankra follow them to a verified fix, use 'ankra security remediations
 start'. It asks first; --yes skips the question and is required when there is
 no terminal to ask on.`,
-		example:   `  ankra security finding rebuild 4f1c0c7e-3a55-4d0b-9a57-0d5f3c1a2b3c --yes`,
+		example:   `  ankra security finding rebuild 0b7c4d15-5f6a-4b8c-9d0e-1f2a3b4c5d6e --yes`,
 		arguments: cobra.ExactArgs(1),
 		invoke: func(command *cobra.Command, arguments []string) (json.RawMessage, error) {
 			findingID, argumentError := requiredArgument(arguments, 0, "the finding id")
@@ -622,7 +628,7 @@ skips the question and is required when there is no terminal to ask on.`,
 		long: `Revoke a code finding disposition. The image gate blocks on the finding again
 from its next run, and the record is kept for audit. It asks first; --yes
 skips the question and is required when there is no terminal to ask on.`,
-		example:   `  ankra security code-dispositions revoke 5b1f0c7e-3a55-4d0b-9a57-0d5f3c1a2b3c --reason "Fixed in the code" --yes`,
+		example:   `  ankra security code-dispositions revoke 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6e --reason "Fixed in the code" --yes`,
 		arguments: cobra.ExactArgs(1),
 		invoke: func(command *cobra.Command, arguments []string) (json.RawMessage, error) {
 			dispositionID, argumentError := requiredArgument(arguments, 0, "the disposition id")

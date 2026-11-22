@@ -13,7 +13,6 @@ import (
 )
 
 type costBudgetsMock struct {
-	baseMock
 	budgets     *client.CostBudgets
 	listError   error
 	written     *client.CostBudget
@@ -59,7 +58,7 @@ func (m *costBudgetsMock) ListClusters(page int, pageSize int) (*client.ClusterL
 	return &client.ClusterListResponse{Result: m.clusters, Pagination: client.Pagination{TotalPages: 1, Page: 1}}, nil
 }
 
-func runCostBudgetsCommand(t *testing.T, mock APIClient, input string, args ...string) (string, error) {
+func runCostBudgetsCommand(t *testing.T, mock any, input string, args ...string) (string, error) {
 	t.Helper()
 	stdout, _, executeError := runCostBudgetsCommandSplit(t, mock, input, args...)
 	return stdout, executeError
@@ -67,7 +66,7 @@ func runCostBudgetsCommand(t *testing.T, mock APIClient, input string, args ...s
 
 // runCostBudgetsCommandSplit is runCostBudgetsCommand that also returns what
 // the command wrote to stderr, where its confirmation prompt goes.
-func runCostBudgetsCommandSplit(t *testing.T, mock APIClient, input string, args ...string) (string, string, error) {
+func runCostBudgetsCommandSplit(t *testing.T, mock any, input string, args ...string) (string, string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)
@@ -93,7 +92,7 @@ const (
 	costBudgetFleetID     = "1c8d5e2f-6a7b-4c9d-8e1f-2a3b4c5d6e7f"
 	costBudgetStageID     = "2d9e6f3a-7b8c-4d0e-9f2a-3b4c5d6e7f80"
 	costBudgetGoneID      = "3e0f7a4b-8c9d-4e1f-8a3b-4c5d6e7f8091"
-	costBudgetClusterUUID = "11111111-1111-4111-8111-111111111111"
+	costBudgetClusterUUID = "0b7c4d0c-1111-4111-8111-111111111111"
 )
 
 // costBudgetsFixture is the budgets list as the platform sends it: a cluster

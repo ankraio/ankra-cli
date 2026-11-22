@@ -15,7 +15,7 @@ func TestListAIMemories_ReadsTheCallersMemories(t *testing.T) {
 			t.Errorf("authorization = %q", got)
 		}
 		jsonResponse(t, w, http.StatusOK, map[string]any{"memories": []map[string]any{
-			{"id": "0b8f6c2e-0000-4000-8000-000000000001", "content": "prefers cx33 workers", "cluster_id": nil, "source_conversation_id": nil, "created_at": "2026-10-16T22:28:58Z"},
+			{"id": "0b7c4d01-5f6a-4b8c-9d0e-1f2a3b4c5d6e", "content": "prefers cx33 workers", "cluster_id": nil, "source_conversation_id": nil, "created_at": "2026-10-16T22:28:58Z"},
 		}})
 	}
 	memories, listError := newTestClient(t, handler).ListAIMemories(AIMemoryListCap)

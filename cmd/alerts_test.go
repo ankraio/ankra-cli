@@ -45,7 +45,7 @@ func alertsCommandTree() []*cobra.Command {
 // the shared tree, so the alerts tree is reset before every run as well as
 // after the test: a case that passes no flags must see none set, whatever the
 // case before it passed.
-func runAlertsCommand(t *testing.T, mock APIClient, input string, args ...string) (string, string, error) {
+func runAlertsCommand(t *testing.T, mock any, input string, args ...string) (string, string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)
@@ -62,7 +62,6 @@ func runAlertsCommand(t *testing.T, mock APIClient, input string, args ...string
 }
 
 type alertDestinationsMock struct {
-	baseMock
 	destinations   []client.AlertDestination
 	listOptions    *client.ListAlertDestinationsOptions
 	createRequest  *client.CreateAlertDestinationRequest

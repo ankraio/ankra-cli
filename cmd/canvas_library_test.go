@@ -14,7 +14,7 @@ import (
 	"ankra/internal/client"
 )
 
-const testCanvasID = "3f0a2f7e-0000-4000-8000-000000000001"
+const testCanvasID = "0b7c4d0a-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 
 const canvasDocumentBody = `{"id":"` + testCanvasID + `","kind":"page","title":"Q3 report","visibility":"private",
 	"owner_user_id":"user-1","is_owner":true,"is_pinned":false,"language":"html","draft_revision_id":"revision-2",
@@ -23,7 +23,6 @@ const canvasDocumentBody = `{"id":"` + testCanvasID + `","kind":"page","title":"
 	 "size_bytes":18,"author_kind":"user","created_at":"2026-11-09T10:00:00Z","content":"<h1>Q3 report</h1>"}}`
 
 type canvasLibraryMock struct {
-	baseMock
 	answer          string
 	failure         error
 	listOptions     *client.CanvasListOptions

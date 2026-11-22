@@ -16,16 +16,15 @@ import (
 )
 
 const (
-	projectTestOrganisationID = "3b7dccca-0788-4470-9910-19478ae345ae"
+	projectTestOrganisationID = "0b7c4d18-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 	projectTestDefaultID      = "3d2720de-4956-439b-b672-c0d1cf83b98a"
-	projectTestEdgeID         = "071d45b1-f8fe-4f47-b13a-4f13a01689f1"
-	projectTestClusterID      = "1834920e-3001-4157-8938-33c447031033"
+	projectTestEdgeID         = "0b7c4d12-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
+	projectTestClusterID      = "0b7c4d11-5f6a-4b8c-9d0e-1f2a3b4c5d6e"
 )
 
 // projectsMock answers the project routes and records what the commands
 // asked of the client: the scope overrides, the writes and the reads.
 type projectsMock struct {
-	baseMock
 	projects       []client.ProjectSummary
 	listError      error
 	listCalls      int
@@ -199,7 +198,7 @@ func resetGlobalProjectFlag(t *testing.T) {
 // with no project override from the environment, and returns stdout and
 // stderr. Every flag of the project tree and the global --project are reset
 // before and after.
-func runProjectCommand(t *testing.T, mock APIClient, input string, args ...string) (string, string, error) {
+func runProjectCommand(t *testing.T, mock any, input string, args ...string) (string, string, error) {
 	t.Helper()
 	withTempHome(t)
 	t.Setenv(envAnkraProject, "")
@@ -786,7 +785,7 @@ func (m projectKubeconfigMock) ProjectOverride() string { return m.project }
 
 func TestKubeconfigAddPinsTheProjectItWasAddedIn(t *testing.T) {
 	withKubeconfigMock(t, kubeconfigMock{cluster: client.ClusterListItem{ID: "id-1", Name: "demo", OrganisationID: "org-1"}})
-	apiClient = projectKubeconfigMock{kubeconfigMock: kubeconfigMock{cluster: client.ClusterListItem{ID: "id-1", Name: "demo", OrganisationID: "org-1"}}, project: projectTestEdgeID}
+	apiClient = adaptMockClient(projectKubeconfigMock{kubeconfigMock: kubeconfigMock{cluster: client.ClusterListItem{ID: "id-1", Name: "demo", OrganisationID: "org-1"}}, project: projectTestEdgeID})
 	path := filepath.Join(t.TempDir(), "config")
 	resetKubeconfigFlags(path)
 	kubeconfigClusterFlag = "demo"

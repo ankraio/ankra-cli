@@ -10,7 +10,6 @@ import (
 )
 
 type aiSpendCapMock struct {
-	baseMock
 	spendCap client.AISpendCap
 	update   *client.AISpendCapUpdate
 }
@@ -35,7 +34,7 @@ func (mock *aiSpendCapMock) UpdateAISpendCap(update client.AISpendCapUpdate) (*c
 	return &spendCap, nil
 }
 
-func runOrgAISpendCapCommand(t *testing.T, mock APIClient, args ...string) (string, error) {
+func runOrgAISpendCapCommand(t *testing.T, mock any, args ...string) (string, error) {
 	t.Helper()
 	withTempHome(t)
 	setMockClient(t, mock)

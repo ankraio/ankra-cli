@@ -283,7 +283,7 @@ or run in a terminal to be asked for it with the input hidden. It is stored by
 the platform and never shown again.`,
 		Example: `  cat password.txt | ankra services credentials values add orders-db-password --first --value-stdin
   cat new-password.txt | ankra services credentials values add orders-db-password \
-    --expected-value-id 5b1f0c7e-3a55-4d0b-9a57-0d5f3c1a2b3c --value-stdin`,
+    --expected-value-id 0b7c4d19-5f6a-4b8c-9d0e-1f2a3b4c5d6e --value-stdin`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if _, formatError := structuredFormatFromFlags(command); formatError != nil {
@@ -449,7 +449,7 @@ func newServicesCredentialGrantsRevokeCommand() *cobra.Command {
 resolve the credential through it; the family's value and its other grants are
 untouched. It asks first; --yes skips the question and is required when there
 is no terminal to ask on.`,
-		Example: "  ankra services credentials grants revoke 0b6f1c1e-7c0e-4b7e-9a57-0d5f3c1a2b3c --yes",
+		Example: "  ankra services credentials grants revoke 0b7c4d0f-5f6a-4b8c-9d0e-1f2a3b4c5d6e --yes",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			grantID := strings.TrimSpace(arguments[0])

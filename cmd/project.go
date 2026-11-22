@@ -118,7 +118,7 @@ switch again or run 'ankra org switch'. A token pinned to a project cannot
 switch; pass --project for a single command instead.`,
 	Args: cobra.ExactArgs(1),
 	Example: `  ankra project switch platform-team
-  ankra project switch 071d45b1-f8fe-4f47-b13a-4f13a01689f1`,
+  ankra project switch 0b7c4d12-5f6a-4b8c-9d0e-1f2a3b4c5d6e`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projects, err := apiClient.ListProjects()
 		if err != nil {

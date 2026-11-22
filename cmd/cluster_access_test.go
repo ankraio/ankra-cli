@@ -10,7 +10,6 @@ import (
 )
 
 type clusterAccessMock struct {
-	baseMock
 	grants          []client.ClusterAccessGrant
 	createdRequest  *client.CreateClusterAccessGrantRequest
 	elevateRequest  *client.ElevateClusterAccessRequest
@@ -66,7 +65,7 @@ func resetAccessFlags(t *testing.T) {
 }
 
 func (m *clusterAccessMock) GetCluster(name string) (client.ClusterListItem, error) {
-	return client.ClusterListItem{ID: "11111111-2222-3333-4444-555555555555", Name: name}, nil
+	return client.ClusterListItem{ID: "0b7c4d0c-5f6a-4b8c-9d0e-1f2a3b4c5d6e", Name: name}, nil
 }
 
 func (m *clusterAccessMock) ListClusterAccessGrants(ctx context.Context, clusterID string) (*client.ListClusterAccessGrantsResponse, error) {

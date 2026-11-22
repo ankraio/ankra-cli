@@ -10,7 +10,6 @@ import (
 )
 
 type clusterInfoIdentityMock struct {
-	baseMock
 	byID        client.ClusterListItem
 	byName      client.ClusterListItem
 	idError     error

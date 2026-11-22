@@ -31,16 +31,16 @@ func serveCredentialAndCoverage(t *testing.T, detailBody string, coverageBody st
 	}))
 	previousClient := apiClient
 	previousBaseURL := baseURL
-	apiClient = client.New("test-token", server.URL)
+	apiClient = adaptMockClient(client.New("test-token", server.URL))
 	baseURL = server.URL
 	t.Cleanup(func() {
-		apiClient = previousClient
+		apiClient = adaptMockClient(previousClient)
 		baseURL = previousBaseURL
 		server.Close()
 	})
 }
 
-const credentialDetailIdentifier = "11111111-1111-4111-8111-111111111111"
+const credentialDetailIdentifier = "0b7c4d0c-1111-4111-8111-111111111111"
 
 // runCredentialsGet drives the get command and captures what it printed; the
 // command prints with fmt.Printf like the rest of this package, so stdout is
@@ -91,10 +91,10 @@ func TestCredentialsGetSaysWhenTheReasonCannotBeRead(t *testing.T) {
 	}))
 	previousClient := apiClient
 	previousBaseURL := baseURL
-	apiClient = client.New("test-token", server.URL)
+	apiClient = adaptMockClient(client.New("test-token", server.URL))
 	baseURL = server.URL
 	t.Cleanup(func() {
-		apiClient = previousClient
+		apiClient = adaptMockClient(previousClient)
 		baseURL = previousBaseURL
 		server.Close()
 	})
