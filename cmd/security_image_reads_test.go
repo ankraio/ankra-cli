@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -197,7 +198,8 @@ func TestSecurityImagesDeclaredNeverReadsAnIncompleteEmptySearchAsUsedNowhere(t 
 		"docker.io/moby/buildkit (as written: moby/buildkit)",
 		"Searched 2 cluster(s). The search is incomplete: members not searched (2).",
 		"No declaration was found, but the search is incomplete, so this does not mean no stack declares the image.",
-		"Not searched (1)", "production/observability addon loki: member_content_too_large",
+		"Not searched (1)", "production/observability: 1 addon, member content too large",
+		"Pass -o json for every part not searched.",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("output lacks %q:\n%s", expected, output)
@@ -208,6 +210,44 @@ func TestSecurityImagesDeclaredNeverReadsAnIncompleteEmptySearchAsUsedNowhere(t 
 	}
 	if mock.declarationOptions == nil || len(mock.declarationOptions.ClusterIDs) != 0 {
 		t.Fatalf("no --cluster must search every readable cluster, got %+v", mock.declarationOptions)
+	}
+}
+
+// The 2026-11-23 smoke test printed 538 not-searched lines after the answer,
+// each sealed manifest twice (ankra-oq7jks.9.16): the table output counts
+// them per cluster, stack and reason instead.
+func TestSecurityImagesDeclaredCountsNotSearchedPartsPerStackAndReason(t *testing.T) {
+	parts := []string{}
+	for index := 0; index < 38; index++ {
+		for _, reason := range []string{"sealed_keys_not_searched", "secret_documents_not_searched"} {
+			parts = append(parts, fmt.Sprintf(`{"cluster_name":"control","stack_name":"control-plane","member_kind":"manifest",`+
+				`"member_name":"sealed-%02d","reason":"%s"}`, index, reason))
+		}
+	}
+	parts = append(parts,
+		`{"cluster_name":"control","stack_name":"observability","member_kind":"addon","member_name":"loki","reason":"sealed_keys_not_searched"}`,
+		`{"cluster_name":"control","stack_name":"observability","member_kind":"manifest","member_name":"creds","reason":"sealed_keys_not_searched"}`)
+	document := strings.Replace(incompleteEmptyDeclarations, `"not_searched":[{"cluster_name":"production","stack_name":"observability","member_kind":"addon","member_name":"loki",
+"reason":"member_content_too_large"}]`, `"not_searched":[`+strings.Join(parts, ",")+`]`, 1)
+	output, executeError := runSecurityCommand(t, &imageReadsMock{declarationDocument: document},
+		"security", "images", "declared", "moby/buildkit")
+	if executeError != nil {
+		t.Fatalf("security images declared failed: %v", executeError)
+	}
+	for _, expected := range []string{
+		"No declaration was found, but the search is incomplete, so this does not mean no stack declares the image.",
+		"Not searched (78)\n" +
+			"  control/control-plane: 38 manifests, sealed keys not searched\n" +
+			"  control/control-plane: 38 manifests, secret documents not searched\n" +
+			"  control/observability: 2 members, sealed keys not searched\n" +
+			"  Pass -o json for every part not searched.\n",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output lacks %q:\n%s", expected, output)
+		}
+	}
+	if strings.Contains(output, "sealed-07") {
+		t.Fatalf("the table output must count not-searched parts, not list each one:\n%s", output)
 	}
 }
 
