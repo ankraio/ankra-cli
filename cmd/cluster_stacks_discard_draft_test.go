@@ -184,3 +184,18 @@ func TestDiscardDraftRefusesAStackWithNoDraft(t *testing.T) {
 		t.Fatalf("there was nothing to discard, discarded %v", mock.discardedIDs)
 	}
 }
+
+func TestDiscardDraftNeverCallsADraftOnlyStackWithNoDraftIdDeployed(t *testing.T) {
+	mock := &discardDraftMock{listing: []client.ClusterStackDocument{
+		stackDocument(t, `{"name":"notes","draft_id":null,"is_draft_only":true,"lifecycle":"draft_only"}`),
+	}}
+
+	_, _, runError := runDiscardDraftCommand(t, mock, "", false, "notes", "--yes")
+	if runError == nil || !strings.Contains(runError.Error(), "exists only as a draft, but the listing names no draft id to discard") ||
+		strings.Contains(runError.Error(), "already deployed") {
+		t.Fatalf("a draft-only stack the listing gives no draft id must be named as such, never as deployed, got %v", runError)
+	}
+	if len(mock.discardedIDs) != 0 {
+		t.Fatalf("no draft id, nothing to discard; discarded %v", mock.discardedIDs)
+	}
+}
