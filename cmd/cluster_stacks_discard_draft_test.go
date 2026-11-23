@@ -132,9 +132,12 @@ func TestDiscardDraftSaysWhenAnAIConversationKeptTheDraft(t *testing.T) {
 	}
 
 	forced := &discardDraftMock{listing: editedListing(t), result: discardResult(false, "USER_DISCARD")}
-	if _, _, forceError := runDiscardDraftCommand(t, forced, "", false, "edited", "--yes", "--force"); forceError != nil ||
-		len(forced.forcedDiscard) != 1 || !forced.forcedDiscard[0] {
+	_, forcedStderr, forceError := runDiscardDraftCommand(t, forced, "", false, "edited", "--yes", "--force")
+	if forceError != nil || len(forced.forcedDiscard) != 1 || !forced.forcedDiscard[0] {
 		t.Fatalf("--force must reach the write, got %v %v", forceError, forced.forcedDiscard)
+	}
+	if !strings.Contains(forcedStderr, "--force: it is discarded even if an AI conversation is working on it.") {
+		t.Fatalf("a forced discard must say before it runs that it overrides an AI conversation's hold, got %q", forcedStderr)
 	}
 }
 

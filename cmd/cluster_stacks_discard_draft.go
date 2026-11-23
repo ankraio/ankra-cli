@@ -55,10 +55,10 @@ var clusterStacksDiscardDraftCmd = &cobra.Command{
 		if selectError != nil {
 			return selectError
 		}
-		if confirmError := confirmStackDraftDiscard(cmd, cluster.Name, document); confirmError != nil {
+		isForced, _ := cmd.Flags().GetBool("force")
+		if confirmError := confirmStackDraftDiscard(cmd, cluster.Name, document, isForced); confirmError != nil {
 			return confirmError
 		}
-		isForced, _ := cmd.Flags().GetBool("force")
 		result, discardError := apiClient.DiscardClusterStackDraft(cmd.Context(), cluster.ID, document.DraftID(), isForced)
 		if discardError != nil {
 			var refusal *client.StackDraftDiscardError
@@ -84,13 +84,19 @@ var clusterStacksDiscardDraftCmd = &cobra.Command{
 var errStackDraftProtected = errors.New("the draft is kept by an AI conversation; nothing was discarded")
 
 // confirmStackDraftDiscard names the draft and asks before discarding it, on
-// stderr so -o json|yaml stays parseable. --yes skips the question; a run
-// with no terminal and no --yes is refused with nothing discarded.
-func confirmStackDraftDiscard(cmd *cobra.Command, clusterName string, document client.ClusterStackDocument) error {
+// stderr so -o json|yaml stays parseable. A forced discard says that it
+// also takes a draft an AI conversation is holding. --yes skips the
+// question; a run with no terminal and no --yes is refused with nothing
+// discarded.
+func confirmStackDraftDiscard(cmd *cobra.Command, clusterName string, document client.ClusterStackDocument,
+	isForced bool) error {
 	errOut := cmd.ErrOrStderr()
 	what := "Its edits are lost; the deployed stack keeps running as it is."
 	if document.IsDraftOnly() {
 		what = "The stack exists only as this draft, so it is gone and its name is free again."
+	}
+	if isForced {
+		what += " --force: it is discarded even if an AI conversation is working on it."
 	}
 	_, _ = fmt.Fprintf(errOut, "Discarding draft %s of stack '%s' on cluster '%s'. %s\n",
 		document.DraftID(), document.Name(), clusterName, what)
