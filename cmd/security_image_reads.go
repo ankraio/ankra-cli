@@ -376,14 +376,7 @@ func renderSecurityImageDeclarations(out io.Writer, answer *client.SecurityImage
 			_, _ = fmt.Fprintln(out, "  The list was cut at its cap.")
 		}
 	}
-	if len(answer.NotSearched) > 0 {
-		_, _ = fmt.Fprintln(out)
-		_, _ = fmt.Fprintf(out, "Not searched (%d)\n", len(answer.NotSearched))
-		for _, member := range answer.NotSearched {
-			_, _ = fmt.Fprintf(out, "  %s/%s %s %s: %s\n", member.ClusterName, member.StackName, member.MemberKind,
-				member.MemberName, member.Reason)
-		}
-	}
+	renderImageDeclarationsNotSearched(out, answer.NotSearched)
 	if len(answer.ClustersExcluded) > 0 {
 		_, _ = fmt.Fprintln(out)
 		_, _ = fmt.Fprintf(out, "Clusters left out (%d)\n", len(answer.ClustersExcluded))
@@ -394,6 +387,56 @@ func renderSecurityImageDeclarations(out io.Writer, answer *client.SecurityImage
 			_, _ = fmt.Fprintln(out, "  The list was cut at its cap.")
 		}
 	}
+}
+
+// renderImageDeclarationsNotSearched counts the parts the search could not
+// read per cluster, stack and reason instead of listing each one: an
+// organisation with many SOPS-sealed manifests has hundreds, each sealed
+// manifest twice (its sealed keys and its Secret), and one line per part
+// buried the answer above it (ankra-oq7jks.9.16). -o json still carries every
+// part in not_searched.
+func renderImageDeclarationsNotSearched(out io.Writer, notSearched []client.ImageDeclarationNotSearched) {
+	if len(notSearched) == 0 {
+		return
+	}
+	type notSearchedGroup struct {
+		clusterName string
+		stackName   string
+		reason      string
+		count       int
+		memberKind  string
+		mixedKinds  bool
+	}
+	groups := []*notSearchedGroup{}
+	byKey := map[[3]string]*notSearchedGroup{}
+	for _, member := range notSearched {
+		key := [3]string{member.ClusterName, member.StackName, member.Reason}
+		group, found := byKey[key]
+		if !found {
+			group = &notSearchedGroup{clusterName: member.ClusterName, stackName: member.StackName,
+				reason: member.Reason, memberKind: member.MemberKind}
+			byKey[key] = group
+			groups = append(groups, group)
+		}
+		group.count++
+		if member.MemberKind != group.memberKind {
+			group.mixedKinds = true
+		}
+	}
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintf(out, "Not searched (%d)\n", len(notSearched))
+	for _, group := range groups {
+		noun := group.memberKind
+		if group.mixedKinds || noun == "" {
+			noun = "member"
+		}
+		if group.count != 1 {
+			noun += "s"
+		}
+		_, _ = fmt.Fprintf(out, "  %s/%s: %d %s, %s\n", group.clusterName, group.stackName, group.count, noun,
+			strings.ReplaceAll(group.reason, "_", " "))
+	}
+	_, _ = fmt.Fprintln(out, "  Pass -o json for every part not searched.")
 }
 
 // imageDeclarationsCompletenessText says whether the search read everything
