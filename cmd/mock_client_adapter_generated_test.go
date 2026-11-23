@@ -2430,6 +2430,22 @@ func (m mockClientAdapter) ExportStackProfileIac(a0 string, a1 int) (*client.Sta
 	}
 	return baseMock{}.ExportStackProfileIac(a0, a1)
 }
+func (m mockClientAdapter) FindSecurityImageDeclarations(a0 context.Context, a1 client.SecurityImageDeclarationsOptions) (*client.SecurityImageDeclarations, error) {
+	if target, ok := m.target.(interface {
+		FindSecurityImageDeclarations(a0 context.Context, a1 client.SecurityImageDeclarationsOptions) (*client.SecurityImageDeclarations, error)
+	}); ok {
+		return target.FindSecurityImageDeclarations(a0, a1)
+	}
+	return baseMock{}.FindSecurityImageDeclarations(a0, a1)
+}
+func (m mockClientAdapter) FindSecurityImageFixCandidates(a0 context.Context, a1 client.SecurityImageFixCandidatesOptions) (*client.SecurityImageFixCandidates, error) {
+	if target, ok := m.target.(interface {
+		FindSecurityImageFixCandidates(a0 context.Context, a1 client.SecurityImageFixCandidatesOptions) (*client.SecurityImageFixCandidates, error)
+	}); ok {
+		return target.FindSecurityImageFixCandidates(a0, a1)
+	}
+	return baseMock{}.FindSecurityImageFixCandidates(a0, a1)
+}
 func (m mockClientAdapter) FixApplicationBuild(a0 context.Context, a1 string, a2 string) (json.RawMessage, error) {
 	if target, ok := m.target.(interface {
 		FixApplicationBuild(a0 context.Context, a1 string, a2 string) (json.RawMessage, error)
@@ -11816,6 +11832,15 @@ var _ interface {
 var _ interface {
 	StopHetznerCluster(a0 string, a1 client.StopClusterOptions) (*client.ProviderStopClusterResponse, error)
 } = (*hetznerStateMock)(nil)
+var _ interface {
+	FindSecurityImageDeclarations(a0 context.Context, a1 client.SecurityImageDeclarationsOptions) (*client.SecurityImageDeclarations, error)
+} = (*imageReadsMock)(nil)
+var _ interface {
+	FindSecurityImageFixCandidates(a0 context.Context, a1 client.SecurityImageFixCandidatesOptions) (*client.SecurityImageFixCandidates, error)
+} = (*imageReadsMock)(nil)
+var _ interface {
+	ListClusters(a0 int, a1 int) (*client.ClusterListResponse, error)
+} = (*imageReadsMock)(nil)
 var _ interface {
 	UpdateHetznerNodeGroupAutoscaling(a0 context.Context, a1 string, a2 string, a3 client.NodeGroupAutoscalingRequest, a4 bool) (*client.NodeGroupAutoscalingResult, bool, error)
 } = (*inBoundsAutoscalingMock)(nil)

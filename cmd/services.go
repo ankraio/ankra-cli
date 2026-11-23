@@ -75,6 +75,8 @@ type APIClient interface {
 	ListSecurityFindings(options client.SecurityFindingsOptions) (*client.SecurityFindingList, error)
 	GetSecurityFinding(findingID string) (*client.SecurityFindingDetail, error)
 	GetSecurityAdvisory(cveID string) (*client.SecurityAdvisory, error)
+	FindSecurityImageFixCandidates(ctx context.Context, options client.SecurityImageFixCandidatesOptions) (*client.SecurityImageFixCandidates, error)
+	FindSecurityImageDeclarations(ctx context.Context, options client.SecurityImageDeclarationsOptions) (*client.SecurityImageDeclarations, error)
 	ListSecurityClusters(options client.SecurityClustersOptions) (*client.SecurityClusterList, error)
 	GetSecurityClusterAccessPosture(clusterID string) (*client.SecurityClusterAccessPosture, error)
 	ListSecurityNamespaces(options client.SecurityNamespacesOptions) (*client.SecurityNamespaceList, error)
