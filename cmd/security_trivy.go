@@ -17,6 +17,7 @@ import (
 const (
 	securityHistoryDefaultDays     = 90
 	securityReportMaxRecipients    = 20
+	securityReportFrequencyDaily   = "daily"
 	securityReportFrequencyWeekly  = "weekly"
 	securityReportFrequencyMonthly = "monthly"
 )
@@ -104,7 +105,7 @@ func securityHistoryTrendText(points []client.SecurityHistoryPoint) string {
 var securityReportScheduleCmd = &cobra.Command{
 	Use:   "report-schedule",
 	Short: "The recurring security report a cluster emails: frequency, recipients and when it last went out",
-	Long: `Show one cluster's scheduled security report - weekly or monthly, who
+	Long: `Show one cluster's scheduled security report - daily, weekly or monthly, who
 receives it, whether it is enabled, and when it was last sent and is next
 due. A cluster without a schedule reads "not configured". Use
 "report-schedule set" to create or change it and "report-schedule send" to
@@ -161,7 +162,7 @@ var securityReportScheduleSetCmd = &cobra.Command{
 	Use:   "set",
 	Short: "Create or replace a cluster's recurring security report",
 	Long: `Create or replace the cluster's scheduled security report. --frequency is
-weekly or monthly; --recipient is repeatable, at most 20 addresses, and at
+daily, weekly or monthly; --recipient is repeatable, at most 20 addresses, and at
 least one is required while the schedule is enabled. --disabled keeps the
 schedule but pauses sending. Asks for confirmation unless --yes.`,
 	Args: cobra.NoArgs,
@@ -172,8 +173,8 @@ schedule but pauses sending. Asks for confirmation unless --yes.`,
 		}
 		frequencyFlag, _ := cmd.Flags().GetString("frequency")
 		frequency := strings.ToLower(strings.TrimSpace(frequencyFlag))
-		if frequency != securityReportFrequencyWeekly && frequency != securityReportFrequencyMonthly {
-			return withExitCode(exitUsage, fmt.Errorf("--frequency must be weekly or monthly, got %q", frequencyFlag))
+		if frequency != securityReportFrequencyDaily && frequency != securityReportFrequencyWeekly && frequency != securityReportFrequencyMonthly {
+			return withExitCode(exitUsage, fmt.Errorf("--frequency must be daily, weekly or monthly, got %q", frequencyFlag))
 		}
 		recipientFlags, _ := cmd.Flags().GetStringSlice("recipient")
 		recipients, err := securityReportRecipients(recipientFlags)
@@ -281,7 +282,7 @@ func init() {
 		command.Flags().String("cluster", "", "Cluster (name or id), required")
 	}
 	securityHistoryCmd.Flags().Int("days", securityHistoryDefaultDays, "Window in days (1..365)")
-	securityReportScheduleSetCmd.Flags().String("frequency", "", "weekly or monthly, required")
+	securityReportScheduleSetCmd.Flags().String("frequency", "", "daily, weekly or monthly, required")
 	securityReportScheduleSetCmd.Flags().StringSlice("recipient", nil, "Recipient email address (repeatable, at most 20)")
 	securityReportScheduleSetCmd.Flags().Bool("disabled", false, "Store the schedule paused instead of enabled")
 	securityReportScheduleSetCmd.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")

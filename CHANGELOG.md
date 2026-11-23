@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra security report-schedule set --frequency daily` emails a cluster's security report every day.** Daily joins weekly and monthly; a daily report compares the posture with the day before. `set` still replaces the whole schedule, so pass every `--recipient` again. A platform that does not yet accept the daily frequency refuses it and leaves the schedule as it was.
+
 ### Fixed
 
 - **`ankra cluster backups status` says why a CloudNativePG stack is not protected, and words the unknown backup stack state.** The platform now judges a stack running CloudNativePG databases on whether its backups can actually be taken, and sends a sentence naming what it saw or could not confirm, the databases concerned and what to do. The command dropped that sentence; it now prints it after the table for each stack it applies to (`Why orders is unprotected: ...`), as the platform sent it, and `-o json` and `-o yaml` carry it as `backup_path_detail`. The four reasons behind it show in the Protection column as before: `barman_plugin_not_running` and `archiving_failing` (unprotected), `barman_plugin_unverified` and `archiving_unreported` (unknown). When the backup stack is up but the barman-cloud plugin could not be confirmed running, the header now reads `Backup components: up, but whether its barman-cloud plugin is running could not be confirmed` instead of saying this version of the CLI does not recognise the state. The embedded `ankra-backups` skill lists the new reasons. Exit codes are unchanged.
