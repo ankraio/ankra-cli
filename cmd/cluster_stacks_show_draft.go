@@ -44,10 +44,13 @@ var clusterStacksShowDraftCmd = &cobra.Command{
 		if listError != nil {
 			return fmt.Errorf("listing stacks: %w", listError)
 		}
-		document, selectError := selectDeployableDraft(documents, stackName)
+		document, selectError := selectStackDraft(documents, stackName, "show")
 		if selectError != nil {
 			return selectError
 		}
+		// The draft read answers lifecycle null, so the listing's value is
+		// carried across the swap (ankra-0xsdd.135).
+		listedLifecycle := document.Lifecycle()
 		// A stack that is only a draft can list with no draft id, and then
 		// the listing is the draft: its deploy posts that same object.
 		if document.DraftID() != "" {
@@ -60,6 +63,9 @@ var clusterStacksShowDraftCmd = &cobra.Command{
 		review, reviewError := document.DraftReview()
 		if reviewError != nil {
 			return fmt.Errorf("reading the draft of stack %q: %w", document.Name(), reviewError)
+		}
+		if review.Lifecycle == "" {
+			review.Lifecycle = listedLifecycle
 		}
 		if rendered, renderError := renderStructured(cmd, review); rendered || renderError != nil {
 			return renderError

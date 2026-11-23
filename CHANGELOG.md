@@ -2,8 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- **Discard a stack's pending draft: `ankra cluster stacks discard-draft <stack name>`.** `show-draft` and `deploy-draft` let you review a draft and ship it from the terminal; nothing let you throw one away, so a clone you reviewed and did not want kept its stack name for a day, and a draft an AI conversation staged stayed deployable after the change was made another way. The command finds the stack the way `show-draft` and `deploy-draft` do, says which draft it is about to discard and asks first; `--yes` skips the question, and a run with no terminal needs it. Nothing on the cluster changes: a deployed stack keeps running as it is, and a stack that exists only as a draft is gone, which frees its name. Ankra keeps a draft an AI conversation is working on or has just written: the command then says so and exits 8 with nothing discarded, and `--force` discards it anyway. A draft that had already ended is reported and exits 0. `-o json` and `-o yaml` print the platform's answer (`success`, `stack_name`, `already_discarded`, `reason`).
+
 ### Fixed
 
+- **`ankra cluster stacks show-draft -o json` carries the stack's `lifecycle`.** For a draft read in full, the field was empty, because the draft read does not send it. It now carries the value the stack listing shows (`draft_only`, `deployed_clean` or `deployed_dirty`). A stack with no draft is now refused as having no draft to show, where it said there was no draft to deploy.
 - **`ankra cluster backups status` says why a CloudNativePG stack is not protected, and words the unknown backup stack state.** The platform now judges a stack running CloudNativePG databases on whether its backups can actually be taken, and sends a sentence naming what it saw or could not confirm, the databases concerned and what to do. The command dropped that sentence; it now prints it after the table for each stack it applies to (`Why orders is unprotected: ...`), as the platform sent it, and `-o json` and `-o yaml` carry it as `backup_path_detail`. The four reasons behind it show in the Protection column as before: `barman_plugin_not_running` and `archiving_failing` (unprotected), `barman_plugin_unverified` and `archiving_unreported` (unknown). When the backup stack is up but the barman-cloud plugin could not be confirmed running, the header now reads `Backup components: up, but whether its barman-cloud plugin is running could not be confirmed` instead of saying this version of the CLI does not recognise the state. The embedded `ankra-backups` skill lists the new reasons. Exit codes are unchanged.
 
 ## v0.86.0 - 2026-11-22
