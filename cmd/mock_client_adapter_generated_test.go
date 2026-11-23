@@ -2214,6 +2214,14 @@ func (m mockClientAdapter) DisableClusterDNSZone(a0 string) (*client.ClusterDNSZ
 	}
 	return baseMock{}.DisableClusterDNSZone(a0)
 }
+func (m mockClientAdapter) DiscardClusterStackDraft(a0 context.Context, a1 string, a2 string, a3 bool) (*client.StackDraftDiscardResult, error) {
+	if target, ok := m.target.(interface {
+		DiscardClusterStackDraft(a0 context.Context, a1 string, a2 string, a3 bool) (*client.StackDraftDiscardResult, error)
+	}); ok {
+		return target.DiscardClusterStackDraft(a0, a1, a2, a3)
+	}
+	return baseMock{}.DiscardClusterStackDraft(a0, a1, a2, a3)
+}
 func (m mockClientAdapter) DisconnectManifest(a0 context.Context, a1 string, a2 string, a3 string) (*client.DisconnectManifestResult, error) {
 	if target, ok := m.target.(interface {
 		DisconnectManifest(a0 context.Context, a1 string, a2 string, a3 string) (*client.DisconnectManifestResult, error)
@@ -11625,6 +11633,12 @@ var _ interface {
 var _ interface {
 	DeleteDigitaloceanNodeGroup(a0 context.Context, a1 string, a2 string, a3 client.DrainOptions, a4 bool) (*client.DeleteNodeGroupResult, bool, error)
 } = (*digitaloceanNodeGroupDeleteMock)(nil)
+var _ interface {
+	DiscardClusterStackDraft(a0 context.Context, a1 string, a2 string, a3 bool) (*client.StackDraftDiscardResult, error)
+} = (*discardDraftMock)(nil)
+var _ interface {
+	ListClusterStackDocuments(a0 string) ([]client.ClusterStackDocument, error)
+} = (*discardDraftMock)(nil)
 var _ interface {
 	CreateOrganisationDnsRecord(a0 context.Context, a1 string, a2 string, a3 string, a4 *int) (*client.DnsRecord, error)
 } = (*dnsMock)(nil)

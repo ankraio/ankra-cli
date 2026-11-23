@@ -331,6 +331,7 @@ type APIClient interface {
 	ListClusterStackDocuments(clusterID string) ([]client.ClusterStackDocument, error)
 	DeployClusterStackDraft(ctx context.Context, clusterID string, document client.ClusterStackDocument) (*client.StackWriteResult, error)
 	GetClusterStackDraft(ctx context.Context, clusterID string, draftID string) (client.ClusterStackDocument, error)
+	DiscardClusterStackDraft(ctx context.Context, clusterID string, draftID string, force bool) (*client.StackDraftDiscardResult, error)
 	PromoteClusterStackDraft(ctx context.Context, clusterID string, document client.ClusterStackDocument) (*client.PatchStackResult, error)
 	DeleteStack(ctx context.Context, clusterID, stackName string) (*client.DeleteStackResult, error)
 	RenameStack(ctx context.Context, clusterID, stackName, newName string) (*client.RenameStackResult, error)
