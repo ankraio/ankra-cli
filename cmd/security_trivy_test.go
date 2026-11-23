@@ -136,7 +136,7 @@ func TestSecurityReportSchedule_RendersSchedule(t *testing.T) {
 
 func TestSecurityReportScheduleSet_RefusesBadFrequency(t *testing.T) {
 	mock := &securityTrivyMock{}
-	_, err := runSecurityCommand(t, mock, "security", "report-schedule", "set", "--cluster", securityTestClusterID, "--frequency", "daily", "--recipient", "sec@acme.io", "--yes")
+	_, err := runSecurityCommand(t, mock, "security", "report-schedule", "set", "--cluster", securityTestClusterID, "--frequency", "hourly", "--recipient", "sec@acme.io", "--yes")
 	if err == nil || exitCodeFor(err) != exitUsage {
 		t.Fatalf("expected a usage error, got %v", err)
 	}
@@ -187,6 +187,22 @@ func TestSecurityReportScheduleSet_YesForwardsTheSchedule(t *testing.T) {
 		t.Fatalf("expected a normalised, de-duplicated request, got %+v", mock.scheduleRequest)
 	}
 	if !strings.Contains(stripANSICodes(output), "monthly, enabled") {
+		t.Errorf("expected the stored schedule rendered:\n%s", output)
+	}
+}
+
+func TestSecurityReportScheduleSet_ForwardsADailySchedule(t *testing.T) {
+	mock := &securityTrivyMock{schedule: &client.SecurityReportScheduleStatus{Configured: true, Schedule: &client.SecurityReportSchedule{
+		Frequency: "daily", Recipients: []string{"sec@acme.io"}, Enabled: true, UpdatedAt: "2026-11-23T10:00:00Z"}}}
+	output, err := runSecurityCommand(t, mock, "security", "report-schedule", "set", "--cluster", securityTestClusterID,
+		"--frequency", "Daily", "--recipient", "sec@acme.io", "--yes")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mock.scheduleRequest == nil || mock.scheduleRequest.Frequency != "daily" {
+		t.Fatalf("expected a daily schedule forwarded, got %+v", mock.scheduleRequest)
+	}
+	if !strings.Contains(stripANSICodes(output), "daily, enabled") {
 		t.Errorf("expected the stored schedule rendered:\n%s", output)
 	}
 }

@@ -316,7 +316,7 @@ ankra security policy-mode off --cluster <c>     # uninstall the Kyverno engine;
 ankra security enable-baseline --cluster <c>     # install the scanner and policy add-ons
 ankra security history --cluster <c> --days 30   # daily snapshots: how the posture moved
 ankra security report-schedule --cluster <c>     # the emailed security report: frequency, recipients, last sent
-ankra security report-schedule set --cluster <c> --frequency weekly --recipient sec@example.com
+ankra security report-schedule set --cluster <c> --frequency daily --recipient sec@example.com   # daily, weekly or monthly; replaces the whole schedule
 ankra security report-schedule send --cluster <c> # queue one report now
 ankra security evidence destinations list        # where evidence goes: a Vanta document, a Wazuh relay, a signed webhook
 ankra security evidence destinations create --name siem --kind webhook --url https://siem.example.com/ankra --secret-stdin
