@@ -2,10 +2,19 @@
 
 ## Unreleased
 
+## v0.87.0 - 2026-11-23
+
+`ankra cluster stacks discard-draft` throws away a stack's pending draft, and
+`ankra security report-schedule set` takes `--frequency daily`. `show-draft -o
+json` now carries the stack's `lifecycle`, and `ankra cluster backups status`
+prints the platform's reason a CloudNativePG stack is not protected. Nothing a
+script relies on changes: exit codes are the same, and `-o json` of `show-draft`
+and `backups status` gains fields and loses none.
+
 ### Added
 
 - **Discard a stack's pending draft: `ankra cluster stacks discard-draft <stack name>`.** `show-draft` and `deploy-draft` let you review a draft and ship it from the terminal; nothing let you throw one away, so a clone you reviewed and did not want kept its stack name for a day, and a draft an AI conversation staged stayed deployable after the change was made another way. The command finds the stack the way `show-draft` and `deploy-draft` do, says which draft it is about to discard and asks first; `--yes` skips the question, and a run with no terminal needs it. Nothing on the cluster changes: a deployed stack keeps running as it is, and a stack that exists only as a draft is gone, which frees its name. Ankra keeps a draft an AI conversation is working on or has just written: the command then says so and exits 8 with nothing discarded, and `--force` discards it anyway. A draft that had already ended is reported and exits 0. `-o json` and `-o yaml` print the platform's answer (`success`, `stack_name`, `already_discarded`, `reason`).
-- **`ankra security report-schedule set --frequency daily` emails a cluster's security report every day.** Daily joins weekly and monthly; a daily report compares the posture with the day before. `set` still replaces the whole schedule, so pass every `--recipient` again. A platform that does not yet accept the daily frequency refuses it and leaves the schedule as it was.
+- **`ankra security report-schedule set --frequency daily` emails a cluster's security report every day.** Daily joins weekly and monthly; a daily report compares the posture with the day before. `set` still replaces the whole schedule, so pass every `--recipient` again.
 
 ### Fixed
 
