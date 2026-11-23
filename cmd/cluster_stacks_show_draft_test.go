@@ -14,6 +14,9 @@ func runShowDraftCommand(t *testing.T, mock any, arguments ...string) (string, e
 	t.Helper()
 	writeSelectedClusterJSON(t)
 	setMockClient(t, mock)
+	// -o json would otherwise stay set for the next show-draft test.
+	resetTreeFlags(t, clusterStacksShowDraftCmd)
+	t.Cleanup(func() { resetTreeFlags(t, clusterStacksShowDraftCmd) })
 	return executeCommand(append([]string{"cluster", "stacks", "show-draft"}, arguments...)...)
 }
 
@@ -95,8 +98,8 @@ func TestShowDraftRefusesAStackWithNoDraft(t *testing.T) {
 	mock := &deployedDraftMock{listings: [][]client.ClusterStackDocument{editedListingAfterDeploy(t)}}
 
 	_, runError := runShowDraftCommand(t, mock, "edited")
-	if runError == nil || !strings.Contains(runError.Error(), "has no draft") {
-		t.Fatalf("a stack with no draft must say so, got %v", runError)
+	if runError == nil || !strings.Contains(runError.Error(), "has no draft to show") {
+		t.Fatalf("a stack with no draft must say so in show-draft's words, got %v", runError)
 	}
 	if len(mock.readDraftIDs) != 0 {
 		t.Fatalf("there was nothing to read, read %v", mock.readDraftIDs)
@@ -111,5 +114,26 @@ func TestShowDraftRefusesAReadOfAnotherDraft(t *testing.T) {
 
 	if _, runError := runShowDraftCommand(t, mock, "edited"); runError == nil {
 		t.Fatal("a read answering another draft must not be shown as this one")
+	}
+}
+
+// The draft read answers lifecycle null; the listing's value is carried
+// across the swap, so -o json says which kind of draft this is.
+func TestShowDraftStructuredOutputCarriesTheListedLifecycle(t *testing.T) {
+	mock := &deployedDraftMock{
+		listings: [][]client.ClusterStackDocument{editedListing(t)},
+		draft:    stackDocument(t, `{"name":"edited","draft_id":"`+editedDraftID+`","lifecycle":null,"manifests":[]}`),
+	}
+
+	output, runError := runShowDraftCommand(t, mock, "edited", "-o", "json")
+	if runError != nil {
+		t.Fatalf("show-draft: %v\n%s", runError, output)
+	}
+	var review client.StackDraftReview
+	if decodeError := json.Unmarshal([]byte(output), &review); decodeError != nil {
+		t.Fatalf("the output must stay parseable: %v\n%s", decodeError, output)
+	}
+	if review.Lifecycle != "deployed_dirty" {
+		t.Fatalf("the listing's lifecycle must carry across the draft read, got %q", review.Lifecycle)
 	}
 }

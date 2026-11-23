@@ -670,6 +670,7 @@
     "ankra cluster stacks data list",
     "ankra cluster stacks delete",
     "ankra cluster stacks deploy-draft",
+    "ankra cluster stacks discard-draft",
     "ankra cluster stacks history",
     "ankra cluster stacks install",
     "ankra cluster stacks list",

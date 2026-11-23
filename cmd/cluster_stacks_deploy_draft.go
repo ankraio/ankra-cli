@@ -109,6 +109,14 @@ var errStackWriteRefused = fmt.Errorf("the stack write was refused")
 // draft and a deployed stack holding a draft of edits are both deployable;
 // a deployed stack with no draft has nothing to deploy.
 func selectDeployableDraft(documents []client.ClusterStackDocument, stackName string) (client.ClusterStackDocument, error) {
+	return selectStackDraft(documents, stackName, "deploy")
+}
+
+// selectStackDraft is the stack-name resolution show-draft, deploy-draft and
+// discard-draft share: the named stack, matched case-insensitively, which
+// must hold a draft id. action names what the caller would do with the draft,
+// so a refusal reads in the caller's own words.
+func selectStackDraft(documents []client.ClusterStackDocument, stackName string, action string) (client.ClusterStackDocument, error) {
 	var match client.ClusterStackDocument
 	draftNames := []string{}
 	for _, document := range documents {
@@ -122,15 +130,20 @@ func selectDeployableDraft(documents []client.ClusterStackDocument, stackName st
 	if match == nil {
 		if len(draftNames) == 0 {
 			return nil, withExitCode(exitNotFound, fmt.Errorf(
-				"stack %q not found on the active cluster, and no stack on it has a draft to deploy", stackName))
+				"stack %q not found on the active cluster, and no stack on it has a draft to %s", stackName, action))
 		}
 		return nil, withExitCode(exitNotFound, fmt.Errorf(
 			"stack %q not found on the active cluster. Stacks with a draft: %s",
 			stackName, strings.Join(draftNames, ", ")))
 	}
 	if match.DraftID() == "" {
+		if match.IsDraftOnly() {
+			return nil, withExitCode(exitUsage, fmt.Errorf(
+				"stack %q exists only as a draft, but the listing names no draft id to %s; use the stack builder",
+				match.Name(), action))
+		}
 		return nil, withExitCode(exitUsage, fmt.Errorf(
-			"stack %q has no draft to deploy: it is already deployed and has no edits in flight", match.Name()))
+			"stack %q has no draft to %s: it is already deployed and has no edits in flight", match.Name(), action))
 	}
 	return match, nil
 }
