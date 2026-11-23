@@ -1610,6 +1610,14 @@ func (m baseMock) GetSecurityAdvisory(string) (*client.SecurityAdvisory, error) 
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) FindSecurityImageFixCandidates(context.Context, client.SecurityImageFixCandidatesOptions) (*client.SecurityImageFixCandidates, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) FindSecurityImageDeclarations(context.Context, client.SecurityImageDeclarationsOptions) (*client.SecurityImageDeclarations, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListSecurityClusters(client.SecurityClustersOptions) (*client.SecurityClusterList, error) {
 	return nil, errors.New("not implemented")
 }
