@@ -26,7 +26,12 @@ var deleteCmd = &cobra.Command{
 var deleteClusterCmd = &cobra.Command{
 	Use:   "cluster NAME",
 	Short: "Delete a cluster by name",
-	Args:  cobra.ExactArgs(1),
+	Long: `Delete a cluster by name. For an imported cluster this is Disconnect
+cluster: it removes the cluster from Ankra and changes nothing inside it, and
+it works while the agent is offline. 'ankra cluster deprovision' is not the way
+to remove an imported cluster: it needs the agent online and keeps the cluster
+in Ankra.`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
