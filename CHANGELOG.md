@@ -4,6 +4,8 @@
 
 ### Changed
 
+- **`ankra cluster held-updates --help` says that every running cluster's platform add-on updates wait for you.** It used to say only production clusters, or clusters nobody had confirmed were not production, held them; Ankra now holds them on every running cluster of your organisation, and a new cluster starts on the current versions.
+
 - **`ankra security images declared` counts the parts it could not search instead of listing each one.** An organisation with many SOPS-sealed manifests got hundreds of lines after the answer, each sealed manifest twice. The table output now gives one line per cluster, stack and reason with a count, such as `control/control-plane: 38 manifests, sealed keys not searched`. `-o json` still lists every part in `not_searched`.
 
 - **`ankra delete cluster --help` says what it does to an imported cluster.** It is Disconnect cluster: the cluster leaves Ankra, nothing inside it changes, and it works while the agent is offline. `ankra cluster deprovision` is not the way to remove one. The CLI reference had this by hand, and each release removed it again.
