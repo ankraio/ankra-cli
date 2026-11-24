@@ -27,11 +27,13 @@ zone of the cluster's region matches on the region and says the zone is not
 known. An incident the page scopes to the whole provider is listed as
 provider-wide.
 
-When the status page cannot be read, the answer says so: an empty list then
-means the provider's status could not be checked, not that it reports
-nothing. Status pages are read for OVHcloud, UpCloud, DigitalOcean and
-Scaleway; for other providers the read says there is no status page Ankra
-reads. The platform caches each page for a few minutes.
+When the status page cannot be read, or does not list the cluster's region
+and zones, the answer says so: an empty list then means the provider's status
+could not be checked, not that it reports nothing. Status pages are read for
+OVHcloud, UpCloud, DigitalOcean and Scaleway; for other providers the read
+says there is no status page Ankra reads, and for a managed Kubernetes
+cluster that Ankra does not read where its nodes run yet. The platform caches
+each page for a few minutes.
 
 Left out, the cluster is --cluster or the one 'ankra cluster select' saved.
 Needs clusters.read.`,
@@ -137,6 +139,10 @@ func providerFeedStateText(result *client.ProviderIncidentsResponse) string {
 		return "none read: Ankra reads no status page for this provider"
 	case "provider_not_known":
 		return "none read: the cluster's provider is not known"
+	case "managed_kubernetes":
+		return "none read: Ankra does not read where a managed Kubernetes cluster's nodes run yet"
+	case "location_not_listed":
+		return "read, but it does not list the cluster's region or zones"
 	case "unreachable":
 		return "could not be read (unreachable)"
 	case "timeout":

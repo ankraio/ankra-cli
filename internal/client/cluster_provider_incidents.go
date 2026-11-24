@@ -24,7 +24,8 @@ type ProviderIncidentsResponse struct {
 	ProviderName string `json:"provider_name"`
 	FeedState    string `json:"feed_state"`
 	// FeedReason says why FeedState is unknown: no_feed,
-	// provider_not_known, unreachable or timeout. Empty when ok.
+	// provider_not_known, managed_kubernetes, location_not_listed,
+	// unreachable or timeout. Empty when ok.
 	FeedReason                  string                  `json:"feed_reason"`
 	Regions                     []string                `json:"regions"`
 	Zones                       []string                `json:"zones"`

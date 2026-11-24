@@ -158,3 +158,24 @@ func TestClusterProviderStatus_PrintsThePlatformAnswerAsJSON(t *testing.T) {
 		t.Errorf("incidents = %v", document["incidents"])
 	}
 }
+
+// A page that answered but does not list where the cluster runs, and a
+// managed Kubernetes cluster, are said in words, never as "no incident".
+func TestClusterProviderStatus_SaysWhyNothingCouldBeChecked(t *testing.T) {
+	for reason, want := range map[string]string{
+		"location_not_listed": "Status page: read, but it does not list the cluster's region or zones",
+		"managed_kubernetes":  "Status page: none read: Ankra does not read where a managed Kubernetes cluster's nodes run yet",
+	} {
+		mock := &providerStatusMock{response: client.ProviderIncidentsResponse{
+			ClusterID: providerStatusTestClusterID, Provider: "ovh", ProviderName: "OVH",
+			FeedState: client.ProviderFeedStateUnknown, FeedReason: reason, Regions: []string{"EU-WEST-PAR"},
+		}}
+		output, executeError := runClusterProviderStatus(t, mock, providerStatusTestClusterID)
+		if executeError != nil {
+			t.Fatalf("%s: execute failed: %v", reason, executeError)
+		}
+		if !strings.Contains(output, want) || strings.Contains(output, "No open incident") {
+			t.Errorf("%s: output lacks %q or reads as no incident:\n%s", reason, want, output)
+		}
+	}
+}
