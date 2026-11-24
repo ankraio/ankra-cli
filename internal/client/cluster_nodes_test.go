@@ -1,6 +1,7 @@
 package client
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 )
@@ -180,5 +181,60 @@ func TestListHetznerClusterNodes_SurfacesProviderStatus(t *testing.T) {
 	}
 	if result.Nodes[1].ProviderStatus != nil {
 		t.Errorf("Nodes[1].ProviderStatus = %v, want nil", result.Nodes[1].ProviderStatus)
+	}
+}
+
+// ankra-lk328: the nodes list carries what the platform serves for each
+// machine, the zone included, and a platform that does not serve a field
+// yet leaves it nil rather than failing the read.
+func TestListOvhClusterNodes_DecodesZonePublicIPAndKubernetesVersion(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"nodes": [
+			{"id": "node-1", "name": "bastion", "state": "up", "public_ip": "57.130.20.200",
+			 "availability_zone": "eu-west-par-a", "availability_zone_source": "provider",
+			 "kubernetes_version": null, "provider_status": "ACTIVE", "provider_power_state": null},
+			{"id": "node-2", "name": "cp-0", "state": "up", "kubernetes_version": "v1.33.4"}
+		]}`))
+	}
+	testClient := newTestClient(t, handler)
+	result, err := testClient.ListOvhClusterNodes("cluster-1")
+	if err != nil {
+		t.Fatalf("ListOvhClusterNodes: %v", err)
+	}
+	bastion, controlPlane := result.Nodes[0], result.Nodes[1]
+	if bastion.AvailabilityZone == nil || *bastion.AvailabilityZone != "eu-west-par-a" ||
+		bastion.AvailabilityZoneSource == nil || *bastion.AvailabilityZoneSource != "provider" {
+		t.Errorf("bastion zone = %v from %v, want eu-west-par-a from provider", bastion.AvailabilityZone, bastion.AvailabilityZoneSource)
+	}
+	if bastion.PublicIP == nil || *bastion.PublicIP != "57.130.20.200" {
+		t.Errorf("bastion PublicIP = %v, want 57.130.20.200", bastion.PublicIP)
+	}
+	if controlPlane.KubernetesVersion == nil || *controlPlane.KubernetesVersion != "v1.33.4" {
+		t.Errorf("cp-0 KubernetesVersion = %v, want v1.33.4", controlPlane.KubernetesVersion)
+	}
+	if controlPlane.AvailabilityZone != nil || controlPlane.AvailabilityZoneSource != nil {
+		t.Errorf("a platform that serves no zone leaves it nil, got %v from %v",
+			controlPlane.AvailabilityZone, controlPlane.AvailabilityZoneSource)
+	}
+}
+
+// -o json prints the struct, so a field the platform did not report prints
+// as null instead of vanishing: every node carries the same keys.
+func TestNodeSummary_EncodesUnreportedFieldsAsNull(t *testing.T) {
+	encoded, err := json.Marshal(NodeSummary{ID: "node-1", Name: "cp-0"})
+	if err != nil {
+		t.Fatalf("marshalling: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("unmarshalling: %v", err)
+	}
+	for _, key := range []string{"availability_zone", "availability_zone_source", "public_ip", "kubernetes_version",
+		"provider_status", "provider_power_state"} {
+		value, present := decoded[key]
+		if !present || value != nil {
+			t.Errorf("%s = %v (present %v), want null", key, value, present)
+		}
 	}
 }
