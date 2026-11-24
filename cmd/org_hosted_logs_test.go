@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -589,6 +590,9 @@ func TestOrgHostedLogsRefusals(t *testing.T) {
 		{name: "a read without billing.read", arguments: []string{"show"},
 			readStatus: http.StatusForbidden, readBody: `{"detail":"permission_denied","permission":"billing.read"}`,
 			wantExit: exitForbidden, wantMessage: "reading paid hosted logs needs the billing.read permission", wantReads: 1},
+		{name: "a write's refusal status on a read says what was being done", arguments: []string{"show"},
+			readStatus: http.StatusPaymentRequired, readBody: `{"detail":"Payment required"}`,
+			wantExit: exitError, wantMessage: "reading paid hosted logs: ", wantReads: 1},
 		{name: "a platform without the route", arguments: []string{"show"},
 			readStatus: http.StatusNotFound, readBody: `{"detail":"Not Found"}`,
 			wantExit: exitError, wantMessage: "this Ankra platform does not offer paid hosted logs yet", wantReads: 1},
@@ -632,6 +636,28 @@ func TestOrgHostedLogsRefusals(t *testing.T) {
 				t.Errorf("a refused command printed a result:\n%s", stdout)
 			}
 		})
+	}
+}
+
+// The GB a limit pays for keeps its fraction: EUR 20.10 at EUR 0.25 per GB
+// is 80.4 GB, not 80.
+func TestHostedLogsBytesForCents(t *testing.T) {
+	for _, testCase := range []struct {
+		cents, centsPerGB, bytesPerGB, want int64
+		known                               bool
+	}{
+		{2000, 25, 1_000_000_000, 80_000_000_000, true},
+		{2010, 25, 1_000_000_000, 80_400_000_000, true},
+		{100_000_000, 25, 1_000_000_000, 4_000_000_000_000_000, true},
+		{2000, 0, 1_000_000_000, 0, false},
+		{2000, 25, 0, 0, false},
+		{math.MaxInt64, 25, 1_000_000_000, 0, false},
+	} {
+		got, known := hostedLogsBytesForCents(testCase.cents, testCase.centsPerGB, testCase.bytesPerGB)
+		if got != testCase.want || known != testCase.known {
+			t.Errorf("hostedLogsBytesForCents(%d, %d, %d) = %d, %v; want %d, %v", testCase.cents, testCase.centsPerGB,
+				testCase.bytesPerGB, got, known, testCase.want, testCase.known)
+		}
 	}
 }
 

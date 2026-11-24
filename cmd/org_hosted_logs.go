@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -265,6 +266,17 @@ func confirmHostedLogsCharge(command *cobra.Command, question string) error {
 	return nil
 }
 
+// hostedLogsBytesForCents is how much log text an amount pays for at the
+// rate, in bytes. It multiplies before it divides, so a limit the rate does
+// not divide evenly keeps its fraction of a GB. known is false for a rate it
+// cannot use or a product too large to compute.
+func hostedLogsBytesForCents(cents int64, centsPerGB int64, bytesPerGB int64) (int64, bool) {
+	if cents < 0 || centsPerGB <= 0 || bytesPerGB <= 0 || cents > math.MaxInt64/bytesPerGB {
+		return 0, false
+	}
+	return cents * bytesPerGB / centsPerGB, true
+}
+
 // hostedLogsChangeLines says what a change does before it is made: with
 // paid logs on, the price, the limit and how much log text it pays for; with
 // them off, where sending pauses.
@@ -276,9 +288,9 @@ func hostedLogsChangeLines(current *client.HostedLogsBilling, paidEnabled bool, 
 	case paidEnabled:
 		limit := hostedLogsEuros(*limitAfter)
 		lines = append(lines, fmt.Sprintf("Paid hosted logs: logs above the free %s a month cost %s per GB, up to %s a month.", free, rate, limit))
-		if current.CentsPerGB > 0 {
+		if paidBytes, known := hostedLogsBytesForCents(*limitAfter, current.CentsPerGB, current.BytesPerGB); known {
 			lines = append(lines, fmt.Sprintf("%s pays for up to %s of log text above the free %s. At %s, sending pauses for the rest of the month.",
-				limit, hostedLogsGB(*limitAfter/current.CentsPerGB*current.BytesPerGB, current.BytesPerGB), free, limit))
+				limit, hostedLogsGB(paidBytes, current.BytesPerGB), free, limit))
 		}
 		if current.PaidEnabled && !sameCents(current.MonthlyLimitCents, limitAfter) {
 			lines = append(lines, fmt.Sprintf("Monthly limit: %s -> %s.", hostedLogsLimitLabel(current.MonthlyLimitCents), limit))
@@ -586,7 +598,9 @@ func sameCents(left *int64, right *int64) bool {
 // hostedLogsBillingError maps a refusal from the paid hosted logs routes onto
 // what the user can act on. A 403 is a missing billing.read (reading) or
 // billing.manage (writing) and exits 7. The platform's refusals of a write
-// are printed as it wrote them, because each names its remedy: 402 (billing
+// (and only of a write: the GET answers none of them, and anything it does
+// answer is reported with what was being done) are printed as it wrote them,
+// because each names its remedy: 402 (billing
 // cannot pay for paid logs yet), 503 (billing could not be checked; nothing
 // changed) and 400 (a limit it will not store, exit 2). A 404 without the
 // platform's own detail is a platform that predates paid hosted logs.
@@ -616,11 +630,11 @@ func hostedLogsBillingError(apiError error, writing bool) error {
 				"(the route answered 404); hosted logs are included until it does", operation))
 		}
 	case http.StatusPaymentRequired, http.StatusServiceUnavailable:
-		if unexpected.Detail != "" {
+		if writing && unexpected.Detail != "" {
 			return withExitCode(exitError, errors.New(unexpected.Detail))
 		}
 	case http.StatusBadRequest:
-		if unexpected.Detail != "" {
+		if writing && unexpected.Detail != "" {
 			return withExitCode(exitUsage, errors.New(unexpected.Detail))
 		}
 	}

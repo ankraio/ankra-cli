@@ -931,6 +931,8 @@
     "ankra org dns zones",
     "ankra org domain get",
     "ankra org domain set",
+    "ankra org hosted-logs set",
+    "ankra org hosted-logs show",
     "ankra org invite",
     "ankra org limits list",
     "ankra org limits request",
