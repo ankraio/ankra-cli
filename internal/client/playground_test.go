@@ -99,3 +99,37 @@ func TestCreatePlaygroundConflictWithoutAClusterIDStaysPlain(t *testing.T) {
 		t.Fatalf("err = %v, want a 409 *UnexpectedResponseError", err)
 	}
 }
+
+func TestGetPlaygroundStatusReadsTheShapeAndTheExpectedReadyTime(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/org/clusters/playground/c-1/status" {
+			t.Errorf("request path = %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"cluster_id":"c-1","phase":"provisioning","shape":"managed","expected_ready_seconds":360}`)
+	})
+	status, statusError := testClient.GetPlaygroundStatus("c-1")
+	if statusError != nil {
+		t.Fatalf("GetPlaygroundStatus: %v", statusError)
+	}
+	if status.Shape == nil || *status.Shape != PlaygroundShapeManaged {
+		t.Errorf("shape = %v, want managed", status.Shape)
+	}
+	if status.ExpectedReadySeconds == nil || *status.ExpectedReadySeconds != 360 {
+		t.Errorf("expected ready seconds = %v, want 360", status.ExpectedReadySeconds)
+	}
+}
+
+func TestGetPlaygroundStatusFromAnOlderPlatformLeavesTheShapeUnsaid(t *testing.T) {
+	testClient := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"cluster_id":"c-1","phase":"ready"}`)
+	})
+	status, statusError := testClient.GetPlaygroundStatus("c-1")
+	if statusError != nil {
+		t.Fatalf("GetPlaygroundStatus: %v", statusError)
+	}
+	if status.Shape != nil || status.ExpectedReadySeconds != nil {
+		t.Errorf("status = %+v, want no shape and no expected ready time", status)
+	}
+}
