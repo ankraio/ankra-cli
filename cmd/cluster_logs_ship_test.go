@@ -254,6 +254,7 @@ func TestClusterLogsShipStatusJSONIsTheResponseBody(t *testing.T) {
 		"available":             true,
 		"agent_supports_switch": false,
 		"changed_at":            hostedLogsTestChangedAt,
+		"paused_reason":         nil,
 	}
 	if len(decoded) != len(want) {
 		t.Fatalf("decoded %v, want exactly the response fields %v", decoded, want)
@@ -273,6 +274,76 @@ func TestClusterLogsShipStatusJSONIsTheResponseBody(t *testing.T) {
 	if !strings.Contains(stdout, `"changed_at": null`) {
 		t.Fatalf("changed_at must stay in the body as null:\n%s", stdout)
 	}
+}
+
+// The organisation's month pause is reported beside the switch, in plain
+// words, with what ends it; a switch that is on does not claim the agent is
+// sending.
+func TestClusterLogsShipStatusSaysWhyTheOrganisationIsPaused(t *testing.T) {
+	cases := []struct {
+		reason string
+		wants  []string
+	}{
+		{client.HostedLogsPausedFreeAllowanceUsed, []string{
+			"your organisation used its free 5 GB of hosted logs this month and paid logs are off",
+			"'ankra org hosted-logs set --paid --limit <euros>'",
+		}},
+		{client.HostedLogsPausedMonthlyLimitReached, []string{
+			"your organisation's hosted logs reached the monthly limit set for paid logs",
+			"an owner can raise the limit: 'ankra org hosted-logs set --limit <euros>'",
+		}},
+		{client.HostedLogsPausedNoCredit, []string{
+			"your organisation has no prepaid credit to pay for hosted logs above the free 5 GB",
+			"'ankra org billing wallet'",
+		}},
+		{"some_new_reason", []string{"the platform paused them (some_new_reason)"}},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.reason, func(t *testing.T) {
+			recorder := newHostedLogsServer(t)
+			reason := testCase.reason
+			recorder.setState(testClusterID, func(state *client.ClusterHostedLogs) {
+				state.ShippingEnabled, state.PausedReason = true, &reason
+			})
+
+			stdout, _, runError := runLogsShip(t, "", "status")
+			if runError != nil {
+				t.Fatalf("status failed: %v", runError)
+			}
+			assertLogsShipOutput(t, stdout, append([]string{
+				"Shipping:       enabled",
+				"Paused:         yes, for every cluster of the organisation (see below)",
+				"Sending is paused for the rest of the month (UTC): ",
+				"The switch is kept, and the cluster sends again when the pause ends.",
+			}, testCase.wants...)...)
+		})
+	}
+
+	t.Run("enable while paused does not claim the agent starts sending", func(t *testing.T) {
+		recorder := newHostedLogsServer(t)
+		reason := client.HostedLogsPausedFreeAllowanceUsed
+		recorder.setState(testClusterID, func(state *client.ClusterHostedLogs) { state.PausedReason = &reason })
+
+		stdout, _, runError := runLogsShip(t, "", "enable", "--yes")
+		if runError != nil {
+			t.Fatalf("enable --yes failed: %v", runError)
+		}
+		assertLogsShipOutput(t, stdout, "Hosted log shipping enabled for cluster 'test-cluster'", "Sending is paused for the rest of the month")
+		if strings.Contains(stdout, "starts sending log lines") {
+			t.Fatalf("an enable in a paused month claimed the agent starts sending:\n%s", stdout)
+		}
+	})
+
+	t.Run("nothing paused says nothing about a pause", func(t *testing.T) {
+		newHostedLogsServer(t)
+		stdout, _, runError := runLogsShip(t, "", "status")
+		if runError != nil {
+			t.Fatalf("status failed: %v", runError)
+		}
+		if strings.Contains(stdout, "Paused:") || strings.Contains(stdout, "paused") {
+			t.Fatalf("a month that is not paused mentioned a pause:\n%s", stdout)
+		}
+	})
 }
 
 func TestClusterLogsShipStatusTargetsTheClusterFlag(t *testing.T) {

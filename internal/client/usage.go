@@ -104,9 +104,13 @@ type UsageLine struct {
 	// partial, and nil when unknown: nothing of the period was measured.
 	Quantity *int64 `json:"quantity" yaml:"quantity"`
 	Coverage string `json:"coverage" yaml:"coverage"`
-	// PriceState is included (the pilot: no rate, nothing charged), priced
-	// (AmountMinor is what the published rate makes the quantity cost) or
-	// unpriced (no rate applies as the line is; PriceBasis says why).
+	// PriceState is included (no rate, nothing charged: PriceBasis pilot for
+	// the managed services pilot and hosted logs before the organisation's
+	// priced-from month, included_in_plan for built-in metrics, and
+	// priced_by_bytes for hosted logs lines, which the bytes line prices),
+	// priced (AmountMinor is what the published rate makes the quantity
+	// cost; hosted_logs_rate for hosted logs bytes) or unpriced (no rate
+	// applies as the line is; PriceBasis says why).
 	PriceState string `json:"price_state" yaml:"price_state"`
 	PriceBasis string `json:"price_basis" yaml:"price_basis"`
 	// AmountMinor is in minor units of Currency (euro cents); nil unless

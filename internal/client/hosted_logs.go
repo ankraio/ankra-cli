@@ -24,12 +24,21 @@ import (
 // nothing is read until it becomes true. AgentSupportsSwitch is what the
 // cluster's agent advertised at its last identify, not a property of the
 // switch. ChangedAt is nil until the switch is written for the first time.
+//
+// PausedReason says why the organisation's hosted logs are paused for the
+// rest of the month, whatever this cluster's switch says:
+// free_allowance_used (the free 5 GB of the month is used and paid logs are
+// off), monthly_limit_reached (paid logs are on and the month reached the
+// monthly limit) or no_credit (a prepaid organisation with logs past the free
+// 5 GB and no credit to pay for them). It is nil while nothing pauses them,
+// and from a platform that predates the hosted logs allowance.
 type ClusterHostedLogs struct {
 	ClusterID           string  `json:"cluster_id" yaml:"cluster_id"`
 	ShippingEnabled     bool    `json:"shipping_enabled" yaml:"shipping_enabled"`
 	Available           bool    `json:"available" yaml:"available"`
 	AgentSupportsSwitch bool    `json:"agent_supports_switch" yaml:"agent_supports_switch"`
 	ChangedAt           *string `json:"changed_at" yaml:"changed_at"`
+	PausedReason        *string `json:"paused_reason" yaml:"paused_reason"`
 }
 
 // clusterHostedLogsUpdate is the PUT body. ShippingEnabled is always sent:

@@ -3718,6 +3718,14 @@ func (m mockClientAdapter) GetHostTarget(a0 context.Context, a1 string) (*client
 	}
 	return baseMock{}.GetHostTarget(a0, a1)
 }
+func (m mockClientAdapter) GetHostedLogsBilling(a0 context.Context) (*client.HostedLogsBilling, error) {
+	if target, ok := m.target.(interface {
+		GetHostedLogsBilling(a0 context.Context) (*client.HostedLogsBilling, error)
+	}); ok {
+		return target.GetHostedLogsBilling(a0)
+	}
+	return baseMock{}.GetHostedLogsBilling(a0)
+}
 func (m mockClientAdapter) GetK3sDisabledComponents(a0 context.Context, a1 string, a2 string) (*client.K3sDisabledComponents, error) {
 	if target, ok := m.target.(interface {
 		GetK3sDisabledComponents(a0 context.Context, a1 string, a2 string) (*client.K3sDisabledComponents, error)
@@ -9497,6 +9505,14 @@ func (m mockClientAdapter) UpdateHetznerNodeGroupTaints(a0 context.Context, a1 s
 		return target.UpdateHetznerNodeGroupTaints(a0, a1, a2, a3, a4)
 	}
 	return baseMock{}.UpdateHetznerNodeGroupTaints(a0, a1, a2, a3, a4)
+}
+func (m mockClientAdapter) UpdateHostedLogsBilling(a0 context.Context, a1 client.HostedLogsBillingUpdate) (*client.HostedLogsBilling, error) {
+	if target, ok := m.target.(interface {
+		UpdateHostedLogsBilling(a0 context.Context, a1 client.HostedLogsBillingUpdate) (*client.HostedLogsBilling, error)
+	}); ok {
+		return target.UpdateHostedLogsBilling(a0, a1)
+	}
+	return baseMock{}.UpdateHostedLogsBilling(a0, a1)
 }
 func (m mockClientAdapter) UpdateMCPServer(a0 context.Context, a1 string, a2 client.MCPServerUpdate) (*client.MCPServer, error) {
 	if target, ok := m.target.(interface {

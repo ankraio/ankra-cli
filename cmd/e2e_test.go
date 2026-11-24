@@ -3888,6 +3888,14 @@ func (m baseMock) UpdateAISpendCap(client.AISpendCapUpdate) (*client.AISpendCap,
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetHostedLogsBilling(context.Context) (*client.HostedLogsBilling, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m baseMock) UpdateHostedLogsBilling(context.Context, client.HostedLogsBillingUpdate) (*client.HostedLogsBilling, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListAuditLogs(context.Context, client.AuditLogFilters) (*client.AuditLogTrail, error) {
 	return nil, errors.New("not implemented")
 }

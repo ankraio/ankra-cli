@@ -84,6 +84,10 @@ func newClusterLogsShipStatusCommand() *cobra.Command {
 		Long: `Show whether the cluster ships its logs to Ankra's hosted log store, whether
 hosted logging is available on this platform yet, whether the cluster's agent
 is new enough to follow the switch, and when the switch was last changed.
+When the organisation's hosted logs are paused for the month (the free 5 GB
+is used and paid logs are off, the monthly limit is reached, or a prepaid
+organisation has no credit), it says so and what ends the pause; see
+'ankra org hosted-logs show'.
 
 -o json prints the platform's answer as it is.`,
 		Example: `  ankra cluster logs-ship status
@@ -215,7 +219,7 @@ func runClusterLogsShipSwitch(command *cobra.Command, enabled bool) error {
 	switch {
 	case disagreement != nil:
 		return disagreement
-	case !state.Available || !state.AgentSupportsSwitch:
+	case !state.Available || !state.AgentSupportsSwitch || (enabled && state.PausedReason != nil):
 		// printHostedLogsState has already said why nothing changes yet.
 	case enabled:
 		_, _ = fmt.Fprintln(out, "\nThe agent starts sending log lines at its next check-in. "+
@@ -323,8 +327,14 @@ func printHostedLogsState(out io.Writer, state *client.ClusterHostedLogs) {
 	_, _ = fmt.Fprintf(out, "  Hosted logging: %s\n", hostedLogsAvailabilityLabel(state.Available))
 	_, _ = fmt.Fprintf(out, "  Agent:          %s\n", hostedLogsAgentLabel(state.AgentSupportsSwitch))
 	_, _ = fmt.Fprintf(out, "  Last changed:   %s\n", hostedLogsChangedLabel(state.ChangedAt))
+	if state.PausedReason != nil {
+		_, _ = fmt.Fprintln(out, "  Paused:         yes, for every cluster of the organisation (see below)")
+	}
 
 	var notes []string
+	if state.PausedReason != nil {
+		notes = append(notes, hostedLogsPausedNote(*state.PausedReason))
+	}
 	if !state.Available {
 		notes = append(notes, hostedLogsUnavailableSentence)
 	}
@@ -334,6 +344,15 @@ func printHostedLogsState(out io.Writer, state *client.ClusterHostedLogs) {
 	for _, note := range notes {
 		_, _ = fmt.Fprintf(out, "\n%s\n", note)
 	}
+}
+
+// hostedLogsPausedNote says, in plain words, why the organisation's hosted
+// logs are paused for the month and what ends the pause before the month
+// does. The pause is the organisation's, not the cluster's: the switch is
+// kept, and the cluster sends again once the pause ends.
+func hostedLogsPausedNote(reason string) string {
+	return "Sending is paused for the rest of the month (UTC): " + hostedLogsPauseReasonSentence(reason) +
+		". The switch is kept, and the cluster sends again when the pause ends. " + hostedLogsPauseRemedy(&reason)
 }
 
 func hostedLogsShippingLabel(enabled bool) string {
