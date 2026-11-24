@@ -222,9 +222,13 @@ func runOrgHostedLogsSet(command *cobra.Command, _ []string) error {
 	// The route answers the setting it stored. One that disagrees with the
 	// request did not take effect, so it is reported and exits non-zero.
 	var disagreement error
-	if view.PaidEnabled != paidEnabled {
+	switch {
+	case view.PaidEnabled != paidEnabled:
 		disagreement = withExitCode(exitError, fmt.Errorf("the platform stored paid hosted logs as %s, not %s as requested; "+
 			"run 'ankra org hosted-logs show' to check it", hostedLogsOnOff(view.PaidEnabled), hostedLogsOnOff(paidEnabled)))
+	case requestedLimit != nil && !sameCents(view.MonthlyLimitCents, requestedLimit):
+		disagreement = withExitCode(exitError, fmt.Errorf("the platform stored a monthly limit of %s, not %s as requested; "+
+			"run 'ankra org hosted-logs show' to check it", hostedLogsLimitLabel(view.MonthlyLimitCents), hostedLogsEuros(*requestedLimit)))
 	}
 	if format != outputDefault {
 		if encodeError := encodeStructured(command.OutOrStdout(), format, view); encodeError != nil {
@@ -429,6 +433,8 @@ func hostedLogsAmountLabel(view *client.HostedLogsBilling) string {
 		return fmt.Sprintf("nothing: hosted logs are included until %s", hostedLogsIncludedUntilLabel(view.PricedFrom))
 	case view.Month.AmountCents == 0 && !view.PaidEnabled:
 		return "nothing: paid logs are off, so nothing is charged"
+	case view.Month.AmountCents == 0 && view.Month.BillableBytes == 0:
+		return fmt.Sprintf("nothing yet: this month is within the free %s", hostedLogsGB(view.FreeBytesPerMonth, view.BytesPerGB))
 	}
 	return hostedLogsEuros(view.Month.AmountCents)
 }

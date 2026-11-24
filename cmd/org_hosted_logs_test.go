@@ -510,6 +510,36 @@ func TestOrgHostedLogsSetThatDidNotTakeEffectExitsNonZero(t *testing.T) {
 	if runError == nil || exitCodeFor(runError) != exitError || !strings.Contains(runError.Error(), "stored paid hosted logs as off, not on") {
 		t.Fatalf("a write the platform did not store must fail with exit 1: %v", runError)
 	}
+
+	// Paid logs already on, so the on/off answer agrees; the limit the
+	// platform kept is not the one asked for, which is the same failure.
+	recorder = newHostedLogsBillingServer(t, hostedLogsJanuary2027AtTheLimit())
+	recorder.ignoreWrites = true
+
+	stdout, _, runError := runOrgHostedLogs(t, "", "set", "--limit", "50", "--yes")
+	if runError == nil || exitCodeFor(runError) != exitError ||
+		!strings.Contains(runError.Error(), "stored a monthly limit of EUR 20.00, not EUR 50.00 as requested") {
+		t.Fatalf("a limit the platform did not store must fail with exit 1: %v", runError)
+	}
+	assertContainsAll(t, stdout, []string{"Paid logs:      on, up to EUR 20.00 a month"})
+}
+
+// A priced month with paid logs on that has not used the free 5 GB owes
+// nothing yet, and says so rather than a bare EUR 0.00.
+func TestOrgHostedLogsShowPaidLogsWithinTheFreeAmount(t *testing.T) {
+	view := hostedLogsJanuary2027AtTheLimit()
+	view.Month = client.HostedLogsMonth{MonthStart: "2027-01-01", Priced: true, Bytes: 2_000_000_000, FreeBytes: 2_000_000_000,
+		State: client.HostedLogsStateShipping}
+	newHostedLogsBillingServer(t, view)
+
+	stdout, _, runError := runOrgHostedLogs(t, "", "show")
+	if runError != nil {
+		t.Fatalf("show failed: %v", runError)
+	}
+	assertContainsAll(t, stdout, []string{"Amount so far:  nothing yet: this month is within the free 5 GB", "Sending:        not paused"})
+	if strings.Contains(stdout, "EUR 0.00") {
+		t.Fatalf("a month within the free amount read as a priced zero:\n%s", stdout)
+	}
 }
 
 // Every refusal says what to do. The platform's own refusals of a write are
