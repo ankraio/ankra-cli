@@ -615,10 +615,69 @@ func TestOrgUsageIsRegisteredWithItsFlags(t *testing.T) {
 	if helpError := command.Execute(); helpError != nil {
 		t.Fatalf("--help: %v", helpError)
 	}
-	for _, expected := range []string{"not measured", "included (pilot)", "billing.read", "--period", "do not add"} {
+	for _, expected := range []string{"not measured", "included (pilot)", "billing.read", "--period", "do not add",
+		"managed services during the pilot", "hosted logs until 31 December 2026", "'included in every plan' is built-in\nmetrics",
+		"From 1 January 2027 hosted logs are\npriced: 5 GB of log text a month free per organisation, then EUR 0.25 per\nGB, kept 7 days",
+		"'ankra org hosted-logs'", "'priced by bytes'"} {
 		if !strings.Contains(help.String(), expected) {
 			t.Errorf("help should mention %q:\n%s", expected, help.String())
 		}
+	}
+	// The pilot covers managed services only now: hosted logs are priced
+	// from 2027 and built-in metrics are included in every plan.
+	if strings.Contains(help.String(), "hosted logs and metrics during the pilot") ||
+		strings.Contains(help.String(), "hosted logs and\nmetrics during the pilot") {
+		t.Errorf("help still says hosted logs and metrics are included during the pilot:\n%s", help.String())
+	}
+}
+
+// From the priced-from month the hosted logs bytes line carries the amount,
+// the lines line is priced by bytes, a cluster's share is priced on the
+// organisation total, and built-in metrics read as included in every plan;
+// each marker the table shows is explained under it, and the pilot's only
+// when a pilot line is shown.
+func TestOrgUsageRendersTheHostedLogsAndMetricsBases(t *testing.T) {
+	perCluster := usageLineFixture("hosted_logs_ingested_bytes", "bytes", int64Pointer(4_000_000_000), "complete", "unpriced", "organisation_total", nil)
+	perCluster["cluster_id"], perCluster["cluster_name"] = "11111111-1111-4111-8111-111111111111", "prod"
+	platform := newUsageFakePlatform(t, http.StatusOK, usageReportFixture("meter", "month",
+		usageLineFixture("hosted_logs_ingested_bytes", "bytes", int64Pointer(7_500_000_000), "complete", "priced", "hosted_logs_rate", int64Pointer(63)),
+		usageLineFixture("hosted_logs_ingested_lines", "lines", int64Pointer(12_000_000), "complete", "included", "priced_by_bytes", nil),
+		usageLineFixture("hosted_metrics_samples", "samples", int64Pointer(9_000), "complete", "included", "included_in_plan", nil),
+	))
+	stdout, _, runError := runOrgUsageCommand(t, platform)
+	if runError != nil {
+		t.Fatalf("org usage: %v", runError)
+	}
+	output := stripANSICodes(stdout)
+	for _, expected := range []struct{ label, price string }{
+		{"Hosted logs (bytes)", "€0.63"},
+		{"Hosted logs (lines)", "priced by bytes"},
+		{"Hosted metrics (samples)", "included in every plan"},
+	} {
+		if row := usageRowFor(t, output, expected.label); !strings.Contains(row, expected.price) {
+			t.Errorf("row %q should read %q: %q", expected.label, expected.price, row)
+		}
+	}
+	for _, legend := range []string{
+		"included in every plan: built-in metrics are included in every plan and never charged.",
+		"Hosted logs: 5 GB of log text a month free per organisation, then EUR 0.25 per GB.",
+		"Nothing is charged unless an owner turned on paid logs, and never more than the monthly limit",
+	} {
+		if !strings.Contains(output, legend) {
+			t.Errorf("output should explain %q:\n%s", legend, output)
+		}
+	}
+	if strings.Contains(output, "included (pilot)") {
+		t.Errorf("no pilot line is shown, so the pilot is not explained:\n%s", output)
+	}
+
+	clusterPlatform := newUsageFakePlatform(t, http.StatusOK, usageReportFixture("cluster", "month", perCluster))
+	stdout, _, runError = runOrgUsageCommand(t, clusterPlatform, "--group-by", "cluster")
+	if runError != nil {
+		t.Fatalf("org usage --group-by cluster: %v", runError)
+	}
+	if row := usageRowFor(t, stripANSICodes(stdout), "Hosted logs (bytes)"); !strings.Contains(row, "priced on the organisation total") {
+		t.Errorf("a cluster's share of the hosted logs bytes has no amount of its own: %q", row)
 	}
 }
 
@@ -681,6 +740,11 @@ func TestUsagePriceLabel(t *testing.T) {
 		want string
 	}{
 		{client.UsageLine{PriceState: "included", PriceBasis: "pilot"}, "included (pilot)"},
+		{client.UsageLine{PriceState: "included", PriceBasis: ""}, "included (pilot)"},
+		{client.UsageLine{PriceState: "included", PriceBasis: "included_in_plan"}, "included in every plan"},
+		{client.UsageLine{PriceState: "included", PriceBasis: "priced_by_bytes"}, "priced by bytes"},
+		{client.UsageLine{PriceState: "included", PriceBasis: "something_new"}, "included (something_new)"},
+		{client.UsageLine{PriceState: "priced", PriceBasis: "hosted_logs_rate", AmountMinor: int64Pointer(63), Currency: stringPointer("EUR")}, "€0.63"},
 		{client.UsageLine{PriceState: "priced", PriceBasis: "plan_rate", AmountMinor: int64Pointer(123_456), Currency: stringPointer("EUR")}, "€1,234.56"},
 		{client.UsageLine{PriceState: "priced", PriceBasis: "price_of_record", AmountMinor: int64Pointer(5), Currency: stringPointer("EUR")}, "€0.05"},
 		{client.UsageLine{PriceState: "priced", PriceBasis: "price_of_record", AmountMinor: int64Pointer(250), Currency: stringPointer("USD")}, "2.50 USD"},

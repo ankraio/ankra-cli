@@ -1217,6 +1217,8 @@ type APIClient interface {
 	DeleteAlertIngestCredential(credentialID string) (*client.DeleteAlertIngestCredentialResult, error)
 	GetAISpendCap() (*client.AISpendCap, error)
 	UpdateAISpendCap(update client.AISpendCapUpdate) (*client.AISpendCap, error)
+	GetHostedLogsBilling(ctx context.Context) (*client.HostedLogsBilling, error)
+	UpdateHostedLogsBilling(ctx context.Context, update client.HostedLogsBillingUpdate) (*client.HostedLogsBilling, error)
 	ListAuditLogs(ctx context.Context, filters client.AuditLogFilters) (*client.AuditLogTrail, error)
 	ExportAuditLogs(ctx context.Context, filters client.AuditLogFilters, format string, destination io.Writer) (*client.AuditLogExportResult, error)
 	TestAlertDestination(destinationID string) (*client.AlertDestinationTestResult, error)

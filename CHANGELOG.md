@@ -2,8 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- **Paid hosted logs from the terminal: `ankra org hosted-logs show|set`.** Hosted logs are included until 31 December 2026. From 1 January 2027 an organisation gets 5 GB of log text a month free, then pays EUR 0.25 per GB, kept 7 days. At the free 5 GB, sending pauses for the rest of the month unless an owner turns on paid logs with a monthly limit, and owners are told at 80% and 100%. `show` prints this month's log text against the free 5 GB, whether sending is paused and why, what the month comes to so far, the setting, and the date pricing starts; before that date nothing is charged. `set --paid --limit <euros>` turns paid logs on up to that limit, `--limit` on its own changes the limit, and `--paid=false` turns them off. Turning them on or changing the limit agrees to a charge, so `set` says what the limit pays for and asks first; `--yes` skips the question, and a run with no terminal needs it. Turning them off does not ask. When billing cannot pay for paid logs yet, the platform's sentence saying what to do is printed as it is, and nothing changes. Reading needs `billing.read`, changing needs `billing.manage`. `-o json` and `-o yaml` print the platform's answer. Needs the platform's paid hosted logs; a platform without them is reported as such and nothing changes.
+
 ### Changed
 
+- **`ankra cluster logs-ship status` says when the organisation's hosted logs are paused.** From 1 January 2027, sending pauses for every cluster of an organisation when its free 5 GB of the month is used and paid logs are off, when the month reaches the monthly limit, or when a prepaid organisation has no credit for logs above the free 5 GB. `status` then shows `Paused: yes` with a sentence saying why and what ends the pause, and `enable` no longer says the agent starts sending while it is paused. The cluster's switch is kept. `-o json` gains `paused_reason`, null while nothing pauses them.
+- **`ankra org usage` no longer says hosted logs and metrics are included during the pilot.** Managed services still are. Hosted logs are included until 31 December 2026; from 1 January 2027 their bytes line shows what it costs (5 GB of log text a month free, then EUR 0.25 per GB, nothing unless paid logs are on), the lines line reads `priced by bytes`, and a cluster's share reads `priced on the organisation total`. Built-in metrics read `included in every plan`. The help says so, and each marker the table shows is explained under it.
 - **`ankra security images declared` counts the parts it could not search instead of listing each one.** An organisation with many SOPS-sealed manifests got hundreds of lines after the answer, each sealed manifest twice. The table output now gives one line per cluster, stack and reason with a count, such as `control/control-plane: 38 manifests, sealed keys not searched`. `-o json` still lists every part in `not_searched`.
 
 ## v0.87.0 - 2026-11-23

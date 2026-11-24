@@ -258,6 +258,9 @@ reconnects.
 ankra cluster logs-ship status                   # on/off, platform availability, whether the agent follows it
 ankra cluster logs-ship enable --yes             # opt in: ship every running container's log lines to Ankra (kept 7 days)
 ankra cluster logs-ship disable                  # opt out; no confirmation needed
+ankra org hosted-logs show                       # this month's log text against the free 5 GB, paused or not, paid logs setting
+ankra org hosted-logs set --paid --limit 20      # paid logs up to EUR 20 a month (agrees to a charge: asks; --yes in scripts)
+ankra org hosted-logs set --paid=false           # paid logs off: sending pauses at the free 5 GB; no confirmation
 ```
 
 Ankra restarts a NotReady control plane node through the cloud provider when the other control
@@ -323,6 +326,14 @@ before passing `--yes`. `status` names an agent that does not follow the switch 
 with `ankra cluster agent upgrade`; or opted out locally with `logs_ship.enabled: false` in its Helm
 values) and a platform where hosted logging is not live yet (the switch is stored, nothing ships
 until it is).
+
+Hosted logs are included until 31 December 2026. From 1 January 2027, 5 GB of log text a month is
+free per organisation, then EUR 0.25 per GB, kept 7 days; at the free 5 GB sending pauses for the
+rest of the month unless an owner turns on paid logs with a monthly limit, and owners are told at
+80% and 100%. `logs-ship status` and `org hosted-logs show` say when the organisation is paused and
+why. Turning paid logs on agrees to a charge and needs `billing.manage`: never pass `--yes` to `org
+hosted-logs set --paid` without the user's explicit go-ahead and the limit they chose. Built-in
+metrics are included in every plan.
 
 ## Migrating a Docker deployment
 

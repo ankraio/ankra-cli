@@ -5,10 +5,12 @@ package cmd
 // /api/v1/org/billing/usage.
 //
 // Usage is tracked now and charged later. A line carries its quantity, how
-// completely it was measured, and its price state: most meters are included
-// during the pilot (no published rate, nothing charged), the plan's
-// vCPU-hours and ordered playgrounds are priced as the invoice prices them,
-// and a line no rate applies to says why. A period nobody measured is shown
+// completely it was measured, and its price state: managed services are
+// included during the pilot (no published rate, nothing charged), built-in
+// metrics are included in every plan, hosted logs are included until the
+// organisation's priced-from month and priced by their bytes from it, the
+// plan's vCPU-hours and ordered playgrounds are priced as the invoice prices
+// them, and a line no rate applies to says why. A period nobody measured is shown
 // as not measured, never as 0, and stays null in -o json.
 
 import (
@@ -76,10 +78,17 @@ for instance a service whose cluster was offline throughout. Not measured is
 never 0; in -o json the quantity is null.
 
 Each line also says what it costs. 'included (pilot)' means Ankra publishes
-no rate and charges nothing for it: managed services and hosted logs and
-metrics during the pilot. A priced line shows the amount in EUR the
-published rate makes of it, as the invoice will. A line no rate applies to
-says why, for instance that AI usage has no per-unit rate.
+no rate and charges nothing for it: managed services during the pilot, and
+hosted logs until 31 December 2026. 'included in every plan' is built-in
+metrics, which are never charged. From 1 January 2027 hosted logs are
+priced: 5 GB of log text a month free per organisation, then EUR 0.25 per
+GB, kept 7 days, and nothing is charged unless an owner turned on paid logs
+('ankra org hosted-logs'). Their bytes line carries the amount, the lines
+line reads 'priced by bytes', and a cluster's share reads 'priced on the
+organisation total' because the free 5 GB is the organisation's. A priced
+line shows the amount in EUR the published rate makes of it, as the invoice
+will. A line no rate applies to says why, for instance that AI usage has no
+per-unit rate.
 
 Grouped by application, a service that serves several applications is
 counted under each of them (marked shared), so application lines do not add
@@ -411,7 +420,8 @@ func printUsageReport(out io.Writer, report *client.UsageReport, applicationName
 	usageTable.AppendHeader(header)
 
 	groupLabels := usageGroupLabels(report, applicationNames)
-	seenUnknown, seenPartial, seenIncluded := false, false, false
+	seenUnknown, seenPartial := false, false
+	seenBases := map[string]bool{}
 	for _, line := range report.Lines {
 		row := table.Row{usageMeterLabel(line.Meter), usagePeriodLabel(line, report.Granularity)}
 		switch report.GroupBy {
@@ -435,7 +445,10 @@ func printUsageReport(out io.Writer, report *client.UsageReport, applicationName
 			seenPartial = true
 		}
 		if line.PriceState == client.UsagePriceIncluded {
-			seenIncluded = true
+			seenBases[usageIncludedBasis(line.PriceBasis)] = true
+		}
+		if line.PriceState == client.UsagePricePriced && line.PriceBasis == usageBasisHostedLogsRate {
+			seenBases[usageBasisHostedLogsRate] = true
 		}
 	}
 	usageTable.Render()
@@ -446,8 +459,16 @@ func printUsageReport(out io.Writer, report *client.UsageReport, applicationName
 	if seenPartial {
 		_, _ = fmt.Fprintln(out, ">=: only part of that period was measured, or it is still being counted; the quantity is a lower bound.")
 	}
-	if seenIncluded {
+	if seenBases[usageBasisPilot] {
 		_, _ = fmt.Fprintln(out, "included (pilot): Ankra publishes no rate and charges nothing for it during the pilot.")
+	}
+	if seenBases[usageBasisIncludedInPlan] {
+		_, _ = fmt.Fprintln(out, "included in every plan: built-in metrics are included in every plan and never charged.")
+	}
+	if seenBases[usageBasisHostedLogsRate] || seenBases[usageBasisPricedByBytes] {
+		_, _ = fmt.Fprintln(out, "Hosted logs: 5 GB of log text a month free per organisation, then EUR 0.25 per GB. "+
+			"Nothing is charged unless an owner turned on paid logs, and never more than the monthly limit; "+
+			"the lines line has no amount of its own ('ankra org hosted-logs show').")
 	}
 	if report.GroupBy == "application" {
 		_, _ = fmt.Fprintln(out, "A service that serves several applications is counted under each of them (Shared: yes), so application lines do not add up to the organisation's total.")
@@ -743,12 +764,47 @@ func usageThousands(quantity int64) string {
 	return sign + grouped.String()
 }
 
-// usagePriceLabel renders the price state: included during the pilot, the
-// amount a published rate makes of the quantity, or why no rate applies.
+// The price bases the table words differently from the generic ones.
+const (
+	// usageBasisPilot: the managed services pilot, and hosted logs before
+	// the organisation's priced-from month.
+	usageBasisPilot = "pilot"
+	// usageBasisIncludedInPlan: built-in metrics, included in every plan.
+	usageBasisIncludedInPlan = "included_in_plan"
+	// usageBasisPricedByBytes: hosted logs lines from the priced-from month,
+	// which carry no amount because hosted logs are priced by their bytes.
+	usageBasisPricedByBytes = "priced_by_bytes"
+	// usageBasisHostedLogsRate: hosted logs bytes from the priced-from month,
+	// priced at 5 GB a month free then EUR 0.25 per GB, up to the monthly
+	// limit of paid logs.
+	usageBasisHostedLogsRate = "hosted_logs_rate"
+)
+
+// usageIncludedBasis is the basis an included line is explained by: a
+// platform that predates the bases sends none, which was the pilot.
+func usageIncludedBasis(basis string) string {
+	if basis == "" {
+		return usageBasisPilot
+	}
+	return basis
+}
+
+// usagePriceLabel renders the price state: included (during the pilot, in
+// every plan, or priced by another line), the amount a published rate makes
+// of the quantity, or why no rate applies.
 func usagePriceLabel(line client.UsageLine) string {
 	switch line.PriceState {
 	case client.UsagePriceIncluded:
-		return "included (pilot)"
+		switch basis := usageIncludedBasis(line.PriceBasis); basis {
+		case usageBasisPilot:
+			return "included (pilot)"
+		case usageBasisIncludedInPlan:
+			return "included in every plan"
+		case usageBasisPricedByBytes:
+			return "priced by bytes"
+		default:
+			return "included (" + basis + ")"
+		}
 	case client.UsagePricePriced:
 		if line.AmountMinor == nil {
 			return "priced, amount not reported"
