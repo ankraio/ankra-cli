@@ -194,10 +194,6 @@ func runNodesList(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID st
 	return nil
 }
 
-// zoneRequestedSource is the availability_zone_source the platform answers
-// when the zone is only what the node's definition asked for.
-const zoneRequestedSource = "requested"
-
 // zoneColumnWidth is the width of the ZONE column in the nodes table.
 const zoneColumnWidth = 15
 
@@ -211,7 +207,7 @@ func zoneDisplay(zone, source *string) (string, bool) {
 	if zone == nil || *zone == "" {
 		return "-", false
 	}
-	if source != nil && *source == zoneRequestedSource {
+	if source != nil && *source == client.AvailabilityZoneSourceRequested {
 		return truncate(*zone, zoneColumnWidth-1) + "*", true
 	}
 	return truncate(*zone, zoneColumnWidth), false

@@ -44,6 +44,12 @@ type NodeSummary struct {
 	AvailabilityZoneSource *string `json:"availability_zone_source"`
 }
 
+// AvailabilityZoneSourceRequested is the availability_zone_source the
+// platform answers when a node's zone is only the one its definition asked
+// for: nothing (the provider or Kubernetes) has confirmed the node runs
+// there yet.
+const AvailabilityZoneSourceRequested = "requested"
+
 type NodeListResult struct {
 	Nodes []NodeSummary `json:"nodes"`
 }
