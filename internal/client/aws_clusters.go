@@ -51,7 +51,7 @@ type CreateAwsClusterRequest struct {
 	Name                  string                `json:"name"`
 	Description           *string               `json:"description,omitempty"`
 	CredentialID          string                `json:"credential_id"`
-	SSHKeyCredentialID    string                `json:"ssh_key_credential_id"`
+	SSHKeyCredentialID    string                `json:"ssh_key_credential_id,omitempty"`
 	Region                string                `json:"region"`
 	VpcID                 string                `json:"vpc_id,omitempty"`
 	NodeSubnetIDs         []string              `json:"node_subnet_ids,omitempty"`

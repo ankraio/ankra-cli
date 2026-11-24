@@ -13,7 +13,7 @@ type CreateProxmoxClusterRequest struct {
 	Name                     string   `json:"name"`
 	Description              *string  `json:"description,omitempty"`
 	CredentialID             string   `json:"credential_id"`
-	SSHKeyCredentialID       string   `json:"ssh_key_credential_id"`
+	SSHKeyCredentialID       string   `json:"ssh_key_credential_id,omitempty"`
 	Node                     string   `json:"node"`
 	PlacementNodes           []string `json:"placement_nodes,omitempty"`
 	Bridge                   string   `json:"bridge"`

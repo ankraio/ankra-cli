@@ -554,7 +554,7 @@ func registerScalewayCreateFlags(commands ...*cobra.Command) {
 		command.Flags().String("description", "", "Cluster description")
 		command.Flags().String("credential-id", "", "Scaleway provisioning credential ID (required)")
 		command.Flags().String("runtime-credential-id", "", "Scaleway credential for the in-cluster CCM/CSI (defaults to the provisioning credential)")
-		command.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (required)")
+		command.Flags().String("ssh-key-credential-id", "", optionalSSHKeyFlagUsage)
 		command.Flags().String("region", "", "Scaleway region, e.g. fr-par (required)")
 		command.Flags().String("zone", "", "Scaleway zone in that region, e.g. fr-par-1 (required)")
 		command.Flags().String("private-network-id", "", "Adopt an existing Private Network instead of creating one")
@@ -578,7 +578,6 @@ func registerScalewayCreateFlags(commands ...*cobra.Command) {
 		registerGatewayAPIFlag(command)
 		_ = command.MarkFlagRequired("name")
 		_ = command.MarkFlagRequired("credential-id")
-		_ = command.MarkFlagRequired("ssh-key-credential-id")
 		_ = command.MarkFlagRequired("region")
 		_ = command.MarkFlagRequired("zone")
 	}

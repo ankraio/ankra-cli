@@ -13,7 +13,7 @@ type CreateUpcloudClusterRequest struct {
 	Name               string  `json:"name"`
 	Description        *string `json:"description,omitempty"`
 	CredentialID       string  `json:"credential_id"`
-	SSHKeyCredentialID string  `json:"ssh_key_credential_id"`
+	SSHKeyCredentialID string  `json:"ssh_key_credential_id,omitempty"`
 	Zone               string  `json:"zone"`
 	// Zones is the multi-zone pool (primary first, at least three zones with
 	// three control planes); NetworkMode is private_network or

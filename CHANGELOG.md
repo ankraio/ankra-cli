@@ -4,6 +4,7 @@
 
 ### Changed
 
+- **Creating a cluster on OVHcloud, UpCloud, DigitalOcean, Scaleway, Proxmox VE, HPE Morpheus or AWS no longer needs `--ssh-key-credential-id`.** Ankra reaches the servers with the key it generates for each cluster, so a personal key is only for your own shell access. Add one when you want it with `ankra cluster ssh-keys set <cluster> --ssh-key-credential-ids <id>`. Passing `--ssh-key-credential-id` at create still works as before.
 - **`ankra cluster playground status` says what the playground runs on and how long it usually takes to start.** A `Runs on:` line names an Ankra Cloud dev cluster (one server) or Ankra Cloud Kubernetes, and while the playground starts, `Ready in:` gives the platform's usual time for that kind, such as `usually about 2.5 minutes from order`. `-o json` and `-o yaml` carry the platform's `shape` and `expected_ready_seconds`. `ankra cluster playground resize` words what happens for each kind: a dev cluster's server restarts on the new plan, and its help says a playground on Ankra Cloud Kubernetes cannot be resized yet. Both lines are left out when the platform does not say.
 - **`ankra security images declared` counts the parts it could not search instead of listing each one.** An organisation with many SOPS-sealed manifests got hundreds of lines after the answer, each sealed manifest twice. The table output now gives one line per cluster, stack and reason with a count, such as `control/control-plane: 38 manifests, sealed keys not searched`. `-o json` still lists every part in `not_searched`.
 

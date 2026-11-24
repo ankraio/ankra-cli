@@ -13,7 +13,7 @@ type CreateMorpheusClusterRequest struct {
 	Name               string  `json:"name"`
 	Description        *string `json:"description,omitempty"`
 	CredentialID       string  `json:"credential_id"`
-	SSHKeyCredentialID string  `json:"ssh_key_credential_id"`
+	SSHKeyCredentialID string  `json:"ssh_key_credential_id,omitempty"`
 	GroupID            int64   `json:"group_id"`
 	CloudID            int64   `json:"cloud_id"`
 	NetworkID          int64   `json:"network_id"`

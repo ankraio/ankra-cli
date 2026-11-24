@@ -28,7 +28,7 @@ type CreateOvhClusterRequest struct {
 	Name               string  `json:"name"`
 	Description        *string `json:"description,omitempty"`
 	CredentialID       string  `json:"credential_id"`
-	SSHKeyCredentialID string  `json:"ssh_key_credential_id"`
+	SSHKeyCredentialID string  `json:"ssh_key_credential_id,omitempty"`
 	Region             string  `json:"region"`
 	NetworkVlanID      int     `json:"network_vlan_id"`
 	SubnetCIDR         string  `json:"subnet_cidr"`
