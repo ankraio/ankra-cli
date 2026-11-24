@@ -1,0 +1,160 @@
+package cmd
+
+import (
+	"bytes"
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+
+	"ankra/internal/client"
+
+	"github.com/spf13/pflag"
+)
+
+const providerStatusTestClusterID = "e781e5e1-d1d6-40f6-b088-d08acf15f7dc"
+
+// providerStatusMock answers the provider status read it holds and records
+// the cluster it was asked about.
+type providerStatusMock struct {
+	readCalls []string
+	response  client.ProviderIncidentsResponse
+}
+
+func (m *providerStatusMock) GetClusterProviderIncidents(clusterID string) (*client.ProviderIncidentsResponse, error) {
+	m.readCalls = append(m.readCalls, clusterID)
+	response := m.response
+	return &response, nil
+}
+
+func runClusterProviderStatus(t *testing.T, mock *providerStatusMock, arguments ...string) (string, error) {
+	t.Helper()
+	setMockClient(t, mock)
+	clusterProviderStatusCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+		_ = flag.Value.Set(flag.DefValue)
+		flag.Changed = false
+	})
+	output := new(bytes.Buffer)
+	rootCmd.SetOut(output)
+	rootCmd.SetErr(output)
+	rootCmd.SetArgs(append([]string{"cluster", "provider-status"}, arguments...))
+	executeError := rootCmd.Execute()
+	return output.String(), executeError
+}
+
+// providerStatusIncidentResponse is OVH's answer for prod-multi-az on
+// 2026-11-24: the compute incident in EU-WEST-PAR-A matched on the zone.
+func providerStatusIncidentResponse() client.ProviderIncidentsResponse {
+	startedAt := time.Date(2026, 11, 24, 10, 4, 0, 0, time.UTC)
+	return client.ProviderIncidentsResponse{
+		ClusterID: providerStatusTestClusterID, Provider: "ovh", ProviderName: "OVH",
+		FeedState: client.ProviderFeedStateOK, Regions: []string{"EU-WEST-PAR"},
+		Zones:    []string{"EU-WEST-PAR-A", "EU-WEST-PAR-B", "EU-WEST-PAR-C"},
+		Machines: 6, OpenIncidentsOnPages: 5,
+		Incidents: []client.ProviderIncidentMatch{{
+			Title:  "[EU-WEST-PAR-A][Public Cloud] - Compute Instance incident notification",
+			Status: "identified", StartedAt: &startedAt, Link: "https://stspg.io/hjfl3mwph7x9",
+			Match: "zone", MatchedLocation: "EU-WEST-PAR-A",
+		}},
+		Summary: "OVH reports an open incident in EU-WEST-PAR-A since 2026-11-24 10:04 UTC.",
+	}
+}
+
+func TestClusterProviderStatus_ListsTheMatchedIncident(t *testing.T) {
+	mock := &providerStatusMock{response: providerStatusIncidentResponse()}
+
+	output, executeError := runClusterProviderStatus(t, mock, providerStatusTestClusterID)
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if len(mock.readCalls) != 1 || mock.readCalls[0] != providerStatusTestClusterID {
+		t.Fatalf("read calls = %v", mock.readCalls)
+	}
+	for _, want := range []string{
+		"Provider:  OVH", "Zones:     EU-WEST-PAR-A, EU-WEST-PAR-B, EU-WEST-PAR-C", "Status page: read",
+		"zone", "2026-11-24 10:04", "identified", "[EU-WEST-PAR-A][Public Cloud]",
+		"https://stspg.io/hjfl3mwph7x9", "OVH reports an open incident in EU-WEST-PAR-A",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output lacks %q:\n%s", want, output)
+		}
+	}
+}
+
+// An unreadable status page says the status could not be checked: an empty
+// list must never read as "the provider reports nothing".
+func TestClusterProviderStatus_SaysAnUnreadablePageCouldNotBeChecked(t *testing.T) {
+	mock := &providerStatusMock{response: client.ProviderIncidentsResponse{
+		ClusterID: providerStatusTestClusterID, Provider: "ovh", ProviderName: "OVH",
+		FeedState: client.ProviderFeedStateUnknown, FeedReason: "unreachable",
+		Regions: []string{"EU-WEST-PAR"}, Machines: 2, MachinesWithoutRecordedZone: 2,
+	}}
+
+	output, executeError := runClusterProviderStatus(t, mock, providerStatusTestClusterID)
+	if executeError != nil {
+		t.Fatalf("an unreadable page is an answer, not a failure: %v\noutput: %s", executeError, output)
+	}
+	for _, want := range []string{
+		"Status page: could not be read (unreachable)", "2 without a recorded zone",
+		"could not be checked. This does not mean the provider reports nothing.",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output lacks %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "No open incident") {
+		t.Errorf("an unreadable page must not read as no incident:\n%s", output)
+	}
+}
+
+func TestClusterProviderStatus_SaysAReadPageWithNothingMatching(t *testing.T) {
+	mock := &providerStatusMock{response: client.ProviderIncidentsResponse{
+		ClusterID: providerStatusTestClusterID, Provider: "scaleway", ProviderName: "Scaleway",
+		FeedState: client.ProviderFeedStateOK, Regions: []string{"FR-PAR"}, Zones: []string{"FR-PAR-1"},
+		Machines: 3, OpenIncidentsOnPages: 2,
+	}}
+
+	output, executeError := runClusterProviderStatus(t, mock, providerStatusTestClusterID)
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "No open incident on Scaleway's status page matches this cluster (2 open in total).") {
+		t.Errorf("output = %s", output)
+	}
+}
+
+func TestClusterProviderStatus_MarksARegionMatchWithoutARecordedZone(t *testing.T) {
+	response := providerStatusIncidentResponse()
+	response.Incidents[0].Match = "region"
+	response.Incidents[0].MatchedLocation = "EU-WEST-PAR"
+	response.Incidents[0].ZoneUnknown = true
+	mock := &providerStatusMock{response: response}
+
+	output, executeError := runClusterProviderStatus(t, mock, providerStatusTestClusterID)
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if !strings.Contains(output, "EU-WEST-PAR (zone not recorded)") {
+		t.Errorf("a region match on an unrecorded zone must say so:\n%s", output)
+	}
+}
+
+func TestClusterProviderStatus_PrintsThePlatformAnswerAsJSON(t *testing.T) {
+	mock := &providerStatusMock{response: providerStatusIncidentResponse()}
+
+	output, executeError := runClusterProviderStatus(t, mock, providerStatusTestClusterID, "-o", "json")
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	var document map[string]any
+	if decodeError := json.Unmarshal([]byte(output), &document); decodeError != nil {
+		t.Fatalf("-o json must print only JSON: %v\n%s", decodeError, output)
+	}
+	if document["feed_state"] != "ok" || document["provider"] != "ovh" {
+		t.Errorf("document = %v", document)
+	}
+	incidents, _ := document["incidents"].([]any)
+	if len(incidents) != 1 || incidents[0].(map[string]any)["match"] != "zone" {
+		t.Errorf("incidents = %v", document["incidents"])
+	}
+}
