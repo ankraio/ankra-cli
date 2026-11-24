@@ -193,6 +193,127 @@ func TestPlaygroundResizePassesTheSizeAndPrintsTheOutcome(t *testing.T) {
 	}
 }
 
+func TestPlaygroundResizeSaysWhatHappensForEachShape(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		status      *client.PlaygroundStatus
+		statusError error
+		expected    string
+		unexpected  string
+	}{
+		"a dev cluster restarts its server": {
+			status:     &client.PlaygroundStatus{Shape: stringPointer(client.PlaygroundShapeDevCluster)},
+			expected:   "restarts the server",
+			unexpected: "node",
+		},
+		"Ankra Cloud Kubernetes moves its node": {
+			status:     &client.PlaygroundStatus{Shape: stringPointer(client.PlaygroundShapeManaged)},
+			expected:   "moves the playground's node",
+			unexpected: "server",
+		},
+		"a platform that does not say is read as a dev cluster": {
+			status:   &client.PlaygroundStatus{},
+			expected: "restarts the server",
+		},
+		"an unreadable status is read as a dev cluster": {
+			statusError: errors.New("unavailable"),
+			expected:    "restarts the server",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			withPlaygroundMock(t, &playgroundMock{
+				status:      testCase.status,
+				statusError: testCase.statusError,
+				resizeResult: &client.ResizePlaygroundResult{
+					ClusterID: playgroundTestClusterID,
+					Plan:      client.PlaygroundOrderedPlan{ID: "medium", DisplayName: "Medium", Vcpus: 4, MemoryGB: 8},
+				},
+			})
+			clusterPlaygroundResizeSize = "medium"
+			t.Cleanup(func() { clusterPlaygroundResizeSize = "" })
+			buffer := &strings.Builder{}
+			clusterPlaygroundResizeCmd.SetOut(buffer)
+			t.Cleanup(func() { clusterPlaygroundResizeCmd.SetOut(nil) })
+			if runError := clusterPlaygroundResizeCmd.RunE(clusterPlaygroundResizeCmd, []string{playgroundTestClusterID}); runError != nil {
+				t.Fatalf("resize failed: %v", runError)
+			}
+			firstLine, _, _ := strings.Cut(buffer.String(), "\n")
+			if !strings.Contains(firstLine, testCase.expected) {
+				t.Errorf("expected %q in %q", testCase.expected, firstLine)
+			}
+			if testCase.unexpected != "" && strings.Contains(firstLine, testCase.unexpected) {
+				t.Errorf("did not expect %q in %q", testCase.unexpected, firstLine)
+			}
+		})
+	}
+}
+
+func TestPlaygroundResizeHelpNamesNoEngine(t *testing.T) {
+	help := strings.ToLower(clusterPlaygroundResizeCmd.Long)
+	for _, engine := range []string{"vcluster", "kamaji", "k3s"} {
+		if strings.Contains(help, engine) {
+			t.Errorf("the resize help names %q", engine)
+		}
+	}
+	if !strings.Contains(clusterPlaygroundResizeCmd.Long, "Ankra Cloud Kubernetes cannot be resized yet") {
+		t.Errorf("the resize help does not say an Ankra Cloud Kubernetes playground cannot be resized yet")
+	}
+}
+
+func TestPlaygroundStatusShowsWhatItRunsOnAndWhenItIsUsuallyReady(t *testing.T) {
+	expectedReadySeconds := 360
+	withPlaygroundMock(t, &playgroundMock{status: &client.PlaygroundStatus{
+		ClusterID:            playgroundTestClusterID,
+		Phase:                "provisioning",
+		ExpiresAt:            "2026-08-14T09:00:00Z",
+		Shape:                stringPointer(client.PlaygroundShapeManaged),
+		ExpectedReadySeconds: &expectedReadySeconds,
+	}})
+	output := captureStdout(t, func() {
+		if runError := clusterPlaygroundStatusCmd.RunE(clusterPlaygroundStatusCmd, []string{playgroundTestClusterID}); runError != nil {
+			t.Fatalf("status failed: %v", runError)
+		}
+	})
+	for _, expected := range []string{"Runs on:    Ankra Cloud Kubernetes", "Ready in:   usually about 6 minutes from order"} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("expected %q in the output, got: %s", expected, output)
+		}
+	}
+}
+
+func TestPlaygroundStatusOmitsTheUsualStartOnceReadyAndAnUnknownShape(t *testing.T) {
+	expectedReadySeconds := 150
+	withPlaygroundMock(t, &playgroundMock{status: &client.PlaygroundStatus{
+		ClusterID:            playgroundTestClusterID,
+		Phase:                "ready",
+		ExpiresAt:            "2026-08-14T09:00:00Z",
+		Shape:                stringPointer("something_new"),
+		ExpectedReadySeconds: &expectedReadySeconds,
+	}})
+	output := captureStdout(t, func() {
+		if runError := clusterPlaygroundStatusCmd.RunE(clusterPlaygroundStatusCmd, []string{playgroundTestClusterID}); runError != nil {
+			t.Fatalf("status failed: %v", runError)
+		}
+	})
+	for _, unexpected := range []string{"Ready in:", "Runs on:"} {
+		if strings.Contains(output, unexpected) {
+			t.Errorf("did not expect %q in the output, got: %s", unexpected, output)
+		}
+	}
+}
+
+func TestFormatUsualStart(t *testing.T) {
+	for seconds, expected := range map[int]string{
+		150: "usually about 2.5 minutes from order",
+		360: "usually about 6 minutes from order",
+		60:  "usually about 1 minute from order",
+		10:  "usually about 1 minute from order",
+	} {
+		if formatted := formatUsualStart(seconds); formatted != expected {
+			t.Errorf("formatUsualStart(%d) = %q, want %q", seconds, formatted, expected)
+		}
+	}
+}
+
 // `plans` lists what a new playground is created at, not the plans an
 // existing one can move to, so the refusal must not send the reader there.
 func TestPlaygroundResizeRequiresTheSizeFlag(t *testing.T) {

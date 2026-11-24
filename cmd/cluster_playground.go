@@ -2,8 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"time"
+
+	"ankra/internal/client"
 
 	"github.com/spf13/cobra"
 )
@@ -75,13 +79,15 @@ var clusterPlaygroundResizeSize string
 var clusterPlaygroundResizeCmd = withClusterArgument(clusterMustBeNamed, &cobra.Command{
 	Use:   "resize <cluster_id|name>",
 	Short: "Move a playground to another Ankra Cloud plan",
-	Long: "Move the playground's server to another Ankra Cloud plan in place. Ankra Cloud stops the " +
-		"server, moves it to the new plan and starts it again, so nothing on the playground answers " +
-		"for a few minutes (Ankra Cloud allows up to 30). Ankra Cloud bills the new plan to your " +
-		"Ankra Cloud account from the change. A plan the playground cannot move to is refused with " +
-		"the plans it can. A free trial keeps its size: add a payment method to your Ankra Cloud " +
-		"account and it becomes an ordinary playground you can resize. Requires permission to " +
-		"manage the organisation's billing.",
+	Long: "Move the playground to another Ankra Cloud plan in place. For a playground that runs on " +
+		"an Ankra Cloud dev cluster, Ankra Cloud stops its server, moves it to the new plan and " +
+		"starts it again, so nothing on the playground answers for a few minutes (Ankra Cloud " +
+		"allows up to 30). A playground that runs on Ankra Cloud Kubernetes cannot be resized yet, " +
+		"and the command says so. `ankra cluster playground status` shows which one a playground " +
+		"runs on. Ankra Cloud bills the new plan to your Ankra Cloud account from the change. A plan " +
+		"the playground cannot move to is refused with the plans it can. A free trial keeps its " +
+		"size: add a payment method to your Ankra Cloud account and it becomes an ordinary " +
+		"playground you can resize. Requires permission to manage the organisation's billing.",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if clusterPlaygroundResizeSize == "" {
@@ -97,7 +103,7 @@ var clusterPlaygroundResizeCmd = withClusterArgument(clusterMustBeNamed, &cobra.
 			return fmt.Errorf("resizing the playground: %w", err)
 		}
 		writer := cmd.OutOrStdout()
-		_, _ = fmt.Fprintf(writer, "Playground resize started: Ankra Cloud restarts the server on the new plan.\n")
+		_, _ = fmt.Fprintf(writer, "Playground resize started: %s\n", playgroundResizeRestart(readPlaygroundShape(clusterID)))
 		_, _ = fmt.Fprintf(writer, "  Cluster ID: %s\n", result.ClusterID)
 		_, _ = fmt.Fprintf(writer, "  Size:       %s (%d vCPU / %.0f GB)\n",
 			result.Plan.DisplayName, result.Plan.Vcpus, result.Plan.MemoryGB)
@@ -108,6 +114,55 @@ var clusterPlaygroundResizeCmd = withClusterArgument(clusterMustBeNamed, &cobra.
 		return nil
 	},
 })
+
+// readPlaygroundShape answers what the playground runs on, "" when the
+// status cannot be read or does not say.
+func readPlaygroundShape(clusterID string) string {
+	status, statusError := apiClient.GetPlaygroundStatus(clusterID)
+	if statusError != nil || status == nil || status.Shape == nil {
+		return ""
+	}
+	return *status.Shape
+}
+
+// playgroundResizeRestart says what a resize does to a playground of shape
+// while it runs. A shape the platform did not name is a dev cluster, the
+// shape every playground had before Ankra Cloud Kubernetes ones.
+func playgroundResizeRestart(shape string) string {
+	if shape == client.PlaygroundShapeManaged {
+		return "Ankra Cloud moves the playground's node to the new plan, and what runs on it restarts."
+	}
+	return "Ankra Cloud restarts the server on the new plan."
+}
+
+// playgroundShapeLabel names what a playground runs on, "" for a shape this
+// CLI does not know.
+func playgroundShapeLabel(shape string) string {
+	switch shape {
+	case client.PlaygroundShapeDevCluster:
+		return "Ankra Cloud dev cluster (one server)"
+	case client.PlaygroundShapeManaged:
+		return "Ankra Cloud Kubernetes"
+	default:
+		return ""
+	}
+}
+
+// isPlaygroundStarting reports a phase before the playground is ready, when
+// how long a start usually takes is worth saying.
+func isPlaygroundStarting(phase string) bool {
+	return phase == "pending" || phase == "provisioning" || phase == "agent_installing"
+}
+
+// formatUsualStart renders how long a start usually takes, to the nearest
+// half minute: "usually about 2.5 minutes from order".
+func formatUsualStart(seconds int) string {
+	minutes := strconv.FormatFloat(math.Max(1, math.Round(float64(seconds)/30)/2), 'f', -1, 64)
+	if minutes == "1" {
+		return "usually about 1 minute from order"
+	}
+	return "usually about " + minutes + " minutes from order"
+}
 
 // currencySymbol renders the catalog's currency for terminal output.
 func currencySymbol(currency string) string {
@@ -141,6 +196,14 @@ var clusterPlaygroundStatusCmd = withClusterArgument(clusterMustBeNamed, &cobra.
 		}
 		fmt.Printf("Cluster ID: %s\n", status.ClusterID)
 		fmt.Printf("Phase:      %s\n", status.Phase)
+		if status.Shape != nil {
+			if label := playgroundShapeLabel(*status.Shape); label != "" {
+				fmt.Printf("Runs on:    %s\n", label)
+			}
+		}
+		if status.ExpectedReadySeconds != nil && *status.ExpectedReadySeconds > 0 && isPlaygroundStarting(status.Phase) {
+			fmt.Printf("Ready in:   %s\n", formatUsualStart(*status.ExpectedReadySeconds))
+		}
 		if status.Plan != nil {
 			memory := status.Plan.MemoryGB
 			memoryLabel := fmt.Sprintf("%.0f", memory)
