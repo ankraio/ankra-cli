@@ -4,7 +4,7 @@
 
 ### Added
 
-- **`ankra credentials get` names the Ankra Cloud account an Ankra Cloud credential is connected to.** The detail of an `ankracloud` credential now prints `Ankra Cloud account: demo (01a108f4-…)` and the Ankra organisation that account belongs to, read live from Ankra Cloud with the credential's own token, so finding which account an organisation's credential uses no longer takes the Ankra Cloud console. When the platform cannot read the account it prints `Ankra Cloud account: unknown (<why>)` rather than leaving the line out. `-o json` and `-o yaml` carry `ankra_cloud_account` (`id`, `name`, `organisation`) or `ankra_cloud_account_error`.
+- **`ankra credentials get` names the Ankra Cloud account an Ankra Cloud credential is connected to.** The detail of an `ankracloud` credential now prints `Ankra Cloud account: demo (01a108f4-…)` and the Ankra organisation that account belongs to, read live from Ankra Cloud with the credential's own token, so finding which account an organisation's credential uses no longer takes the Ankra Cloud console. When the platform cannot read the account it prints `Ankra Cloud account: unknown (<why>)` rather than leaving the line out. `-o json` and `-o yaml` carry `ankra_cloud_account` (`id`, `name`, `organisation`) or `ankra_cloud_account_error`. A role that may read credentials but not reveal them no longer gets only a permission error: `credentials get` shows the credential's name, provider and whether it is usable, with the Ankra Cloud account, and says on stderr that the stored settings need `credentials.reveal`.
 
 ### Changed
 

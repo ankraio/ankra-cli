@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -228,10 +229,22 @@ var credentialsGetCmd = &cobra.Command{
 		}
 
 		cred, err := apiClient.GetCredential(credentialID)
+		isRevealRefused := false
 		if err != nil {
-			return fmt.Errorf("fetching credential: %w", err)
+			var revealRefusal *client.PermissionDeniedError
+			if !errors.As(err, &revealRefusal) {
+				return fmt.Errorf("fetching credential: %w", err)
+			}
+			readable, readableError := readableCredentialDetail(credentialID)
+			if readableError != nil || readable == nil {
+				return fmt.Errorf("fetching credential: %w", err)
+			}
+			cred, isRevealRefused = readable, true
 		}
 
+		if isRevealRefused {
+			fmt.Fprintln(os.Stderr, "Your role can read this credential but not reveal it (credentials.reveal), so its stored settings are not shown.")
+		}
 		if rendered, err := renderStructured(cmd, cred); rendered || err != nil {
 			return err
 		}
@@ -255,6 +268,43 @@ var credentialsGetCmd = &cobra.Command{
 		printCredentialHealth(cred)
 		return nil
 	},
+}
+
+// ankraCloudCredentialProvider is the provider an Ankra Cloud credential is
+// listed under.
+const ankraCloudCredentialProvider = "ankracloud"
+
+// readableCredentialDetail is the credential detail a role without
+// credentials.reveal can still see: the listing row, which needs only
+// credentials.read, and for an Ankra Cloud credential the account it is
+// connected to, from the account read beside the detail. Nil means the
+// listing does not carry the credential either.
+func readableCredentialDetail(credentialID string) (*client.CredentialDetail, error) {
+	credentials, listError := apiClient.ListCredentials(nil)
+	if listError != nil {
+		return nil, listError
+	}
+	for _, listed := range credentials {
+		if listed.ID != credentialID {
+			continue
+		}
+		detail := &client.CredentialDetail{ID: listed.ID, Name: listed.Name, Provider: listed.Provider,
+			CreatedAt: listed.CreatedAt, OrganisationID: listed.OrganisationID, Available: listed.Available}
+		if strings.EqualFold(listed.Provider, ankraCloudCredentialProvider) {
+			account, accountError := apiClient.GetCredentialAnkraCloudAccount(listed.ID)
+			switch {
+			case accountError != nil:
+				reason := fmt.Sprintf("could not be read: %v", accountError)
+				detail.AnkraCloudAccountError = &reason
+			case account.Account != nil:
+				detail.AnkraCloudAccount = account.Account
+			case account.AccountError != nil:
+				detail.AnkraCloudAccountError = account.AccountError
+			}
+		}
+		return detail, nil
+	}
+	return nil, nil
 }
 
 // printCredentialAnkraCloudAccount says which Ankra Cloud account an Ankra

@@ -6,6 +6,8 @@ package cmd
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -83,5 +85,97 @@ func TestCredentialDetailJSONCarriesTheAnkraCloudAccount(t *testing.T) {
 	}
 	if strings.Contains(string(encoded), "ankra_cloud_account_error") {
 		t.Fatalf("a read account carries an error: %s", encoded)
+	}
+}
+
+// serveRevealRefusingPlatform answers like the platform does a role holding
+// credentials.read but not credentials.reveal: the listing and the account
+// read succeed, the credential detail is refused with the RBAC 403. It
+// returns the paths the command asked for.
+func serveRevealRefusingPlatform(t *testing.T, listBody string, accountStatus int, accountBody string) *[]string {
+	t.Helper()
+	var requested []string
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		requested = append(requested, request.URL.Path)
+		responseWriter.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(request.URL.Path, "/ankra-cloud-account"):
+			responseWriter.WriteHeader(accountStatus)
+			_, _ = responseWriter.Write([]byte(accountBody))
+		case request.URL.Path == "/api/v1/org/credentials":
+			_, _ = responseWriter.Write([]byte(listBody))
+		default:
+			responseWriter.WriteHeader(http.StatusForbidden)
+			_, _ = responseWriter.Write([]byte(`{"detail":"permission_denied","permission":"credentials.reveal","scope_type":"organisation"}`))
+		}
+	}))
+	previousClient := apiClient
+	previousBaseURL := baseURL
+	apiClient = adaptMockClient(client.New("test-token", server.URL))
+	baseURL = server.URL
+	t.Cleanup(func() {
+		apiClient = adaptMockClient(previousClient)
+		baseURL = previousBaseURL
+		server.Close()
+	})
+	return &requested
+}
+
+const revealRefusedAnkraCloudListBody = `[{"id":"` + credentialDetailIdentifier + `","name":"ankra-cloud","provider":"ankracloud",` +
+	`"organisation_id":"7b2fedb6-4d79-45fd-b71a-044a2cfddce7","available":true,"created_at":"2026-10-04T22:06:16Z","syncing":false}]`
+
+// TestCredentialsGetShowsTheAnkraCloudAccountToARoleThatCannotReveal pins
+// what a member who may read credentials but not reveal them sees: the
+// listing's facts and the Ankra Cloud account, instead of the reveal refusal.
+func TestCredentialsGetShowsTheAnkraCloudAccountToARoleThatCannotReveal(t *testing.T) {
+	requested := serveRevealRefusingPlatform(t, revealRefusedAnkraCloudListBody, http.StatusOK,
+		`{"credential_id":"`+credentialDetailIdentifier+`","account":{"id":"01a108f4-16f0-7ada-84bb-9ef22be40664","name":"demo",`+
+			`"organisation":{"id":"7b2fedb6-4d79-45fd-b71a-044a2cfddce7","name":"demo"}},"account_error":null}`)
+
+	output := runCredentialsGet(t, credentialDetailIdentifier)
+	for _, expected := range []string{
+		"  Name:     ankra-cloud\n",
+		"  Provider: ankracloud\n",
+		"  Ankra Cloud account: demo (01a108f4-16f0-7ada-84bb-9ef22be40664)\n",
+		"  Ankra Cloud account organisation: demo (7b2fedb6-4d79-45fd-b71a-044a2cfddce7)\n",
+		"  Usable:   yes\n",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("output does not carry %q:\n%s", expected, output)
+		}
+	}
+	if !strings.Contains(strings.Join(*requested, " "), "/api/v1/org/credentials/"+credentialDetailIdentifier+"/ankra-cloud-account") {
+		t.Errorf("the account read was not asked: %v", *requested)
+	}
+}
+
+func TestCredentialsGetSaysWhyTheAccountIsUnknownToARoleThatCannotReveal(t *testing.T) {
+	serveRevealRefusingPlatform(t, revealRefusedAnkraCloudListBody, http.StatusOK,
+		`{"credential_id":"`+credentialDetailIdentifier+`","account":null,`+
+			`"account_error":"Ankra Cloud did not say which account this credential belongs to: Ankra Cloud rejected the API token."}`)
+
+	output := runCredentialsGet(t, credentialDetailIdentifier)
+	if !strings.Contains(output, "Ankra Cloud account: unknown (Ankra Cloud did not say which account this credential belongs to: Ankra Cloud rejected the API token.)") {
+		t.Errorf("an unread account does not say why:\n%s", output)
+	}
+
+	serveRevealRefusingPlatform(t, revealRefusedAnkraCloudListBody, http.StatusInternalServerError, `{"detail":"boom"}`)
+	output = runCredentialsGet(t, credentialDetailIdentifier)
+	if !strings.Contains(output, "Ankra Cloud account: unknown (could not be read:") {
+		t.Errorf("a failed account read does not say so:\n%s", output)
+	}
+}
+
+// TestCredentialsGetKeepsTheRevealRefusalForACredentialTheListingLacks pins
+// that the fallback never invents a credential: an id the listing does not
+// carry still fails with the platform's refusal.
+func TestCredentialsGetKeepsTheRevealRefusalForACredentialTheListingLacks(t *testing.T) {
+	serveRevealRefusingPlatform(t, `[]`, http.StatusOK, `{}`)
+	var runError error
+	captureStdout(t, func() {
+		runError = credentialsGetCmd.RunE(credentialsGetCmd, []string{credentialDetailIdentifier})
+	})
+	if runError == nil || !strings.Contains(runError.Error(), "credentials.reveal") {
+		t.Fatalf("error = %v, want the reveal refusal", runError)
 	}
 }
