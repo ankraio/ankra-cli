@@ -43,7 +43,21 @@ type PlaygroundStatus struct {
 	// TrialExpiresAt is when the trial ends, null for anything that is not a
 	// live trial.
 	TrialExpiresAt *string `json:"trial_expires_at"`
+	// Shape is what the playground runs on: PlaygroundShapeDevCluster or
+	// PlaygroundShapeManaged. Null from a platform that does not say.
+	Shape *string `json:"shape"`
+	// ExpectedReadySeconds is how long a playground of its shape usually
+	// takes from order to ready. Null from a platform that does not say.
+	ExpectedReadySeconds *int `json:"expected_ready_seconds"`
 }
+
+// Playground shapes the status reports.
+const (
+	// PlaygroundShapeDevCluster is an Ankra Cloud dev cluster: one server.
+	PlaygroundShapeDevCluster = "dev_cluster"
+	// PlaygroundShapeManaged is an Ankra Cloud Kubernetes cluster.
+	PlaygroundShapeManaged = "managed"
+)
 
 // PlaygroundPlan is one orderable playground size with its price.
 type PlaygroundPlan struct {
