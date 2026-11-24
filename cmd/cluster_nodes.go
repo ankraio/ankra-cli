@@ -198,19 +198,23 @@ func runNodesList(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID st
 // when the zone is only what the node's definition asked for.
 const zoneRequestedSource = "requested"
 
+// zoneColumnWidth is the width of the ZONE column in the nodes table.
+const zoneColumnWidth = 15
+
 // zoneDisplay renders a node's availability zone for the ZONE column: "-"
 // when the platform knows none (or is a version that does not report zones),
 // and a trailing "*" when the zone is only the one requested, so a zone
 // nothing has confirmed never reads like one the provider reported. The bool
-// says the "*" was added.
+// says the "*" was added. A starred zone is cut one character shorter, so
+// the "*" stays inside the column instead of pushing the next one right.
 func zoneDisplay(zone, source *string) (string, bool) {
 	if zone == nil || *zone == "" {
 		return "-", false
 	}
 	if source != nil && *source == zoneRequestedSource {
-		return truncate(*zone, 14) + "*", true
+		return truncate(*zone, zoneColumnWidth-1) + "*", true
 	}
-	return truncate(*zone, 15), false
+	return truncate(*zone, zoneColumnWidth), false
 }
 
 // providerStatusDisplay combines the cloud provider's live status and power

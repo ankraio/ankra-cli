@@ -272,6 +272,22 @@ func TestClusterNodesListJSONPassesTheNodeFieldsThrough(t *testing.T) {
 	}
 }
 
+// A zone longer than the column is cut so the cell, "*" included, stays
+// within the ZONE column's width and the columns after it stay aligned.
+func TestZoneDisplayKeepsAStarredZoneWithinTheColumn(t *testing.T) {
+	long := "ap-southeast-long-zone-1"
+	plain, starredPlain := zoneDisplay(&long, strPtrCmd("provider"))
+	starred, isStarred := zoneDisplay(&long, strPtrCmd("requested"))
+	if starredPlain || !isStarred || !strings.HasSuffix(starred, "*") {
+		t.Fatalf("only a requested zone is starred: %q (%v), %q (%v)", plain, starredPlain, starred, isStarred)
+	}
+	for _, cell := range []string{plain, starred} {
+		if width := len([]rune(cell)); width != zoneColumnWidth {
+			t.Errorf("%q is %d wide, want the column's %d", cell, width, zoneColumnWidth)
+		}
+	}
+}
+
 // rowOf is the table row that names node.
 func rowOf(t *testing.T, lines []string, node string) string {
 	t.Helper()
