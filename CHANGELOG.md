@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra credentials get` names the Ankra Cloud account an Ankra Cloud credential is connected to.** The detail of an `ankracloud` credential now prints `Ankra Cloud account: demo (01a108f4-…)` and the Ankra organisation that account belongs to, read live from Ankra Cloud with the credential's own token, so finding which account an organisation's credential uses no longer takes the Ankra Cloud console. When the platform cannot read the account it prints `Ankra Cloud account: unknown (<why>)` rather than leaving the line out. `-o json` and `-o yaml` carry `ankra_cloud_account` (`id`, `name`, `organisation`) or `ankra_cloud_account_error`.
+
 ### Changed
 
 - **`ankra cluster playground status` says what the playground runs on and how long it usually takes to start.** A `Runs on:` line names an Ankra Cloud dev cluster (one server) or Ankra Cloud Kubernetes, and while the playground starts, `Ready in:` gives the platform's usual time for that kind, such as `usually about 2.5 minutes from order`. `-o json` and `-o yaml` carry the platform's `shape` and `expected_ready_seconds`. `ankra cluster playground resize` words what happens for each kind: a dev cluster's server restarts on the new plan, and its help says a playground on Ankra Cloud Kubernetes cannot be resized yet. Both lines are left out when the platform does not say.

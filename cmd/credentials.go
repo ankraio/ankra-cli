@@ -250,10 +250,34 @@ var credentialsGetCmd = &cobra.Command{
 			fmt.Printf("  Repository: %s\n", *cred.Repository)
 		}
 		fmt.Printf("  Created:  %s\n", formatTimeAgo(cred.CreatedAt))
+		printCredentialAnkraCloudAccount(cred)
 		printCredentialSSHPublicKey(cred)
 		printCredentialHealth(cred)
 		return nil
 	},
+}
+
+// printCredentialAnkraCloudAccount says which Ankra Cloud account an Ankra
+// Cloud credential is connected to, and the Ankra organisation that account
+// belongs to. When the platform could not read the account it says so and
+// why, so a missing line never reads as "no account". A platform that sends
+// neither field (one that predates them) prints nothing.
+func printCredentialAnkraCloudAccount(credential *client.CredentialDetail) {
+	if credential == nil {
+		return
+	}
+	if account := credential.AnkraCloudAccount; account != nil {
+		fmt.Printf("  Ankra Cloud account: %s (%s)\n", account.Name, account.ID)
+		if account.Organisation != nil {
+			fmt.Printf("  Ankra Cloud account organisation: %s (%s)\n", account.Organisation.Name, account.Organisation.ID)
+		} else {
+			fmt.Printf("  Ankra Cloud account organisation: none (the account is not linked to an Ankra organisation)\n")
+		}
+		return
+	}
+	if credential.AnkraCloudAccountError != nil {
+		fmt.Printf("  Ankra Cloud account: unknown (%s)\n", *credential.AnkraCloudAccountError)
+	}
 }
 
 // printCredentialSSHPublicKey shows which key an ssh-key credential holds:
