@@ -6,6 +6,8 @@
 
 - **`ankra security images declared` counts the parts it could not search instead of listing each one.** An organisation with many SOPS-sealed manifests got hundreds of lines after the answer, each sealed manifest twice. The table output now gives one line per cluster, stack and reason with a count, such as `control/control-plane: 38 manifests, sealed keys not searched`. `-o json` still lists every part in `not_searched`.
 
+- **`ankra delete cluster --help` says what it does to an imported cluster.** It is Disconnect cluster: the cluster leaves Ankra, nothing inside it changes, and it works while the agent is offline. `ankra cluster deprovision` is not the way to remove one. The CLI reference had this by hand, and each release removed it again.
+
 ## v0.87.0 - 2026-11-23
 
 `ankra security fix-candidates` names the newer tag that fixes an image's
