@@ -24,7 +24,15 @@ import (
 const hostedLogsBillingTestPath = "/api/v1/org/billing/hosted-logs"
 
 // hostedLogsBillingTestBlocker is one of the platform's 402 sentences.
-const hostedLogsBillingTestBlocker = "Add a payment method on the Billing page before turning on paid hosted logs."
+const hostedLogsBillingTestBlocker = "Add a payment method on the Plan and billing page before turning on paid hosted logs."
+
+// hostedLogsBillingTestUnchecked is the platform's sentence for a billing
+// account it could not check: the unknown readiness and the 503.
+const hostedLogsBillingTestUnchecked = "Ankra could not check your billing account just now. Try again in a minute."
+
+// hostedLogsChargeRule is the rule in the platform's charge_note.
+const hostedLogsChargeRule = "logs sent in a month above the free 5 GB count toward that month's charge once paid logs are on, " +
+	"including logs sent before they were turned on, at EUR 0.25 a GB and never above the monthly limit."
 
 type hostedLogsBillingRequest struct {
 	method        string
@@ -54,6 +62,7 @@ func hostedLogsNovember2026() client.HostedLogsBilling {
 	return client.HostedLogsBilling{
 		PricedFrom: "2027-01-01", FreeBytesPerMonth: 5_000_000_000, CentsPerGB: 25, BytesPerGB: 1_000_000_000,
 		Currency: "eur", PaidReadiness: client.HostedLogsPaidReady,
+		ChargeNote: "Nothing is charged before 1 January 2027. From then, " + hostedLogsChargeRule,
 		Month: client.HostedLogsMonth{MonthStart: "2026-11-01", Bytes: 1_200_000_000, FreeBytes: 1_200_000_000,
 			State: client.HostedLogsStateShipping},
 	}
@@ -66,6 +75,7 @@ func hostedLogsJanuary2027PausedFree() client.HostedLogsBilling {
 	blocker := hostedLogsBillingTestBlocker
 	reason := client.HostedLogsPausedFreeAllowanceUsed
 	view.PaidReadiness, view.PaidBlocker = client.HostedLogsPaidBlocked, &blocker
+	view.ChargeNote = "This month is priced: " + hostedLogsChargeRule
 	view.Month = client.HostedLogsMonth{MonthStart: "2027-01-01", Priced: true, Bytes: 5_200_000_000, FreeBytes: 5_000_000_000,
 		BillableBytes: 200_000_000, State: client.HostedLogsStatePausedFree, PausedReason: &reason}
 	return view
@@ -79,6 +89,7 @@ func hostedLogsJanuary2027AtTheLimit() client.HostedLogsBilling {
 	updatedAt := "2027-01-02T09:00:00Z"
 	reason := client.HostedLogsPausedMonthlyLimitReached
 	view.PaidEnabled, view.MonthlyLimitCents, view.UpdatedAt = true, &limit, &updatedAt
+	view.ChargeNote = "This month is priced: " + hostedLogsChargeRule
 	view.Month = client.HostedLogsMonth{MonthStart: "2027-01-01", Priced: true, Bytes: 85_000_000_000, FreeBytes: 5_000_000_000,
 		BillableBytes: 80_000_000_000, AmountCents: 2000, State: client.HostedLogsStatePausedLimit, PausedReason: &reason}
 	return view
@@ -288,7 +299,7 @@ func TestOrgHostedLogsShowPausedForWantOfCredit(t *testing.T) {
 	assertContainsAll(t, stdout, []string{
 		"Sending:        paused: the organisation has no prepaid credit to pay for logs above the free 5 GB",
 		"Amount so far:  EUR 1.50",
-		"Sending resumes once the prepaid credit is topped up on the Billing page",
+		"Sending resumes once the prepaid credit is topped up on the Plan and billing page",
 	})
 }
 
@@ -304,7 +315,7 @@ func TestOrgHostedLogsShowJSONIsTheResponseBody(t *testing.T) {
 		t.Fatalf("structured output is not JSON: %v\n%s", decodeError, stdout)
 	}
 	for _, key := range []string{"paid_enabled", "monthly_limit_cents", "updated_at", "priced_from", "free_bytes_per_month",
-		"cents_per_gb", "bytes_per_gb", "currency", "paid_readiness", "paid_blocker", "month"} {
+		"cents_per_gb", "bytes_per_gb", "currency", "paid_readiness", "paid_blocker", "charge_note", "month"} {
 		if _, present := decoded[key]; !present {
 			t.Errorf("%s is missing from the JSON (a null member stays, as null):\n%s", key, stdout)
 		}
@@ -338,7 +349,7 @@ func TestOrgHostedLogsSetPaidWithYesExplainsTheChargeAndTurnsItOn(t *testing.T) 
 		"Paid hosted logs: logs above the free 5 GB a month cost EUR 0.25 per GB, up to EUR 20.00 a month.",
 		"EUR 20.00 pays for up to 80 GB of log text above the free 5 GB. At EUR 20.00, sending pauses for the rest of the month.",
 		"Owners are told at 80% and 100% of the limit.",
-		"Nothing is charged until 1 January 2027: hosted logs are included until 31 December 2026.",
+		"Hosted logs are included until 31 December 2026. Nothing is charged before 1 January 2027. From then, " + hostedLogsChargeRule,
 	})
 	if strings.Contains(stderr, "[y/N]") {
 		t.Fatalf("--yes must skip the question:\n%s", stderr)
@@ -577,13 +588,19 @@ func TestOrgHostedLogsRefusals(t *testing.T) {
 			writeStatus: http.StatusPaymentRequired, writeBody: `{"detail":"` + hostedLogsBillingTestBlocker + `"}`,
 			wantExit: exitError, wantExact: hostedLogsBillingTestBlocker, wantReads: 1, wantWrites: 1},
 		{name: "503 says nothing changed", arguments: []string{"set", "--paid", "--limit", "20", "--yes"},
-			writeStatus: http.StatusServiceUnavailable,
-			writeBody:   `{"detail":"Ankra could not check your billing account just now, so paid hosted logs were not turned on. Try again in a minute."}`,
-			wantExit:    exitError, wantExact: "Ankra could not check your billing account just now, so paid hosted logs were not turned on. Try again in a minute.",
+			writeStatus: http.StatusServiceUnavailable, writeBody: `{"detail":"` + hostedLogsBillingTestUnchecked + `"}`,
+			wantExit: exitError, wantExact: hostedLogsBillingTestUnchecked,
 			wantReads: 1, wantWrites: 1},
 		{name: "a 400 is the platform's sentence", arguments: []string{"set", "--paid", "--limit", "20", "--yes"},
-			writeStatus: http.StatusBadRequest, writeBody: `{"detail":"The monthly limit must be a positive number of cents."}`,
-			wantExit: exitUsage, wantExact: "The monthly limit must be a positive number of cents.", wantReads: 1, wantWrites: 1},
+			writeStatus: http.StatusBadRequest,
+			writeBody: `{"detail":"The monthly limit can be at most €1,000,000.","error_code":"monthly_limit_too_high",` +
+				`"field":"monthly_limit_cents"}`,
+			wantExit: exitUsage, wantExact: "The monthly limit can be at most €1,000,000.", wantReads: 1, wantWrites: 1},
+		{name: "a limit the platform says is needed", arguments: []string{"set", "--paid", "--limit", "20", "--yes"},
+			writeStatus: http.StatusBadRequest,
+			writeBody: `{"detail":"Paid hosted logs need a monthly limit. Set one to turn them on.","error_code":"monthly_limit_required",` +
+				`"field":"monthly_limit_cents"}`,
+			wantExit: exitUsage, wantExact: "Paid hosted logs need a monthly limit. Set one to turn them on.", wantReads: 1, wantWrites: 1},
 		{name: "a write without billing.manage", arguments: []string{"set", "--paid=false"}, view: hostedLogsJanuary2027AtTheLimit,
 			writeStatus: http.StatusForbidden, writeBody: `{"detail":"permission_denied","permission":"billing.manage"}`,
 			wantExit: exitForbidden, wantMessage: "changing paid hosted logs needs the billing.manage permission", wantReads: 1, wantWrites: 1},
@@ -701,4 +718,52 @@ func TestOrgHostedLogsIsRegisteredWithItsFlags(t *testing.T) {
 		"included until 31 December 2026", "5 GB of log text a month free", "EUR 0.25 per GB", "kept 7 days",
 		"Owners\nare told at 80% and 100%", "Built-in metrics are included in every plan", "billing.manage",
 	})
+}
+
+// Turning paid logs on in a priced month charges for the log text the month
+// already sent above the free 5 GB: the platform's charge note and that
+// amount are shown before the question.
+func TestOrgHostedLogsSetPaidSaysTheMonthsBytesAboveTheFreeAmountCount(t *testing.T) {
+	view := hostedLogsJanuary2027PausedFree()
+	view.PaidReadiness, view.PaidBlocker = client.HostedLogsPaidReady, nil
+	newHostedLogsBillingServer(t, view)
+
+	_, stderr, runError := runOrgHostedLogs(t, "", "set", "--paid", "--limit", "20", "--yes")
+	if runError != nil {
+		t.Fatalf("set --paid --limit 20 --yes failed: %v", runError)
+	}
+	assertContainsAll(t, stderr, []string{
+		"This month is priced: " + hostedLogsChargeRule,
+		"This month already has 200.0 MB above the free 5 GB; it counts toward this month's charge.",
+	})
+	if strings.Contains(stderr, "included until") {
+		t.Fatalf("a priced month read as included:\n%s", stderr)
+	}
+}
+
+// show offers turning paid logs on with the platform's sentence on what that
+// charges, in a priced month with paid logs off.
+func TestOrgHostedLogsShowSaysWhatTurningPaidLogsOnCharges(t *testing.T) {
+	newHostedLogsBillingServer(t, hostedLogsJanuary2027PausedFree())
+
+	stdout, _, runError := runOrgHostedLogs(t, "", "show")
+	if runError != nil {
+		t.Fatalf("show failed: %v", runError)
+	}
+	assertContainsAll(t, stdout, []string{"This month is priced: " + hostedLogsChargeRule})
+}
+
+// An unknown readiness is the platform's single sentence for a billing
+// account it could not check.
+func TestOrgHostedLogsShowUnknownReadiness(t *testing.T) {
+	view := hostedLogsJanuary2027PausedFree()
+	unchecked := hostedLogsBillingTestUnchecked
+	view.PaidReadiness, view.PaidBlocker = client.HostedLogsPaidUnknown, &unchecked
+	newHostedLogsBillingServer(t, view)
+
+	stdout, _, runError := runOrgHostedLogs(t, "", "show")
+	if runError != nil {
+		t.Fatalf("show failed: %v", runError)
+	}
+	assertContainsAll(t, stdout, []string{"Turning on:     not known: " + hostedLogsBillingTestUnchecked})
 }

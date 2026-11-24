@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -14,7 +15,9 @@ import (
 // amount.
 const hostedLogsBillingBody = `{"paid_enabled":false,"monthly_limit_cents":2000,"updated_at":"2026-11-24T10:00:00Z",` +
 	`"priced_from":"2027-01-01","free_bytes_per_month":5000000000,"cents_per_gb":25,"bytes_per_gb":1000000000,` +
-	`"currency":"eur","paid_readiness":"blocked","paid_blocker":"Add a payment method on the Billing page before turning on paid hosted logs.",` +
+	`"currency":"eur","paid_readiness":"blocked","paid_blocker":"Add a payment method on the Plan and billing page before turning on paid hosted logs.",` +
+	`"charge_note":"This month is priced: logs sent in a month above the free 5 GB count toward that month's charge once paid logs are on, ` +
+	`including logs sent before they were turned on, at EUR 0.25 a GB and never above the monthly limit.",` +
 	`"month":{"month_start":"2027-01-01","priced":true,"bytes":5200000000,"free_bytes":5000000000,"billable_bytes":200000000,` +
 	`"amount_cents":0,"state":"paused_free","paused_reason":"free_allowance_used","computed_at":"2027-01-09T08:05:00Z"}}`
 
@@ -94,7 +97,7 @@ func TestHostedLogsBillingLaneParity(t *testing.T) {
 			if view.PaidEnabled || view.MonthlyLimitCents == nil || *view.MonthlyLimitCents != 2000 ||
 				view.PricedFrom != "2027-01-01" || view.FreeBytesPerMonth != 5_000_000_000 || view.CentsPerGB != 25 ||
 				view.BytesPerGB != 1_000_000_000 || view.Currency != "eur" || view.PaidReadiness != HostedLogsPaidBlocked ||
-				view.PaidBlocker == nil || view.UpdatedAt == nil {
+				view.PaidBlocker == nil || view.UpdatedAt == nil || !strings.HasPrefix(view.ChargeNote, "This month is priced: ") {
 				t.Errorf("decoded setting = %+v", view)
 			}
 			if month.MonthStart != "2027-01-01" || !month.Priced || month.Bytes != 5_200_000_000 || month.BillableBytes != 200_000_000 ||
@@ -110,7 +113,7 @@ func TestHostedLogsBillingLaneParity(t *testing.T) {
 // arrives as the detail, with the status, so the command can print it as
 // given.
 func TestHostedLogsBillingRefusalKeepsThePlatformsSentence(t *testing.T) {
-	remedy := "Add a payment method on the Billing page before turning on paid hosted logs."
+	remedy := "Add a payment method on the Plan and billing page before turning on paid hosted logs."
 	testClient := newTestClient(t, func(writer http.ResponseWriter, _ *http.Request) {
 		jsonResponse(t, writer, http.StatusPaymentRequired, map[string]string{"detail": remedy})
 	})
@@ -148,5 +151,22 @@ func TestClusterHostedLogsDecodesThePauseReason(t *testing.T) {
 			(state.PausedReason != nil && *state.PausedReason != *testCase.want) {
 			t.Errorf("paused_reason from %s = %v, want %v", testCase.body, state.PausedReason, testCase.want)
 		}
+	}
+}
+
+// A refused monthly limit answers its sentence beside a stable code and the
+// field it is about; the sentence is what reaches the command.
+func TestHostedLogsBillingLimitRefusalKeepsTheSentence(t *testing.T) {
+	sentence := "The monthly limit can be at most €1,000,000."
+	testClient := newTestClient(t, func(writer http.ResponseWriter, _ *http.Request) {
+		jsonResponse(t, writer, http.StatusBadRequest, map[string]string{
+			"detail": sentence, "error_code": "monthly_limit_too_high", "field": "monthly_limit_cents",
+		})
+	})
+	limit := int64(100_000_001)
+	_, callError := testClient.UpdateHostedLogsBilling(context.Background(), HostedLogsBillingUpdate{PaidEnabled: true, MonthlyLimitCents: &limit})
+	var unexpected *UnexpectedResponseError
+	if !errors.As(callError, &unexpected) || unexpected.StatusCode != http.StatusBadRequest || unexpected.Detail != sentence {
+		t.Fatalf("refusal = %#v, want a 400 carrying the platform's sentence", callError)
 	}
 }

@@ -331,9 +331,10 @@ Hosted logs are included until 31 December 2026. From 1 January 2027, 5 GB of lo
 free per organisation, then EUR 0.25 per GB, kept 7 days; at the free 5 GB sending pauses for the
 rest of the month unless an owner turns on paid logs with a monthly limit, and owners are told at
 80% and 100%. `logs-ship status` and `org hosted-logs show` say when the organisation is paused and
-why. Turning paid logs on agrees to a charge and needs `billing.manage`: never pass `--yes` to `org
-hosted-logs set --paid` without the user's explicit go-ahead and the limit they chose. Built-in
-metrics are included in every plan.
+why. Turning paid logs on agrees to a charge (log text the month already sent above the free 5 GB
+counts toward it) and needs `billing.manage`: never pass `--yes` to `org hosted-logs set --paid`
+without the user's explicit go-ahead and the limit they chose. Built-in metrics are included in
+every plan.
 
 ## Migrating a Docker deployment
 

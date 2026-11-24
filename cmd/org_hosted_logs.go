@@ -102,8 +102,10 @@ and leaves paid logs as they are.
 --paid=false turns paid logs off: at the free 5 GB, sending pauses for the
 rest of the month. What the month already charged stays charged.
 
-Turning paid logs on or changing the limit while they are on agrees to a
-charge, so set says what the limit means and asks first. --yes skips the
+Once paid logs are on, every byte the month sent above the free 5 GB counts
+toward its charge, including bytes sent before they were turned on, never
+above the limit. Turning paid logs on or changing the limit while they are
+on agrees to a charge, so set says what the limit means and asks first. --yes skips the
 question; without a terminal to ask on (a script, CI) it is required.
 Turning paid logs off charges nothing, so it does not ask.
 
@@ -296,9 +298,19 @@ func hostedLogsChangeLines(current *client.HostedLogsBilling, paidEnabled bool, 
 			lines = append(lines, fmt.Sprintf("Monthly limit: %s -> %s.", hostedLogsLimitLabel(current.MonthlyLimitCents), limit))
 		}
 		lines = append(lines, "Owners are told at 80% and 100% of the limit.")
-		if !current.Month.Priced {
+		note := strings.TrimSpace(current.ChargeNote)
+		switch {
+		case !current.Month.Priced && note != "":
+			lines = append(lines, fmt.Sprintf("Hosted logs are included until %s. %s", hostedLogsIncludedUntilLabel(current.PricedFrom), note))
+		case !current.Month.Priced:
 			lines = append(lines, fmt.Sprintf("Nothing is charged until %s: hosted logs are included until %s.",
 				hostedLogsDateLabel(current.PricedFrom), hostedLogsIncludedUntilLabel(current.PricedFrom)))
+		case note != "":
+			lines = append(lines, note)
+		}
+		if !current.PaidEnabled && current.Month.Priced && current.Month.BillableBytes > 0 {
+			lines = append(lines, fmt.Sprintf("This month already has %s above the free %s; it counts toward this month's charge.",
+				hostedLogsGB(current.Month.BillableBytes, current.BytesPerGB), free))
 		}
 		if !current.PaidEnabled && current.PaidReadiness != client.HostedLogsPaidReady && current.PaidBlocker != nil &&
 			strings.TrimSpace(*current.PaidBlocker) != "" {
@@ -357,6 +369,9 @@ func printHostedLogsBilling(out io.Writer, view *client.HostedLogsBilling) {
 		_, _ = fmt.Fprintf(out, "At the free %s, sending pauses for the rest of the month unless an owner turns on paid logs with a monthly limit.\n", free)
 	}
 	_, _ = fmt.Fprintf(out, "Owners are told at 80%% and 100%% of the free %s, and of the monthly limit while paid logs are on.\n", free)
+	if note := strings.TrimSpace(view.ChargeNote); note != "" && month.Priced && !view.PaidEnabled {
+		_, _ = fmt.Fprintln(out, note)
+	}
 	if remedy := hostedLogsPauseRemedy(month.PausedReason); remedy != "" {
 		_, _ = fmt.Fprintln(out, remedy)
 	} else if !view.PaidEnabled {
@@ -428,7 +443,7 @@ func hostedLogsPauseRemedy(reason *string) string {
 	case client.HostedLogsPausedMonthlyLimitReached:
 		return "To keep sending this month, an owner can raise the limit: 'ankra org hosted-logs set --limit <euros>'."
 	case client.HostedLogsPausedNoCredit:
-		return "Sending resumes once the prepaid credit is topped up on the Billing page; 'ankra org billing wallet' shows the balance."
+		return "Sending resumes once the prepaid credit is topped up on the Plan and billing page; 'ankra org billing wallet' shows the balance."
 	default:
 		return "Sending resumes when the month ends; 'ankra org hosted-logs show' says more."
 	}

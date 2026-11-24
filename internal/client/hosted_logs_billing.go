@@ -52,7 +52,11 @@ const (
 // first day (YYYY-MM-DD) of the first month the organisation's hosted logs
 // are priced. PaidReadiness says whether paid logs can be turned on now:
 // ready, blocked (PaidBlocker says why and what to do) or unknown (the
-// billing account could not be checked; PaidBlocker says so).
+// billing account could not be checked; PaidBlocker says so). ChargeNote is
+// the platform's sentence saying what turning paid logs on charges: every
+// byte sent in a month above the free amount counts, including bytes sent
+// before paid logs were turned on, up to the monthly limit, and nothing
+// before PricedFrom.
 type HostedLogsBilling struct {
 	PaidEnabled       bool            `json:"paid_enabled" yaml:"paid_enabled"`
 	MonthlyLimitCents *int64          `json:"monthly_limit_cents" yaml:"monthly_limit_cents"`
@@ -64,10 +68,15 @@ type HostedLogsBilling struct {
 	Currency          string          `json:"currency" yaml:"currency"`
 	PaidReadiness     string          `json:"paid_readiness" yaml:"paid_readiness"`
 	PaidBlocker       *string         `json:"paid_blocker" yaml:"paid_blocker"`
+	ChargeNote        string          `json:"charge_note" yaml:"charge_note"`
 	Month             HostedLogsMonth `json:"month" yaml:"month"`
 }
 
 // HostedLogsMonth is the current calendar month (UTC) so far.
+//
+// FreeBytes is the part of Bytes inside the free amount, the smaller of Bytes
+// and HostedLogsBilling.FreeBytesPerMonth, so FreeBytes plus BillableBytes is
+// Bytes. The free amount itself is HostedLogsBilling.FreeBytesPerMonth.
 //
 // Priced is false before the organisation's priced-from month: hosted logs
 // are then included, never paused and never charged. AmountCents is what the
