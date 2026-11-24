@@ -1558,6 +1558,10 @@ func (m baseMock) GetCredentialRepositories(credentialID string) (*client.Creden
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetCredentialAnkraCloudAccount(credentialID string) (*client.CredentialAnkraCloudAccountRead, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListClusterCustomDNSZones(clusterID string) ([]client.CustomDNSZone, error) {
 	return nil, errors.New("not implemented")
 }

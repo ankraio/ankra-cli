@@ -532,6 +532,7 @@ type APIClient interface {
 	DeleteCredential(ctx context.Context, credentialID, organisationID string) (*client.DeleteCredentialResult, error)
 	GetCredential(credentialID string) (*client.CredentialDetail, error)
 	GetCredentialRepositories(credentialID string) (*client.CredentialRepositoryCoverage, error)
+	GetCredentialAnkraCloudAccount(credentialID string) (*client.CredentialAnkraCloudAccountRead, error)
 	ListClusterCustomDNSZones(clusterID string) ([]client.CustomDNSZone, error)
 	AddClusterCustomDNSZone(clusterID string, zone string, credentialName string, provider string) (*client.CustomDNSZone, error)
 	RemoveClusterCustomDNSZone(clusterID string, zone string) (string, error)

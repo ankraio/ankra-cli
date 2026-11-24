@@ -3454,6 +3454,14 @@ func (m mockClientAdapter) GetCredential(a0 string) (*client.CredentialDetail, e
 	}
 	return baseMock{}.GetCredential(a0)
 }
+func (m mockClientAdapter) GetCredentialAnkraCloudAccount(a0 string) (*client.CredentialAnkraCloudAccountRead, error) {
+	if target, ok := m.target.(interface {
+		GetCredentialAnkraCloudAccount(a0 string) (*client.CredentialAnkraCloudAccountRead, error)
+	}); ok {
+		return target.GetCredentialAnkraCloudAccount(a0)
+	}
+	return baseMock{}.GetCredentialAnkraCloudAccount(a0)
+}
 func (m mockClientAdapter) GetCredentialPropagation(a0 context.Context, a1 string) (json.RawMessage, error) {
 	if target, ok := m.target.(interface {
 		GetCredentialPropagation(a0 context.Context, a1 string) (json.RawMessage, error)
