@@ -394,7 +394,7 @@ func init() {
 	proxmoxCreateCmd.Flags().String("name", "", "Cluster name (required)")
 	proxmoxCreateCmd.Flags().String("description", "", "Cluster description")
 	proxmoxCreateCmd.Flags().String("credential-id", "", "Proxmox VE API credential ID (required)")
-	proxmoxCreateCmd.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (required)")
+	proxmoxCreateCmd.Flags().String("ssh-key-credential-id", "", optionalSSHKeyFlagUsage)
 	proxmoxCreateCmd.Flags().String("node", "", "Proxmox VE host node to deploy on (required; see 'ankra cluster proxmox hosts')")
 	proxmoxCreateCmd.Flags().StringSlice("placement-nodes", nil, "Two or more host nodes for host-spread placement (comma-separated or repeated; optional)")
 	proxmoxCreateCmd.Flags().String("bridge", "", "Network bridge for cluster VMs (required; see 'ankra cluster proxmox bridges')")
@@ -420,7 +420,6 @@ func init() {
 
 	_ = proxmoxCreateCmd.MarkFlagRequired("name")
 	_ = proxmoxCreateCmd.MarkFlagRequired("credential-id")
-	_ = proxmoxCreateCmd.MarkFlagRequired("ssh-key-credential-id")
 	_ = proxmoxCreateCmd.MarkFlagRequired("node")
 	_ = proxmoxCreateCmd.MarkFlagRequired("bridge")
 

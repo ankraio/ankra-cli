@@ -647,7 +647,7 @@ var digitaloceanSizesCmd = &cobra.Command{
 func init() {
 	digitaloceanCreateCmd.Flags().String("name", "", "Cluster name (required)")
 	digitaloceanCreateCmd.Flags().String("credential-id", "", "DigitalOcean API credential ID (required)")
-	digitaloceanCreateCmd.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (required)")
+	digitaloceanCreateCmd.Flags().String("ssh-key-credential-id", "", optionalSSHKeyFlagUsage)
 	digitaloceanCreateCmd.Flags().String("region", "", "DigitalOcean region (required)")
 	digitaloceanCreateCmd.Flags().String("network-ip-range", "", "VPC IP range (optional). Left unset, the platform derives a /24 from the cluster id, so clusters in one account do not all ask for the same range; pass one only to pin it")
 	digitaloceanCreateCmd.Flags().String("bastion-size", "", "Bastion droplet size (server default: s-1vcpu-1gb)")
@@ -672,7 +672,6 @@ func init() {
 
 	_ = digitaloceanCreateCmd.MarkFlagRequired("name")
 	_ = digitaloceanCreateCmd.MarkFlagRequired("credential-id")
-	_ = digitaloceanCreateCmd.MarkFlagRequired("ssh-key-credential-id")
 	_ = digitaloceanCreateCmd.MarkFlagRequired("region")
 
 	digitaloceanStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")

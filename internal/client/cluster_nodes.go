@@ -22,10 +22,34 @@ type NodeSummary struct {
 	// ProviderStatus / ProviderPowerState surface the cloud provider's live
 	// status (e.g. OVH ACTIVE/SHUTOFF/ERROR) as last recorded by the
 	// provider's read job; nil until the first read, or always nil for
-	// providers without one.
-	ProviderStatus     *string `json:"provider_status,omitempty"`
-	ProviderPowerState *string `json:"provider_power_state,omitempty"`
+	// providers without one. They print as null rather than vanish from
+	// -o json, so a script reads the same key list for every node.
+	ProviderStatus     *string `json:"provider_status"`
+	ProviderPowerState *string `json:"provider_power_state"`
+	// KubernetesVersion is the kubelet version the platform last observed
+	// on the machine; nil for the bastion or gateway and for a node that
+	// has not reported one.
+	KubernetesVersion *string `json:"kubernetes_version"`
+	// PublicIP is the address the platform recorded for the machine; nil
+	// for a machine that has none (nodes behind the bastion) and for an
+	// address attached to the server outside Ankra.
+	PublicIP *string `json:"public_ip"`
+	// AvailabilityZone is the zone the machine runs in (eu-west-par-a); on
+	// OVH and AWS Location is the region, which spans several zones.
+	// AvailabilityZoneSource says where the platform read it: "provider",
+	// "location", "kubernetes", or "requested" when only the node group
+	// asked for it. Both are nil when the platform knows no zone, and
+	// against a platform that does not serve the fields yet.
+	AvailabilityZone       *string `json:"availability_zone"`
+	AvailabilityZoneSource *string `json:"availability_zone_source"`
 }
+
+// AvailabilityZoneSourceRequested is the availability_zone_source the
+// platform answers when a node's zone is only the one its definition asked
+// for: the provider has not confirmed the node runs there. A node whose
+// Kubernetes zone label names that same zone stays "requested", because the
+// platform can have written that label from the request.
+const AvailabilityZoneSourceRequested = "requested"
 
 type NodeListResult struct {
 	Nodes []NodeSummary `json:"nodes"`

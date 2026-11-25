@@ -435,11 +435,12 @@ func TestAwsCreateSendsTriStateFlagsWhenSet(t *testing.T) {
 
 // The required set is what a created network needs: the VPC and subnet
 // flags are no longer required, because the default is a network Ankra
-// creates.
+// creates, and neither is a personal SSH key, because Ankra reaches the
+// servers with its own.
 func TestAwsCreateRequiresTheCreatedNetworkFlags(t *testing.T) {
 	setMockClient(t, &awsClusterMock{})
 	t.Cleanup(func() { resetTreeFlags(t, awsCreateCmd) })
-	for _, required := range []string{"name", "credential-id", "ssh-key-credential-id", "region"} {
+	for _, required := range []string{"name", "credential-id", "region"} {
 		var args []string
 		for index := 0; index < len(awsCreateArgs); index += 2 {
 			if strings.TrimPrefix(awsCreateArgs[index], "--") == required {

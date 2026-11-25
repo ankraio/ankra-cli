@@ -2,10 +2,10 @@ package cmd
 
 // `ankra cluster held-updates take` (ankra-hq41xb.15): the CLI surface over
 // POST /api/v1/org/clusters/{cluster_id}/held-platform-updates/{notification_id}/take.
-// On a cluster that is production, or that nobody has confirmed is not,
-// Ankra holds every platform add-on version or image update and raises a
-// card instead; taking the card applies exactly the updates it names on the
-// next publish of their stack.
+// Ankra does not move a platform add-on of a running cluster to a newer
+// version or image on its own (ankra-eupti8.1): it holds the update and
+// raises a card instead; taking the card applies exactly the updates it names
+// on the next publish of their stack.
 //
 // `ankra cluster metrics source` beside it reads the cluster's registered
 // metrics source (GET /api/v1/org/clusters/imported/{cluster_id}/metrics-source).
@@ -26,10 +26,11 @@ func newClusterHeldUpdatesCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "held-updates",
 		Short: "Take the platform add-on updates Ankra is holding for the cluster",
-		Long: `On a cluster that is production, or that nobody has confirmed is not production,
-Ankra holds every update of a platform add-on's version or image and raises a
-"held platform update" card on the cluster instead of applying it. Taking the
-card is how you accept one set of those updates without editing YAML.`,
+		Long: `Ankra does not move a platform add-on of a running cluster to a newer version
+or image on its own. It holds each update and raises a "held platform update"
+card on the cluster instead of applying it. Taking the card is how you accept
+one set of those updates without editing YAML. A new cluster starts on the
+versions Ankra pins at the time.`,
 	}
 	command.AddCommand(newClusterHeldUpdatesTakeCommand())
 	return command

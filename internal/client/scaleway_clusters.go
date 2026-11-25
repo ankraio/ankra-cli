@@ -26,7 +26,7 @@ type CreateScalewayClusterRequest struct {
 	Description          *string               `json:"description,omitempty"`
 	CredentialID         string                `json:"credential_id"`
 	RuntimeCredentialID  *string               `json:"runtime_credential_id,omitempty"`
-	SSHKeyCredentialID   string                `json:"ssh_key_credential_id"`
+	SSHKeyCredentialID   string                `json:"ssh_key_credential_id,omitempty"`
 	Region               string                `json:"region"`
 	Zone                 string                `json:"zone"`
 	PrivateNetworkID     *string               `json:"private_network_id,omitempty"`

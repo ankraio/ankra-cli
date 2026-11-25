@@ -378,7 +378,7 @@ func init() {
 	morpheusCreateCmd.Flags().String("name", "", "Cluster name (required)")
 	morpheusCreateCmd.Flags().String("description", "", "Cluster description")
 	morpheusCreateCmd.Flags().String("credential-id", "", "HPE Morpheus API credential ID (required)")
-	morpheusCreateCmd.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (required)")
+	morpheusCreateCmd.Flags().String("ssh-key-credential-id", "", optionalSSHKeyFlagUsage)
 	morpheusCreateCmd.Flags().Int64("group-id", 0, "Morpheus group ID (required; see 'ankra cluster morpheus groups')")
 	morpheusCreateCmd.Flags().Int64("cloud-id", 0, "Morpheus cloud ID (required; see 'ankra cluster morpheus clouds')")
 	morpheusCreateCmd.Flags().Int64("network-id", 0, "Morpheus network ID (required; see 'ankra cluster morpheus networks')")
@@ -402,7 +402,6 @@ func init() {
 
 	_ = morpheusCreateCmd.MarkFlagRequired("name")
 	_ = morpheusCreateCmd.MarkFlagRequired("credential-id")
-	_ = morpheusCreateCmd.MarkFlagRequired("ssh-key-credential-id")
 	_ = morpheusCreateCmd.MarkFlagRequired("group-id")
 	_ = morpheusCreateCmd.MarkFlagRequired("cloud-id")
 	_ = morpheusCreateCmd.MarkFlagRequired("network-id")

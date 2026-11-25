@@ -105,6 +105,13 @@ func sshKeysResyncForKind(kind string) sshKeysResyncFunc {
 	return nil
 }
 
+// optionalSSHKeyFlagUsage is the --ssh-key-credential-id help of every
+// self-managed create: the platform generates each cluster's own key pair and
+// reaches the servers with it, so a personal key is only for the owner's own
+// shell access and can be added once the cluster exists.
+const optionalSSHKeyFlagUsage = "SSH key credential ID to authorise on the servers (optional: Ankra reaches them with its own key; " +
+	"add yours later with 'ankra cluster ssh-keys set <cluster> --ssh-key-credential-ids <id>')"
+
 var clusterSSHKeysCmd = &cobra.Command{
 	Use:     "ssh-keys",
 	Aliases: []string{"ssh-key"},

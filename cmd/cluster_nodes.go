@@ -164,25 +164,53 @@ func runNodesList(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID st
 		return nil
 	}
 
-	fmt.Printf("%-36s  %-22s  %-13s  %-14s  %-16s  %-12s  %-15s  %-15s\n",
-		"ID", "NAME", "ROLE", "NODE_GROUP", "INSTANCE_TYPE", "STATE", "PRIVATE_IP", "PROVIDER_STATUS")
+	fmt.Printf("%-36s  %-22s  %-13s  %-14s  %-16s  %-15s  %-12s  %-15s  %-15s  %-15s\n",
+		"ID", "NAME", "ROLE", "NODE_GROUP", "INSTANCE_TYPE", "ZONE", "STATE", "PRIVATE_IP", "PUBLIC_IP", "PROVIDER_STATUS")
+	anyZoneOnlyRequested := false
 	for _, n := range result.Nodes {
 		state := n.State
 		if n.IsDeleted {
 			state = state + " (soft-deleted)"
 		}
-		fmt.Printf("%-36s  %-22s  %-13s  %-14s  %-16s  %-12s  %-15s  %-15s\n",
+		zone, onlyRequested := zoneDisplay(n.AvailabilityZone, n.AvailabilityZoneSource)
+		anyZoneOnlyRequested = anyZoneOnlyRequested || onlyRequested
+		fmt.Printf("%-36s  %-22s  %-13s  %-14s  %-16s  %-15s  %-12s  %-15s  %-15s  %-15s\n",
 			n.ID,
 			truncate(n.Name, 22),
 			truncate(stringValue(n.Role), 13),
 			truncate(stringValue(n.NodeGroup), 14),
 			truncate(n.InstanceType, 16),
+			zone,
 			truncate(state, 12),
 			truncate(stringValue(n.PrivateIP), 15),
+			truncate(orDash(stringValue(n.PublicIP)), 15),
 			truncate(providerStatusDisplay(n.ProviderStatus, n.ProviderPowerState), 15),
 		)
 	}
+	if anyZoneOnlyRequested {
+		fmt.Println()
+		fmt.Println("* the zone the node group asked for; the provider has not confirmed it.")
+	}
 	return nil
+}
+
+// zoneColumnWidth is the width of the ZONE column in the nodes table.
+const zoneColumnWidth = 15
+
+// zoneDisplay renders a node's availability zone for the ZONE column: "-"
+// when the platform knows none (or is a version that does not report zones),
+// and a trailing "*" when the zone is only the one requested, so a zone the
+// provider has not confirmed never reads like one it reported. The bool
+// says the "*" was added. A starred zone is cut one character shorter, so
+// the "*" stays inside the column instead of pushing the next one right.
+func zoneDisplay(zone, source *string) (string, bool) {
+	if zone == nil || *zone == "" {
+		return "-", false
+	}
+	if source != nil && *source == client.AvailabilityZoneSourceRequested {
+		return truncate(*zone, zoneColumnWidth-1) + "*", true
+	}
+	return truncate(*zone, zoneColumnWidth), false
 }
 
 // providerStatusDisplay combines the cloud provider's live status and power

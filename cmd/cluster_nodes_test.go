@@ -5,6 +5,7 @@ package cmd
 // confirmation and the usecase's error message unchanged.
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -169,4 +170,132 @@ func findSubcommandPath(t *testing.T, path ...string) *cobra.Command {
 		current = next
 	}
 	return current
+}
+
+// ankra-lk328: on 2026-11-24 OVH lost EU-WEST-PAR-A and the nodes list could
+// not say which machines, or whether the bastion, ran there. The table now
+// shows each node's zone and public IP; a zone only the node group asked for
+// is starred and explained, and a node with no known zone shows "-" rather
+// than a guess.
+func TestClusterNodesListShowsTheZoneAndPublicIP(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	mock := &scalewayNodesMock{listResult: &client.NodeListResult{Nodes: []client.NodeSummary{
+		{ID: "node-1", Name: "bastion", State: "up", AvailabilityZone: strPtrCmd("eu-west-par-a"),
+			AvailabilityZoneSource: strPtrCmd("provider"), PublicIP: strPtrCmd("57.130.20.200")},
+		{ID: "node-2", Name: "db-par-a-0", State: "creating", AvailabilityZone: strPtrCmd("eu-west-par-a"),
+			AvailabilityZoneSource: strPtrCmd("requested"), PrivateIP: strPtrCmd("10.0.0.12")},
+		{ID: "node-3", Name: "cp-0", State: "up", PrivateIP: strPtrCmd("10.0.0.10")},
+	}}}
+	setMockClient(t, mock)
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "scaleway", "nodes", "list", testClusterID)
+	})
+
+	lines := strings.Split(stdoutOutput, "\n")
+	zoneColumn, publicIPColumn := strings.Index(lines[0], "ZONE "), strings.Index(lines[0], "PUBLIC_IP ")
+	if zoneColumn < 0 || publicIPColumn < 0 {
+		t.Fatalf("the header must carry ZONE and PUBLIC_IP, got: %s", lines[0])
+	}
+	cell := func(node string, column int) string {
+		t.Helper()
+		row := rowOf(t, lines, node)
+		return strings.Fields(row[column:])[0]
+	}
+	for _, want := range []struct{ node, zone, publicIP string }{
+		{"bastion", "eu-west-par-a", "57.130.20.200"},
+		{"db-par-a-0", "eu-west-par-a*", "-"},
+		{"cp-0", "-", "-"},
+	} {
+		if zone := cell(want.node, zoneColumn); zone != want.zone {
+			t.Errorf("%s ZONE = %q, want %q", want.node, zone, want.zone)
+		}
+		if publicIP := cell(want.node, publicIPColumn); publicIP != want.publicIP {
+			t.Errorf("%s PUBLIC_IP = %q, want %q", want.node, publicIP, want.publicIP)
+		}
+	}
+	if !strings.Contains(stdoutOutput, "* the zone the node group asked for; the provider has not confirmed it.\n") {
+		t.Errorf("a starred zone must be explained under the table, got: %s", stdoutOutput)
+	}
+}
+
+func TestClusterNodesListOmitsTheFootnoteWhenNoZoneIsOnlyRequested(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	setMockClient(t, &scalewayNodesMock{listResult: &client.NodeListResult{Nodes: []client.NodeSummary{
+		{ID: "node-1", Name: "worker-1", State: "up", AvailabilityZone: strPtrCmd("fr-par-2"), AvailabilityZoneSource: strPtrCmd("location")},
+	}}})
+
+	stdoutOutput := captureStdout(t, func() {
+		_, _ = executeCommand("cluster", "scaleway", "nodes", "list", testClusterID)
+	})
+
+	if strings.Contains(stdoutOutput, "*") {
+		t.Errorf("no zone is only requested, so nothing is starred or explained, got: %s", stdoutOutput)
+	}
+}
+
+func TestClusterNodesListJSONPassesTheNodeFieldsThrough(t *testing.T) {
+	writeSelectedClusterJSON(t)
+	setMockClient(t, &scalewayNodesMock{listResult: &client.NodeListResult{Nodes: []client.NodeSummary{
+		{ID: "node-1", Name: "bastion", State: "up", AvailabilityZone: strPtrCmd("eu-west-par-a"),
+			AvailabilityZoneSource: strPtrCmd("provider"), PublicIP: strPtrCmd("57.130.20.200"),
+			KubernetesVersion: strPtrCmd("v1.33.4"), ProviderStatus: strPtrCmd("ACTIVE")},
+	}}})
+	listCommand, _, findError := rootCmd.Find([]string{"cluster", "scaleway", "nodes", "list"})
+	if findError != nil {
+		t.Fatalf("finding the list command: %v", findError)
+	}
+	t.Cleanup(func() { _ = listCommand.Flags().Set("output", "") })
+
+	output, runError := executeCommand("cluster", "scaleway", "nodes", "list", testClusterID, "-o", "json")
+	if runError != nil {
+		t.Fatalf("expected success, got %v", runError)
+	}
+	var decoded struct {
+		Nodes []map[string]any `json:"nodes"`
+	}
+	if decodeError := json.Unmarshal([]byte(output), &decoded); decodeError != nil {
+		t.Fatalf("structured output is not JSON: %v\n%s", decodeError, output)
+	}
+	if len(decoded.Nodes) != 1 {
+		t.Fatalf("expected one node, got %s", output)
+	}
+	node := decoded.Nodes[0]
+	for key, want := range map[string]any{
+		"availability_zone": "eu-west-par-a", "availability_zone_source": "provider", "public_ip": "57.130.20.200",
+		"kubernetes_version": "v1.33.4", "provider_status": "ACTIVE", "provider_power_state": nil,
+	} {
+		value, present := node[key]
+		if !present || value != want {
+			t.Errorf("%s = %v (present %v), want %v", key, value, present, want)
+		}
+	}
+}
+
+// A zone longer than the column is cut so the cell, "*" included, stays
+// within the ZONE column's width and the columns after it stay aligned.
+func TestZoneDisplayKeepsAStarredZoneWithinTheColumn(t *testing.T) {
+	long := "ap-southeast-long-zone-1"
+	plain, starredPlain := zoneDisplay(&long, strPtrCmd("provider"))
+	starred, isStarred := zoneDisplay(&long, strPtrCmd("requested"))
+	if starredPlain || !isStarred || !strings.HasSuffix(starred, "*") {
+		t.Fatalf("only a requested zone is starred: %q (%v), %q (%v)", plain, starredPlain, starred, isStarred)
+	}
+	for _, cell := range []string{plain, starred} {
+		if width := len([]rune(cell)); width != zoneColumnWidth {
+			t.Errorf("%q is %d wide, want the column's %d", cell, width, zoneColumnWidth)
+		}
+	}
+}
+
+// rowOf is the table row that names node.
+func rowOf(t *testing.T, lines []string, node string) string {
+	t.Helper()
+	for _, line := range lines {
+		if strings.Contains(line, " "+node+" ") {
+			return line
+		}
+	}
+	t.Fatalf("no row for %s in:\n%s", node, strings.Join(lines, "\n"))
+	return ""
 }

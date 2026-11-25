@@ -1020,7 +1020,7 @@ func registerAwsCreateFlags(commands ...*cobra.Command) {
 		command.Flags().String("name", "", "Cluster name (required)")
 		command.Flags().String("description", "", "Cluster description")
 		command.Flags().String("credential-id", "", "AWS credential ID - an access key pair or an assumable role (required)")
-		command.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (required)")
+		command.Flags().String("ssh-key-credential-id", "", optionalSSHKeyFlagUsage)
 		command.Flags().String("region", "", "AWS region, e.g. eu-north-1 (required)")
 		command.Flags().String("vpc-id", "", "Adopt an existing VPC instead of letting Ankra create the network; needs --node-subnet-ids and --bastion-subnet-id")
 		command.Flags().StringSlice("node-subnet-ids", nil, "Adopted VPC only: subnets the control plane and workers are spread across, comma-separated (required with --vpc-id)")
@@ -1055,7 +1055,6 @@ func registerAwsCreateFlags(commands ...*cobra.Command) {
 		registerGatewayAPIFlag(command)
 		_ = command.MarkFlagRequired("name")
 		_ = command.MarkFlagRequired("credential-id")
-		_ = command.MarkFlagRequired("ssh-key-credential-id")
 		_ = command.MarkFlagRequired("region")
 	}
 }

@@ -651,7 +651,7 @@ const upcloudDefaultNodeGroupPlan = "PREMIUM-2xCPU-4GB"
 func init() {
 	upcloudCreateCmd.Flags().String("name", "", "Cluster name (required)")
 	upcloudCreateCmd.Flags().String("credential-id", "", "UpCloud API credential ID (required)")
-	upcloudCreateCmd.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (required)")
+	upcloudCreateCmd.Flags().String("ssh-key-credential-id", "", optionalSSHKeyFlagUsage)
 	upcloudCreateCmd.Flags().String("zone", "", "UpCloud zone (required); the primary zone of a multi-zone cluster (bastion, first control plane, default network)")
 	upcloudCreateCmd.Flags().StringSlice("zones", nil, "Zone pool for a multi-zone cluster (e.g. fi-hel1,fi-hel2,se-sto1). Must include --zone. Needs at least 3 zones and --control-plane-count=3 so the control plane survives the loss of any one zone; each extra zone gets its own private network and NAT gateway, and the nodes are joined by a platform-managed WireGuard mesh. kubeadm only. Omitted keeps the cluster in --zone")
 	upcloudCreateCmd.Flags().String("network-mode", "", "Network mode: private_network or wireguard_mesh. Derived when omitted (wireguard_mesh for a multi-zone pool). Pass wireguard_mesh on a single-zone kubeadm cluster to make it mesh-capable so zones can be added later with 'ankra cluster upcloud zones'; a mesh cannot be retrofitted")
@@ -679,7 +679,6 @@ func init() {
 
 	_ = upcloudCreateCmd.MarkFlagRequired("name")
 	_ = upcloudCreateCmd.MarkFlagRequired("credential-id")
-	_ = upcloudCreateCmd.MarkFlagRequired("ssh-key-credential-id")
 	_ = upcloudCreateCmd.MarkFlagRequired("zone")
 
 	upcloudStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")

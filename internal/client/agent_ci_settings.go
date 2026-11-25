@@ -99,6 +99,16 @@ type AgentCISettings struct {
 	// reported", never "none".
 	CIBuildAppArmorProfile       *string `json:"ci_build_apparmor_profile,omitempty" yaml:"ci_build_apparmor_profile,omitempty"`
 	SupportsBuildAppArmorProfile *bool   `json:"supports_build_apparmor_profile,omitempty" yaml:"supports_build_apparmor_profile,omitempty"`
+	// SupportsBuildAppArmorManaged says whether the cluster's agent advertises
+	// the Ankra-managed build profile (AgentCIBuildAppArmorManagedProfile):
+	// the agent ships the profile, loads it on the nodes and keeps builds on
+	// the nodes where it is loaded. Without it the platform sends a stored
+	// ankra-managed to no build. BuildAppArmorManagedStatus is what the last
+	// build that carried ankra-managed reported about the nodes. Both are nil
+	// on a platform older than the managed profile, and the status is nil
+	// until a build reports it.
+	SupportsBuildAppArmorManaged *bool                              `json:"supports_build_apparmor_managed,omitempty" yaml:"supports_build_apparmor_managed,omitempty"`
+	BuildAppArmorManagedStatus   *AgentCIBuildAppArmorManagedStatus `json:"build_apparmor_managed_status,omitempty" yaml:"build_apparmor_managed_status,omitempty"`
 	// CIStepWorkspaces is the cluster's step workspaces mode (off, shadow or
 	// on): whether a run whose pipeline declares workspace.mode: per_step gets
 	// a workspace for each step, so its steps can run on different nodes,
@@ -185,6 +195,39 @@ const (
 // refusals name them.
 var AgentCIStepWorkspacesModes = []string{
 	AgentCIStepWorkspacesOff, AgentCIStepWorkspacesShadow, AgentCIStepWorkspacesOn,
+}
+
+// AgentCIBuildAppArmorManaged is the reserved build AppArmor profile value
+// that asks the cluster's agent to ship, load and route the profile itself,
+// rather than naming one an operator installed on the nodes.
+// AgentCIBuildAppArmorManagedProfile is the profile name the agent loads on
+// the nodes and renders on the build pod.
+const (
+	AgentCIBuildAppArmorManaged        = "ankra-managed"
+	AgentCIBuildAppArmorManagedProfile = "ankra-managed-rootless-buildkit"
+)
+
+// AgentCIBuildAppArmorManagedStatus is what the last build that carried the
+// Ankra-managed profile reported: the profile and its version (the first 12
+// hex characters of the profile text's sha256), how many nodes builds can run
+// on and on how many the profile is loaded, and the nodes themselves (capped
+// by the agent, so the counts are exact and the list may not be). ReportedAt
+// is when the platform recorded the report.
+type AgentCIBuildAppArmorManagedStatus struct {
+	Profile        string                            `json:"profile" yaml:"profile"`
+	ProfileVersion string                            `json:"profile_version" yaml:"profile_version"`
+	NodesDesired   int                               `json:"nodes_desired" yaml:"nodes_desired"`
+	NodesLoaded    int                               `json:"nodes_loaded" yaml:"nodes_loaded"`
+	Nodes          []AgentCIBuildAppArmorManagedNode `json:"nodes" yaml:"nodes"`
+	ReportedAt     string                            `json:"reported_at,omitempty" yaml:"reported_at,omitempty"`
+}
+
+// AgentCIBuildAppArmorManagedNode is one node the managed profile should be
+// loaded on, and when it is not, the agent's short reason.
+type AgentCIBuildAppArmorManagedNode struct {
+	Name    string `json:"name" yaml:"name"`
+	Loaded  bool   `json:"loaded" yaml:"loaded"`
+	Message string `json:"message,omitempty" yaml:"message,omitempty"`
 }
 
 // The placement modes: required pins every pipeline pod to the selected
