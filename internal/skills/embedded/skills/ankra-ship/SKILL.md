@@ -254,7 +254,10 @@ Generated pipelines already declare `promote_from` when their shape allows.
 
 If the build dies within ~30 s on `rootlesskit … failed to share mount point: /: permission denied`,
 the node's runtime confines the builder (containerd AppArmor, kubelet `seccompDefault`; DigitalOcean
-Ubuntu 24.04 is the reference case). **Do not widen the node.** Fall back to Ankra's builders with
+Ubuntu 24.04 is the reference case). **Do not widen the node.** When it is containerd AppArmor,
+`ankra cluster agent ci set --build-apparmor-profile ankra-managed` has the agent load Ankra's
+profile on the nodes and keep builds where it is loaded (needs `Managed AppArmor: advertised` on
+`ankra cluster agent ci get`). Otherwise fall back to Ankra's builders with
 `ankra org ci-settings set --build-fallback platform_builders` (also needs the `Platform builds
 enabled: yes` grant), or build on a cluster that does not confine.
 

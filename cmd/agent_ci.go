@@ -285,7 +285,16 @@ without it makes the build wait rather than run. The name is a DNS-1123
 subdomain other than unconfined; pass an empty value to go back to the
 runtime's default. It needs an agent that advertises the capability, applies
 to the next build dispatched with no agent restart, and the next build is
-probed in-cluster again even if the cluster was known to confine the builder.`,
+probed in-cluster again even if the cluster was known to confine the builder.
+
+--build-apparmor-profile ankra-managed is the recommended value: Ankra ships
+the profile (ankra-managed-rootless-buildkit), the agent loads it on every
+node builds can run on and keeps builds on the nodes where it is loaded, so
+nothing has to be installed by hand. It needs an agent that advertises
+managed AppArmor support; until it does, builds get no profile at all. get
+shows on how many nodes the profile is loaded and why it is not on the rest.
+Pass an empty value to turn it off: the agent removes its loader and builds
+go back to the runtime's default.`,
 		Example: `  ankra cluster agent ci set
   ankra cluster agent ci set --workers 50 --storage-class proxmox-csi
   ankra cluster agent ci set --workers 0 --cluster edge-01
@@ -296,7 +305,9 @@ probed in-cluster again even if the cluster was known to confine the builder.`,
   ankra cluster agent ci set --run-reservation shadow --cluster ci-01
   ankra cluster agent ci set --image-prepull on --cluster ci-01
   ankra cluster agent ci set --step-workspaces shadow --cluster ci-01
-  ankra cluster agent ci set --build-apparmor-profile ankra-rootless-buildkit --cluster ci-01`,
+  ankra cluster agent ci set --build-apparmor-profile ankra-managed --cluster ci-01
+  ankra cluster agent ci set --build-apparmor-profile ankra-rootless-buildkit --cluster ci-01
+  ankra cluster agent ci set --build-apparmor-profile '' --cluster ci-01`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runClusterAgentCISet(command)
@@ -333,8 +344,9 @@ probed in-cluster again even if the cluster was known to confine the builder.`,
 		"Step workspaces: off (default) runs every pipeline on one shared volume, shadow records the mode each "+
 			"per_step run would take without changing it, on gives each step of a per_step pipeline its own workspace")
 	setCommand.Flags().String("build-apparmor-profile", "",
-		"Node-installed AppArmor profile the rootless image builder runs under (Localhost); pass empty to "+
-			"use the runtime's default (omit the flag to keep the stored value)")
+		"AppArmor profile the rootless image builder runs under: ankra-managed lets the agent ship and load "+
+			"Ankra's profile on the nodes (recommended), any other name is a Localhost profile installed on the "+
+			"nodes; pass empty to use the runtime's default (omit the flag to keep the stored value)")
 	registerStructuredOutputFlags(setCommand)
 	return setCommand
 }
@@ -586,6 +598,14 @@ func runClusterAgentCISet(command *cobra.Command) error {
 		if encodeError := encodeStructured(command.OutOrStdout(), format, settings); encodeError != nil {
 			return encodeError
 		}
+		// The human output carries this as a note; structured output keeps
+		// stdout parseable, so a set that stored ankra-managed for an agent
+		// that cannot honour it still hears so, on stderr.
+		if update.CIBuildAppArmorProfile != nil {
+			if note := agentCIBuildAppArmorProfileNote(settings); note != "" {
+				_, _ = fmt.Fprintf(command.ErrOrStderr(), "Warning: %s\n", note)
+			}
+		}
 		return unstoredError
 	}
 	out := command.OutOrStdout()
@@ -834,8 +854,12 @@ func printAgentCIBuildAppArmorProfile(out io.Writer, settings *client.AgentCISet
 		return
 	}
 	profile := *settings.CIBuildAppArmorProfile
-	if profile == "" {
+	isManaged := profile == client.AgentCIBuildAppArmorManaged
+	switch {
+	case profile == "":
 		profile = "(runtime default)"
+	case isManaged:
+		profile = fmt.Sprintf("%s (%s)", profile, agentCIBuildAppArmorManagedProfileLabel(settings))
 	}
 	_, _ = fmt.Fprintf(out, "  Build AppArmor:        %s\n", profile)
 	switch {
@@ -848,21 +872,116 @@ func printAgentCIBuildAppArmorProfile(out io.Writer, settings *client.AgentCISet
 		// name alone, which reads as a profile builds run under.
 		_, _ = fmt.Fprintln(out, "  AppArmor support:      not reported")
 	}
+	if isManaged {
+		printAgentCIBuildAppArmorManaged(out, settings)
+	}
+}
+
+// agentCIBuildAppArmorManagedProfileLabel names the profile the agent loads
+// for ankra-managed, with the version the last build reported when there is
+// one.
+func agentCIBuildAppArmorManagedProfileLabel(settings *client.AgentCISettings) string {
+	status := settings.BuildAppArmorManagedStatus
+	if status == nil {
+		return client.AgentCIBuildAppArmorManagedProfile
+	}
+	profile := status.Profile
+	if profile == "" {
+		profile = client.AgentCIBuildAppArmorManagedProfile
+	}
+	if status.ProfileVersion == "" {
+		return profile
+	}
+	return profile + " " + status.ProfileVersion
+}
+
+// agentCIBuildAppArmorManagedNodeIndent lines a node up under the value
+// column of the settings block.
+const agentCIBuildAppArmorManagedNodeIndent = "                         "
+
+// printAgentCIBuildAppArmorManaged renders whether the agent advertises the
+// managed profile and on how many nodes the last build found it loaded, then
+// one line per node it is not loaded on, with the agent's reason. The agent
+// caps the node list while the counts stay exact, so the nodes it left out
+// are counted rather than dropped silently.
+func printAgentCIBuildAppArmorManaged(out io.Writer, settings *client.AgentCISettings) {
+	managedSupport := "not reported"
+	if settings.SupportsBuildAppArmorManaged != nil {
+		managedSupport = agentCICapabilityLabel(*settings.SupportsBuildAppArmorManaged)
+	}
+	_, _ = fmt.Fprintf(out, "  Managed AppArmor:      %s\n", managedSupport)
+	status := settings.BuildAppArmorManagedStatus
+	if status == nil {
+		_, _ = fmt.Fprintln(out, "  Profile loaded on:     not reported yet (the next build reports it)")
+		return
+	}
+	loaded := fmt.Sprintf("%d of %d nodes", status.NodesLoaded, status.NodesDesired)
+	if status.ReportedAt != "" {
+		loaded += fmt.Sprintf(" (reported %s)", formatTimeAgo(status.ReportedAt))
+	}
+	_, _ = fmt.Fprintf(out, "  Profile loaded on:     %s\n", loaded)
+	listedNotLoaded := 0
+	for _, node := range status.Nodes {
+		if node.Loaded {
+			continue
+		}
+		listedNotLoaded++
+		message := node.Message
+		if message == "" {
+			message = "not loaded"
+		}
+		_, _ = fmt.Fprintf(out, "%s%s: %s\n", agentCIBuildAppArmorManagedNodeIndent, node.Name, message)
+	}
+	if unlisted := status.NodesDesired - status.NodesLoaded - listedNotLoaded; unlisted > 0 {
+		_, _ = fmt.Fprintf(out, "%sand %d more not loaded\n", agentCIBuildAppArmorManagedNodeIndent, unlisted)
+	}
 }
 
 // agentCIBuildAppArmorProfileNote says what a named profile means when the
 // agent cannot render it: the builder still runs under the runtime's default
 // profile, and an operator reading the name would otherwise believe it does
-// not.
+// not. For ankra-managed, agentCIBuildAppArmorManagedNote answers instead.
 func agentCIBuildAppArmorProfileNote(settings *client.AgentCISettings) string {
 	if settings.CIBuildAppArmorProfile == nil || *settings.CIBuildAppArmorProfile == "" {
 		return ""
+	}
+	if *settings.CIBuildAppArmorProfile == client.AgentCIBuildAppArmorManaged {
+		return agentCIBuildAppArmorManagedNote(settings)
 	}
 	if settings.SupportsBuildAppArmorProfile == nil || *settings.SupportsBuildAppArmorProfile {
 		return ""
 	}
 	return "A build AppArmor profile is named, but this cluster's agent does not advertise it: builds run " +
 		"under the runtime's default profile until the agent is upgraded."
+}
+
+// agentCIBuildAppArmorManagedNote is the note for ankra-managed. The platform
+// sends it only to an agent that advertises both the build profile and the
+// managed profile, so an agent missing either runs builds under the runtime's
+// default. A platform that reports the build profile capability but not the
+// managed one predates ankra-managed and would send it as the name of a
+// profile installed on the nodes, which no node has. With the profile loaded
+// on no node yet, builds wait for it.
+func agentCIBuildAppArmorManagedNote(settings *client.AgentCISettings) string {
+	isProfileUnsupported := settings.SupportsBuildAppArmorProfile != nil && !*settings.SupportsBuildAppArmorProfile
+	isManagedUnsupported := settings.SupportsBuildAppArmorManaged != nil && !*settings.SupportsBuildAppArmorManaged
+	switch {
+	case isProfileUnsupported || isManagedUnsupported:
+		return "The build AppArmor profile is ankra-managed, but this cluster's agent does not advertise " +
+			"managed AppArmor support, so builds get no profile and run under the runtime's default until " +
+			"the agent is upgraded (ankra cluster agent upgrade)."
+	case settings.SupportsBuildAppArmorProfile != nil && settings.SupportsBuildAppArmorManaged == nil:
+		return "The build AppArmor profile is ankra-managed, but the platform does not report managed " +
+			"AppArmor support: it may send ankra-managed as the name of a profile installed on the nodes, " +
+			"and builds would wait for a profile no node has. Clear it with --build-apparmor-profile '' " +
+			"until the platform reports support."
+	}
+	status := settings.BuildAppArmorManagedStatus
+	if status != nil && status.NodesDesired > 0 && status.NodesLoaded == 0 {
+		return "The managed AppArmor profile is loaded on no node yet: builds wait until it is loaded on a " +
+			"node they can run on. The lines under Profile loaded on say why."
+	}
+	return ""
 }
 
 // printAgentCIImagePrepull renders the mode and whether the agent can honour
