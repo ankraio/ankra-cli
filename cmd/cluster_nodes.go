@@ -189,7 +189,7 @@ func runNodesList(cmd *cobra.Command, opsFn func() clusterNodesOps, clusterID st
 	}
 	if anyZoneOnlyRequested {
 		fmt.Println()
-		fmt.Println("* the zone the node group asked for; neither the provider nor Kubernetes has reported it yet.")
+		fmt.Println("* the zone the node group asked for; the provider has not confirmed it.")
 	}
 	return nil
 }
@@ -199,8 +199,8 @@ const zoneColumnWidth = 15
 
 // zoneDisplay renders a node's availability zone for the ZONE column: "-"
 // when the platform knows none (or is a version that does not report zones),
-// and a trailing "*" when the zone is only the one requested, so a zone
-// nothing has confirmed never reads like one the provider reported. The bool
+// and a trailing "*" when the zone is only the one requested, so a zone the
+// provider has not confirmed never reads like one it reported. The bool
 // says the "*" was added. A starred zone is cut one character shorter, so
 // the "*" stays inside the column instead of pushing the next one right.
 func zoneDisplay(zone, source *string) (string, bool) {

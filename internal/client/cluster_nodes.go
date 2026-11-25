@@ -46,8 +46,9 @@ type NodeSummary struct {
 
 // AvailabilityZoneSourceRequested is the availability_zone_source the
 // platform answers when a node's zone is only the one its definition asked
-// for: nothing (the provider or Kubernetes) has confirmed the node runs
-// there yet.
+// for: the provider has not confirmed the node runs there. A node whose
+// Kubernetes zone label names that same zone stays "requested", because the
+// platform can have written that label from the request.
 const AvailabilityZoneSourceRequested = "requested"
 
 type NodeListResult struct {
