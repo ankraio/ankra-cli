@@ -179,3 +179,30 @@ func TestClusterProviderStatus_SaysWhyNothingCouldBeChecked(t *testing.T) {
 		}
 	}
 }
+
+// A cluster with no recorded region or zone is said as that, not as a page
+// that leaves its place out; and a provider-wide incident beside it must not
+// claim a page went unread.
+func TestClusterProviderStatus_SaysWhenNoPlaceIsRecorded(t *testing.T) {
+	mock := &providerStatusMock{response: client.ProviderIncidentsResponse{
+		ClusterID: providerStatusTestClusterID, Provider: "ovh", ProviderName: "OVH",
+		FeedState: client.ProviderFeedStateUnknown, FeedReason: "location_not_listed", OpenIncidentsOnPages: 1,
+		Incidents: []client.ProviderIncidentMatch{{Title: "[Global] - Backbone", Status: "investigating",
+			Match: "provider_wide", Link: "https://stspg.io/abc"}},
+	}}
+	output, executeError := runClusterProviderStatus(t, mock, providerStatusTestClusterID)
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	for _, want := range []string{
+		"Status page: read, but Ankra has no region or zone recorded for this cluster",
+		"provider-wide", "Ankra cannot tell whether more incidents are open where this cluster runs.",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output lacks %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "could be read") {
+		t.Errorf("every page was read:\n%s", output)
+	}
+}

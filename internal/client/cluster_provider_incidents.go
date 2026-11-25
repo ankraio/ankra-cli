@@ -7,9 +7,11 @@ import (
 )
 
 // Provider status feed states: ok when every status page of the provider was
-// read, unknown when one could not be read, the provider publishes none the
-// platform reads, or the cluster's provider is not known. An unknown state
-// with no incidents means "could not check", never "no incident".
+// read and they list the cluster's place, unknown when one could not be read,
+// the provider publishes none the platform reads, they list none of the
+// cluster's regions and zones (or the platform has none recorded), or the
+// cluster's provider is not known. An unknown state with no incidents means
+// "could not check", never "no incident".
 const (
 	ProviderFeedStateOK      = "ok"
 	ProviderFeedStateUnknown = "unknown"

@@ -27,9 +27,10 @@ zone of the cluster's region matches on the region and says the zone is not
 known. An incident the page scopes to the whole provider is listed as
 provider-wide.
 
-When the status page cannot be read, or does not list the cluster's region
-and zones, the answer says so: an empty list then means the provider's status
-could not be checked, not that it reports nothing. Status pages are read for
+When the status page cannot be read, does not list the cluster's region and
+zones, or Ankra has none recorded for the cluster, the answer says so: an
+empty list then means the provider's status could not be checked, not that it
+reports nothing. Status pages are read for
 OVHcloud, UpCloud, DigitalOcean and Scaleway; for other providers the read
 says there is no status page Ankra reads, and for a managed Kubernetes
 cluster that Ankra does not read where its nodes run yet. The platform caches
@@ -64,6 +65,11 @@ const providerStatusTitleWidth = 72
 // providerStatusMatchProviderWide is the match of an incident the status page
 // scopes to the whole provider rather than to a region or zone.
 const providerStatusMatchProviderWide = "provider_wide"
+
+// providerFeedReasonLocationNotListed is the reason of an answer whose status
+// pages were read but cannot be placed: they list none of the cluster's
+// regions and zones, or the platform has none recorded for it.
+const providerFeedReasonLocationNotListed = "location_not_listed"
 
 // printProviderStatus writes the human-readable provider status of one
 // cluster: what was read, where the cluster runs, and the matching incidents.
@@ -123,6 +129,11 @@ func printProviderStatus(output io.Writer, clusterReference string, result *clie
 		_, _ = fmt.Fprintf(output, "\n%s\n", result.Summary)
 	}
 	if result.FeedState != client.ProviderFeedStateOK {
+		if result.FeedReason == providerFeedReasonLocationNotListed {
+			_, _ = fmt.Fprintln(output,
+				"Ankra cannot tell whether more incidents are open where this cluster runs.")
+			return
+		}
 		_, _ = fmt.Fprintln(output,
 			"Not every status page of the provider could be read, so more incidents may be open.")
 	}
@@ -141,7 +152,10 @@ func providerFeedStateText(result *client.ProviderIncidentsResponse) string {
 		return "none read: the cluster's provider is not known"
 	case "managed_kubernetes":
 		return "none read: Ankra does not read where a managed Kubernetes cluster's nodes run yet"
-	case "location_not_listed":
+	case providerFeedReasonLocationNotListed:
+		if len(result.Regions)+len(result.Zones) == 0 {
+			return "read, but Ankra has no region or zone recorded for this cluster"
+		}
 		return "read, but it does not list the cluster's region or zones"
 	case "unreachable":
 		return "could not be read (unreachable)"
