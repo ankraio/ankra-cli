@@ -214,7 +214,7 @@ func TestClusterNodesListShowsTheZoneAndPublicIP(t *testing.T) {
 			t.Errorf("%s PUBLIC_IP = %q, want %q", want.node, publicIP, want.publicIP)
 		}
 	}
-	if !strings.Contains(stdoutOutput, "* the zone the node group asked for") {
+	if !strings.Contains(stdoutOutput, "* the zone the node group asked for; the provider has not confirmed it.\n") {
 		t.Errorf("a starred zone must be explained under the table, got: %s", stdoutOutput)
 	}
 }
