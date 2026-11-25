@@ -915,11 +915,15 @@ func printAgentCIBuildAppArmorManaged(out io.Writer, settings *client.AgentCISet
 		_, _ = fmt.Fprintln(out, "  Profile loaded on:     not reported yet (the next build reports it)")
 		return
 	}
+	// The counts are the last build's finding, not a live read, so the line
+	// says so and when. A report that found no node builds can run on is an
+	// unobserved answer, not "0 of 0", which reads as a clean one.
 	loaded := fmt.Sprintf("%d of %d nodes", status.NodesLoaded, status.NodesDesired)
-	if status.ReportedAt != "" {
-		loaded += fmt.Sprintf(" (reported %s)", formatTimeAgo(status.ReportedAt))
+	if status.NodesDesired == 0 {
+		loaded = "unknown: the last build found no node builds can run on"
 	}
-	_, _ = fmt.Fprintf(out, "  Profile loaded on:     %s\n", loaded)
+	_, _ = fmt.Fprintf(out, "  Profile loaded on:     %s (%s)\n", loaded,
+		agentCIBuildAppArmorManagedReportLabel(status))
 	listedNotLoaded := 0
 	for _, node := range status.Nodes {
 		if node.Loaded {
@@ -981,10 +985,21 @@ func agentCIBuildAppArmorManagedNote(settings *client.AgentCISettings) string {
 	}
 	status := settings.BuildAppArmorManagedStatus
 	if status != nil && status.NodesDesired > 0 && status.NodesLoaded == 0 {
-		return "The managed AppArmor profile is loaded on no node yet: builds wait until it is loaded on a " +
-			"node they can run on. The lines under Profile loaded on say why."
+		return "The " + agentCIBuildAppArmorManagedReportLabel(status) + " found the managed AppArmor profile " +
+			"loaded on no node: until it is loaded on a node builds can run on, builds wait. The lines under " +
+			"Profile loaded on say why; the next build reports again."
 	}
 	return ""
+}
+
+// agentCIBuildAppArmorManagedReportLabel names where the node counts come
+// from: the last build that carried ankra-managed, and when the platform
+// recorded its report.
+func agentCIBuildAppArmorManagedReportLabel(status *client.AgentCIBuildAppArmorManagedStatus) string {
+	if status.ReportedAt == "" {
+		return "last build's report"
+	}
+	return "last build's report, " + formatTimeAgo(status.ReportedAt)
 }
 
 // printAgentCIImagePrepull renders the mode and whether the agent can honour

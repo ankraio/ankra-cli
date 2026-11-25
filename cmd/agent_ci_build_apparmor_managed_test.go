@@ -81,11 +81,11 @@ func TestClusterAgentCIGetPrintsTheManagedBuildAppArmorProfile(t *testing.T) {
 				"Build AppArmor:        ankra-managed (ankra-managed-rootless-buildkit 3f2a9c41b7d0)",
 				"AppArmor support:      advertised",
 				"Managed AppArmor:      advertised",
-				"Profile loaded on:     1 of 3 nodes (reported ",
+				"Profile loaded on:     1 of 3 nodes (last build's report, ",
 				"\n" + agentCIBuildAppArmorManagedNodeIndent + "ci-2: apparmor_parser not found\n",
 				"\n" + agentCIBuildAppArmorManagedNodeIndent + "ci-3: not confirmed loaded (no reason reported)\n",
 			},
-			forbidden: []string{"ci-1:", "more not confirmed loaded", "loaded on no node yet", "does not advertise"},
+			forbidden: []string{"ci-1:", "more not confirmed loaded", "profile loaded on no node", "does not advertise"},
 		},
 		"loaded on every node": {
 			settings: agentCIBuildAppArmorManagedSettings(agentCIBuildAppArmorManagedBool(true),
@@ -93,7 +93,7 @@ func TestClusterAgentCIGetPrintsTheManagedBuildAppArmorProfile(t *testing.T) {
 					client.AgentCIBuildAppArmorManagedNode{Name: "ci-1", Loaded: true},
 					client.AgentCIBuildAppArmorManagedNode{Name: "ci-2", Loaded: true})),
 			expected:  []string{"Profile loaded on:     2 of 2 nodes"},
-			forbidden: []string{"ci-1:", "ci-2:", "loaded on no node yet"},
+			forbidden: []string{"ci-1:", "ci-2:", "profile loaded on no node"},
 		},
 		"node list capped by the agent": {
 			settings: agentCIBuildAppArmorManagedSettings(agentCIBuildAppArmorManagedBool(true),
@@ -103,8 +103,27 @@ func TestClusterAgentCIGetPrintsTheManagedBuildAppArmorProfile(t *testing.T) {
 				"Profile loaded on:     0 of 70 nodes",
 				agentCIBuildAppArmorManagedNodeIndent + "ci-1: loader pod pending",
 				agentCIBuildAppArmorManagedNodeIndent + "and 69 more not confirmed loaded",
-				"The managed AppArmor profile is loaded on no node yet: builds wait",
+				"found the managed AppArmor profile loaded on no node: until it is loaded on a node builds can run " +
+					"on, builds wait",
+				"the next build reports again",
 			},
+		},
+		"last build found no node builds can run on": {
+			settings: agentCIBuildAppArmorManagedSettings(agentCIBuildAppArmorManagedBool(true),
+				agentCIBuildAppArmorManagedReport(0, 0)),
+			expected: []string{
+				"Profile loaded on:     unknown: the last build found no node builds can run on (last build's report, ",
+			},
+			forbidden: []string{"0 of 0 nodes", "profile loaded on no node", "more not confirmed loaded"},
+		},
+		"report without a time": {
+			settings: func() *client.AgentCISettings {
+				report := agentCIBuildAppArmorManagedReport(1, 1,
+					client.AgentCIBuildAppArmorManagedNode{Name: "ci-1", Loaded: true})
+				report.ReportedAt = ""
+				return agentCIBuildAppArmorManagedSettings(agentCIBuildAppArmorManagedBool(true), report)
+			}(),
+			expected: []string{"Profile loaded on:     1 of 1 nodes (last build's report)\n"},
 		},
 		"agent without managed support": {
 			settings: agentCIBuildAppArmorManagedSettings(agentCIBuildAppArmorManagedBool(false), nil),
