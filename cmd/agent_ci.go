@@ -982,6 +982,14 @@ func agentCIBuildAppArmorManagedNote(settings *client.AgentCISettings) string {
 			"AppArmor support: it may send ankra-managed as the name of a profile installed on the nodes, " +
 			"and builds would wait for a profile no node has. Clear it with --build-apparmor-profile '' " +
 			"until the platform reports support."
+	case settings.SupportsBuildAppArmorProfile == nil && settings.SupportsBuildAppArmorManaged == nil:
+		// Neither capability is reported when no agent has checked in, and
+		// by a platform that predates both; managed support is not confirmed
+		// either way, which is what an operator has to hear.
+		return "The build AppArmor profile is ankra-managed, but managed AppArmor support is not confirmed: " +
+			"neither the platform nor an agent reports it. Builds may get no profile, or wait for one no node " +
+			"has, until the cluster's agent advertises it; check with ankra cluster agent ci get once the " +
+			"agent is connected."
 	}
 	status := settings.BuildAppArmorManagedStatus
 	if status != nil && status.NodesDesired > 0 && status.NodesLoaded == 0 {

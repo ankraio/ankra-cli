@@ -150,6 +150,19 @@ func TestClusterAgentCIGetPrintsTheManagedBuildAppArmorProfile(t *testing.T) {
 				"the platform does not report managed AppArmor support",
 			},
 		},
+		"neither capability reported": {
+			settings: func() *client.AgentCISettings {
+				settings := agentCIBuildAppArmorManagedSettings(nil, nil)
+				settings.SupportsBuildAppArmorProfile = nil
+				return settings
+			}(),
+			expected: []string{
+				"AppArmor support:      not reported",
+				"Managed AppArmor:      not reported",
+				"managed AppArmor support is not confirmed: neither the platform nor an agent reports it",
+			},
+			forbidden: []string{"the platform does not report managed AppArmor support:"},
+		},
 		"operator-installed profile": {
 			settings:  agentCIBuildAppArmorSettings("ankra-rootless-buildkit", true),
 			expected:  []string{"Build AppArmor:        ankra-rootless-buildkit\n"},
