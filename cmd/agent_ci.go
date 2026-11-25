@@ -600,7 +600,9 @@ func runClusterAgentCISet(command *cobra.Command) error {
 		}
 		// The human output carries this as a note; structured output keeps
 		// stdout parseable, so a set that stored ankra-managed for an agent
-		// that cannot honour it still hears so, on stderr.
+		// that cannot honour it still hears so, on stderr. It is printed
+		// whether or not unstoredError is nil: a successful write needs it
+		// most.
 		if update.CIBuildAppArmorProfile != nil {
 			if note := agentCIBuildAppArmorProfileNote(settings); note != "" {
 				_, _ = fmt.Fprintf(command.ErrOrStderr(), "Warning: %s\n", note)

@@ -220,30 +220,44 @@ func TestClusterAgentCIGetStructuredOutputCarriesTheManagedBuildAppArmorStatus(t
 }
 
 // Structured output keeps stdout parseable, so the warning that the agent
-// cannot honour ankra-managed goes to stderr.
+// cannot honour ankra-managed goes to stderr. The write succeeds (the platform
+// stored the value), which is the path the warning matters most on.
 func TestClusterAgentCISetStructuredWarnsOnStderrWhenTheAgentCannotManageTheProfile(t *testing.T) {
-	mock := &agentCIMock{settings: agentCIBuildAppArmorManagedSettings(agentCIBuildAppArmorManagedBool(false), nil)}
-	writeSelectedClusterJSON(t)
-	setMockClient(t, mock)
-	t.Cleanup(func() { resetTreeFlags(t, agentCICommands(t)...) })
-	var stdout, stderr bytes.Buffer
-	rootCmd.SetOut(&stdout)
-	rootCmd.SetErr(&stderr)
-	rootCmd.SetArgs([]string{"cluster", "agent", "ci", "set", "--build-apparmor-profile", "ankra-managed",
-		"-o", "json"})
-	if runError := rootCmd.Execute(); runError != nil {
-		t.Fatalf("set: %v", runError)
-	}
-	var decoded map[string]any
-	if decodeError := json.Unmarshal(stdout.Bytes(), &decoded); decodeError != nil {
-		t.Fatalf("stdout is not parseable JSON (%v):\n%s", decodeError, stdout.String())
-	}
-	if decoded["supports_build_apparmor_managed"] != false {
-		t.Errorf("decoded = %v", decoded)
-	}
-	if !strings.Contains(stderr.String(), "Warning: The build AppArmor profile is ankra-managed, but this "+
-		"cluster's agent does not advertise managed AppArmor support") {
-		t.Errorf("stderr = %q", stderr.String())
+	for _, format := range []string{"json", "yaml"} {
+		t.Run(format, func(t *testing.T) {
+			mock := &agentCIMock{
+				settings: agentCIBuildAppArmorManagedSettings(agentCIBuildAppArmorManagedBool(false), nil),
+			}
+			writeSelectedClusterJSON(t)
+			setMockClient(t, mock)
+			t.Cleanup(func() { resetTreeFlags(t, agentCICommands(t)...) })
+			var stdout, stderr bytes.Buffer
+			rootCmd.SetOut(&stdout)
+			rootCmd.SetErr(&stderr)
+			rootCmd.SetArgs([]string{"cluster", "agent", "ci", "set", "--build-apparmor-profile", "ankra-managed",
+				"-o", format})
+			if runError := rootCmd.Execute(); runError != nil {
+				t.Fatalf("set: %v, want success: the platform stored the value", runError)
+			}
+			if format == "json" {
+				var decoded map[string]any
+				if decodeError := json.Unmarshal(stdout.Bytes(), &decoded); decodeError != nil {
+					t.Fatalf("stdout is not parseable JSON (%v):\n%s", decodeError, stdout.String())
+				}
+				if decoded["supports_build_apparmor_managed"] != false {
+					t.Errorf("decoded = %v", decoded)
+				}
+			} else if !strings.Contains(stdout.String(), "supports_build_apparmor_managed: false") {
+				t.Errorf("stdout does not carry the capability:\n%s", stdout.String())
+			}
+			if strings.Contains(stdout.String(), "Warning:") {
+				t.Errorf("the warning reached stdout:\n%s", stdout.String())
+			}
+			if !strings.Contains(stderr.String(), "Warning: The build AppArmor profile is ankra-managed, but this "+
+				"cluster's agent does not advertise managed AppArmor support") {
+				t.Errorf("stderr = %q", stderr.String())
+			}
+		})
 	}
 }
 
