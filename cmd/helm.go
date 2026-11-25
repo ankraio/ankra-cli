@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -625,21 +624,12 @@ Examples:
 }
 
 // readHelmCredentialPassword takes the registry password from stdin
-// (--password-stdin) or a masked prompt, and never echoes it. Only the
-// trailing newline a pipe or heredoc adds is dropped, since a registry token
-// may legitimately carry other whitespace.
+// (--password-stdin, read as readSecretFromStdin reads every secret) or a
+// masked prompt, and never echoes it.
 func readHelmCredentialPassword(cmd *cobra.Command) (string, error) {
 	isFromStdin, _ := cmd.Flags().GetBool("password-stdin")
 	if isFromStdin {
-		raw, readError := io.ReadAll(cmd.InOrStdin())
-		if readError != nil {
-			return "", fmt.Errorf("read the password from stdin: %w", readError)
-		}
-		password := strings.TrimRight(string(raw), "\r\n")
-		if password == "" {
-			return "", withExitCode(exitUsage, errors.New("no password was read from stdin"))
-		}
-		return password, nil
+		return readSecretFromStdin(cmd, "password-stdin", "password")
 	}
 	passwordPrompt := promptui.Prompt{
 		Label: "Password",
