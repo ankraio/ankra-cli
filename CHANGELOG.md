@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v0.89.0 - 2026-11-25
+
+`ankra cluster provider-status [cluster]` shows the open incidents the
+cluster's cloud provider reports on its own status page for the cluster's
+region and the zones its machines are in, and says when the status could not
+be checked rather than printing an empty list. It is a new command, so
+nothing a script relies on changes: exit codes and the `-o json` of every
+existing command are the same.
+
 ### Added
 
 - **See whether the cloud provider itself reports an outage where a cluster runs: `ankra cluster provider-status [cluster]`.** It lists the open incidents the cluster's provider has on its own public status page for the cluster's region and the zones its machines are in, each with its status, start time, title and link, and whether it matched on a zone or on the region. Ankra never guesses a zone: when a machine has no recorded zone, an incident in a zone of the region matches on the region and says the zone is not recorded. When the status page cannot be read, answers but does not list the cluster's region and zones, or Ankra has none recorded for the cluster, the command says the status could not be checked, so an empty list never reads as "nothing reported". Status pages are read for OVHcloud, UpCloud, DigitalOcean and Scaleway; for a managed Kubernetes cluster the command says Ankra does not read where its nodes run yet. `-o json` and `-o yaml` print the platform's whole answer, with `feed_state` (`ok` or `unknown`).
