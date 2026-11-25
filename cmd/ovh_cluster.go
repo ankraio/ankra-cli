@@ -960,7 +960,7 @@ const ovhDefaultNodeGroupFlavor = "b3-16"
 func init() {
 	ovhCreateCmd.Flags().String("name", "", "Cluster name (required)")
 	ovhCreateCmd.Flags().String("credential-id", "", "OVH API credential ID (required)")
-	ovhCreateCmd.Flags().String("ssh-key-credential-id", "", "SSH key credential ID (required)")
+	ovhCreateCmd.Flags().String("ssh-key-credential-id", "", optionalSSHKeyFlagUsage)
 	ovhCreateCmd.Flags().String("region", "", "OVH Cloud region (required)")
 	ovhCreateCmd.Flags().StringSlice("availability-zones", nil, "Availability zones to spread the cluster across, in a 3-AZ region (e.g. eu-west-par-a,eu-west-par-b,eu-west-par-c). See 'ankra cluster ovh regions --with-zones'. Omitted leaves placement to OVH, which puts every node in one zone. More than one zone needs --control-plane-count=3 for etcd quorum")
 	ovhCreateCmd.Flags().Int("network-vlan-id", 0, "Network VLAN ID")
@@ -989,7 +989,6 @@ func init() {
 
 	_ = ovhCreateCmd.MarkFlagRequired("name")
 	_ = ovhCreateCmd.MarkFlagRequired("credential-id")
-	_ = ovhCreateCmd.MarkFlagRequired("ssh-key-credential-id")
 	_ = ovhCreateCmd.MarkFlagRequired("region")
 
 	ovhStartCmd.Flags().String("scope", "all", "Provisioning scope: 'all' or 'control_plane'")

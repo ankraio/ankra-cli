@@ -13,7 +13,7 @@ type CreateDigitaloceanClusterRequest struct {
 	Name               string  `json:"name"`
 	Description        *string `json:"description,omitempty"`
 	CredentialID       string  `json:"credential_id"`
-	SSHKeyCredentialID string  `json:"ssh_key_credential_id"`
+	SSHKeyCredentialID string  `json:"ssh_key_credential_id,omitempty"`
 	Region             string  `json:"region"`
 	NetworkIPRange     string  `json:"network_ip_range,omitempty"`
 	BastionSize        string  `json:"bastion_size,omitempty"`
