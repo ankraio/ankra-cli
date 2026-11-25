@@ -28,6 +28,10 @@ Nothing a script relies on changes: exit codes are the same, and `-o json` of
 
 - **`ankra delete cluster --help` says what it does to an imported cluster.** It is Disconnect cluster: the cluster leaves Ankra, nothing inside it changes, and it works while the agent is offline. `ankra cluster deprovision` is not the way to remove one. The CLI reference had this by hand, and each release removed it again.
 
+### Fixed
+
+- **`os-patches` and `os-patches node-policy` help describe the update hold as it now works.** Ankra holds the network-restarting packages on every host it builds, advisory clusters included, and writing the hold by hand is no longer refused on an advisory cluster; the help said both only applied to automatic clusters.
+
 ## v0.87.0 - 2026-11-23
 
 `ankra security fix-candidates` names the newer tag that fixes an image's

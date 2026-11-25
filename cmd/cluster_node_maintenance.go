@@ -128,10 +128,11 @@ func newOSPatchesCommand(provider string, label string, hasLane bool, hasNodePol
 	command := &cobra.Command{
 		Use:   "os-patches",
 		Short: fmt.Sprintf("Roll OS security patches across a %s cluster, one host at a time", label),
-		Long: `On a host whose OS updates are automatic, unattended upgrades hold back the
-packages whose maintainer scripts restart networking in place; the rolling OS
-patch lane installs them instead, one host at a time, drained and returned to
-service before the next.
+		Long: `On every host Ankra builds, unattended upgrades hold back the packages whose
+maintainer scripts restart networking in place, whatever the OS updates mode;
+the rolling OS patch lane installs them instead, one host at a time, drained
+and returned to service before the next. On an advisory cluster they wait
+until a person starts a run.
 
   status       the policy, the newest run host by host, the last dry run
   plan         the dry run: what each host would install
@@ -370,9 +371,11 @@ func newOSPatchesNodePolicyCommand(provider string) *cobra.Command {
 		Long: `Write the node OS update hold - the apt policy that keeps unattended
 upgrades away from the packages that restart networking - on the nodes named
 with --node, on every node with --all-nodes, and on the bastion with
---include-bastion. The rolling OS patch lane writes and lifts it on its own;
-this is the by-hand route. Writing it is refused unless the cluster's OS
-updates are automatic; --revert removes it and is always allowed.
+--include-bastion. Ankra writes it on every host it builds, in every OS
+updates mode, and re-writes it where it is missing; this is the by-hand
+route. --revert removes it and is always allowed: once a person has reverted
+it on a cluster, Ankra does not write it back there (a node added later still
+gets it at first boot).
 
 The command asks first (--yes skips, declining exits 4). Needs
 clusters.operate.`,
