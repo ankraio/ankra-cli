@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## v0.88.0 - 2026-11-25
+
+`ankra cluster agent ci set --build-apparmor-profile ankra-managed` lets Ankra
+load the rootless builder's AppArmor profile on every node and keep builds on
+nodes that have it, and `ankra cluster agent ci get` shows on how many nodes it
+is loaded. Creating a self-managed cluster no longer needs
+`--ssh-key-credential-id`, `nodes list` shows each node's zone and public IP,
+and `ankra credentials get` names the Ankra Cloud account behind a credential.
+Nothing a script relies on changes: exit codes are the same, and `-o json` of
+`agent ci get` gains fields and loses none.
+
 ### Added
 
 - **Let Ankra load the rootless builder's AppArmor profile: `ankra cluster agent ci set --build-apparmor-profile ankra-managed`.** On nodes whose container runtime denies the in-cluster image builder its mount, you no longer have to install an AppArmor profile on every node yourself. With `ankra-managed`, the cluster's agent ships Ankra's profile (`ankra-managed-rootless-buildkit`), loads it on the nodes builds can run on and keeps builds on the nodes where it is loaded. It needs an agent that advertises managed AppArmor support. `ankra cluster agent ci get` then prints `Managed AppArmor:` (advertised, not advertised or not reported) and `Profile loaded on: M of N nodes`, with one line for each node the profile is not loaded on and the agent's reason. `-o json` and `-o yaml` carry `supports_build_apparmor_managed` and `build_apparmor_managed_status`. When the agent cannot honour it, `get` and `set` say so, on stderr for structured output. Pass `--build-apparmor-profile ''` to turn it off.
