@@ -81,6 +81,28 @@ type CredentialDetail struct {
 	// Fingerprint is not sent by today's platform (ankra-xjadx1); it is read
 	// so the platform's own value wins the day it is.
 	Fingerprint *string `json:"fingerprint,omitempty"`
+	// AnkraCloudAccount is answered for an Ankra Cloud credential only: the
+	// Ankra Cloud account its token acts in, read live by the platform.
+	// AnkraCloudAccountError says why it is missing when the platform could
+	// not read it; both are absent from a platform that predates them.
+	AnkraCloudAccount      *CredentialAnkraCloudAccount `json:"ankra_cloud_account,omitempty"`
+	AnkraCloudAccountError *string                      `json:"ankra_cloud_account_error,omitempty"`
+}
+
+// CredentialAnkraCloudAccount is the Ankra Cloud account behind an Ankra
+// Cloud credential, with the Ankra organisation it is linked to (nil when it
+// is not linked to one).
+type CredentialAnkraCloudAccount struct {
+	ID           string                                   `json:"id"`
+	Name         string                                   `json:"name"`
+	Organisation *CredentialAnkraCloudAccountOrganisation `json:"organisation"`
+}
+
+// CredentialAnkraCloudAccountOrganisation is the Ankra organisation an Ankra
+// Cloud account is linked to.
+type CredentialAnkraCloudAccountOrganisation struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type DeleteCredentialResult struct {
@@ -144,6 +166,28 @@ func (c *Client) GetCredential(credentialID string) (*CredentialDetail, error) {
 		return nil, err
 	}
 	return &cred, nil
+}
+
+// CredentialAnkraCloudAccountRead is the platform's answer to which Ankra
+// Cloud account an Ankra Cloud credential is connected to, on
+// credentials.read. Exactly one of Account and AccountError is set.
+type CredentialAnkraCloudAccountRead struct {
+	CredentialID string                       `json:"credential_id"`
+	Account      *CredentialAnkraCloudAccount `json:"account"`
+	AccountError *string                      `json:"account_error"`
+}
+
+// GetCredentialAnkraCloudAccount reads which Ankra Cloud account an Ankra
+// Cloud credential is connected to. The route is separate from the
+// credential detail because that one is gated on credentials.reveal, while
+// the account is no secret and needs only credentials.read.
+func (c *Client) GetCredentialAnkraCloudAccount(credentialID string) (*CredentialAnkraCloudAccountRead, error) {
+	url := fmt.Sprintf("%s/api/v1/org/credentials/%s/ankra-cloud-account", c.BaseURL, neturl.PathEscape(credentialID))
+	var account CredentialAnkraCloudAccountRead
+	if err := c.getJSON(url, &account); err != nil {
+		return nil, err
+	}
+	return &account, nil
 }
 
 // GetCredentialRepositories reads the credential's live repository coverage.

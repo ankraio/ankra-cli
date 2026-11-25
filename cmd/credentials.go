@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -228,10 +229,26 @@ var credentialsGetCmd = &cobra.Command{
 		}
 
 		cred, err := apiClient.GetCredential(credentialID)
+		isRevealRefused := false
 		if err != nil {
-			return fmt.Errorf("fetching credential: %w", err)
+			var revealRefusal *client.PermissionDeniedError
+			if !errors.As(err, &revealRefusal) {
+				return fmt.Errorf("fetching credential: %w", err)
+			}
+			readable, readableError := readableCredentialDetail(credentialID)
+			if readableError != nil {
+				return fmt.Errorf("fetching credential: %w; reading it from the credential listing instead failed too: %w", err, readableError)
+			}
+			if readable == nil {
+				return fmt.Errorf("fetching credential: %w", err)
+			}
+			cred, isRevealRefused = readable, true
 		}
+		describeAnkraCloudAccount(cred)
 
+		if isRevealRefused {
+			fmt.Fprintln(os.Stderr, "Your role can read this credential but not reveal it (credentials.reveal), so its stored settings are not shown.")
+		}
 		if rendered, err := renderStructured(cmd, cred); rendered || err != nil {
 			return err
 		}
@@ -250,10 +267,89 @@ var credentialsGetCmd = &cobra.Command{
 			fmt.Printf("  Repository: %s\n", *cred.Repository)
 		}
 		fmt.Printf("  Created:  %s\n", formatTimeAgo(cred.CreatedAt))
+		printCredentialAnkraCloudAccount(cred)
 		printCredentialSSHPublicKey(cred)
 		printCredentialHealth(cred)
 		return nil
 	},
+}
+
+// ankraCloudCredentialProvider is the provider an Ankra Cloud credential is
+// listed under.
+const ankraCloudCredentialProvider = "ankracloud"
+
+// readableCredentialDetail is the credential detail a role without
+// credentials.reveal can still see: the listing row, which needs only
+// credentials.read. Nil means the listing does not carry the credential
+// either.
+func readableCredentialDetail(credentialID string) (*client.CredentialDetail, error) {
+	credentials, listError := apiClient.ListCredentials(nil)
+	if listError != nil {
+		return nil, listError
+	}
+	for _, listed := range credentials {
+		if listed.ID != credentialID {
+			continue
+		}
+		return &client.CredentialDetail{ID: listed.ID, Name: listed.Name, Provider: listed.Provider,
+			CreatedAt: listed.CreatedAt, OrganisationID: listed.OrganisationID, Available: listed.Available}, nil
+	}
+	return nil, nil
+}
+
+// describeAnkraCloudAccount fills in which Ankra Cloud account an Ankra
+// Cloud credential is connected to, from the platform's account read beside
+// the credential detail (credentials.read; the detail itself never asks
+// Ankra Cloud). A detail that already names the account, or why it is
+// unknown, is left as it is, and so is every other provider's. Whatever the
+// read answers, exactly one of the two fields is set afterwards: a failed
+// read, or an answer naming neither, is an unknown account with its reason,
+// never a credential without one.
+func describeAnkraCloudAccount(credential *client.CredentialDetail) {
+	if credential == nil || !strings.EqualFold(credential.Provider, ankraCloudCredentialProvider) ||
+		credential.AnkraCloudAccount != nil || credential.AnkraCloudAccountError != nil {
+		return
+	}
+	account, accountError := apiClient.GetCredentialAnkraCloudAccount(credential.ID)
+	var reason string
+	switch {
+	case accountError != nil:
+		reason = fmt.Sprintf("could not be read: %v", accountError)
+	case account == nil:
+		reason = "the platform returned no answer"
+	case account.Account != nil:
+		credential.AnkraCloudAccount = account.Account
+		return
+	case account.AccountError != nil && strings.TrimSpace(*account.AccountError) != "":
+		credential.AnkraCloudAccountError = account.AccountError
+		return
+	default:
+		reason = "the platform returned no account and no reason"
+	}
+	credential.AnkraCloudAccountError = &reason
+}
+
+// printCredentialAnkraCloudAccount says which Ankra Cloud account an Ankra
+// Cloud credential is connected to, and the Ankra organisation that account
+// belongs to. When the account could not be read it says so and why, so a
+// missing line never reads as "no account". A credential with neither field
+// (another provider's) prints nothing.
+func printCredentialAnkraCloudAccount(credential *client.CredentialDetail) {
+	if credential == nil {
+		return
+	}
+	if account := credential.AnkraCloudAccount; account != nil {
+		fmt.Printf("  Ankra Cloud account: %s (%s)\n", account.Name, account.ID)
+		if account.Organisation != nil {
+			fmt.Printf("  Ankra Cloud account organisation: %s (%s)\n", account.Organisation.Name, account.Organisation.ID)
+		} else {
+			fmt.Printf("  Ankra Cloud account organisation: none (the account is not linked to an Ankra organisation)\n")
+		}
+		return
+	}
+	if credential.AnkraCloudAccountError != nil {
+		fmt.Printf("  Ankra Cloud account: unknown (%s)\n", *credential.AnkraCloudAccountError)
+	}
 }
 
 // printCredentialSSHPublicKey shows which key an ssh-key credential holds:
