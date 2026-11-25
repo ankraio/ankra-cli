@@ -1184,6 +1184,7 @@ type APIClient interface {
 	ImportManagedCluster(provider client.ManagedK8sProvider, request client.ImportManagedClusterRequest) (*client.ImportManagedClusterResponse, error)
 	EnableClusterDNSZone(clusterID string) (*client.ClusterDNSZoneResponse, error)
 	GetClusterDNSZone(clusterID string) (*client.ClusterDNSZoneResponse, error)
+	GetClusterProviderIncidents(clusterID string) (*client.ProviderIncidentsResponse, error)
 
 	ListAlertRules(options client.ListAlertRulesOptions) (*client.AlertRuleList, error)
 	GetAlertRule(alertID string) (*client.AlertRuleDetail, error)

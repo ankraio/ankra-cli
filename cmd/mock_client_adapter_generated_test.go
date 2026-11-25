@@ -3390,6 +3390,14 @@ func (m mockClientAdapter) GetClusterMetricsSource(a0 context.Context, a1 string
 	}
 	return baseMock{}.GetClusterMetricsSource(a0, a1)
 }
+func (m mockClientAdapter) GetClusterProviderIncidents(a0 string) (*client.ProviderIncidentsResponse, error) {
+	if target, ok := m.target.(interface {
+		GetClusterProviderIncidents(a0 string) (*client.ProviderIncidentsResponse, error)
+	}); ok {
+		return target.GetClusterProviderIncidents(a0)
+	}
+	return baseMock{}.GetClusterProviderIncidents(a0)
+}
 func (m mockClientAdapter) GetClusterStackDraft(a0 context.Context, a1 string, a2 string) (client.ClusterStackDocument, error) {
 	if target, ok := m.target.(interface {
 		GetClusterStackDraft(a0 context.Context, a1 string, a2 string) (client.ClusterStackDocument, error)
@@ -12574,6 +12582,9 @@ var _ interface {
 var _ interface {
 	UpdateProject(a0 string, a1 client.UpdateProjectRequest) (*client.ProjectSummary, error)
 } = (*projectsMock)(nil)
+var _ interface {
+	GetClusterProviderIncidents(a0 string) (*client.ProviderIncidentsResponse, error)
+} = (*providerStatusMock)(nil)
 var _ interface {
 	GetCluster(a0 string) (client.ClusterListItem, error)
 } = (*provisionWordingMock)(nil)

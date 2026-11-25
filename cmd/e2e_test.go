@@ -3780,6 +3780,10 @@ func (m baseMock) GetClusterDNSZone(clusterID string) (*client.ClusterDNSZoneRes
 	return nil, errors.New("not implemented")
 }
 
+func (m baseMock) GetClusterProviderIncidents(clusterID string) (*client.ProviderIncidentsResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m baseMock) ListAlertmanagerSilences(clusterID string, state string, location client.AlertmanagerLocation) (*client.AlertmanagerSilenceList, error) {
 	return nil, errors.New("not implemented")
 }
