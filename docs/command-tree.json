@@ -610,6 +610,7 @@
     "ankra cluster power-schedules delete",
     "ankra cluster power-schedules list",
     "ankra cluster power-schedules update",
+    "ankra cluster provider-status",
     "ankra cluster provision",
     "ankra cluster proxmox bastion diagnose",
     "ankra cluster proxmox bastion resize",
