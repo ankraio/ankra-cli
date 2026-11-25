@@ -83,9 +83,9 @@ func TestClusterAgentCIGetPrintsTheManagedBuildAppArmorProfile(t *testing.T) {
 				"Managed AppArmor:      advertised",
 				"Profile loaded on:     1 of 3 nodes (reported ",
 				"\n" + agentCIBuildAppArmorManagedNodeIndent + "ci-2: apparmor_parser not found\n",
-				"\n" + agentCIBuildAppArmorManagedNodeIndent + "ci-3: not loaded\n",
+				"\n" + agentCIBuildAppArmorManagedNodeIndent + "ci-3: not confirmed loaded (no reason reported)\n",
 			},
-			forbidden: []string{"ci-1:", "more not loaded", "loaded on no node yet", "does not advertise"},
+			forbidden: []string{"ci-1:", "more not confirmed loaded", "loaded on no node yet", "does not advertise"},
 		},
 		"loaded on every node": {
 			settings: agentCIBuildAppArmorManagedSettings(agentCIBuildAppArmorManagedBool(true),
@@ -102,7 +102,7 @@ func TestClusterAgentCIGetPrintsTheManagedBuildAppArmorProfile(t *testing.T) {
 			expected: []string{
 				"Profile loaded on:     0 of 70 nodes",
 				agentCIBuildAppArmorManagedNodeIndent + "ci-1: loader pod pending",
-				agentCIBuildAppArmorManagedNodeIndent + "and 69 more not loaded",
+				agentCIBuildAppArmorManagedNodeIndent + "and 69 more not confirmed loaded",
 				"The managed AppArmor profile is loaded on no node yet: builds wait",
 			},
 		},

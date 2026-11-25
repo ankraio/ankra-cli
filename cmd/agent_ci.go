@@ -926,14 +926,17 @@ func printAgentCIBuildAppArmorManaged(out io.Writer, settings *client.AgentCISet
 			continue
 		}
 		listedNotLoaded++
+		// A node the agent gave no reason for is one it did not confirm,
+		// not one it saw fail, so it is not printed as a verdict.
 		message := node.Message
 		if message == "" {
-			message = "not loaded"
+			message = "not confirmed loaded (no reason reported)"
 		}
 		_, _ = fmt.Fprintf(out, "%s%s: %s\n", agentCIBuildAppArmorManagedNodeIndent, node.Name, message)
 	}
 	if unlisted := status.NodesDesired - status.NodesLoaded - listedNotLoaded; unlisted > 0 {
-		_, _ = fmt.Fprintf(out, "%sand %d more not loaded\n", agentCIBuildAppArmorManagedNodeIndent, unlisted)
+		_, _ = fmt.Fprintf(out, "%sand %d more not confirmed loaded\n", agentCIBuildAppArmorManagedNodeIndent,
+			unlisted)
 	}
 }
 
