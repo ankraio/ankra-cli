@@ -2606,6 +2606,14 @@ func (m mockClientAdapter) GetAgentToken(a0 string) (*client.AgentToken, error) 
 	}
 	return baseMock{}.GetAgentToken(a0)
 }
+func (m mockClientAdapter) GetAgentTolerations(a0 context.Context, a1 string) (*client.AgentTolerations, error) {
+	if target, ok := m.target.(interface {
+		GetAgentTolerations(a0 context.Context, a1 string) (*client.AgentTolerations, error)
+	}); ok {
+		return target.GetAgentTolerations(a0, a1)
+	}
+	return baseMock{}.GetAgentTolerations(a0, a1)
+}
 func (m mockClientAdapter) GetAlertDestination(a0 string) (*client.AlertDestination, error) {
 	if target, ok := m.target.(interface {
 		GetAlertDestination(a0 string) (*client.AlertDestination, error)
@@ -7454,6 +7462,14 @@ func (m mockClientAdapter) ReorderPersonalAIKeys(a0 []string) (*client.PersonalA
 	}
 	return baseMock{}.ReorderPersonalAIKeys(a0)
 }
+func (m mockClientAdapter) ReplaceAgentTolerations(a0 context.Context, a1 string, a2 []client.AgentToleration) (*client.AgentTolerations, error) {
+	if target, ok := m.target.(interface {
+		ReplaceAgentTolerations(a0 context.Context, a1 string, a2 []client.AgentToleration) (*client.AgentTolerations, error)
+	}); ok {
+		return target.ReplaceAgentTolerations(a0, a1, a2)
+	}
+	return baseMock{}.ReplaceAgentTolerations(a0, a1, a2)
+}
 func (m mockClientAdapter) ReplaceApplicationSavedLogSearch(a0 context.Context, a1 string, a2 string, a3 client.SavedLogSearchRequest) (*client.SavedLogSearch, error) {
 	if target, ok := m.target.(interface {
 		ReplaceApplicationSavedLogSearch(a0 context.Context, a1 string, a2 string, a3 client.SavedLogSearchRequest) (*client.SavedLogSearch, error)
@@ -10235,6 +10251,12 @@ var _ interface {
 var _ interface {
 	ListAgentRuns(a0 string, a1 []string, a2 int) (*client.AgentRunListResponse, error)
 } = (*agentRunsMock)(nil)
+var _ interface {
+	GetAgentTolerations(a0 context.Context, a1 string) (*client.AgentTolerations, error)
+} = (*agentTolerationsMock)(nil)
+var _ interface {
+	ReplaceAgentTolerations(a0 context.Context, a1 string, a2 []client.AgentToleration) (*client.AgentTolerations, error)
+} = (*agentTolerationsMock)(nil)
 var _ interface {
 	UpgradeClusterAgent(a0 context.Context, a1 string, a2 client.AgentUpgradeRequest) (*client.UpgradeAgentResult, error)
 } = (*agentUpgradeMock)(nil)

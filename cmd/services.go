@@ -743,6 +743,8 @@ type APIClient interface {
 	UpdateAgentCISettings(ctx context.Context, clusterID string, update client.AgentCISettingsUpdate) (*client.AgentCISettings, error)
 	GetAgentResources(ctx context.Context, clusterID string) (*client.AgentResources, error)
 	UpdateAgentResources(ctx context.Context, clusterID string, update client.AgentResourcesUpdate) (*client.AgentResources, error)
+	GetAgentTolerations(ctx context.Context, clusterID string) (*client.AgentTolerations, error)
+	ReplaceAgentTolerations(ctx context.Context, clusterID string, tolerations []client.AgentToleration) (*client.AgentTolerations, error)
 	GetClusterHostedLogs(ctx context.Context, clusterID string) (*client.ClusterHostedLogs, error)
 	SetClusterHostedLogShipping(ctx context.Context, clusterID string, enabled bool) (*client.ClusterHostedLogs, error)
 	GetClusterGatewayAPI(ctx context.Context, provider string, clusterID string) (*client.GatewayAPIStatus, error)

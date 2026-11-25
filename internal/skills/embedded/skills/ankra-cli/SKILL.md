@@ -252,6 +252,22 @@ away, while the stored one rides every install and upgrade Ankra generates. The 
 platform's sentence saying whether the agent took the change now, at its next upgrade, or when it
 reconnects.
 
+## Agent tolerations
+
+```bash
+ankra cluster agent tolerations get                                             # stored list and whether it is live
+ankra cluster agent tolerations set --toleration purpose=db:NoSchedule          # key[=value]:Effect; repeat for more
+ankra cluster agent tolerations clear --yes                                     # back to what its Helm release lists
+```
+
+For an agent that has to run on a tainted node. The list is stored on the platform and added to the
+tolerations the agent's Helm release lists, in every install, upgrade and re-render; `set` replaces
+the stored list as a whole. A toleration lets the agent run on a node, it does not make it prefer
+one. Tolerating a NoExecute taint also means the agent is not evicted while the taint is there.
+`clear` asks first: an agent left with no node that admits it stays Pending and the cluster shows
+as offline. Never hand-edit the Deployment or run `helm upgrade --set tolerations...`: the first is
+rendered away by the next upgrade, the second replaces the tolerations the install set.
+
 ## Hosted logs
 
 ```bash
