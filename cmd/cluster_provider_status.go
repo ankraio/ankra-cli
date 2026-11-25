@@ -94,6 +94,7 @@ func printProviderStatus(output io.Writer, clusterReference string, result *clie
 		_, _ = fmt.Fprintf(output, "Machines:  %d\n", result.Machines)
 	}
 	_, _ = fmt.Fprintf(output, "Status page: %s\n", providerFeedStateText(result))
+	printUnreadProviderStatusPages(output, result)
 
 	if len(result.Incidents) == 0 {
 		if result.FeedState == client.ProviderFeedStateOK {
@@ -137,6 +138,46 @@ func printProviderStatus(output io.Writer, clusterReference string, result *clie
 		_, _ = fmt.Fprintln(output,
 			"Not every status page of the provider could be read, so more incidents may be open.")
 	}
+}
+
+// printUnreadProviderStatusPages lists each status page with its own state
+// when the provider has several and one of them could not be read, so the
+// output says which page failed and why.
+func printUnreadProviderStatusPages(output io.Writer, result *client.ProviderIncidentsResponse) {
+	if len(result.Feeds) < 2 {
+		return
+	}
+	isAnyUnread := false
+	for _, feed := range result.Feeds {
+		if feed.State != client.ProviderFeedStateOK {
+			isAnyUnread = true
+		}
+	}
+	if !isAnyUnread {
+		return
+	}
+	for _, feed := range result.Feeds {
+		_, _ = fmt.Fprintf(output, "  %s: %s\n", feed.Page, providerStatusPageText(feed))
+	}
+}
+
+// providerStatusPageText says whether one status page was read, and when.
+func providerStatusPageText(feed client.ProviderStatusFeed) string {
+	if feed.State == client.ProviderFeedStateOK {
+		if feed.FetchedAt == nil || feed.FetchedAt.IsZero() {
+			return "read"
+		}
+		return "read at " + feed.FetchedAt.UTC().Format("2006-01-02 15:04") + " UTC"
+	}
+	switch feed.Reason {
+	case "unreachable":
+		return "could not be read (unreachable)"
+	case "timeout":
+		return "could not be read (timed out)"
+	case "":
+		return "could not be read"
+	}
+	return "could not be read (" + feed.Reason + ")"
 }
 
 // providerFeedStateText says whether the provider's status pages were read

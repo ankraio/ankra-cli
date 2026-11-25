@@ -206,3 +206,45 @@ func TestClusterProviderStatus_SaysWhenNoPlaceIsRecorded(t *testing.T) {
 		t.Errorf("every page was read:\n%s", output)
 	}
 }
+
+// When one of a provider's status pages could not be read, each page is
+// listed with its own state, so the output says which one failed and why.
+func TestClusterProviderStatus_ListsEachPageWhenOneCouldNotBeRead(t *testing.T) {
+	fetchedAt := time.Date(2026, 11, 24, 10, 7, 0, 0, time.UTC)
+	mock := &providerStatusMock{response: client.ProviderIncidentsResponse{
+		ClusterID: providerStatusTestClusterID, Provider: "ovh", ProviderName: "OVH",
+		FeedState: client.ProviderFeedStateUnknown, FeedReason: "timeout", Regions: []string{"GRA11"},
+		Feeds: []client.ProviderStatusFeed{
+			{Page: "https://public-cloud.status-ovhcloud.com", State: client.ProviderFeedStateOK, FetchedAt: &fetchedAt},
+			{Page: "https://network.status-ovhcloud.com", State: client.ProviderFeedStateUnknown, Reason: "timeout"},
+		},
+	}}
+	output, executeError := runClusterProviderStatus(t, mock, providerStatusTestClusterID)
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	for _, want := range []string{
+		"  https://public-cloud.status-ovhcloud.com: read at 2026-11-24 10:07 UTC",
+		"  https://network.status-ovhcloud.com: could not be read (timed out)",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output lacks %q:\n%s", want, output)
+		}
+	}
+}
+
+// One page, or every page read, needs no per-page list.
+func TestClusterProviderStatus_ListsNoPagesWhenEveryPageWasRead(t *testing.T) {
+	response := providerStatusIncidentResponse()
+	response.Feeds = []client.ProviderStatusFeed{
+		{Page: "https://public-cloud.status-ovhcloud.com", State: client.ProviderFeedStateOK},
+		{Page: "https://network.status-ovhcloud.com", State: client.ProviderFeedStateOK},
+	}
+	output, executeError := runClusterProviderStatus(t, &providerStatusMock{response: response}, providerStatusTestClusterID)
+	if executeError != nil {
+		t.Fatalf("execute failed: %v\noutput: %s", executeError, output)
+	}
+	if strings.Contains(output, "  https://network.status-ovhcloud.com:") {
+		t.Errorf("an ok answer must not list its pages:\n%s", output)
+	}
+}
