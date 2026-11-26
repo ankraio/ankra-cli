@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- **The `ankra-app-integrations` skill no longer calls managed services a closed beta.** Since 26 November 2026 every organisation can set them up, so a coding agent reading the skill no longer tells you to ask support first.
 - **`ankra cluster agent tolerations --help` no longer says the next agent upgrade drops a toleration set with Helm.** A toleration set with `helm upgrade --set tolerations...` is carried across agent upgrades; what it does not survive is a reinstall from Ankra's install command, and it replaces the tolerations the install set. One added to the agent's Deployment by hand is still undone by the next upgrade.
 
 ## v0.90.0 - 2026-11-26

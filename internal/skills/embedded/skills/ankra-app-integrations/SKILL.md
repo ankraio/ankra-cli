@@ -210,8 +210,8 @@ Cross-namespace: replicate the Secret into the consumer's namespace with a stack
 `parents` edge on the namespace, SOPS-encrypted in Git), or deploy the consumer into the data
 namespace. Do not assume a pod can read a Secret from elsewhere.
 
-**Ankra managed services** (closed beta, per organisation: PostgreSQL, Valkey, NATS, OpenSearch,
-SeaweedFS S3, VictoriaLogs, VictoriaMetrics) answer only inside their cluster, at
+**Ankra managed services** (PostgreSQL, Valkey, NATS, OpenSearch, SeaweedFS S3, VictoriaLogs,
+VictoriaMetrics, on for every organisation) answer only inside their cluster, at
 `<name>.<service>.svc.cluster.local` with credentials in a Secret in the service's namespace
 (`postgresql-app` with `fqdn-uri` for PostgreSQL). `ankra services list|get <service>` shows them,
 `ankra services consumers bind --application <app> --cluster <cluster> --namespace <ns>` records
