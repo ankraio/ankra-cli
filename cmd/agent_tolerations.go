@@ -4,10 +4,12 @@ package cmd
 // surface over GET/PUT /api/v1/org/clusters/{cluster_id}/agent/tolerations,
 // the extra tolerations Ankra holds for the cluster agent's own pod.
 //
-// A toleration set by hand on the Deployment or with `helm upgrade --set` is
-// rendered away by the next agent upgrade, and --set on the chart's
-// tolerations list replaces the ones Ankra's install put there. A held list
-// is added to them on every install, upgrade and re-render Ankra generates.
+// A toleration added by hand to the agent's Deployment is undone by the next
+// agent upgrade. One set with `helm upgrade --set tolerations...` is carried
+// across agent upgrades (the agent re-supplies the release's own values) but
+// replaces the ones Ankra's install put there and is gone after a reinstall.
+// A held list is added to the release's own on every install, upgrade and
+// re-render Ankra generates.
 
 import (
 	"errors"
@@ -30,9 +32,11 @@ nodes you have tainted, for example the only nodes with a public IP.
 
 They are stored on the platform and added to the tolerations the agent's Helm
 release already lists, in every install, upgrade and re-render Ankra generates
-for this cluster - unlike one set by hand, which the next agent upgrade
-renders away again. A toleration lets the agent run on a node; it does not
-make it prefer one.`,
+for this cluster, so they survive upgrades and a reinstall. One added to the
+agent's Deployment by hand is undone by the next agent upgrade, and one set
+with 'helm upgrade --set tolerations...' replaces the list the install set and
+is gone after a reinstall. A toleration lets the agent run on a node; it does
+not make it prefer one.`,
 	}
 	tolerationsCommand.AddCommand(newClusterAgentTolerationsGetCommand(),
 		newClusterAgentTolerationsSetCommand(), newClusterAgentTolerationsClearCommand())
