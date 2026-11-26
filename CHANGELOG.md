@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ankra cluster agent tolerations --help` no longer says the next agent upgrade drops a toleration set with Helm.** A toleration set with `helm upgrade --set tolerations...` is carried across agent upgrades; what it does not survive is a reinstall from Ankra's install command, and it replaces the tolerations the install set. One added to the agent's Deployment by hand is still undone by the next upgrade.
+
 ## v0.90.0 - 2026-11-26
 
 `ankra cluster agent tolerations get|set|clear` lets the Ankra agent run on
