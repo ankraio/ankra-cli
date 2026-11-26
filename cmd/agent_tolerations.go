@@ -86,13 +86,18 @@ one: the list you pass replaces the stored one as a whole.
 Tolerating a NoExecute taint also means the agent is not evicted from a node
 that carries it, for as long as the taint is there. Keep it to taints of your
 own that mark a dedicated node, not one your tooling sets when a node is
-failing. Taints Kubernetes itself puts on a node that cannot run pods
-(node.kubernetes.io/... and node.cloudprovider.kubernetes.io/...) are refused.
+failing. Refused: the taints Kubernetes puts on a node that cannot run pods
+(node.kubernetes.io/... and node.cloudprovider.kubernetes.io/...), and the
+ones the Cluster Autoscaler, Karpenter, Cilium and Ankra put on a node they
+are removing, preparing or keeping work off (ToBeDeletedByClusterAutoscaler,
+DeletionCandidateOfClusterAutoscaler, karpenter.sh/..., node.cilium.io/...,
+ankra.io/... and ankra.cloud/...).
 
 The write always stores the list. Whether it reaches the agent now depends on
 the agent: an online agent new enough to accept it re-renders its release and
-restarts, an older one gets it once it has been upgraded, and an offline one
-when it reconnects and is upgraded. The command prints the platform's sentence
+restarts, an older one from the first upgrade or re-render after it has been
+upgraded to a release that accepts it (the upgrade itself is run by the older
+release), and an offline one when it reconnects and is upgraded. The command prints the platform's sentence
 saying which happened.
 
 The platform validates the list and its refusal is printed as it came.`,
