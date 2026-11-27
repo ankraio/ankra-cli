@@ -160,6 +160,10 @@ type fakeServicesPlatform struct {
 	// connectConflict makes connecting an application answer the platform's
 	// 409 for a service that changed since it was read.
 	connectConflict bool
+	// consumerCredential is the credential the first consumer reads with,
+	// as a PostgreSQL service's instance answers it. Nil sends none, as a
+	// platform from before per-application credentials does.
+	consumerCredential map[string]any
 }
 
 // fakeServiceSourceStatement is the sentence a plan carries for a service
@@ -242,6 +246,10 @@ func (platform *fakeServicesPlatform) instance() map[string]any {
 	if platform.connectionDelivery != nil {
 		consumer := instance["consumers"].([]any)[0].(map[string]any)
 		consumer["connection_delivery"] = platform.connectionDelivery
+	}
+	if platform.consumerCredential != nil {
+		consumer := instance["consumers"].([]any)[0].(map[string]any)
+		consumer["credential"] = platform.consumerCredential
 	}
 	if len(platform.extraConsumers) > 0 {
 		instance["consumers"] = append(instance["consumers"].([]any), platform.extraConsumers...)

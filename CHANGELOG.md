@@ -2,7 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra services connect` says which credential the connected application got, and `--credential owner` asks for the shared one.** On a PostgreSQL service that can carry one, Ankra gives a newly connected application a database role of its own: it reads and writes the same tables as before, and disconnecting the application stops the role logging in and removes it. Otherwise the application gets the service's owner credential, shared by every application on it. The command now prints which one it got, and whether a role is still being created. `--credential owner` asks for the shared owner credential instead, and `--credential shared_role` asks for a role and is refused, with the reason, where the service cannot carry one. `ankra services get` shows the credential of every connected application. `-o json` and `-o yaml` carry each consumer's `credential`.
+
 ### Fixed
+
+- **`ankra services disconnect --help` no longer says every application shares one credential that is never revoked.** That is still true for an application on the shared owner credential, but an application with a database role of its own has the role stopped and removed when it is disconnected, and needs no password rotation. The help now says the credential line depends on the connection, and the review shows which.
 
 - **The `ankra-app-integrations` skill no longer calls managed services a closed beta.** Since 26 November 2026 every organisation can set them up, so a coding agent reading the skill no longer tells you to ask support first.
 - **`ankra cluster agent tolerations --help` no longer says the next agent upgrade drops a toleration set with Helm.** A toleration set with `helm upgrade --set tolerations...` is carried across agent upgrades; what it does not survive is a reinstall from Ankra's install command, and it replaces the tolerations the install set. One added to the agent's Deployment by hand is still undone by the next upgrade.

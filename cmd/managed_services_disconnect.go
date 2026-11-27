@@ -19,8 +19,10 @@ import (
 // (the platform resolves what disconnecting removes, keeps and cannot do and
 // stores it with a digest; nothing changes), show every statement of it in
 // the platform's own words, and confirm it by that digest only after a yes at
-// the prompt or --yes. Nothing is deleted: the service, its data and its
-// shared credential stay.
+// the prompt or --yes. The service and its data stay. A database role of the
+// application's own is stopped from logging in and removed; a credential the
+// application shares with the service's other applications stays, and the
+// review says so.
 
 // serviceNamesFromNone is the --names-from value that chooses no service to
 // give the conventional connection names. It always means nobody: a service
@@ -41,8 +43,7 @@ func newServicesDisconnectCommand() *cobra.Command {
 		Use:   "disconnect <service>",
 		Short: "Disconnect one application from a managed service that keeps running: review it, then confirm",
 		Long: `Disconnect one application environment from a managed service. The service
-keeps running for its other applications, and nothing is deleted: the service,
-its data and its credentials stay.
+keeps running for its other applications, and the service and its data stay.
 
 It is two steps on the platform. First a disconnection review is prepared: the
 platform works out what disconnecting does and stores that plan with a digest
@@ -52,11 +53,16 @@ platform's own words:
   Variables         the variables the application stops receiving (DATABASE_URL,
                     ...) and, when another service of the same kind is
                     connected, who gives the conventional names from now on
-  Credential        every application of a service shares one credential
-                    today, so it is not revoked: the application keeps the
-                    password it has. What that cannot guarantee, and how to
-                    make sure the application can no longer authenticate
-                    (rotate the password, for every application)
+  Credential        what happens to the credential the application connects
+                    with, which depends on the connection. A database role
+                    of its own (PostgreSQL): Ankra stops it logging in and
+                    removes it, and no rotation is needed. A credential it
+                    shares with the service's other applications: it is not
+                    revoked, the application keeps the password it has, and
+                    the review says what that cannot guarantee and how to
+                    make sure it can no longer authenticate.
+                    'ankra services get <service>' shows which credential
+                    each application uses
   Secret            the connection Secret in the application's namespace,
                     which Ankra keeps until no pod reads it
   Workloads         the deployed workloads that read it: those Ankra attached

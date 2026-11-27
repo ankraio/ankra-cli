@@ -518,3 +518,113 @@ func TestServicesConnectRefusals(t *testing.T) {
 		}
 	})
 }
+
+// fakeServiceRoleCredential is a role of the application's own as a
+// PostgreSQL service's instance answers it while the role is being created.
+func fakeServiceRoleCredential() map[string]any {
+	return map[string]any{"mode": "shared_role", "state": "provisioning", "role_name": "ankra_0b7c4d195f6a_41c2",
+		"secret_name": "postgresql-role-0b7c4d195f6a-41c2",
+		"description": "Logs in as ankra_0b7c4d195f6a_41c2, a role of its own that acts as the database owner app in the shared database app.",
+		"waiting":     "the operator creating the role"}
+}
+
+// Without --credential nothing is named and the platform chooses; the
+// command prints which credential the application got, from the platform's
+// answer, and says a role still being created is not delivered yet.
+func TestServicesConnectSaysWhichCredentialTheApplicationGot(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.consumerCredential = fakeServiceRoleCredential()
+	stdout, _, runError := runServicesCommand(t, platform, "", "connect", "orders-db", "--consumer", fakeServiceConsumerID)
+	if runError != nil {
+		t.Fatalf("connect: %v", runError)
+	}
+	connects := platform.requests(http.MethodPost, "/instances/"+fakeServiceInstanceID+"/consumers")
+	if len(connects) != 1 || strings.Contains(connects[0].body, "credential") {
+		t.Fatalf("a connect without --credential must name none, got %+v", connects)
+	}
+	for _, expected := range []string{"Credential: Logs in as ankra_0b7c4d195f6a_41c2, a role of its own",
+		"Ankra is still creating the role; the connection is delivered once it is ready.", "Waiting for: the operator creating the role"} {
+		if !strings.Contains(stdout, expected) {
+			t.Errorf("connect output lacks %q:\n%s", expected, stdout)
+		}
+	}
+
+	// The owner credential, as the platform describes it.
+	platform = newFakeServicesPlatform(t)
+	platform.consumerCredential = map[string]any{"mode": "owner",
+		"description": "Shares the service's owner credential, app, with every other application on the service; it cannot be revoked for this application alone."}
+	stdout, _, runError = runServicesCommand(t, platform, "", "connect", "orders-db", "--consumer", fakeServiceConsumerID)
+	if runError != nil || !strings.Contains(stdout, "Credential: Shares the service's owner credential, app,") || strings.Contains(stdout, "still creating") {
+		t.Fatalf("connect on the owner credential: %v\n%s", runError, stdout)
+	}
+
+	// A platform that answers no credential (another engine, or one from
+	// before) gets no line: absent is not a claim either way.
+	platform = newFakeServicesPlatform(t)
+	stdout, _, runError = runServicesCommand(t, platform, "", "connect", "orders-db", "--consumer", fakeServiceConsumerID)
+	if runError != nil || strings.Contains(stdout, "Credential:") {
+		t.Fatalf("connect without a credential answered: %v\n%s", runError, stdout)
+	}
+}
+
+// --credential is sent as named, in the platform's vocabulary, and anything
+// else is refused before a request is sent.
+func TestServicesConnectCredentialFlag(t *testing.T) {
+	for _, credential := range []string{"owner", "shared_role"} {
+		platform := newFakeServicesPlatform(t)
+		if _, _, runError := runServicesCommand(t, platform, "", "connect", "orders-db", "--consumer", fakeServiceConsumerID, "--credential", credential); runError != nil {
+			t.Fatalf("connect --credential %s: %v", credential, runError)
+		}
+		connects := platform.requests(http.MethodPost, "/instances/"+fakeServiceInstanceID+"/consumers")
+		want := `{"consumer_id":"` + fakeServiceConsumerID + `","expected_generation":2,"credential":"` + credential + `"}`
+		if len(connects) != 1 || connects[0].body != want {
+			t.Fatalf("connect --credential %s sent %+v, want %s", credential, connects, want)
+		}
+	}
+	for _, credential := range []string{"", "own_database", "role", "Owner"} {
+		platform := newFakeServicesPlatform(t)
+		_, _, runError := runServicesCommand(t, platform, "", "connect", "orders-db", "--consumer", fakeServiceConsumerID, "--credential", credential)
+		if runError == nil || exitCodeFor(runError) != exitUsage || !strings.Contains(runError.Error(), "expected owner or shared_role") {
+			t.Fatalf("--credential %q: expected a usage refusal, got %v (exit %d)", credential, runError, exitCodeFor(runError))
+		}
+		if calls := platform.requests(http.MethodPost, "/consumers"); len(calls) != 0 {
+			t.Errorf("--credential %q: a refused connect was sent", credential)
+		}
+	}
+}
+
+// services get says which credential each consumer connects with.
+func TestServicesGetSaysWhichCredentialEachConsumerUses(t *testing.T) {
+	platform := newFakeServicesPlatform(t)
+	platform.consumerCredential = map[string]any{"mode": "shared_role", "state": "ready", "role_name": "ankra_0b7c4d195f6a_41c2",
+		"description": "Logs in as ankra_0b7c4d195f6a_41c2, a role of its own that acts as the database owner app in the shared database app."}
+	stdout, _, runError := runServicesCommand(t, platform, "", "get", "orders-db")
+	if runError != nil {
+		t.Fatal(runError)
+	}
+	if !strings.Contains(stdout, "      Credential: Logs in as ankra_0b7c4d195f6a_41c2") || strings.Contains(stdout, "still creating") {
+		t.Fatalf("get output does not say which credential the consumer uses:\n%s", stdout)
+	}
+	platform.consumerCredential = map[string]any{"mode": "unknown"}
+	stdout, _, runError = runServicesCommand(t, platform, "", "get", "orders-db")
+	if runError != nil || !strings.Contains(stdout, "Credential: unknown: Ankra could not read which credential") {
+		t.Fatalf("an unknown credential must say so: %v\n%s", runError, stdout)
+	}
+}
+
+// The disconnect help no longer says every application shares a credential
+// that is never revoked: what happens depends on the connection.
+func TestServicesDisconnectHelpSaysTheCredentialDependsOnTheConnection(t *testing.T) {
+	help := strings.Join(strings.Fields(newServicesDisconnectCommand().Long), " ")
+	for _, stale := range []string{"shares one credential", "today, so it is not revoked", "rotate the password, for every application", "nothing is deleted"} {
+		if strings.Contains(help, stale) {
+			t.Errorf("disconnect help still says %q", stale)
+		}
+	}
+	for _, expected := range []string{"which depends on the connection", "A database role of its own (PostgreSQL): Ankra stops it logging in and removes it",
+		"A credential it shares with the service's other applications: it is not revoked"} {
+		if !strings.Contains(help, expected) {
+			t.Errorf("disconnect help lacks %q:\n%s", expected, help)
+		}
+	}
+}

@@ -23,10 +23,10 @@ import (
 // Nothing here carries a credential value: a plan names the connection
 // Secret and the variables it delivers, never what they hold.
 
-// ServiceDisconnectAfterNextDeploy is the timing every disconnection takes
-// today: the application keeps working until it is deployed again. The
-// platform refuses "now" while every application of a service shares one
-// credential, so the client never sends it.
+// ServiceDisconnectAfterNextDeploy is the timing every disconnection from the
+// CLI takes: the application keeps working until it is deployed again. The
+// platform offers "now" only for an application with a database role of its
+// own and refuses it for a shared credential; the CLI does not send it.
 const ServiceDisconnectAfterNextDeploy = "after_next_deploy"
 
 // The phases of a confirmed disconnection, in order (cluster
@@ -80,8 +80,10 @@ type ServiceDisconnectionConsumer struct {
 }
 
 // ServiceDisconnectionCredential says what happens to the credential. Kind
-// is "shared" today: every application of the service uses the same one, so
-// a disconnection revokes nothing.
+// is "role" for a database role of the application's own, which the
+// disconnection stops logging in and removes, and "shared" for a credential
+// every application of the service uses, which it cannot revoke. Statement
+// and CannotGuarantee say so in the platform's words.
 type ServiceDisconnectionCredential struct {
 	Kind string `json:"kind" yaml:"kind"`
 	// OtherConsumers counts the other application environments the service

@@ -817,6 +817,9 @@ func printServiceInstance(out io.Writer, names *serviceNames, instance client.Se
 			}
 			_, _ = fmt.Fprintf(out, "    %s  application %s, cluster %s, namespace %s\n", consumer.ID,
 				names.consumerApplication(consumer.ApplicationID, consumer.ApplicationName), clusterName, consumer.Namespace)
+			if consumer.Credential != nil {
+				_, _ = fmt.Fprintf(out, "      Credential: %s\n", serviceCredentialSummary(*consumer.Credential))
+			}
 			printServiceConnectionDelivery(out, consumer.ConnectionDelivery)
 		}
 	}
