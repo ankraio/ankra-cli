@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.91.0 - 2026-11-27
+
 ### Added
 
 - **`ankra services connect` says which credential the connected application got, and `--credential owner` asks for the shared one.** On a PostgreSQL service that can carry one, Ankra gives a newly connected application a database role of its own: it reads and writes the same tables as before, and disconnecting the application stops the role logging in and removes it. Otherwise the application gets the service's owner credential, shared by every application on it. The command now prints which one it got, and whether a role is still being created. `--credential owner` asks for the shared owner credential instead, and `--credential shared_role` asks for a role and is refused, with the reason, where the service cannot carry one. `ankra services get` shows the credential of every connected application. `-o json` and `-o yaml` carry each consumer's `credential`.
