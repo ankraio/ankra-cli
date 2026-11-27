@@ -299,6 +299,44 @@ type ServiceReviewRequest struct {
 type ServiceInstanceConsumerRequest struct {
 	ConsumerID         string `json:"consumer_id"`
 	ExpectedGeneration int64  `json:"expected_generation"`
+	// Credential is the credential the application connects with:
+	// ServiceCredentialOwner or ServiceCredentialSharedRole. Empty leaves the
+	// choice to the platform, which gives a database role of the
+	// application's own where the service can carry one and the service's
+	// owner credential where it cannot; the answer's consumer says which.
+	Credential string `json:"credential,omitempty"`
+}
+
+// The credentials a consumer connects with, as ServiceConsumerCredential.Mode
+// answers them and a connect asks for the first two.
+const (
+	// ServiceCredentialOwner is the service's owner credential, shared by
+	// every application on it: disconnecting one cannot revoke it.
+	ServiceCredentialOwner = "owner"
+	// ServiceCredentialSharedRole is a database role of the application's
+	// own that acts as the database owner in the shared database:
+	// disconnecting the application stops it logging in and removes it.
+	ServiceCredentialSharedRole = "shared_role"
+	// ServiceCredentialUnknown says the platform could not read which
+	// credential the consumer connects with; it is not an answer either way.
+	ServiceCredentialUnknown = "unknown"
+)
+
+// ServiceConsumerCredential is the credential one consumer of a PostgreSQL or
+// object storage service connects with, as the platform recorded it: names,
+// never a value. Mode is one of the ServiceCredential values or
+// own_database, kept as the platform sent it so a mode added later decodes
+// and prints as is. State says how far a role of its own is: provisioning
+// (being created; nothing delivers it yet), ready or revoking. Description
+// says in the platform's words what the credential means for the
+// application, and Waiting what a role still being created waits for.
+type ServiceConsumerCredential struct {
+	Mode        string `json:"mode" yaml:"mode"`
+	State       string `json:"state,omitempty" yaml:"state,omitempty"`
+	RoleName    string `json:"role_name,omitempty" yaml:"role_name,omitempty"`
+	SecretName  string `json:"secret_name,omitempty" yaml:"secret_name,omitempty"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+	Waiting     string `json:"waiting,omitempty" yaml:"waiting,omitempty"`
 }
 
 // ServiceReview is a stored setup review: the server-resolved plan exactly
@@ -447,6 +485,11 @@ type ServiceInstanceConsumer struct {
 	// service's consumers; a retirement plan, a released service and a
 	// platform from before delivery carry none.
 	ConnectionDelivery *ServiceConnectionDelivery `json:"connection_delivery,omitempty" yaml:"connection_delivery,omitempty"`
+	// Credential is which credential the consumer connects with, for a
+	// PostgreSQL or object storage service. Other engines, a retirement plan
+	// and a platform from before per-application credentials carry none,
+	// which says nothing either way.
+	Credential *ServiceConsumerCredential `json:"credential,omitempty" yaml:"credential,omitempty"`
 }
 
 // ServiceConnectionDelivery is how one consumer receives the service's
