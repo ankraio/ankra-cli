@@ -26,6 +26,10 @@ import (
 // then empty and the two pointers nil, which is "not reported", never "green"
 // or "nothing protected". The list is a pointer so that an empty one, which
 // protects nothing, survives into -o json as [] rather than being omitted.
+//
+// TrustedHeadRun says whether the front car may merge on its pull request's own
+// run when the car is exactly that head (cluster ankra-8jp0tv.114). nil is a
+// platform that predates it, which is "not reported", never "off".
 type PipelineMergeTrainSettings struct {
 	Enabled                          bool      `json:"enabled"`
 	MaxCars                          int       `json:"max_cars"`
@@ -35,6 +39,7 @@ type PipelineMergeTrainSettings struct {
 	AutoAdmitCriterion               string    `json:"auto_admit_criterion,omitempty" yaml:"auto_admit_criterion,omitempty"`
 	AutoAdmitProtectedPaths          *[]string `json:"auto_admit_protected_paths,omitempty" yaml:"auto_admit_protected_paths,omitempty"`
 	AutoAdmitProtectedPathsIsDefault *bool     `json:"auto_admit_protected_paths_is_default,omitempty" yaml:"auto_admit_protected_paths_is_default,omitempty"`
+	TrustedHeadRun                   *bool     `json:"trusted_head_run,omitempty" yaml:"trusted_head_run,omitempty"`
 }
 
 // The auto-admit criteria. green admits a pull request once its own run has
@@ -124,8 +129,8 @@ type PipelineMergeTrain struct {
 }
 
 // SetPipelineMergeTrainSettingsRequest is the PUT …/merge-train/settings
-// body; a nil MaxCars, AutoAdmit, AutoAdmitCriterion or AutoAdmitProtectedPaths
-// keeps the current value.
+// body; a nil MaxCars, AutoAdmit, AutoAdmitCriterion, AutoAdmitProtectedPaths
+// or TrustedHeadRun keeps the current value.
 //
 // AutoAdmitProtectedPaths is a pointer because the platform reads three things
 // into the field. A nil pointer leaves it out, which keeps the list. A pointer
@@ -137,6 +142,7 @@ type SetPipelineMergeTrainSettingsRequest struct {
 	AutoAdmit               *string   `json:"auto_admit,omitempty"`
 	AutoAdmitCriterion      *string   `json:"auto_admit_criterion,omitempty"`
 	AutoAdmitProtectedPaths *[]string `json:"auto_admit_protected_paths,omitempty"`
+	TrustedHeadRun          *bool     `json:"trusted_head_run,omitempty"`
 }
 
 // EnqueuePipelineMergeTrainRequest is the POST …/merge-train/entries body.
