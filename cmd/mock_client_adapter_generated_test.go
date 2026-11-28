@@ -10233,6 +10233,12 @@ var _ interface {
 	UpdateAgentCISettings(a0 context.Context, a1 string, a2 client.AgentCISettingsUpdate) (*client.AgentCISettings, error)
 } = (*agentCIMock)(nil)
 var _ interface {
+	GetAgentCISettings(a0 context.Context, a1 string) (*client.AgentCISettings, error)
+} = (*agentCIQuarantineMock)(nil)
+var _ interface {
+	GetResources(a0 string, a1 client.GetResourcesRequest) (*client.GetResourcesResponse, error)
+} = (*agentCIQuarantineMock)(nil)
+var _ interface {
 	DeleteCluster(a0 context.Context, a1 string) error
 } = (*agentCutOffMock)(nil)
 var _ interface {
@@ -11735,6 +11741,9 @@ var _ interface {
 var _ interface {
 	ListClusters(a0 int, a1 int) (*client.ClusterListResponse, error)
 } = (*endlessClusterPages)(nil)
+var _ interface {
+	GetResources(a0 string, a1 client.GetResourcesRequest) (*client.GetResourcesResponse, error)
+} = (*errorListingMock)(nil)
 var _ interface {
 	GetExecution(a0 string) (client.ExecutionDetail, error)
 } = (*executionByIDMock)(nil)

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra cluster agent ci get` lists the CI nodes the platform quarantined.** On a cluster that runs pipeline steps, `get` now ends with the nodes carrying `ankra.io/ci-quarantined` because they did not start pipeline step pods (a sandbox the node could not create, a volume it could not mount), with the reason, since when, and whether the node is being replaced or about to return to rotation. Pipeline steps are kept off such a node and retried on another one. The platform quarantines nodes only for an organisation whose CI node quarantine is on, so on every other cluster the line reads `none`; a node listing that fails says so instead. `-o json` and `-o yaml` are unchanged.
+
 ## v0.91.0 - 2026-11-27
 
 ### Added
