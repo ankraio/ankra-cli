@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra pipeline train enable --trusted-head-run on|off` lets the first merge train car merge on its pull request's own run.** It is off by default. On, a car built on the base branch that is exactly its pull request's head, whose own run passed in the last 24 hours under the same pipeline definition, with every other check on the head green, merges on that run instead of waiting for a run of its own. `ankra pipeline train list` shows it as `passed (head_run_reused)` with that run, and `enable` and `list` print the setting; `-o json` carries `trusted_head_run`. It needs a platform that has the setting; an older one is reported as not storing it, with a non-zero exit.
+
 ## v0.91.0 - 2026-11-27
 
 ### Added

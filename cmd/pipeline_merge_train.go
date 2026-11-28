@@ -328,6 +328,7 @@ func printPipelineTrainAutoAdmit(output io.Writer, settings client.PipelineMerge
 		pipelineTrainAutoAdmitSentence(settings),
 		pipelineTrainCriterionSentence(settings),
 		pipelineTrainProtectedPathsSentence(settings),
+		pipelineTrainTrustedHeadRunSentence(settings),
 	} {
 		if sentence != "" {
 			_, _ = fmt.Fprintln(output, sentence)
@@ -381,6 +382,49 @@ func pipelineTrainProtectedPathsSentence(settings client.PipelineMergeTrainSetti
 		label = "Protected paths (the default list)"
 	}
 	return label + ": " + strings.Join(patterns, ", ")
+}
+
+// pipelineTrainTrustedHeadRunSentence says whether the front car may merge on
+// its pull request's own run. It is empty for a platform that sent no value,
+// which predates the setting.
+func pipelineTrainTrustedHeadRunSentence(settings client.PipelineMergeTrainSettings) string {
+	if settings.TrustedHeadRun == nil {
+		return ""
+	}
+	if !*settings.TrustedHeadRun {
+		return "Trusted head runs: off; every car is tested by a run of its own."
+	}
+	return "Trusted head runs: on; the first car, when it is exactly its pull request's head and that head's own " +
+		"run passed in the last 24 hours under the same pipeline definition, merges on that run (head_run_reused)."
+}
+
+// pipelineTrainTrustedHeadRunFromFlag reads --trusted-head-run, nil when it is
+// not named.
+func pipelineTrainTrustedHeadRunFromFlag(command *cobra.Command) (*bool, error) {
+	if command.Flags().Lookup("trusted-head-run") == nil || !command.Flags().Changed("trusted-head-run") {
+		return nil, nil
+	}
+	named, _ := command.Flags().GetString("trusted-head-run")
+	switch strings.ToLower(strings.TrimSpace(named)) {
+	case "on":
+		isOn := true
+		return &isOn, nil
+	case "off":
+		isOn := false
+		return &isOn, nil
+	}
+	return nil, withExitCode(exitUsage, fmt.Errorf("--trusted-head-run must be on or off, got %q", named))
+}
+
+// pipelineTrainTrustedHeadRunNotStored is pipelineTrainCriterionNotStored for
+// --trusted-head-run.
+func pipelineTrainTrustedHeadRunNotStored(request client.SetPipelineMergeTrainSettingsRequest,
+	settings *client.PipelineMergeTrainSettings) error {
+	if request.TrustedHeadRun == nil || settings.TrustedHeadRun != nil {
+		return nil
+	}
+	return errors.New("the platform did not store --trusted-head-run: it predates trusted head runs; " +
+		"the other settings shown were stored")
 }
 
 // pipelineTrainReadyCarSentence qualifies a write that named ready: the sentence
@@ -513,13 +557,24 @@ values enter at ready too. An empty --auto-admit-protected-paths is refused.
 
 A service account token may set green or ready_shadow. It may not set ready or
 change the protected paths: those need a human member, and the platform refuses
-the token with its reason.`
+the token with its reason.
+
+--trusted-head-run on|off decides whether the first car may merge on its pull
+request's own run instead of a run of its own. Off by default. On, a car built
+on the base branch head whose tree is exactly its pull request's head, where
+that head's newest pull request run passed in the last 24 hours under the same
+pipeline definition and authority and every other check on the head passed,
+merges on that run: the entry reads passed (head_run_reused) and its run is the
+pull request's. Only the first car can, never one behind another car. Switch
+it on only for a repository whose cars run nothing its pull request runs do
+not. A service account token may switch it off but not on.`
 
 const pipelineTrainEnableExample = `  ankra pipeline train enable --max-cars 4
   ankra pipeline train enable --auto-admit on --auto-admit-criterion ready_shadow
   ankra pipeline train enable --auto-admit-criterion ready
   ankra pipeline train enable --auto-admit-protected-paths 'alembic/**,deploy/**'
-  ankra pipeline train enable --auto-admit-protected-paths-default`
+  ankra pipeline train enable --auto-admit-protected-paths-default
+  ankra pipeline train enable --trusted-head-run on`
 
 func newPipelineTrainAddCommand() *cobra.Command {
 	addCommand := &cobra.Command{
@@ -691,12 +746,16 @@ func newPipelineTrainSettingsCommand(use string, short string, isEnabled bool) *
 			if protectedPathsError != nil {
 				return protectedPathsError
 			}
+			trustedHeadRun, trustedHeadRunError := pipelineTrainTrustedHeadRunFromFlag(command)
+			if trustedHeadRunError != nil {
+				return trustedHeadRunError
+			}
 			selector, selectorError := resolvePipelineTrainSelector(command)
 			if selectorError != nil {
 				return selectorError
 			}
 			request := client.SetPipelineMergeTrainSettingsRequest{Enabled: isEnabled, AutoAdmitCriterion: criterion,
-				AutoAdmitProtectedPaths: protectedPaths}
+				AutoAdmitProtectedPaths: protectedPaths, TrustedHeadRun: trustedHeadRun}
 			if command.Flags().Lookup("max-cars") != nil && command.Flags().Changed("max-cars") {
 				maxCars, _ := command.Flags().GetInt("max-cars")
 				if maxCars < 1 || maxCars > 8 {
@@ -720,7 +779,8 @@ func newPipelineTrainSettingsCommand(use string, short string, isEnabled bool) *
 			// without them. Saying nothing and exiting 0 would tell the caller a
 			// rule is in force that the platform never stored.
 			unstoredError := errors.Join(pipelineTrainCriterionNotStored(request, settings),
-				pipelineTrainProtectedPathsNotStored(request, settings))
+				pipelineTrainProtectedPathsNotStored(request, settings),
+				pipelineTrainTrustedHeadRunNotStored(request, settings))
 			isStructured, renderError := renderStructured(command, settings)
 			if renderError != nil {
 				return renderError
@@ -763,6 +823,9 @@ func newPipelineTrainSettingsCommand(use string, short string, isEnabled bool) *
 			"Protect no path, so migrations and deploy values enter at ready too")
 		settingsCommand.MarkFlagsMutuallyExclusive("auto-admit-protected-paths", "auto-admit-protected-paths-default",
 			"auto-admit-protected-paths-none")
+		settingsCommand.Flags().String("trusted-head-run", "",
+			"Whether the first car may merge on its pull request's own run when it is exactly that head: on or "+
+				"off; omitted keeps the current value")
 	}
 	registerStructuredOutputFlags(settingsCommand)
 	return settingsCommand
@@ -785,6 +848,9 @@ func pipelineTrainPullRequestLabel(entry client.PipelineMergeTrainEntry) string 
 func pipelineTrainStatusLabel(entry client.PipelineMergeTrainEntry) string {
 	if entry.Status == "queued" && entry.Reason != nil && *entry.Reason != "" {
 		return "queued (" + *entry.Reason + ")"
+	}
+	if entry.Status == "passed" && entry.Reason != nil && *entry.Reason == "head_run_reused" {
+		return "passed (head_run_reused)"
 	}
 	return entry.Status
 }
