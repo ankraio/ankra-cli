@@ -141,7 +141,14 @@ node on a cluster with no StorageClass that creates volumes.
 
 An agent that has not yet re-rendered its release reports pipeline steps as
 not advertised even with a non-zero worker count stored: the capability is
-what the agent reported on its last check-in, not what the settings ask for.`,
+what the agent reported on its last check-in, not what the settings ask for.
+
+On a cluster that runs pipeline steps, get also lists the CI nodes the
+platform quarantined because they did not start pipeline step pods (the
+ankra.io/ci-quarantined label, for an organisation whose CI node quarantine is
+on), with the reason and since when: steps are kept off them and retried on
+other nodes, and the platform replaces such a node or returns it to rotation
+once pods start there again.`,
 		Example: `  ankra cluster agent ci get
   ankra cluster agent ci get --cluster edge-01 -o json`,
 		Args: cobra.NoArgs,
@@ -180,6 +187,7 @@ func runClusterAgentCIGet(command *cobra.Command) error {
 	out := command.OutOrStdout()
 	_, _ = fmt.Fprintf(out, "Agent CI settings for cluster '%s':\n\n", cluster.Name)
 	printAgentCISettings(out, settings, agentCIApplyStateSentence(settings))
+	printAgentCIQuarantinedNodes(out, settings, cluster.ID)
 	return nil
 }
 
