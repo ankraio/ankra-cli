@@ -26,6 +26,12 @@ import (
 // then empty and the two pointers nil, which is "not reported", never "green"
 // or "nothing protected". The list is a pointer so that an empty one, which
 // protects nothing, survives into -o json as [] rather than being omitted.
+//
+// InfrastructureRecovery says whether the train recovers from infrastructure
+// outcomes itself (cluster ankra-s0aetf): it parks a passed car whose own
+// required check timed out, was cancelled or never got a CI node, re-runs that
+// check once and puts the car back at its place when it passes. nil is a
+// platform that predates it, which is "not reported", never "off".
 type PipelineMergeTrainSettings struct {
 	Enabled                          bool      `json:"enabled"`
 	MaxCars                          int       `json:"max_cars"`
@@ -35,6 +41,7 @@ type PipelineMergeTrainSettings struct {
 	AutoAdmitCriterion               string    `json:"auto_admit_criterion,omitempty" yaml:"auto_admit_criterion,omitempty"`
 	AutoAdmitProtectedPaths          *[]string `json:"auto_admit_protected_paths,omitempty" yaml:"auto_admit_protected_paths,omitempty"`
 	AutoAdmitProtectedPathsIsDefault *bool     `json:"auto_admit_protected_paths_is_default,omitempty" yaml:"auto_admit_protected_paths_is_default,omitempty"`
+	InfrastructureRecovery           *bool     `json:"infrastructure_recovery,omitempty" yaml:"infrastructure_recovery,omitempty"`
 }
 
 // The auto-admit criteria. green admits a pull request once its own run has
@@ -124,8 +131,8 @@ type PipelineMergeTrain struct {
 }
 
 // SetPipelineMergeTrainSettingsRequest is the PUT …/merge-train/settings
-// body; a nil MaxCars, AutoAdmit, AutoAdmitCriterion or AutoAdmitProtectedPaths
-// keeps the current value.
+// body; a nil MaxCars, AutoAdmit, AutoAdmitCriterion, AutoAdmitProtectedPaths
+// or InfrastructureRecovery keeps the current value.
 //
 // AutoAdmitProtectedPaths is a pointer because the platform reads three things
 // into the field. A nil pointer leaves it out, which keeps the list. A pointer
@@ -137,6 +144,7 @@ type SetPipelineMergeTrainSettingsRequest struct {
 	AutoAdmit               *string   `json:"auto_admit,omitempty"`
 	AutoAdmitCriterion      *string   `json:"auto_admit_criterion,omitempty"`
 	AutoAdmitProtectedPaths *[]string `json:"auto_admit_protected_paths,omitempty"`
+	InfrastructureRecovery  *bool     `json:"infrastructure_recovery,omitempty"`
 }
 
 // EnqueuePipelineMergeTrainRequest is the POST …/merge-train/entries body.

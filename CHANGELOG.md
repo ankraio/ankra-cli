@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`ankra pipeline train enable --infrastructure-recovery on|off` lets the merge train recover from infrastructure outcomes itself.** It is off by default. On, a car that passed but that GitHub will not merge, because the pull request's own required check timed out, was cancelled or never got a CI node, is set aside: it shows as `queued (waiting_for_head_check)` in `ankra pipeline train list`, and the pull requests behind it go on merging. The train re-runs that check once and puts the pull request back at its place when the check passes. The detail names the run and the re-run. A check that failed on the change takes it out (`head_check_failed`). `ankra pipeline train list` and `enable` print the setting, and `-o json` carries `infrastructure_recovery`. It needs a platform that has the setting; an older one is reported as not storing it, with a non-zero exit.
+
 ## v0.91.0 - 2026-11-27
 
 ### Added
