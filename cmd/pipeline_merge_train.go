@@ -328,6 +328,7 @@ func printPipelineTrainAutoAdmit(output io.Writer, settings client.PipelineMerge
 		pipelineTrainAutoAdmitSentence(settings),
 		pipelineTrainCriterionSentence(settings),
 		pipelineTrainProtectedPathsSentence(settings),
+		pipelineTrainInfrastructureRecoverySentence(settings),
 	} {
 		if sentence != "" {
 			_, _ = fmt.Fprintln(output, sentence)
@@ -381,6 +382,52 @@ func pipelineTrainProtectedPathsSentence(settings client.PipelineMergeTrainSetti
 		label = "Protected paths (the default list)"
 	}
 	return label + ": " + strings.Join(patterns, ", ")
+}
+
+// pipelineTrainInfrastructureRecoverySentence says whether the train recovers
+// from infrastructure outcomes itself. It is empty for a platform that sent no
+// value, which predates the setting.
+func pipelineTrainInfrastructureRecoverySentence(settings client.PipelineMergeTrainSettings) string {
+	if settings.InfrastructureRecovery == nil {
+		return ""
+	}
+	if !*settings.InfrastructureRecovery {
+		return "Infrastructure recovery: off; a passed car whose own required check timed out or was cancelled " +
+			"waits at the front until someone re-runs it."
+	}
+	return "Infrastructure recovery: on; a passed car whose own required check timed out, was cancelled or never " +
+		"got a CI node is set aside (queued, waiting_for_head_check) while that check is re-run once, and goes back " +
+		"to its place when it passes."
+}
+
+// pipelineTrainInfrastructureRecoveryFromFlag reads --infrastructure-recovery,
+// nil when it is not named.
+func pipelineTrainInfrastructureRecoveryFromFlag(command *cobra.Command) (*bool, error) {
+	if command.Flags().Lookup("infrastructure-recovery") == nil ||
+		!command.Flags().Changed("infrastructure-recovery") {
+		return nil, nil
+	}
+	named, _ := command.Flags().GetString("infrastructure-recovery")
+	switch strings.ToLower(strings.TrimSpace(named)) {
+	case "on":
+		isOn := true
+		return &isOn, nil
+	case "off":
+		isOn := false
+		return &isOn, nil
+	}
+	return nil, withExitCode(exitUsage, fmt.Errorf("--infrastructure-recovery must be on or off, got %q", named))
+}
+
+// pipelineTrainInfrastructureRecoveryNotStored is
+// pipelineTrainCriterionNotStored for --infrastructure-recovery.
+func pipelineTrainInfrastructureRecoveryNotStored(request client.SetPipelineMergeTrainSettingsRequest,
+	settings *client.PipelineMergeTrainSettings) error {
+	if request.InfrastructureRecovery == nil || settings.InfrastructureRecovery != nil {
+		return nil
+	}
+	return errors.New("the platform did not store --infrastructure-recovery: it predates infrastructure recovery; " +
+		"the other settings shown were stored")
 }
 
 // pipelineTrainReadyCarSentence qualifies a write that named ready: the sentence
@@ -513,13 +560,25 @@ values enter at ready too. An empty --auto-admit-protected-paths is refused.
 
 A service account token may set green or ready_shadow. It may not set ready or
 change the protected paths: those need a human member, and the platform refuses
-the token with its reason.`
+the token with its reason.
+
+--infrastructure-recovery on|off decides whether the train recovers from
+infrastructure outcomes itself. Off by default. On, a car that passed but that
+GitHub will not merge because the pull request's own required check timed out,
+was cancelled or never got a CI node is set aside (queued, reason
+waiting_for_head_check) so the pull requests behind it go on merging. The train
+re-runs that check once and puts the pull request back at its place when the
+check passes. A check that failed on the change takes it out
+(head_check_failed). A car left with no run for 15 minutes is rebuilt
+(car_without_run), and a car whose runs keep ending before a CI node took them
+is rebuilt rather than taken out (run_unplaced).`
 
 const pipelineTrainEnableExample = `  ankra pipeline train enable --max-cars 4
   ankra pipeline train enable --auto-admit on --auto-admit-criterion ready_shadow
   ankra pipeline train enable --auto-admit-criterion ready
   ankra pipeline train enable --auto-admit-protected-paths 'alembic/**,deploy/**'
-  ankra pipeline train enable --auto-admit-protected-paths-default`
+  ankra pipeline train enable --auto-admit-protected-paths-default
+  ankra pipeline train enable --infrastructure-recovery on`
 
 func newPipelineTrainAddCommand() *cobra.Command {
 	addCommand := &cobra.Command{
@@ -691,12 +750,16 @@ func newPipelineTrainSettingsCommand(use string, short string, isEnabled bool) *
 			if protectedPathsError != nil {
 				return protectedPathsError
 			}
+			infrastructureRecovery, recoveryError := pipelineTrainInfrastructureRecoveryFromFlag(command)
+			if recoveryError != nil {
+				return recoveryError
+			}
 			selector, selectorError := resolvePipelineTrainSelector(command)
 			if selectorError != nil {
 				return selectorError
 			}
 			request := client.SetPipelineMergeTrainSettingsRequest{Enabled: isEnabled, AutoAdmitCriterion: criterion,
-				AutoAdmitProtectedPaths: protectedPaths}
+				AutoAdmitProtectedPaths: protectedPaths, InfrastructureRecovery: infrastructureRecovery}
 			if command.Flags().Lookup("max-cars") != nil && command.Flags().Changed("max-cars") {
 				maxCars, _ := command.Flags().GetInt("max-cars")
 				if maxCars < 1 || maxCars > 8 {
@@ -720,7 +783,8 @@ func newPipelineTrainSettingsCommand(use string, short string, isEnabled bool) *
 			// without them. Saying nothing and exiting 0 would tell the caller a
 			// rule is in force that the platform never stored.
 			unstoredError := errors.Join(pipelineTrainCriterionNotStored(request, settings),
-				pipelineTrainProtectedPathsNotStored(request, settings))
+				pipelineTrainProtectedPathsNotStored(request, settings),
+				pipelineTrainInfrastructureRecoveryNotStored(request, settings))
 			isStructured, renderError := renderStructured(command, settings)
 			if renderError != nil {
 				return renderError
@@ -763,6 +827,9 @@ func newPipelineTrainSettingsCommand(use string, short string, isEnabled bool) *
 			"Protect no path, so migrations and deploy values enter at ready too")
 		settingsCommand.MarkFlagsMutuallyExclusive("auto-admit-protected-paths", "auto-admit-protected-paths-default",
 			"auto-admit-protected-paths-none")
+		settingsCommand.Flags().String("infrastructure-recovery", "",
+			"Whether the train parks a passed car whose own check timed out or was cancelled and re-runs that "+
+				"check: on or off; omitted keeps the current value")
 	}
 	registerStructuredOutputFlags(settingsCommand)
 	return settingsCommand
